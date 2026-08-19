@@ -89,8 +89,8 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate)
         name = "hxrrc_choose_crafting_machine_button",
         elem_type = "entity-with-quality",
         ["entity-with-quality"] = {name = crafting_machine.name},
-        elem_filters = {{filter = "crafting-category", crafting_category = recipe.category}},
-        enabled = #storage.crafting_machines_by_category[recipe.category] > 1,
+        elem_filters = {{filter = "crafting-category", crafting_category = recipe.categories[1]}},
+        enabled = #storage.crafting_machines_by_category[recipe.categories[1]] > 1,
     }
 
     --the machine amount:

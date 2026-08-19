@@ -22,7 +22,7 @@ function Utils.product_amount_from_recipe(recipe, product_full_name)
 end
 
 function Utils.product_amount(product)
-    return product.amount or ((product.amount_min + product.amount_max) / 2 * product.probability)
+    return (product.amount or (product.amount_min + product.amount_max) / 2) * (product.probability or 1)
 end
 
 function Utils.get_any_crafting_machine_identifier_for(crafting_category)
