@@ -61,4 +61,18 @@ H.test("F3 numeric helpers keep their finite tolerance", function()
     H.errors(function() H.near_relative(6553500000 * (1 + 1e-6), 6553500000, "value") end, "expected 6553500000", "near_relative outside tolerance")
 end)
 
+H.test("H1 fluid buttons refuse unknown fluids and checkboxes keep their state", function()
+    local world = H.new_world("2.0")
+    world.add_fluid("lube")
+    local root = H.gui_root({type = "flow"})
+    local fluid_button = root.add{type = "choose-elem-button", name = "fluid", elem_type = "fluid"}
+    fluid_button.elem_value = "lube"
+    H.equal(fluid_button.elem_value, "lube", "known fluid")
+    H.errors(function() fluid_button.elem_value = "gone" end, "Unknown fluid gone", "unknown fluid")
+    local checkbox = root.add{type = "checkbox", name = "check", state = false}
+    H.equal(checkbox.state, false, "initial state")
+    checkbox.state = true
+    H.equal(checkbox.state, true, "written state")
+end)
+
 H.done("test_harness")

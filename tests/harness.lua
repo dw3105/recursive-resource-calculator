@@ -52,12 +52,12 @@ local SCRIPT_MEMBERS = {"active_mods", "mod_name", "on_init", "on_load", "on_con
 local GUI_MEMBERS = set_of({"type", "name", "caption", "tooltip", "children", "parent", "style", "tags", "player_index", "enabled", "visible",
     "text", "elem_value", "elem_type", "elem_filters", "elem_tooltip", "selected_index", "items", "tabs", "selected_tab_index", "numeric",
     "allow_decimal", "allow_negative", "lose_focus_on_confirm", "direction", "column_count", "draw_horizontal_lines", "draw_vertical_lines",
-    "sprite", "valid", "auto_center"})
+    "sprite", "valid", "auto_center", "state"})
 
 local gui_methods = {}
 
 --Values a player can change; kept out of the element table so every script write goes through __newindex
-local VALUE_KEYS = {elem_value = true, text = true}
+local VALUE_KEYS = {elem_value = true, text = true, state = true}
 
 --Conservative assumption (not established for the engine): choose-elem-buttons refuse names of prototypes that do not exist
 local function check_elem_value(element, value)
@@ -65,6 +65,8 @@ local function check_elem_value(element, value)
     local elem_type = rawget(element, "elem_type")
     if elem_type == "item" and not prototypes.item[value] then
         error("Unknown item " .. tostring(value), 3)
+    elseif elem_type == "fluid" and not prototypes.fluid[value] then
+        error("Unknown fluid " .. tostring(value), 3)
     elseif elem_type == "entity-with-quality" and not prototypes.entity[value.name] then
         error("Unknown entity " .. tostring(value.name), 3)
     elseif elem_type == "entity-with-quality" and value.quality and not prototypes.quality[value.quality] then
@@ -83,7 +85,9 @@ local refire_depth = 0
 --Re-fire mode: a script write raises the element's handler, as the engine might; a restore that is not idempotent then loops
 local function refire(element, key)
     if not H.refire_on_script_set then return end
-    local handlers = key == "elem_value" and event_handlers.on_gui_elem_changed or event_handlers.on_gui_confirmed
+    local handlers = (key == "elem_value" and event_handlers.on_gui_elem_changed)
+        or (key == "state" and event_handlers.on_gui_checked_state_changed)
+        or event_handlers.on_gui_confirmed
     local handler = handlers[rawget(element, "name")]
     if not handler then return end
     refire_depth = refire_depth + 1
@@ -108,6 +112,7 @@ local function new_gui_element(params, parent, player_index)
         element._values.elem_value = params[params.elem_type]
     end
     element._values.text = normalize_value("text", params.text)
+    element._values.state = params.state
     element.parent = parent
     element.player_index = parent and parent.player_index or player_index
     return setmetatable(element, {
@@ -231,11 +236,12 @@ function H.new_world(shape)
     local base_version = shape == "2.1" and "2.1.17" or "2.0.77"
 
     _G.storage = {}
-    _G.event_handlers = {on_gui_click = {}, on_gui_confirmed = {}, on_gui_elem_changed = {}}
+    _G.event_handlers = {on_gui_click = {}, on_gui_confirmed = {}, on_gui_elem_changed = {}, on_gui_checked_state_changed = {}}
     _G.async_calls = nil
     _G.defines = {events = {on_player_created = "on_player_created", on_player_removed = "on_player_removed", on_gui_closed = "on_gui_closed",
         on_research_finished = "on_research_finished", on_gui_click = "on_gui_click", on_gui_elem_changed = "on_gui_elem_changed",
-        on_gui_confirmed = "on_gui_confirmed", on_tick = "on_tick", on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed"}}
+        on_gui_confirmed = "on_gui_confirmed", on_gui_checked_state_changed = "on_gui_checked_state_changed", on_tick = "on_tick",
+        on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed"}}
     _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions}, HELPERS_MEMBERS)
     _G.script = H.lua_object("LuaBootstrap", {
         active_mods = {base = base_version, RecursiveResourceCalculator = "1.1.10"},
@@ -312,7 +318,19 @@ function H.new_world(shape)
         machines[spec.name] = machine
     end
 
-    --spec: {name, category, energy, ingredients = {{type, name, amount}}, products = {product specs}, maximum_productivity}
+    --A mod swap turning a crafting machine into another entity type under the same name
+    function world.replace_machine_with_entity(name, entity_type)
+        machines[name] = nil
+        prototypes.entity[name] = H.lua_object("LuaEntityPrototype",
+            {name = name, type = entity_type, valid = true, localised_name = {"entity-name." .. name}}, ENTITY_MEMBERS)
+    end
+
+    function world.remove_machine(name)
+        machines[name] = nil
+        prototypes.entity[name] = nil
+    end
+
+    --spec: {name, category, additional_categories, energy, ingredients = {{type, name, amount}}, products = {product specs}, maximum_productivity}
     function world.add_recipe(spec)
         local products = {}
         for index, product_spec in ipairs(spec.products) do products[index] = H.product(shape, product_spec) end
@@ -323,10 +341,10 @@ function H.new_world(shape)
         local fields = {name = spec.name, valid = true, object_name = "LuaRecipePrototype", products = products, ingredients = ingredients,
             energy = spec.energy or 1, maximum_productivity = spec.maximum_productivity or 3}
         if shape == "2.1" then
-            fields.categories = {spec.category}
+            fields.categories = {spec.category, table.unpack(spec.additional_categories or {})}
         else
             fields.category = spec.category
-            fields.additional_categories = {}
+            fields.additional_categories = spec.additional_categories or {}
             if shape == "hybrid" then fields.categories = {spec.category} end
         end
         prototypes.recipe[spec.name] = H.lua_object("LuaRecipePrototype", fields, RECIPE_MEMBERS[shape])
@@ -369,7 +387,7 @@ function H.new_world(shape)
     return world
 end
 
---Builds a sheet and types the targets into it without computing. targets: {{item, rate, unit = "/s" | "/m"}}
+--Builds a sheet and types the targets into it without computing. targets: {{item | fluid, rate, unit = "/s" | "/m"}}
 function H.fill_sheet(targets, player_index)
     local Sheet = require "gui.sheet"
     local sheet_pane = H.gui_root({type = "tabbed-pane", name = "sheet_pane"}, player_index or 1)
@@ -380,15 +398,19 @@ function H.fill_sheet(targets, player_index)
         local row = sheet_flow.input_container.children[index]
         row.rate_textfield.text = string.format("%.17g", target.rate) --17 significant digits round-trip a double; tostring keeps 14
         row.time_unit_dropdown.selected_index = target.unit == "/m" and 1 or 2
-        row.hxrrc_desired_item_button.elem_value = target.item
-        event_handlers.on_gui_elem_changed["hxrrc_desired_item_button"]({element = row.hxrrc_desired_item_button, player_index = player_index or 1})
+        local button_name = target.fluid and "hxrrc_desired_fluid_button" or "hxrrc_desired_item_button"
+        row[button_name].elem_value = target.fluid or target.item
+        event_handlers.on_gui_elem_changed[button_name]({element = row[button_name], player_index = player_index or 1})
     end
     return sheet_pane, sheet_flow
 end
 
---Builds a sheet, types the targets into it and presses Compute
-function H.run_sheet(targets, player_index)
+--Builds a sheet, types the targets into it and presses Compute. options: {round_up = true} ticks the sheet's round-up checkbox first
+function H.run_sheet(targets, player_index, options)
     local sheet_pane, sheet_flow = H.fill_sheet(targets, player_index)
+    if options and options.round_up then
+        sheet_flow.hxrrc_round_up_machines_checkbox.state = true
+    end
     require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
     return H.parse_report(sheet_flow.output_flow), sheet_pane
 end
@@ -415,6 +437,8 @@ function H.parse_report(output_flow)
         if machine_cell.type == "flow" and machine_cell.children[1].name == "hxrrc_choose_crafting_machine_button" then
             row.kind = "solved"
             row.machines = number_in(machine_cell.children[2].caption)
+            row.machine_caption = machine_cell.children[2].caption
+            row.machine_tooltip = machine_cell.children[2].tooltip
             row.machine = machine_cell.children[1].elem_value
         else
             row.kind = machine_cell.caption[1]
