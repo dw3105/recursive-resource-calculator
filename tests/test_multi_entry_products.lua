@@ -114,6 +114,21 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(report.rows["item/x"].kind, "hxrrc.byproduct", "x row kind")
     end)
 
+    H.test(shape .. " V14 unsolved item made by one recipe and eaten by another is netted", function()
+        local world = H.new_world(shape)
+        for _, item in ipairs({"raw", "a", "b", "w"}) do world.add_item(item) end
+        world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+        world.add_recipe({name = "a-and-w", category = "crafting", ingredients = {{name = "raw", amount = 1}},
+            products = {{name = "a", amount = 1}, {name = "w", amount = 1}}})
+        world.add_recipe({name = "b", category = "crafting", ingredients = {{name = "a", amount = 1}, {name = "w", amount = 2}}, products = {{name = "b", amount = 1}}})
+        world.add_player(1)
+        world.init()
+        world.bind("item/a", "a-and-w")
+        local report = report_or_fail(H.run_sheet({{item = "b", rate = 8, unit = "/s"}}), world)
+        H.near(report.rows["item/w"].rate, 8, "w demand 16 minus 8 made alongside a")
+        H.near(report.rows["item/raw"].rate, 8, "raw demand")
+    end)
+
     local function amount(product_spec, bonus)
         H.new_world(shape)
         return require("logic.utils").product_amount(H.product(shape, product_spec), bonus)
