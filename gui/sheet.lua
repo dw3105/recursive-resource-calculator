@@ -7,9 +7,12 @@ local Sheet = {}
 
 local function update_sheet_title(sheet_pane, sheet_index)
     local sheet_and_flow = sheet_pane.tabs[sheet_index]
-    local item_name = sheet_and_flow.content.input_container.children[1].hxrrc_desired_item_button.elem_value
-    local item_prototype = item_name and prototypes.item[item_name] --nil once the mod adding the item is removed
-    sheet_and_flow.tab.caption = item_prototype and item_prototype.localised_name or {"hxrrc.empty_sheet"}
+    local first_row = sheet_and_flow.content.input_container.children[1]
+    local item_name = first_row.hxrrc_desired_item_button.elem_value
+    local fluid_name = first_row.hxrrc_desired_fluid_button.elem_value
+    --nil once the mod adding the item or fluid is removed
+    local prototype = (item_name and prototypes.item[item_name]) or (fluid_name and prototypes.fluid[fluid_name])
+    sheet_and_flow.tab.caption = prototype and prototype.localised_name or {"hxrrc.empty_sheet"}
 end
 
 local function add_compute_button(sheet_flow)
@@ -85,6 +88,13 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     local output_flow = sheet_flow.output_flow
     output_flow.clear()
     Report.new(output_flow, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution)
+end
+
+--Adds controls that sheets saved by older versions lack; finds them by name, so it is safe on every configuration change
+function Sheet.add_missing_controls(sheet_pane)
+    for _, tab_and_content in ipairs(sheet_pane.tabs) do
+        InputContainer.add_missing_fluid_buttons(tab_and_content.content.input_container)
+    end
 end
 
 --GUI change added in 1.1.0: the sheets' input flow element was replaced with a new input container that supports multiple desired items with their respective production rates.

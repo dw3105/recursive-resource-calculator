@@ -37,6 +37,7 @@ script.on_configuration_changed(function(configuration_changed_data)
     for _, player in pairs(game.players) do
         storage[player.index].backlogged_computation_count = 0 --the stack was just emptied; older versions never decremented this count
         PlayerDataUpdater.reinitialize(player.index)
+        Sheet.add_missing_controls(storage[player.index].sheet_section.sheet_pane)
         Calculator.recompute_everything(player.index)
     end
 end)
