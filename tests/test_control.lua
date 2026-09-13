@@ -42,6 +42,23 @@ for _, shape in ipairs(H.shapes()) do
         end
         drain_ticks(world)
     end)
+
+    H.test(shape .. " B4 a drained recomputation leaves the calculator enabled", function()
+        local world = control_world(shape, {1})
+        require("gui.calculator").recompute_everything(1)
+        drain_ticks(world)
+        H.equal(storage[1].backlogged_computation_count, 0, "backlog after drain")
+        H.equal(game.players[1].gui.screen.hxrrc_calculator.enabled, true, "calculator enabled")
+    end)
+
+    H.test(shape .. " B4 V8 configuration change resets a backlog inflated by older versions", function()
+        local world = control_world(shape, {1})
+        storage[1].backlogged_computation_count = 12
+        world.handlers.on_configuration_changed({mod_changes = {}})
+        drain_ticks(world)
+        H.equal(storage[1].backlogged_computation_count, 0, "backlog after upgrade and drain")
+        H.equal(game.players[1].gui.screen.hxrrc_calculator.enabled, true, "calculator enabled")
+    end)
 end
 
 H.done("test_control")

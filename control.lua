@@ -35,6 +35,7 @@ script.on_configuration_changed(function(configuration_changed_data)
 
     storage.computation_stack = {}
     for _, player in pairs(game.players) do
+        storage[player.index].backlogged_computation_count = 0 --the stack was just emptied; older versions never decremented this count
         PlayerDataUpdater.reinitialize(player.index)
         Calculator.recompute_everything(player.index)
     end
@@ -88,6 +89,7 @@ script.on_event(defines.events.on_tick, function()
         local call = async_calls[async_call_data.call_id]
         call(table.unpack(async_call_data.parameters))
         local player_index = async_call_data.player_index
+        storage[player_index].backlogged_computation_count = storage[player_index].backlogged_computation_count - 1
         game.get_player(player_index).gui.screen.hxrrc_calculator.enabled = storage[player_index].backlogged_computation_count == 0
     end
 end)
