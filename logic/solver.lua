@@ -56,11 +56,38 @@ local function to_nil_if_zero(x)
     return x ~= 0 and x or nil
 end
 
-local function gauss_solve(A)
+local function copy_matrix(A)
+    local copy = {}
+    for i, line in ipairs(A) do
+        copy[i] = {}
+        for column, value in pairs(line) do
+            copy[i][column] = value
+        end
+    end
+    return copy
+end
+
+--Lines and their magnitudes always move together; both strategies swap only through here
+local function swap_lines(A, magnitudes, i, k)
+    A[i], A[k] = A[k], A[i]
+    magnitudes[i], magnitudes[k] = magnitudes[k], magnitudes[i]
+end
+
+--A pivot tiny against the largest magnitude its entry passed through is what is left of a cancellation, i.e. rounding noise;
+--a small pivot that never cancelled stays valid at any scale
+local function is_noise(A, magnitudes, line, column)
+    local value = A[line][column]
+    return not value or math.abs(value) <= 1e-9 * magnitudes[line][column]
+end
+
+--Gaussian elimination with one of two line choices per column:
+--"today" keeps the line unless its pivot is noise, then takes the line below that went through the least cancellation (ties: the larger pivot);
+--"largest" takes the largest pivot that is not noise.
+--Also returns whether "today" chose exactly what "largest" would have chosen, in which case "largest" would repeat the same arithmetic.
+local function solve_once(A, strategy)
     local N = #A
 
     --magnitudes[line][column] is the largest magnitude a coefficient passed through during elimination.
-    --A pivot tiny against it is what is left of a cancellation, i.e. rounding noise; a small pivot that never cancelled stays valid at any scale.
     --Coefficients themselves are never pruned, so small but meaningful ones keep their value.
     local magnitudes = {}
     for i, line in ipairs(A) do
@@ -72,11 +99,46 @@ local function gauss_solve(A)
         end
     end
 
+    local same_choices_as_largest = true
     for i = 1, N do
-        local pivot_value = A[i][i]
-        if not pivot_value or math.abs(pivot_value) <= 1e-9 * magnitudes[i][i] then
-            return --matrix unsolvable for now
+        if strategy == "largest" then
+            local best
+            for k = i, N do
+                if not is_noise(A, magnitudes, k, i) and (not best or math.abs(A[k][i]) > math.abs(A[best][i])) then
+                    best = k
+                end
+            end
+            if best and best ~= i then
+                swap_lines(A, magnitudes, i, best)
+            end
+        elseif not is_noise(A, magnitudes, i, i) then
+            for k = i + 1, N do
+                if not is_noise(A, magnitudes, k, i) and math.abs(A[k][i]) > math.abs(A[i][i]) then
+                    same_choices_as_largest = false
+                    break
+                end
+            end
+        else
+            same_choices_as_largest = false
+            local best, best_ratio
+            for k = i + 1, N do
+                local value = A[k][i]
+                if value then
+                    local ratio = math.abs(value) / magnitudes[k][i]
+                    if not best or ratio > best_ratio or (ratio == best_ratio and math.abs(value) > math.abs(A[best][i])) then
+                        best, best_ratio = k, ratio
+                    end
+                end
+            end
+            if best then
+                swap_lines(A, magnitudes, i, best)
+            end
         end
+
+        if is_noise(A, magnitudes, i, i) then
+            return nil, same_choices_as_largest --matrix unsolvable for now
+        end
+        local pivot_value = A[i][i]
 
         for k = i + 1, N do
             local k_coefficient = A[k][i]
@@ -105,7 +167,63 @@ local function gauss_solve(A)
         solution_values_by_column[i] = partial_solution_value / A[i][i]
     end
 
-    return solution_values_by_column
+    return solution_values_by_column, same_choices_as_largest
+end
+
+--Largest relative miss of a solution over the original equations, or nil when an equation misses by more than 1e-9 of its largest term.
+--The comparison is written so that inf and nan, from the solution or from an overflowing product, fail it.
+local function worst_residual(original, solution)
+    local N = #original
+    local worst = 0
+    for _, line in ipairs(original) do
+        local demand = line[N+1] or 0
+        local sum, scale = 0, math.abs(demand)
+        for column, coefficient in pairs(line) do
+            if column <= N then
+                local term = coefficient * solution[column]
+                sum = sum + term
+                scale = math.max(scale, math.abs(term))
+            end
+        end
+        local miss = math.abs(sum - demand)
+        local relative = miss == 0 and 0 or miss / scale
+        if not (relative <= 1e-9) then
+            return
+        end
+        worst = math.max(worst, relative)
+    end
+    return worst
+end
+
+local function agree(a, b)
+    for i = 1, #a do
+        if math.abs(a[i] - b[i]) > 1e-9 * math.max(1, math.abs(a[i]), math.abs(b[i])) then
+            return false
+        end
+    end
+    return true
+end
+
+--A small miss over the equations does not bound the error of each rate, so unless the current line order already made largest-pivot choices,
+--the system is also solved in largest-pivot order. Both fitting and agreeing: the current order's numbers; both fitting but differing: the
+--better fit, ties keeping the current order.
+local function gauss_solve(A)
+    local original = copy_matrix(A)
+    local today, same_choices_as_largest = solve_once(A, "today")
+    local today_residual = today and worst_residual(original, today)
+    if today and same_choices_as_largest then
+        return today_residual and today or nil
+    end
+
+    local largest = solve_once(copy_matrix(original), "largest")
+    local largest_residual = largest and worst_residual(original, largest)
+    if today_residual and largest_residual then
+        if agree(today, largest) or today_residual <= largest_residual then
+            return today
+        end
+        return largest
+    end
+    return (today_residual and today) or (largest_residual and largest) or nil
 end
 
 --Solved products (bound to a used recipe) are reported at their recipe's own net output, so intermediates keep a rate even though their global balance is zero.
@@ -167,5 +285,7 @@ end
 
 --Exposed for offline tests only
 Solver._gauss_solve = gauss_solve
+Solver._solve_once = solve_once
+Solver._worst_residual = worst_residual
 
 return Solver
