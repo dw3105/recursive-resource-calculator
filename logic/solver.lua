@@ -16,12 +16,14 @@ local function determine_used_recipes(recipe, used_recipe_name_set, player_index
     end
 end
 
-local function get_total_productivity_multiplier_for_recipe(recipe, player_index)
+--Machine, research and module bonuses add up, and the total is capped by the recipe
+local function get_productivity_bonus_for_recipe(recipe, player_index)
     local player_recipe = game.players[player_index].force.recipes[recipe.name]
-    local recipe_productivity = player_recipe and player_recipe.productivity_bonus or 0
+    local research_bonus = player_recipe and player_recipe.productivity_bonus or 0
     local crafting_machine_identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
-    local base_productivity = crafting_machine_identifier and prototypes.entity[crafting_machine_identifier.name].effect_receiver.base_effect.productivity or 0
-    return (1 + base_productivity) * (1 + recipe_productivity) * Utils.module_effect_multiplier(player_index, recipe.name, "productivity")
+    local machine_bonus = crafting_machine_identifier and prototypes.entity[crafting_machine_identifier.name].effect_receiver.base_effect.productivity or 0
+    local module_bonus = storage[player_index].module_preferences_by_recipe_name[recipe.name].effects.productivity
+    return math.min(math.max(machine_bonus + research_bonus + module_bonus, 0), recipe.maximum_productivity)
 end
 
 local function prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index)
@@ -139,7 +141,7 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
     for recipe_name, _ in pairs(used_recipe_name_set) do
         table.insert(used_recipe_name_list, recipe_name)
         local recipe = prototypes.recipe[recipe_name]
-        net_amounts_by_recipe_name[recipe_name] = Utils.net_amounts_by_full_name(recipe, get_total_productivity_multiplier_for_recipe(recipe, player_index) - 1)
+        net_amounts_by_recipe_name[recipe_name] = Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))
     end
 
     local solutions_by_recipe_index = gauss_solve(prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index))
