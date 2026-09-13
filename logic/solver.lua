@@ -59,28 +59,34 @@ end
 local function gauss_solve(A)
     local N = #A
 
-    --pivots this small relative to the largest coefficient are rounding noise, whatever the scale of the recipes' amounts
-    local largest_coefficient = 0
-    for _, line in ipairs(A) do
+    --magnitudes[line][column] is the largest magnitude a coefficient passed through during elimination.
+    --A pivot tiny against it is what is left of a cancellation, i.e. rounding noise; a small pivot that never cancelled stays valid at any scale.
+    --Coefficients themselves are never pruned, so small but meaningful ones keep their value.
+    local magnitudes = {}
+    for i, line in ipairs(A) do
+        magnitudes[i] = {}
         for column, coefficient in pairs(line) do
             if column <= N then
-                largest_coefficient = math.max(largest_coefficient, math.abs(coefficient))
+                magnitudes[i][column] = math.abs(coefficient)
             end
         end
     end
-    local zero_threshold = largest_coefficient * 1e-9
 
     for i = 1, N do
         local pivot_value = A[i][i]
-        if not pivot_value or math.abs(pivot_value) <= zero_threshold then
+        if not pivot_value or math.abs(pivot_value) <= 1e-9 * magnitudes[i][i] then
             return --matrix unsolvable for now
         end
 
         for k = i + 1, N do
             local k_coefficient = A[k][i]
             if k_coefficient then
+                local factor = k_coefficient / pivot_value
                 for column, pivot_line_value in pairs(A[i]) do
-                    A[k][column] = to_nil_if_zero((A[k][column] or 0) - pivot_line_value / pivot_value * k_coefficient)
+                    A[k][column] = to_nil_if_zero((A[k][column] or 0) - pivot_line_value * factor)
+                    if column <= N then
+                        magnitudes[k][column] = math.max(magnitudes[k][column] or 0, math.abs(factor) * magnitudes[i][column])
+                    end
                 end
                 A[k][i] = nil --eliminated, whatever rounding left behind
             end
@@ -158,5 +164,8 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
     local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by_recipe_name, production_rates_by_product_full_name, player_index)
     return recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name
 end
+
+--Exposed for offline tests only
+Solver._gauss_solve = gauss_solve
 
 return Solver

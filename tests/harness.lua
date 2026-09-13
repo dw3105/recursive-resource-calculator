@@ -308,7 +308,7 @@ function H.run_sheet(targets, player_index)
     local sheet_flow = sheet_pane.tabs[1].content
     for index, target in ipairs(targets) do
         local row = sheet_flow.input_container.children[index]
-        row.rate_textfield.text = tostring(target.rate)
+        row.rate_textfield.text = string.format("%.17g", target.rate) --17 significant digits round-trip a double; tostring keeps 14
         row.time_unit_dropdown.selected_index = target.unit == "/m" and 1 or 2
         row.hxrrc_desired_item_button.elem_value = target.item
         event_handlers.on_gui_elem_changed["hxrrc_desired_item_button"]({element = row.hxrrc_desired_item_button, player_index = player_index or 1})
