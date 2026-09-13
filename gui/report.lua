@@ -145,7 +145,7 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
         add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines)
-        ModuleGUI.new(report, recipe, crafting_machine, crafting_machine_identifier)
+        ModuleGUI.new(report, recipe, crafting_machine, crafting_machine_identifier, product_full_name)
     end
 
     add_recipe_cell(report, product_full_name, recipe)

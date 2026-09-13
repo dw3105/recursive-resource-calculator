@@ -76,10 +76,11 @@ local function add_count_field(row, name, tooltip, group_index, value)
     field.style.width = 40
 end
 
---Builds the cell's controls from the stored setup; the cell's tags remember the recipe and the setup it shows
-local function fill(cell, recipe, machine, identifier)
+--Builds the cell's controls from the stored setup; the cell's tags remember the row's product, the recipe and the setup it shows.
+--A rebuild passes no product and keeps the one already tagged.
+local function fill(cell, recipe, machine, identifier, product_full_name)
     local setup = storage[cell.player_index].module_setups_by_recipe_name[recipe.name]
-    cell.tags = {recipe_name = recipe.name, signature = ModuleSetup.signature(setup, identifier)}
+    cell.tags = {recipe_name = recipe.name, product_full_name = product_full_name or cell.tags.product_full_name, signature = ModuleSetup.signature(setup, identifier)}
 
     local capacity = ModuleSetup.machine_capacity(machine, identifier.quality)
     local allowed = ModuleSetup.allowed_module_names({machine}, recipe)
@@ -109,13 +110,13 @@ local function fill(cell, recipe, machine, identifier)
     add_effects_label(cell, recipe.name)
 end
 
-function ModuleGUI.new(parent, recipe, machine, identifier)
+function ModuleGUI.new(parent, recipe, machine, identifier, product_full_name)
     if ModuleSetup.machine_capacity(machine, identifier.quality) == 0 and not receives_beacons(machine) then
         parent.add{type = "empty-widget"}
         return
     end
     local cell = parent.add{type = "flow", direction = "vertical"}
-    fill(cell, recipe, machine, identifier)
+    fill(cell, recipe, machine, identifier, product_full_name)
 end
 
 --The stored setup a control of a cell acts on, or nil when the cell is stale:
@@ -133,6 +134,10 @@ local function current_setup(element)
     local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
     local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
     if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
+        return nil
+    end
+    --the row's product was bound to another recipe since the cell was built, so the cell shows a recipe the row no longer uses
+    if storage[player_index].product_full_names_by_recipe_name[recipe_name] ~= cell.tags.product_full_name then
         return nil
     end
     return setup, cell, recipe_name, identifier

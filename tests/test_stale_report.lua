@@ -341,6 +341,74 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(event_handlers.on_gui_confirmed.hxrrc_module_count_textfield, nil, "old count field has no handler")
     end)
 
+    H.test(shape .. " W4 after the product's recipe changes, module and beacon controls of the old recipe refuse edits", function()
+        local world = H.new_world(shape)
+        require "gui.calculator" --registers the event handlers the tests fire
+        world.add_item("raw")
+        world.add_item("gear")
+        world.add_module("productivity-module", "productivity", {productivity = 0.1})
+        world.add_module("speed-module", "speed", {speed = 0.2})
+        world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+        world.add_beacon({name = "beacon"})
+        world.add_recipe({name = "a", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}}})
+        --b gives back the gear it takes, so without productivity it cannot solve and a failed recomputation keeps the old report
+        world.add_recipe({name = "b", category = "crafting", ingredients = {{name = "gear", amount = 1}}, products = {{name = "gear", amount = 1, ignored = 0}}})
+        world.add_player(1)
+        world.init()
+        world.bind("item/gear", "a")
+        storage[1].module_setups_by_recipe_name.a.beacons = {{name = "beacon", count = 1, sharing = 1, modules = {{name = "speed-module"}}}}
+        local _, pane_a = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+        local _, pane_b = H.run_sheet({{item = "gear", rate = 2, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = pane_a}
+
+        local recipe_button = find_all(pane_a, function(element) return element.name == "hxrrc_choose_recipe_button" end)[1]
+        recipe_button.elem_value = "b"
+        fire_elem_changed(recipe_button)
+        recompute(pane_a)
+        H.equal(#world.flying_texts, 1, "recipe b fails to solve and the old report stays")
+        H.equal(storage[1].recipes_by_product_full_name["item/gear"].name, "b", "gear is now bound to b")
+        storage.computation_stack = {}
+
+        local function first(pane, name)
+            return find_all(pane, function(element) return element.name == name end)[1]
+        end
+        local function confirm(field, text)
+            field.text = text
+            event_handlers.on_gui_confirmed[field.name]({element = field, player_index = 1})
+        end
+        for _, pane in ipairs({pane_a, pane_b}) do
+            local what = pane == pane_a and "sheet with the failed recomputation" or "sibling sheet"
+            local slot = first(pane, "hxrrc_choose_module_button")
+            slot.elem_value = {name = "productivity-module"}
+            fire_elem_changed(slot)
+            H.equal(slot.elem_value, nil, what .. ": module slot restored")
+            local count = first(pane, "hxrrc_beacon_count_textfield")
+            confirm(count, "2")
+            H.equal(count.text, "1", what .. ": beacon count restored")
+            local sharing = first(pane, "hxrrc_beacon_sharing_textfield")
+            confirm(sharing, "3")
+            H.equal(sharing.text, "1", what .. ": beacon sharing restored")
+            local beacon_slot = first(pane, "hxrrc_choose_beacon_module_button")
+            beacon_slot.elem_value = nil
+            fire_elem_changed(beacon_slot)
+            H.equal(beacon_slot.elem_value and beacon_slot.elem_value.name, "speed-module", what .. ": beacon slot restored")
+            local beacon = first(pane, "hxrrc_choose_beacon_button")
+            beacon.elem_value = nil
+            fire_elem_changed(beacon)
+            H.equal(beacon.elem_value and beacon.elem_value.name, "beacon", what .. ": beacon button restored")
+        end
+
+        local setups = storage[1].module_setups_by_recipe_name
+        H.equal(#setups.a.modules, 0, "recipe a machine modules unchanged")
+        H.equal(#setups.a.beacons, 1, "recipe a keeps its beacon group")
+        H.equal(setups.a.beacons[1].count, 1, "recipe a beacon count unchanged")
+        H.equal(setups.a.beacons[1].sharing, 1, "recipe a beacon sharing unchanged")
+        H.equal(#setups.a.beacons[1].modules, 1, "recipe a beacon modules unchanged")
+        H.equal(#setups.b.modules, 0, "recipe b machine modules unchanged")
+        H.equal(#setups.b.beacons, 0, "recipe b beacon groups unchanged")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+    end)
+
     H.test(shape .. " W1 a machine change through one sheet makes another sheet's module slots stale", function()
         local world = stale_world(shape)
         world.add_machine({name = "fast-assembler", categories = {"crafting"}, speed = 2})
