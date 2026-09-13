@@ -1,4 +1,29 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.14
+Date: 2026.09.13
+  Info:
+    - Same code as 1.1.13, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.13
+Date: 2026.09.13
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.14).
+  Features:
+    - Sheets can target fluids: each input row has a fluid button next to the item button.
+    - Each sheet has a "Round up machines" checkbox that shows machine counts as whole machines.
+      Rates, energy and pollution stay exact; the exact count is shown in the tooltip.
+  Changes:
+    - Recipes with additional crafting categories can use machines of any of their categories.
+    - Queued recomputations run oldest first, so the calculator is centered after its sheets.
+    - When a pivot is missing the solver reorders rows, and it cross-checks its answer with a
+      largest-pivot elimination, keeping the answer that fits the equations better.
+  Bugfixes:
+    - Fixed some solvable systems being reported as having no solution.
+    - Fixed systems mixing tiny and huge amounts getting wrong machine counts, depending on the
+      order in which recipes were processed.
+    - Fixed a crash on configuration change when a mod turned a chosen crafting machine into
+      another kind of entity.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.12
 Date: 2026.09.13
   Info:
