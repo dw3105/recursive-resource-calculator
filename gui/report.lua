@@ -168,11 +168,12 @@ local function get_recipe_name_associated_to(choose_crafting_machine_button)
     return recipe_cell.hxrrc_choose_recipe_button.elem_value
 end
 
---The machine a refused change puts back: the button's snapshot, unless that machine no longer exists
+--The machine a refused change puts back: the button's snapshot, unless that machine no longer exists; a removed quality falls back to normal
 local function restored_machine(choose_crafting_machine_button)
     local tags = choose_crafting_machine_button.tags
     if tags.name and prototypes.entity[tags.name] then
-        return {name = tags.name, quality = tags.quality}
+        local quality = tags.quality and prototypes.quality[tags.quality] and tags.quality or nil
+        return {name = tags.name, quality = quality}
     end
 end
 

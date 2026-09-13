@@ -309,6 +309,26 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(report.rows["item/gone"], nil, "row of missing item")
         H.near(report.rows["item/raw"].rate, 1, "raw row")
     end)
+
+    H.test(shape .. " F2m a refused machine change does not restore a quality that was removed", function()
+        local world = stale_world(shape)
+        world.add_machine({name = "fast-assembler", categories = {"crafting"}, speed = 2})
+        reconfigure()
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler", quality = "legendary"}
+        local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        local button = machine_button(sheet_pane, "item/gear")
+        H.equal(button.elem_value.quality, "legendary", "button shows the chosen quality")
+        world.remove_recipe("gear")
+        world.remove_quality("legendary")
+        reconfigure()
+
+        button.elem_value = {name = "fast-assembler"}
+        fire_elem_changed(button)
+        H.equal(button.elem_value.name, "assembler", "button restored to its machine")
+        H.equal(button.elem_value.quality, nil, "removed quality not restored")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+    end)
 end
 
 H.done("test_stale_report")

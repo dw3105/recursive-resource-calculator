@@ -67,6 +67,8 @@ local function check_elem_value(element, value)
         error("Unknown item " .. tostring(value), 3)
     elseif elem_type == "entity-with-quality" and not prototypes.entity[value.name] then
         error("Unknown entity " .. tostring(value.name), 3)
+    elseif elem_type == "entity-with-quality" and value.quality and not prototypes.quality[value.quality] then
+        error("Unknown quality " .. tostring(value.quality), 3)
     end
 end
 
