@@ -202,6 +202,18 @@ function H.new_world(shape)
         prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name}}, ITEM_MEMBERS)
     end
 
+    function world.add_module(name, category, module_effects)
+        local module = H.lua_object("LuaItemPrototype", {name = name, type = "module", valid = true, localised_name = {"item-name." .. name},
+            category = category, module_effects = module_effects}, ITEM_MEMBERS)
+        prototypes.item[name] = module
+        modules[name] = module
+    end
+
+    function world.remove_module(name)
+        prototypes.item[name] = nil
+        modules[name] = nil
+    end
+
     function world.add_fluid(name)
         prototypes.fluid[name] = H.lua_object("LuaFluidPrototype", {name = name, valid = true, localised_name = {"fluid-name." .. name}}, FLUID_MEMBERS)
     end

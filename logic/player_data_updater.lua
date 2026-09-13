@@ -63,25 +63,26 @@ local function reinitialize_module_preferences(player_index)
         if not prototypes.recipe[recipe_name] then
             module_preferences[recipe_name] = nil
         else
-            local effects_table_recomputation_needed = false
+            --module names sit at positive indexes and their counts at the matching negative indexes; keep the pairs whose module still exists
+            local kept_module_names, kept_module_counts = {}, {}
             for index, module_name in ipairs(preferences_table) do
-                if not prototypes.item[module_name] then
-                    preferences_table[-index] = preferences_table[-#preferences_table]
-                    preferences_table[-#preferences_table] = nil
-                    preferences_table[index] = preferences_table[#preferences_table]
-                    preferences_table[#preferences_table] = nil
-                    effects_table_recomputation_needed = true
+                if prototypes.item[module_name] then
+                    table.insert(kept_module_names, module_name)
+                    table.insert(kept_module_counts, preferences_table[-index])
                 end
             end
-            if effects_table_recomputation_needed then
-                for _, effect in ipairs(Utils.module_effect_names) do
-                    module_preferences.effects[effect] = 0
+            if #kept_module_names < #preferences_table then
+                for index = 1, #preferences_table do
+                    preferences_table[index], preferences_table[-index] = kept_module_names[index], kept_module_counts[index]
                 end
-                for index, module_name in ipairs(preferences_table) do
+                for _, effect in ipairs(Utils.module_effect_names) do
+                    preferences_table.effects[effect] = 0
+                end
+                for index, module_name in ipairs(kept_module_names) do
                     local module = prototypes.item[module_name]
                     for _, effect in ipairs(Utils.module_effect_names) do
                         if module.module_effects[effect] then
-                            module_preferences.effects[effect] = module_preferences.effects[effect] - module_preferences[-index] * module.module_effects[effect]
+                            preferences_table.effects[effect] = preferences_table.effects[effect] + kept_module_counts[index] * module.module_effects[effect]
                         end
                     end
                 end
