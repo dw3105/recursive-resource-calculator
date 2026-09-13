@@ -29,11 +29,12 @@ local function sorted_beacon_names()
     return names
 end
 
+--Each button sits in its own flow: the engine refuses two children with the same name under one parent
 local function add_module_buttons(row, name, modules, capacity, allowed, group_index)
     for index = 1, capacity do
         local module = modules[index]
         local value = module and {name = module.name, quality = module.quality}
-        row.add{
+        row.add{type = "flow"}.add{
             type = "choose-elem-button",
             name = name,
             tooltip = {"hxrrc.choose_module_button_tooltip"},
@@ -120,7 +121,13 @@ end
 --The stored setup a control of a cell acts on, or nil when the cell is stale:
 --the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built
 local function current_setup(element)
-    local cell = element.parent.parent
+    local cell = element.parent
+    while cell and not cell.tags.recipe_name do --the cell is the nearest ancestor tagged with a recipe
+        cell = cell.parent
+    end
+    if not cell then
+        return nil
+    end
     local recipe_name = cell.tags.recipe_name
     local player_index = element.player_index
     local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]

@@ -194,6 +194,14 @@ local function new_gui_element(params, parent, player_index)
 end
 
 function gui_methods.add(self, params)
+    --the engine refuses a second child with the same name under one parent (Factorio 2.0.77: "Gui element with name X already present in the parent element.")
+    if params.name and params.name ~= "" then
+        for _, sibling in ipairs(self.children) do
+            if sibling.name == params.name then
+                error("Gui element with name " .. params.name .. " already present in the parent element.", 3)
+            end
+        end
+    end
     --item and fluid sprites need their prototype (see LuaHelpers::is_valid_sprite_path)
     local sprite_type, sprite_name = tostring(params.sprite or ""):match("^(%a+)/(.+)$")
     if (sprite_type == "item" and not prototypes.item[sprite_name]) or (sprite_type == "fluid" and not prototypes.fluid[sprite_name]) then

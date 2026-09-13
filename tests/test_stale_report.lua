@@ -38,10 +38,17 @@ local function find_all(element, predicate, found)
     return found
 end
 
+--The recipe of the module cell holding an element: the nearest ancestor tagged with one
+local function recipe_of(element)
+    local ancestor = element.parent
+    while ancestor and not ancestor.tags.recipe_name do ancestor = ancestor.parent end
+    return ancestor and ancestor.tags.recipe_name
+end
+
 --Module slot buttons of a recipe's row, in order
 local function module_buttons(sheet_pane, recipe_name)
     return find_all(sheet_pane, function(element)
-        return element.name == "hxrrc_choose_module_button" and element.parent.parent.tags.recipe_name == recipe_name
+        return element.name == "hxrrc_choose_module_button" and recipe_of(element) == recipe_name
     end)
 end
 

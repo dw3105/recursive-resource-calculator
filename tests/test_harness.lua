@@ -129,4 +129,14 @@ H.test("H2c module inventory size follows quality, the machine's own bonus overr
     H.equal(prototypes.entity.beacon.get_inventory_size(beacon_modules, "rare"), 4, "beacon quality bonus")
 end)
 
+H.test("H3 GUI mock refuses a second child with the same name under one parent, as the engine does", function()
+    local root = H.gui_root({type = "flow"})
+    root.add{type = "button", name = "same"}
+    H.errors(function() root.add{type = "button", name = "same"} end, "Gui element with name same already present in the parent element.", "same name twice under one parent")
+    local first, second = root.add{type = "flow"}, root.add{type = "flow"}
+    first.add{type = "button", name = "repeated"}
+    second.add{type = "button", name = "repeated"}
+    H.equal(#root.children, 3, "unnamed siblings and equal names under different parents are allowed")
+end)
+
 H.done("test_harness")
