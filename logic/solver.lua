@@ -53,35 +53,43 @@ local function to_nil_if_zero(x)
     return x ~= 0 and x or nil
 end
 
-local function is_nil_or_close_to_zero(x)
-    return not x or (-0.001 < x and x < 0.001)
-end
-
 local function gauss_solve(A)
-    for i = 1, #A do
+    local N = #A
+
+    --pivots this small relative to the largest coefficient are rounding noise, whatever the scale of the recipes' amounts
+    local largest_coefficient = 0
+    for _, line in ipairs(A) do
+        for column, coefficient in pairs(line) do
+            if column <= N then
+                largest_coefficient = math.max(largest_coefficient, math.abs(coefficient))
+            end
+        end
+    end
+    local zero_threshold = largest_coefficient * 1e-9
+
+    for i = 1, N do
         local pivot_value = A[i][i]
-        if is_nil_or_close_to_zero(pivot_value) then
+        if not pivot_value or math.abs(pivot_value) <= zero_threshold then
             return --matrix unsolvable for now
         end
 
-        for k = i + 1, #A do
+        for k = i + 1, N do
             local k_coefficient = A[k][i]
-            if not is_nil_or_close_to_zero(k_coefficient) then
+            if k_coefficient then
                 for column, pivot_line_value in pairs(A[i]) do
                     A[k][column] = to_nil_if_zero((A[k][column] or 0) - pivot_line_value / pivot_value * k_coefficient)
                 end
+                A[k][i] = nil --eliminated, whatever rounding left behind
             end
         end
     end
 
+    --every line is now upper triangular, so only columns right of the pivot and left of the right-hand side take part
     local solution_values_by_column = {}
-    for i = #A, 1, -1 do
-        local partial_solution_value = A[i][#A+1] or 0
+    for i = N, 1, -1 do
+        local partial_solution_value = A[i][N+1] or 0
         for column, coefficient in pairs(A[i]) do
-            if column ~= i and column ~= #A + 1 then
-                if not solution_values_by_column[column] then
-                    partial_solution_value = 0
-                end
+            if i < column and column <= N then
                 partial_solution_value = partial_solution_value - coefficient * solution_values_by_column[column]
             end
         end
