@@ -311,7 +311,10 @@ end
 
 --Reads the report table back into {energy_mw, pollution_per_minute, rows = {[product_full_name] = {rate, machines, kind}}, row_count}
 function H.parse_report(output_flow)
-    local report = output_flow.report
+    local report
+    for _, child in ipairs(output_flow.children) do
+        if child.name == "report" then report = child end
+    end
     if not report then return nil end
     local cells = report.children
     local parsed = {energy_mw = number_in(cells[2].caption), pollution_per_minute = number_in(cells[4].children[1].caption), rows = {}, row_count = 0}

@@ -67,7 +67,7 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
 
     local production_rates_by_product_full_name = InputContainer.get_desired_production_rates_by_full_item_name(sheet_flow.input_container)
 
-    if not production_rates_by_product_full_name then --Empty sheet
+    if next(production_rates_by_product_full_name) == nil then --Empty sheet
         sheet_flow.output_flow.clear()
         return
     end
