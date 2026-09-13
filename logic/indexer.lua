@@ -23,7 +23,8 @@ end
 local function compute_pollution(entity_prototype)
     local energy_source = entity_prototype.electric_energy_source_prototype or entity_prototype.burner_prototype or entity_prototype.heat_energy_source_prototype or entity_prototype.fluid_energy_source_prototype or entity_prototype.void_energy_source_prototype
     if energy_source then
-      return entity_prototype.get_max_energy_usage() * energy_source.emissions_per_joule.pollution * 60
+      --emissions are keyed by pollutant, and a machine may emit none of the "pollution" kind
+      return entity_prototype.get_max_energy_usage() * (energy_source.emissions_per_joule.pollution or 0) * 60
     end
     return 0
 end
