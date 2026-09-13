@@ -7,9 +7,23 @@ local Sheet = {}
 
 local function update_sheet_title(sheet_pane, sheet_index)
     local sheet_and_flow = sheet_pane.tabs[sheet_index]
-    local item_name = sheet_and_flow.content.input_container.children[1].hxrrc_desired_item_button.elem_value
-    local item_prototype = item_name and prototypes.item[item_name] --nil once the mod adding the item is removed
-    sheet_and_flow.tab.caption = item_prototype and item_prototype.localised_name or {"hxrrc.empty_sheet"}
+    local first_row = sheet_and_flow.content.input_container.children[1]
+    local item_name = first_row.hxrrc_desired_item_button.elem_value
+    local fluid_name = first_row.hxrrc_desired_fluid_button.elem_value
+    --nil once the mod adding the item or fluid is removed
+    local prototype = (item_name and prototypes.item[item_name]) or (fluid_name and prototypes.fluid[fluid_name])
+    sheet_and_flow.tab.caption = prototype and prototype.localised_name or {"hxrrc.empty_sheet"}
+end
+
+local function add_round_up_checkbox(sheet_flow, index)
+    sheet_flow.add{
+        type = "checkbox",
+        name = "hxrrc_round_up_machines_checkbox",
+        caption = {"hxrrc.round_up_machines"},
+        tooltip = {"hxrrc.round_up_machines_tooltip"},
+        state = false,
+        index = index,
+    }
 end
 
 local function add_compute_button(sheet_flow)
@@ -29,6 +43,7 @@ function Sheet.new(sheet_pane)
 
     --Input section:
     InputContainer.build_and_add_to(sheet_flow)
+    add_round_up_checkbox(sheet_flow)
     add_compute_button(sheet_flow)
 
     --Output section:
@@ -84,7 +99,25 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     
     local output_flow = sheet_flow.output_flow
     output_flow.clear()
-    Report.new(output_flow, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution)
+    Report.new(output_flow, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution,
+        sheet_flow.hxrrc_round_up_machines_checkbox.state)
+end
+
+--Adds controls that sheets saved by older versions lack; finds them by name (the engine returns nil for a missing child), so it is safe on every configuration change
+function Sheet.add_missing_controls(sheet_pane)
+    for _, tab_and_content in ipairs(sheet_pane.tabs) do
+        local sheet_flow = tab_and_content.content
+        InputContainer.add_missing_fluid_buttons(sheet_flow.input_container)
+
+        local compute_button_index, has_round_up_checkbox
+        for index, child in ipairs(sheet_flow.children) do
+            if child.name == "hxrrc_compute_button" then compute_button_index = index end
+            if child.name == "hxrrc_round_up_machines_checkbox" then has_round_up_checkbox = true end
+        end
+        if compute_button_index and not has_round_up_checkbox then
+            add_round_up_checkbox(sheet_flow, compute_button_index)
+        end
+    end
 end
 
 --GUI change added in 1.1.0: the sheets' input flow element was replaced with a new input container that supports multiple desired items with their respective production rates.
@@ -115,6 +148,12 @@ end
 
 event_handlers.on_gui_click["hxrrc_compute_button"] = function(event)
     Sheet.calculate(event.element)
+    storage[event.player_index].calculator.force_auto_center()
+end
+
+--Recomputes only the sheet owning the checkbox; nothing here writes the state, so the event cannot loop
+event_handlers.on_gui_checked_state_changed["hxrrc_round_up_machines_checkbox"] = function(event)
+    Sheet.calculate(event.element.parent.hxrrc_compute_button)
     storage[event.player_index].calculator.force_auto_center()
 end
 

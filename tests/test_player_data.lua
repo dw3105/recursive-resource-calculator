@@ -58,6 +58,35 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(preferences[-1], 4, "count")
         H.near(preferences.effects.productivity, 0.4, "productivity effect")
     end)
+
+    local function swap_world()
+        local world = H.new_world(shape)
+        world.add_item("raw")
+        world.add_item("gear")
+        world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+        world.add_machine({name = "swapped", categories = {"crafting"}, speed = 2})
+        world.add_recipe({name = "gear", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}}})
+        world.add_player(1)
+        world.init()
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "swapped"}
+        return world
+    end
+
+    H.test(shape .. " G5a a chosen machine turned into another entity type by a mod is replaced without reading it", function()
+        local world = swap_world()
+        world.replace_machine_with_entity("swapped", "container")
+        require("logic.indexer").run()
+        require("logic.player_data_updater").reinitialize(1)
+        H.equal(storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear.name, "assembler", "fallback machine")
+    end)
+
+    H.test(shape .. " G5b a chosen machine removed by a mod falls back to an available one", function()
+        local world = swap_world()
+        world.remove_machine("swapped")
+        require("logic.indexer").run()
+        require("logic.player_data_updater").reinitialize(1)
+        H.equal(storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear.name, "assembler", "fallback machine")
+    end)
 end
 
 H.done("test_player_data")

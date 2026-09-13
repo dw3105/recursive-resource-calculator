@@ -2,6 +2,7 @@ event_handlers = {}
 event_handlers.on_gui_click = {}
 event_handlers.on_gui_confirmed = {}
 event_handlers.on_gui_elem_changed = {}
+event_handlers.on_gui_checked_state_changed = {}
 
 local Calculator = require "gui.calculator"
 local Sheet = require "gui.sheet"
@@ -37,6 +38,7 @@ script.on_configuration_changed(function(configuration_changed_data)
     for _, player in pairs(game.players) do
         storage[player.index].backlogged_computation_count = 0 --the stack was just emptied; older versions never decremented this count
         PlayerDataUpdater.reinitialize(player.index)
+        Sheet.add_missing_controls(storage[player.index].sheet_section.sheet_pane)
         Calculator.recompute_everything(player.index)
     end
 end)
@@ -81,6 +83,7 @@ for _, event_type in ipairs({
     "on_gui_click",
     "on_gui_elem_changed",
     "on_gui_confirmed",
+    "on_gui_checked_state_changed",
     }) do
     script.on_event(defines.events[event_type], function(event)
         local handler = event_handlers[event_type][event.element.name]
@@ -88,10 +91,10 @@ for _, event_type in ipairs({
     end)
 end
 
---Do each sheet calculation in its own tick
+--Do each sheet calculation in its own tick, oldest request first (computation_stack is used as a queue; the name is kept for existing saves)
 script.on_event(defines.events.on_tick, function()
     if storage.computation_stack[1] then
-        local async_call_data = table.remove(storage.computation_stack)
+        local async_call_data = table.remove(storage.computation_stack, 1)
         local player_index = async_call_data.player_index
         if storage[player_index] then
             local call = async_calls[async_call_data.call_id]

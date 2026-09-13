@@ -74,6 +74,24 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(game.players[1].gui.screen.hxrrc_calculator.enabled, true, "remaining player's calculator enabled")
     end)
 
+    H.test(shape .. " G4a queued computations run oldest first, centering after the sheets", function()
+        local world = control_world(shape, {1})
+        require("gui.sheet").new(storage[1].sheet_section.sheet_pane)
+        local order = {}
+        local calculate, auto_center = async_calls[1], async_calls[2]
+        async_calls[1] = function(compute_button, sheet_pane, sheet_index)
+            order[#order + 1] = "sheet" .. tostring(sheet_index)
+            return calculate(compute_button, sheet_pane, sheet_index)
+        end
+        async_calls[2] = function(player_index)
+            order[#order + 1] = "center"
+            return auto_center(player_index)
+        end
+        require("gui.calculator").recompute_everything(1)
+        drain_ticks(world)
+        H.equal(table.concat(order, " "), "sheet1 sheet2 center", "run order")
+    end)
+
     H.test(shape .. " B6 a queued computation whose player data is gone is skipped", function()
         local world = control_world(shape, {1})
         local sheet_pane = storage[1].sheet_section.sheet_pane

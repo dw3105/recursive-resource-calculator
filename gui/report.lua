@@ -9,6 +9,15 @@ local function format_by_precision(float, player_index)
     return string.format("%." .. precision .. "f", float)
 end
 
+--Whole machines: bumps to the next integer only for a fraction above rounding noise, keeps float range for huge counts, never shows -0
+local function rounded_up_count_text(amount)
+    local rounded = math.floor(amount)
+    if amount - rounded > 1e-9 * math.max(1, math.abs(amount)) then
+        rounded = rounded + 1
+    end
+    return rounded == 0 and "0" or string.format("%.0f", rounded)
+end
+
 local function add_header(report, caption, tooltip)
     local header = report.add{type = "flow"}
     header.style.horizontally_stretchable = true
@@ -86,7 +95,16 @@ local function add_recipe_cell(report, product_full_name, recipe)
     }
 end
 
-local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier)
+--One filter per category the recipe can be crafted through; filters in a list combine with "or"
+local function crafting_category_filters(recipe)
+    local filters = {}
+    for _, category in ipairs(Utils.recipe_categories(recipe)) do
+        filters[#filters + 1] = {filter = "crafting-category", crafting_category = category}
+    end
+    return filters
+end
+
+local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines)
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
     machine_cell.style.horizontally_stretchable = true
@@ -97,17 +115,22 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
         elem_type = "entity-with-quality",
         ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
         tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality}, --snapshot for refused changes on a stale report
-        elem_filters = {{filter = "crafting-category", crafting_category = Utils.recipe_category(recipe)}},
-        enabled = #storage.crafting_machines_by_category[Utils.recipe_category(recipe)] > 1,
+        elem_filters = crafting_category_filters(recipe),
+        enabled = #Utils.crafting_machines_for(recipe) > 1,
     }
 
     --the machine amount:
     local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi, crafting_machine_identifier.quality)
     local label = machine_cell.add{type = "label", name = "label"}
-    label.caption = " x " .. format_by_precision( machine_amount, pi)
+    if round_up_machines then --labels only: rates, energy and pollution stay exact
+        label.caption = " x " .. rounded_up_count_text(machine_amount)
+        label.tooltip = format_by_precision(machine_amount, pi)
+    else
+        label.caption = " x " .. format_by_precision( machine_amount, pi)
+    end
 end
 
-local function add_row_for_solved_product(report, product_full_name, product_rate, recipe_rate)
+local function add_row_for_solved_product(report, product_full_name, product_rate, recipe_rate, round_up_machines)
     local pi = report.player_index
     local recipe = storage[pi].recipes_by_product_full_name[product_full_name]
 
@@ -120,7 +143,7 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
         report.add{type = "empty-widget"}
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
-        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier)
+        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines)
         ModuleGUI.new(report, recipe.name, crafting_machine.allowed_effects)
     end
 
@@ -139,7 +162,8 @@ local function add_row_for_unsolved_product(report, unsolved_product_full_name, 
     end
 end
 
-function Report.new(parent, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution)
+--round_up_machines: show machine counts as whole machines (nil or false keeps exact counts)
+function Report.new(parent, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution, round_up_machines)
     local report = parent.add{type = "table", name = "report", column_count = 4, draw_horizontal_lines = true, draw_vertical_lines = true}
     local pi = report.player_index
 
@@ -149,7 +173,7 @@ function Report.new(parent, recipe_rates_by_recipe_name, solved_rates_by_product
     for recipe_name, recipe_rate in pairs(recipe_rates_by_recipe_name) do
         local product_full_name = storage[pi].product_full_names_by_recipe_name[recipe_name]
         if prototype_of(product_full_name) then
-            add_row_for_solved_product(report, product_full_name, solved_rates_by_product_full_name[product_full_name], recipe_rate)
+            add_row_for_solved_product(report, product_full_name, solved_rates_by_product_full_name[product_full_name], recipe_rate, round_up_machines)
         end
     end
 
@@ -244,5 +268,8 @@ function Report.handle_recipe_binding_change(event)
 
     return true
 end
+
+--Exposed for offline tests only
+Report._rounded_up_count_text = rounded_up_count_text
 
 return Report
