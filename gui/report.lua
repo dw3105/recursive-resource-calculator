@@ -40,13 +40,20 @@ local function split_product_name(product_full_name)
     return product_full_name:sub(1, slash_position - 1), product_full_name:sub(slash_position + 1)
 end
 
+--nil once the mod adding the item or fluid is removed
+local function prototype_of(product_full_name)
+    local type, short_name = split_product_name(product_full_name)
+    if type == "item" then
+        return prototypes.item[short_name]
+    end
+    return prototypes.fluid[short_name]
+end
+
 local function add_item_cell(report, product_full_name, production_rate)
     local item_cell = report.add{type = "flow"}
     item_cell.style.horizontally_stretchable = true
 
-    local type, short_name = split_product_name(product_full_name)
-
-    local prototype = type == "item" and prototypes.item[short_name] or prototypes.fluid[short_name]
+    local prototype = prototype_of(product_full_name)
     item_cell.add{type = "sprite", sprite = product_full_name, tooltip = prototype.localised_name}
 
     item_cell.add{type = "label", caption = format_by_precision(production_rate, report.player_index) .. " /s"}
@@ -79,7 +86,7 @@ local function add_recipe_cell(report, product_full_name, recipe)
     }
 end
 
-local function add_machine_cell(report, crafting_machine, recipe, recipe_rate)
+local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier)
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
     machine_cell.style.horizontally_stretchable = true
@@ -88,13 +95,14 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate)
         type = "choose-elem-button",
         name = "hxrrc_choose_crafting_machine_button",
         elem_type = "entity-with-quality",
-        ["entity-with-quality"] = {name = crafting_machine.name},
-        elem_filters = {{filter = "crafting-category", crafting_category = recipe.categories[1]}},
-        enabled = #storage.crafting_machines_by_category[recipe.categories[1]] > 1,
+        ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
+        tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality}, --snapshot for refused changes on a stale report
+        elem_filters = {{filter = "crafting-category", crafting_category = Utils.recipe_category(recipe)}},
+        enabled = #storage.crafting_machines_by_category[Utils.recipe_category(recipe)] > 1,
     }
 
     --the machine amount:
-    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi)
+    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi, crafting_machine_identifier.quality)
     local label = machine_cell.add{type = "label", name = "label"}
     label.caption = " x " .. format_by_precision( machine_amount, pi)
 end
@@ -112,7 +120,7 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
         report.add{type = "empty-widget"}
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
-        add_machine_cell(report, crafting_machine, recipe, recipe_rate)
+        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier)
         ModuleGUI.new(report, recipe.name, crafting_machine.allowed_effects)
     end
 
@@ -131,20 +139,23 @@ local function add_row_for_unsolved_product(report, unsolved_product_full_name, 
     end
 end
 
-function Report.new(parent, recipe_rates_by_recipe_name, product_rates_by_product_full_name, energy_consumption, pollution)
+function Report.new(parent, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution)
     local report = parent.add{type = "table", name = "report", column_count = 4, draw_horizontal_lines = true, draw_vertical_lines = true}
     local pi = report.player_index
 
     setup_headers(report, energy_consumption, pollution)
 
+    --Rows whose item or fluid was removed by a mod are left out: their sprites and filters would refer to missing prototypes
     for recipe_name, recipe_rate in pairs(recipe_rates_by_recipe_name) do
         local product_full_name = storage[pi].product_full_names_by_recipe_name[recipe_name]
-        local product_rate = product_rates_by_product_full_name[product_full_name]
-        add_row_for_solved_product(report, product_full_name, product_rate, recipe_rate)
+        if prototype_of(product_full_name) then
+            add_row_for_solved_product(report, product_full_name, solved_rates_by_product_full_name[product_full_name], recipe_rate)
+        end
     end
 
-    for product_full_name, product_rate in pairs(product_rates_by_product_full_name) do
-        if not storage[pi].recipes_by_product_full_name[product_full_name] then
+    --Holds exactly the products without a solved row, including byproducts whose bound recipe is not used here
+    for product_full_name, product_rate in pairs(unsolved_rates_by_product_full_name) do
+        if prototype_of(product_full_name) then
             add_row_for_unsolved_product(report, product_full_name, product_rate)
         end
     end
@@ -157,12 +168,41 @@ local function get_recipe_name_associated_to(choose_crafting_machine_button)
     return recipe_cell.hxrrc_choose_recipe_button.elem_value
 end
 
+--The machine a refused change puts back: the button's snapshot, unless that machine no longer exists; a removed quality falls back to normal
+local function restored_machine(choose_crafting_machine_button)
+    local tags = choose_crafting_machine_button.tags
+    if tags.name and prototypes.entity[tags.name] then
+        local quality = tags.quality and prototypes.quality[tags.quality] and tags.quality or nil
+        return {name = tags.name, quality = quality}
+    end
+end
+
+local function is_same_machine(a, b)
+    if not a or not b then
+        return not a and not b
+    end
+    return a.name == b.name and a.quality == b.quality
+end
+
 function Report.handle_crafting_machine_change(event)
     local player_index = event.player_index
     local choose_crafting_machine_button = event.element
-    local recipe_name = get_recipe_name_associated_to(choose_crafting_machine_button)
-    local old_machine_identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
     local new_machine_identifier = choose_crafting_machine_button.elem_value
+    local restore_target = restored_machine(choose_crafting_machine_button)
+
+    --a refused change restores the button, which may raise this event again: the restored value is then a no-op
+    if is_same_machine(new_machine_identifier, restore_target) then
+        return false
+    end
+
+    local recipe_name = get_recipe_name_associated_to(choose_crafting_machine_button)
+    local old_machine_identifier = recipe_name and storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
+    if not old_machine_identifier then --stale report: the recipe was removed by a mod
+        if restore_target then
+            choose_crafting_machine_button.elem_value = restore_target
+        end
+        return false
+    end
 
     if not new_machine_identifier then
         game.get_player(player_index).create_local_flying_text{text = {"hxrrc.cannot_empty_a_choose_crafting_machine_button_error"}, create_at_cursor = true}
@@ -173,6 +213,7 @@ function Report.handle_crafting_machine_change(event)
     end
 
     storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name] = new_machine_identifier
+    choose_crafting_machine_button.tags = {name = new_machine_identifier.name, quality = new_machine_identifier.quality}
 
     return true
 end

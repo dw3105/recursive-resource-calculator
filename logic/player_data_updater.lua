@@ -8,14 +8,16 @@ local function reinitialize_chosen_crafting_machines(player_index)
         local recipe = prototypes.recipe[recipe_name]
         if not recipe then
             machine_identifier_by_recipe_name[recipe_name] = nil
-        elseif not prototypes.entity[crafting_machine_identifier.name] or not prototypes.entity[crafting_machine_identifier.name].crafting_categories[recipe.categories[1]] then
-            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(recipe.categories[1])
+        elseif not prototypes.entity[crafting_machine_identifier.name] or not prototypes.entity[crafting_machine_identifier.name].crafting_categories[Utils.recipe_category(recipe)] then
+            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(Utils.recipe_category(recipe))
+        elseif crafting_machine_identifier.quality and not prototypes.quality[crafting_machine_identifier.quality] then
+            crafting_machine_identifier.quality = nil --the mod adding this quality was removed
         end
     end
 
     for recipe_name, recipe in pairs(prototypes.recipe) do
         if not machine_identifier_by_recipe_name[recipe_name] then
-            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(recipe.categories[1])
+            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(Utils.recipe_category(recipe))
         end
     end
 end
@@ -63,25 +65,26 @@ local function reinitialize_module_preferences(player_index)
         if not prototypes.recipe[recipe_name] then
             module_preferences[recipe_name] = nil
         else
-            local effects_table_recomputation_needed = false
+            --module names sit at positive indexes and their counts at the matching negative indexes; keep the pairs whose module still exists
+            local kept_module_names, kept_module_counts = {}, {}
             for index, module_name in ipairs(preferences_table) do
-                if not prototypes.item[module_name] then
-                    preferences_table[-index] = preferences_table[-#preferences_table]
-                    preferences_table[-#preferences_table] = nil
-                    preferences_table[index] = preferences_table[#preferences_table]
-                    preferences_table[#preferences_table] = nil
-                    effects_table_recomputation_needed = true
+                if prototypes.item[module_name] then
+                    table.insert(kept_module_names, module_name)
+                    table.insert(kept_module_counts, preferences_table[-index])
                 end
             end
-            if effects_table_recomputation_needed then
-                for _, effect in ipairs(Utils.module_effect_names) do
-                    module_preferences.effects[effect] = 0
+            if #kept_module_names < #preferences_table then
+                for index = 1, #preferences_table do
+                    preferences_table[index], preferences_table[-index] = kept_module_names[index], kept_module_counts[index]
                 end
-                for index, module_name in ipairs(preferences_table) do
+                for _, effect in ipairs(Utils.module_effect_names) do
+                    preferences_table.effects[effect] = 0
+                end
+                for index, module_name in ipairs(kept_module_names) do
                     local module = prototypes.item[module_name]
                     for _, effect in ipairs(Utils.module_effect_names) do
                         if module.module_effects[effect] then
-                            module_preferences.effects[effect] = module_preferences.effects[effect] - module_preferences[-index] * module.module_effects[effect]
+                            preferences_table.effects[effect] = preferences_table.effects[effect] + kept_module_counts[index] * module.module_effects[effect]
                         end
                     end
                 end

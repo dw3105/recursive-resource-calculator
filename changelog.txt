@@ -1,4 +1,42 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.12
+Date: 2026.09.13
+  Info:
+    - Same code as 1.1.11, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+  Bugfixes:
+    - Fixed products with a chance being counted at 100% on Factorio 2.1, where the probability
+      of a product is described by independent and shared probabilities.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.11
+Date: 2026.09.13
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.12).
+  Changes:
+    - Items and fluids produced by one recipe and consumed by another are now shown at their net
+      rate (consumption minus production), not only when production exceeds consumption.
+    - Rows of intermediate products show the output rate of their recipe.
+    - The same item entered in several input rows of a sheet is now summed.
+  Bugfixes:
+    - Fixed recipes listing the same product several times (e.g. spoilage variants) needing many
+      times too many machines and showing a negative production rate.
+    - Fixed catalysts (e.g. Kovarex enrichment process) being computed as if the ingredient
+      replaced the product.
+    - Fixed productivity bonuses being multiplied instead of added, and not being capped at the
+      recipe's maximum productivity.
+    - Fixed productivity being applied to catalyst amounts, and to randomized amounts before
+      averaging.
+    - Fixed extra count fractions not being weighted by product probability.
+    - Fixed the quality of the chosen crafting machine being ignored for machine counts and lost
+      from the machine button.
+    - Fixed byproducts whose recipe is selected but unused missing from the report.
+    - Fixed empty sheets showing an empty report.
+    - Fixed small recipe amounts crashing the solver or being rejected as unsolvable.
+    - Fixed a crash on configuration change after a mod adding modules was removed.
+    - Fixed productivity research recomputing the wrong players, which crashed in multiplayer.
+    - Fixed the calculator's count of pending computations never decreasing.
+    - Fixed a crash when a player with pending computations is removed.
+    - Fixed crashes with crafting machines that have no effect receiver or emit no pollution.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.10
 Date: 2026.08.19
   Info:
