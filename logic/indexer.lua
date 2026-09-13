@@ -47,26 +47,27 @@ local function index_crafting_machine_pollution()
     storage.pollution_by_crafting_machine = pollution_by_crafting_machine
 end
 
-local function index_allowed_modules_by_recipe()
-    local names_of_allowed_module_by_recipe_name = {}
-    local module_prototypes = prototypes.get_item_filtered({{filter="type", type="module"}})
-    for recipe_name, recipe in pairs(prototypes.recipe) do
-        local allowed_module_names = {}
-        for _, module_prototype in pairs(module_prototypes) do
-            if not recipe.allowed_module_categories or recipe.allowed_module_categories[module_prototype.category] then
-                table.insert(allowed_module_names, module_prototype.name)
-            end
-        end
-        names_of_allowed_module_by_recipe_name[recipe_name] = allowed_module_names
+--Names of every module and every beacon, so a stored name is checked before anything is read from its prototype
+local function index_modules()
+    local module_names = {}
+    for module_name, _ in pairs(prototypes.get_item_filtered({{filter="type", type="module"}})) do
+        module_names[module_name] = true
     end
-    storage.names_of_allowed_modules_by_recipe_name = names_of_allowed_module_by_recipe_name
+    storage.module_names = module_names
+    storage.names_of_allowed_modules_by_recipe_name = nil --kept by versions before module slots
+
+    local beacon_names = {}
+    for beacon_name, _ in pairs(prototypes.get_entity_filtered({{filter="type", type="beacon"}})) do
+        beacon_names[beacon_name] = true
+    end
+    storage.beacon_names = beacon_names
 end
 
 function Indexer.run()
     index_recipes()
     index_crafting_machines()
     index_crafting_machine_pollution()
-    index_allowed_modules_by_recipe()
+    index_modules()
 end
 
 return Indexer

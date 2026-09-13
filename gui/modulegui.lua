@@ -1,192 +1,293 @@
 local Utils = require "logic.utils"
+local ModuleSetup = require "logic.module_setup"
 
 local ModuleGUI = {}
 
-local function add_module_slot(module_gui, recipe_name, module_name, module_count)
-    local module_slot = module_gui.add{type = "flow", direction = "vertical"}
-    module_slot.style.horizontal_align = "center"
-    --snapshot of what this slot shows, to recognise it when a failed recomputation leaves the report stale
-    module_slot.tags = {module_name = module_name, count = module_count}
-    module_slot.add{
-        type = "choose-elem-button",
-        name = "hxrrc_choose_module_button",
-        tooltip = {"hxrrc.choose_module_button_tooltip"},
-        elem_type = "item",
-        item = module_name,
-        elem_filters = {{filter = "name", name = storage.names_of_allowed_modules_by_recipe_name[recipe_name]}},
-    }
-    local textfield = module_slot.add{
-        type = "textfield",
-        name = "hxrrc_module_count_textfield",
-        tooltip = {"hxrrc.module_count_textfield_tooltip"},
-        text = module_count,
-        enabled = not not module_count,
-        numeric = true,
-        allow_decimal = true,
-        lose_focus_on_confirm = true,
-    }
-    textfield.style.width = 32
-end
-
-local function add_module_data(main_module_flow)
-    local label_flow = main_module_flow.add{type = "flow", direction = "vertical"}
-    local module_preferences = storage[main_module_flow.player_index].module_preferences_by_recipe_name[main_module_flow.tags.recipe_name]
+local function add_effects_label(cell, recipe_name)
+    local label_flow = cell.add{type = "flow", direction = "vertical"}
+    local effects = Utils.recipe_effects(cell.player_index, recipe_name)
     for _, effect in ipairs(Utils.module_effect_names) do
-        local effect_value = module_preferences.effects[effect]
+        local effect_value = effects[effect]
         if math.abs(effect_value) >= 0.01 then
             label_flow.add{type = "label", caption = {"", {"hxrrc." .. effect}, ": ", string.format("%+.0f", (effect_value > -0.8 and effect_value or -0.8) * 100) .. "%"}}
         end
     end
 end
 
-function ModuleGUI.new(parent, recipe_name, allowed_effects)
-    if allowed_effects then
-        local an_allowed_effect = false
-        for _, value in pairs(allowed_effects) do
-            if(value) then an_allowed_effect = true end
-        end
-        if an_allowed_effect then
-            local main_module_flow = parent.add{type = "flow", direction = "horizontal"}
-            main_module_flow.tags = {recipe_name = recipe_name}
+--A machine receives beacon groups unless it ignores beacon effects, and only when some beacon exists
+local function receives_beacons(machine)
+    local effect_receiver = machine.effect_receiver
+    return not (effect_receiver and effect_receiver.uses_beacon_effects == false) and next(storage.beacon_names) ~= nil
+end
 
-            local module_gui = main_module_flow.add{type = "flow", direction = "horizontal"}
-            module_gui.tags = {recipe_name = recipe_name}
-            module_gui.style.right_padding = 4
+local function sorted_beacon_names()
+    local names = {}
+    for beacon_name, _ in pairs(storage.beacon_names) do
+        names[#names + 1] = beacon_name
+    end
+    table.sort(names)
+    return names
+end
 
-            local modules = storage[module_gui.player_index].module_preferences_by_recipe_name[recipe_name]
-            for index, module_name in ipairs(modules) do
-                add_module_slot(module_gui, recipe_name, module_name, modules[-index])
+--Each button sits in its own flow: the engine refuses two children with the same name under one parent
+local function add_module_buttons(row, name, modules, capacity, allowed, group_index)
+    for index = 1, capacity do
+        local module = modules[index]
+        local value = module and {name = module.name, quality = module.quality}
+        row.add{type = "flow"}.add{
+            type = "choose-elem-button",
+            name = name,
+            tooltip = {"hxrrc.choose_module_button_tooltip"},
+            elem_type = "item-with-quality",
+            ["item-with-quality"] = value,
+            elem_filters = {{filter = "name", name = allowed}},
+            tags = {group = group_index, index = index, value = value}, --snapshot for refused changes on a stale report
+        }
+    end
+end
+
+--group nil makes the button that adds a group
+local function add_beacon_button(row, group, group_index, beacon_filter)
+    local value = group and {name = group.name, quality = group.quality}
+    row.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_beacon_button",
+        tooltip = {"hxrrc.beacon_button_tooltip"},
+        elem_type = "entity-with-quality",
+        ["entity-with-quality"] = value,
+        elem_filters = beacon_filter,
+        tags = {group = group_index, value = value},
+    }
+end
+
+local function add_count_field(row, name, tooltip, group_index, value)
+    local text = string.format("%d", value)
+    local field = row.add{
+        type = "textfield",
+        name = name,
+        tooltip = {tooltip},
+        text = text,
+        numeric = true,
+        allow_decimal = false,
+        allow_negative = false,
+        lose_focus_on_confirm = true,
+        tags = {group = group_index, text = text},
+    }
+    field.style.width = 40
+end
+
+--Builds the cell's controls from the stored setup; the cell's tags remember the row's product, the recipe and the setup it shows.
+--A rebuild passes no product and keeps the one already tagged.
+local function fill(cell, recipe, machine, identifier, product_full_name)
+    local setup = storage[cell.player_index].module_setups_by_recipe_name[recipe.name]
+    cell.tags = {recipe_name = recipe.name, product_full_name = product_full_name or cell.tags.product_full_name, signature = ModuleSetup.signature(setup, identifier)}
+
+    local capacity = ModuleSetup.machine_capacity(machine, identifier.quality)
+    local allowed = ModuleSetup.allowed_module_names({machine}, recipe)
+    if capacity > 0 and #allowed > 0 then
+        local slots = cell.add{type = "flow", direction = "horizontal", name = "hxrrc_module_slots"}
+        slots.style.right_padding = 4
+        add_module_buttons(slots, "hxrrc_choose_module_button", setup.modules, capacity, allowed)
+    end
+
+    if receives_beacons(machine) then
+        local beacon_filter = {{filter = "name", name = sorted_beacon_names()}}
+        for group_index, group in ipairs(setup.beacons) do
+            local row = cell.add{type = "flow", direction = "horizontal"}
+            add_beacon_button(row, group, group_index, beacon_filter)
+            add_count_field(row, "hxrrc_beacon_count_textfield", "hxrrc.beacon_count_textfield_tooltip", group_index, group.count)
+            add_count_field(row, "hxrrc_beacon_sharing_textfield", "hxrrc.beacon_sharing_textfield_tooltip", group_index, group.sharing)
+            local beacon = prototypes.entity[group.name]
+            local beacon_allowed = ModuleSetup.allowed_module_names({beacon, machine}, recipe)
+            if #beacon_allowed > 0 then
+                add_module_buttons(row, "hxrrc_choose_beacon_module_button", group.modules, ModuleSetup.beacon_capacity(beacon, group.quality), beacon_allowed, group_index)
             end
-            add_module_slot(module_gui, recipe_name)
-
-            add_module_data(main_module_flow)
-        else
-            parent.add{type = "empty-widget"}
         end
-    else
+        local add_row = cell.add{type = "flow", direction = "horizontal"}
+        add_beacon_button(add_row, nil, #setup.beacons + 1, beacon_filter)
+    end
+
+    add_effects_label(cell, recipe.name)
+end
+
+function ModuleGUI.new(parent, recipe, machine, identifier, product_full_name)
+    if ModuleSetup.machine_capacity(machine, identifier.quality) == 0 and not receives_beacons(machine) then
         parent.add{type = "empty-widget"}
+        return
     end
+    local cell = parent.add{type = "flow", direction = "vertical"}
+    fill(cell, recipe, machine, identifier, product_full_name)
 end
 
---The module a refused change puts back: the slot's snapshot, unless that module no longer exists
-local function restored_module(module_slot)
-    local module_name = module_slot.tags.module_name
-    return module_name and prototypes.item[module_name] and module_name or nil
+--The stored setup a control of a cell acts on, or nil when the cell is stale:
+--the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built
+local function current_setup(element)
+    local cell = element.parent
+    while cell and not cell.tags.recipe_name do --the cell is the nearest ancestor tagged with a recipe
+        cell = cell.parent
+    end
+    if not cell then
+        return nil
+    end
+    local recipe_name = cell.tags.recipe_name
+    local player_index = element.player_index
+    local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
+    local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
+    if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
+        return nil
+    end
+    --the row's product was bound to another recipe since the cell was built, so the cell shows a recipe the row no longer uses
+    if storage[player_index].product_full_names_by_recipe_name[recipe_name] ~= cell.tags.product_full_name then
+        return nil
+    end
+    return setup, cell, recipe_name, identifier
 end
 
-local function restored_count_text(module_slot)
-    local count = module_slot.tags.count
-    return count and tostring(count) or ""
+--Makes the stored setup valid again and rebuilds the cell from it, with a fresh signature
+local function apply(cell, recipe_name, identifier)
+    ModuleSetup.sanitize(cell.player_index, recipe_name)
+    cell.clear()
+    fill(cell, prototypes.recipe[recipe_name], prototypes.entity[identifier.name], identifier)
 end
 
---A slot is stale when the stored modules changed and its report was not rebuilt, e.g. after a failed recomputation or a removed mod
-local function is_slot_current(module_slot, module_preferences)
-    if not module_preferences or #module_slot.parent.children ~= #module_preferences + 1 then
-        return false
+local function same_value(a, b)
+    if type(a) == "table" and type(b) == "table" then
+        return a.name == b.name and (a.quality or "normal") == (b.quality or "normal")
     end
-    local index = module_slot.get_index_in_parent()
-    local module_name = module_preferences[index]
-    return module_slot.tags.module_name == module_name
-        and module_slot.tags.count == module_preferences[-index]
-        and (module_name == nil or prototypes.item[module_name] ~= nil)
+    return a == b
 end
 
-local function remove_module_effects(module_preferences, index)
-    local module_prototype = prototypes.item[module_preferences[index]]
-    for _, effect in ipairs(Utils.module_effect_names) do
-        if module_prototype.module_effects[effect] then
-            module_preferences.effects[effect] = module_preferences.effects[effect] - module_preferences[-index] * module_prototype.module_effects[effect]
-        end
+--What a refused change puts back: the button's own snapshot, unless its module no longer exists; a removed quality falls back to normal
+local function restored_value(button)
+    if button.elem_type == "item" then --a slot button built before module slots had qualities; its snapshot sits on its slot flow
+        local module_name = button.parent.tags.module_name
+        return module_name and prototypes.item[module_name] and module_name or nil
     end
+    local value = button.tags.value
+    if not (value and prototypes.item[value.name]) then
+        return nil
+    end
+    return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
 end
 
-local function add_module_effects(module_preferences, index)
-    local module_prototype = prototypes.item[module_preferences[index]]
-    for _, effect in ipairs(Utils.module_effect_names) do
-        if module_prototype.module_effects[effect] then
-            module_preferences.effects[effect] = module_preferences.effects[effect] + module_preferences[-index] * module_prototype.module_effects[effect]
-        end
-    end
-end
-
---Returns true when the stored module preferences changed
-function ModuleGUI.on_gui_elem_changed(event)
-    local choose_module_button = event.element
-    local module_slot = choose_module_button.parent
-    local module_gui = module_slot.parent
-    local recipe_name = module_gui.tags.recipe_name
-    local module_preferences = storage[choose_module_button.player_index].module_preferences_by_recipe_name[recipe_name]
-
-    --a refused change restores the button, which may raise this event again: the restored value is then a no-op
-    if choose_module_button.elem_value == restored_module(module_slot) then
-        return false
-    end
-    if not is_slot_current(module_slot, module_preferences) then
-        choose_module_button.elem_value = restored_module(module_slot)
-        return false
-    end
-
-    local index = module_slot.get_index_in_parent()
-    if not choose_module_button.elem_value then
-        remove_module_effects(module_preferences, index)
-        --a button that was not the last one was emptied, so the module data must be shifted to fill the gap, and the button must be deleted along with its textfield buddy
-        for i = index + 1, #module_preferences do
-            module_preferences[i - 1] = module_preferences[i]
-            module_preferences[-i + 1] = module_preferences[-i]
-        end
-        module_preferences[#module_preferences], module_preferences[-#module_preferences] = nil, nil
-
-        module_slot.destroy()
-        return true
-    end
-
-    if index == #module_gui.children then
-        --the last module slot was set, so its textfiled must be enabled, the module's count set to 1 by default, and a new one must be added
-        module_preferences[-index] = 1
-        add_module_slot(module_gui, recipe_name)
+--Stores a pick into a dense module list: an empty button appends, an occupied one is replaced, an emptied one is removed and the rest shift left
+local function store_pick(modules, index, picked)
+    if picked == nil then
+        table.remove(modules, index)
     else
-        --a previous module was replaced
-        remove_module_effects(module_preferences, index)
+        local module = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
+        if index <= #modules then
+            modules[index] = module
+        else --any empty slot appends, so the list never has holes
+            modules[#modules + 1] = module
+        end
     end
-    module_preferences[index] = choose_module_button.elem_value
-    add_module_effects(module_preferences, index)
+end
 
-    module_slot.tags = {module_name = module_preferences[index], count = module_preferences[-index]}
-    local textfield = module_slot.hxrrc_module_count_textfield
-    textfield.enabled = true
-    textfield.text = tostring(module_preferences[-index])
+--Returns true when the stored setup changed
+function ModuleGUI.on_module_button_changed(event)
+    local button = event.element
+    local restored = restored_value(button)
+    --a refused change restores the button, which may raise this event again: the restored value is then a no-op
+    if same_value(button.elem_value, restored) then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(button)
+    if not setup then
+        button.elem_value = restored
+        return false
+    end
+    store_pick(setup.modules, button.tags.index, button.elem_value)
+    apply(cell, recipe_name, identifier)
     return true
 end
 
---Returns true when the stored module preferences changed
-function ModuleGUI.on_gui_confirmed(event)
-    local textfield = event.element
-    local module_slot = textfield.parent
-    local recipe_name = module_slot.parent.tags.recipe_name
-    local module_preferences = storage[textfield.player_index].module_preferences_by_recipe_name[recipe_name]
-
-    --a refused change restores the text, which may raise this event again: the restored value is then a no-op
-    if textfield.text == restored_count_text(module_slot) then
+--Returns true when the stored setup changed
+function ModuleGUI.on_beacon_module_button_changed(event)
+    local module_button = event.element
+    local restored = restored_value(module_button)
+    if same_value(module_button.elem_value, restored) then
         return false
     end
-    if not module_slot.tags.module_name or not is_slot_current(module_slot, module_preferences) then
-        textfield.text = restored_count_text(module_slot)
+    local setup, cell, recipe_name, identifier = current_setup(module_button)
+    if not setup then
+        module_button.elem_value = restored
         return false
     end
-
-    local index = module_slot.get_index_in_parent()
-    local module_prototype = prototypes.item[module_preferences[index]]
-    local new_value = tonumber(textfield.text) or 0
-    local delta = new_value - module_preferences[-index]
-    for _, effect in ipairs(Utils.module_effect_names) do
-        if module_prototype.module_effects[effect] then
-            module_preferences.effects[effect] = module_preferences.effects[effect] + delta * module_prototype.module_effects[effect]
-        end
-    end
-
-    module_preferences[-index] = new_value
-    module_slot.tags = {module_name = module_preferences[index], count = new_value}
+    store_pick(setup.beacons[module_button.tags.group].modules, module_button.tags.index, module_button.elem_value)
+    apply(cell, recipe_name, identifier)
     return true
+end
+
+local function restored_beacon(beacon_button)
+    local value = beacon_button.tags.value
+    if not (value and storage.beacon_names[value.name]) then
+        return nil
+    end
+    return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
+end
+
+--Returns true when the stored setup changed: the add button appends a group of one beacon per machine, one machine per beacon;
+--changing a group's beacon keeps its numbers and the modules the new beacon accepts; emptying it removes the group
+function ModuleGUI.on_beacon_button_changed(event)
+    local beacon_button = event.element
+    local restored = restored_beacon(beacon_button)
+    if same_value(beacon_button.elem_value, restored) then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(beacon_button)
+    if not setup then
+        beacon_button.elem_value = restored
+        return false
+    end
+    local picked_beacon = beacon_button.elem_value
+    local group_index = beacon_button.tags.group
+    if picked_beacon == nil then
+        table.remove(setup.beacons, group_index)
+    elseif group_index <= #setup.beacons then
+        local group = setup.beacons[group_index]
+        group.name, group.quality = picked_beacon.name, picked_beacon.quality ~= "normal" and picked_beacon.quality or nil
+    else
+        setup.beacons[#setup.beacons + 1] = {name = picked_beacon.name, quality = picked_beacon.quality ~= "normal" and picked_beacon.quality or nil,
+            count = 1, sharing = 1, modules = {}}
+    end
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+--Text of a count or sharing field as a whole number from 1 to 9999, or nil
+local function parse_count(text)
+    if not text:match("^%d%d?%d?%d?$") then
+        return nil
+    end
+    local value = tonumber(text)
+    return value >= 1 and value or nil
+end
+
+local function apply_beacon_number(field, key, value)
+    local restored = field.tags.text
+    --a refused change restores the text, which may raise this event again: the restored text is then a no-op
+    if field.text == restored then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(field)
+    if not setup or value == nil then
+        field.text = restored
+        return false
+    end
+    setup.beacons[field.tags.group][key] = value
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+--Returns true when the stored setup changed
+function ModuleGUI.on_beacon_count_confirmed(event)
+    return apply_beacon_number(event.element, "count", parse_count(event.element.text))
+end
+
+--Returns true when the stored setup changed
+function ModuleGUI.on_beacon_sharing_confirmed(event)
+    return apply_beacon_number(event.element, "sharing", parse_count(event.element.text))
 end
 
 return ModuleGUI

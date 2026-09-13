@@ -1,4 +1,5 @@
 local Utils = require "logic.utils"
+local ModuleSetup = require "logic.module_setup"
 
 local PlayerDataUpdater = {}
 
@@ -54,49 +55,12 @@ local function update_recipe_bindings(player_index)
     rebuild_inverse_recipe_bindings(player_index)
 end
 
-local function reinitialize_module_preferences(player_index)
-    local module_preferences = storage[player_index].module_preferences_by_recipe_name
-    for recipe_name, _ in pairs(prototypes.recipe) do
-        if not module_preferences[recipe_name] then
-            module_preferences[recipe_name] = {effects = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}}
-        end
-    end
-    for recipe_name, preferences_table in pairs(module_preferences) do
-        if not prototypes.recipe[recipe_name] then
-            module_preferences[recipe_name] = nil
-        else
-            --module names sit at positive indexes and their counts at the matching negative indexes; keep the pairs whose module still exists
-            local kept_module_names, kept_module_counts = {}, {}
-            for index, module_name in ipairs(preferences_table) do
-                if prototypes.item[module_name] then
-                    table.insert(kept_module_names, module_name)
-                    table.insert(kept_module_counts, preferences_table[-index])
-                end
-            end
-            if #kept_module_names < #preferences_table then
-                for index = 1, #preferences_table do
-                    preferences_table[index], preferences_table[-index] = kept_module_names[index], kept_module_counts[index]
-                end
-                for _, effect in ipairs(Utils.module_effect_names) do
-                    preferences_table.effects[effect] = 0
-                end
-                for index, module_name in ipairs(kept_module_names) do
-                    local module = prototypes.item[module_name]
-                    for _, effect in ipairs(Utils.module_effect_names) do
-                        if module.module_effects[effect] then
-                            preferences_table.effects[effect] = preferences_table.effects[effect] + kept_module_counts[index] * module.module_effects[effect]
-                        end
-                    end
-                end
-            end
-        end
-    end
-end
-
+--Chosen machines first, so module setups are made valid for machines that still exist
 function PlayerDataUpdater.reinitialize(player_index)
     reinitialize_chosen_crafting_machines(player_index)
     update_recipe_bindings(player_index)
-    reinitialize_module_preferences(player_index)
+    ModuleSetup.migrate(player_index)
+    ModuleSetup.reinitialize(player_index)
 end
 
 return PlayerDataUpdater
