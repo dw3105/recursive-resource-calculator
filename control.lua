@@ -2,6 +2,7 @@ event_handlers = {}
 event_handlers.on_gui_click = {}
 event_handlers.on_gui_confirmed = {}
 event_handlers.on_gui_elem_changed = {}
+event_handlers.on_gui_checked_state_changed = {}
 
 local Calculator = require "gui.calculator"
 local Sheet = require "gui.sheet"
@@ -82,6 +83,7 @@ for _, event_type in ipairs({
     "on_gui_click",
     "on_gui_elem_changed",
     "on_gui_confirmed",
+    "on_gui_checked_state_changed",
     }) do
     script.on_event(defines.events[event_type], function(event)
         local handler = event_handlers[event_type][event.element.name]
