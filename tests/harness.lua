@@ -12,15 +12,22 @@ local function set_of(list)
     return set
 end
 
---LuaObject: reading or writing a key outside its member list errors like the engine does
-function H.lua_object(class, fields, members)
+--LuaObject: reading or writing a key outside its member list errors like the engine does.
+--gates: member -> set of prototype types it can be used on; reading it unset on another type errors (conservative assumption, not established for every member)
+function H.lua_object(class, fields, members, gates)
     local allowed = set_of(members)
     for key, _ in pairs(fields) do
         if not allowed[key] then error("fixture sets non-member " .. class .. "." .. key, 2) end
     end
     return setmetatable(fields, {
-        __index = function(_, key)
-            if allowed[key] then return nil end
+        __index = function(object, key)
+            if allowed[key] then
+                local types = gates and gates[key]
+                if types and not types[rawget(object, "type")] then
+                    error(class .. "::" .. key .. " can only be used if this is " .. types.names, 2)
+                end
+                return nil
+            end
             error(class .. " doesn't contain key " .. tostring(key), 2)
         end,
         __newindex = function(object, key, value)
@@ -31,16 +38,53 @@ function H.lua_object(class, fields, members)
 end
 
 local RECIPE_MEMBERS = {
-    ["2.0"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_module_categories", "maximum_productivity", "category", "additional_categories"},
-    ["2.1"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_module_categories", "maximum_productivity", "categories", "get_product_amount"},
+    ["2.0"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories"},
+    ["2.1"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "categories", "get_product_amount"},
     --shape the code at cb6b529 expects: 2.1 recipe members with 2.0 product fields (portal 1.1.9 on Factorio 2.0.77)
-    ["hybrid"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_module_categories", "maximum_productivity", "category", "additional_categories", "categories"},
+    ["hybrid"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories", "categories"},
 }
 
 local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_categories", "effect_receiver", "energy_usage", "allowed_effects",
     "get_crafting_speed", "get_max_energy_usage", "electric_energy_source_prototype", "burner_prototype", "heat_energy_source_prototype",
-    "fluid_energy_source_prototype", "void_energy_source_prototype"}
-local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "category"}
+    "fluid_energy_source_prototype", "void_energy_source_prototype", "module_inventory_size", "get_inventory_size", "allowed_module_categories",
+    "quality_affects_module_slots", "module_slots_quality_bonus", "distribution_effectivity", "distribution_effectivity_bonus_per_quality_level",
+    "profile", "beacon_counter"}
+local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category"}
+local QUALITY_MEMBERS = {"name", "valid", "level", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus", "beacon_power_usage_multiplier"}
+
+local function gate(types)
+    local set = set_of(types)
+    set.names = table.concat(types, " or ")
+    return set
+end
+local CRAFTING_MACHINE_TYPES = {"assembling-machine", "furnace", "rocket-silo"}
+local ENTITY_GATES = {
+    crafting_categories = gate(CRAFTING_MACHINE_TYPES),
+    get_crafting_speed = gate(CRAFTING_MACHINE_TYPES),
+    quality_affects_module_slots = gate({"beacon", "assembling-machine", "furnace", "rocket-silo", "mining-drill", "lab"}),
+}
+local ITEM_GATES = {module_effects = gate({"module"}), get_module_effects = gate({"module"}), category = gate({"module"})}
+
+local EFFECT_NAMES = {"consumption", "speed", "productivity", "pollution", "quality"}
+
+--dictionary[effect -> boolean] over all five effects from a list of allowed ones; nil list gives nil unless every effect is the default
+local function effect_dictionary(list, all_by_default)
+    if list == nil and not all_by_default then return nil end
+    local allowed = set_of(list or EFFECT_NAMES)
+    local dictionary = {}
+    for _, effect in ipairs(EFFECT_NAMES) do dictionary[effect] = allowed[effect] == true end
+    return dictionary
+end
+
+--Prototype-doc rule for module slots at a quality: base slots, plus, when quality affects slots, the entity's own bonus for that quality or else the quality's bonus
+local function module_slots_at(base, affected, own_bonus_by_quality, quality_bonus_member, quality)
+    if not affected or quality == nil then return base end
+    local quality_prototype = prototypes.quality[quality]
+    if not quality_prototype then error("Unknown quality " .. tostring(quality), 3) end
+    local own = own_bonus_by_quality and own_bonus_by_quality[quality]
+    if own ~= nil then return base + own end
+    return base + quality_prototype[quality_bonus_member]
+end
 local FLUID_MEMBERS = {"name", "valid", "localised_name"}
 local ENERGY_SOURCE_MEMBERS = {"emissions_per_joule"}
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
@@ -67,6 +111,10 @@ local function check_elem_value(element, value)
         error("Unknown item " .. tostring(value), 3)
     elseif elem_type == "fluid" and not prototypes.fluid[value] then
         error("Unknown fluid " .. tostring(value), 3)
+    elseif elem_type == "item-with-quality" and not prototypes.item[value.name] then
+        error("Unknown item " .. tostring(value.name), 3)
+    elseif elem_type == "item-with-quality" and value.quality and not prototypes.quality[value.quality] then
+        error("Unknown quality " .. tostring(value.quality), 3)
     elseif elem_type == "entity-with-quality" and not prototypes.entity[value.name] then
         error("Unknown entity " .. tostring(value.name), 3)
     elseif elem_type == "entity-with-quality" and value.quality and not prototypes.quality[value.quality] then
@@ -241,7 +289,8 @@ function H.new_world(shape)
     _G.defines = {events = {on_player_created = "on_player_created", on_player_removed = "on_player_removed", on_gui_closed = "on_gui_closed",
         on_research_finished = "on_research_finished", on_gui_click = "on_gui_click", on_gui_elem_changed = "on_gui_elem_changed",
         on_gui_confirmed = "on_gui_confirmed", on_gui_checked_state_changed = "on_gui_checked_state_changed", on_tick = "on_tick",
-        on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed"}}
+        on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed"},
+        inventory = {beacon_modules = 1, crafter_modules = 4}}
     _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions}, HELPERS_MEMBERS)
     _G.script = H.lua_object("LuaBootstrap", {
         active_mods = {base = base_version, RecursiveResourceCalculator = "1.1.10"},
@@ -252,27 +301,54 @@ function H.new_world(shape)
     _G.settings = {get_player_settings = function() return {["hxrrc-displayed-floating-point-precision"] = {value = 12}} end}
 
     local machines = {}
+    local beacons = {}
     local modules = {}
     H.refire_on_script_set = false
     refire_depth = 0
 
+    local qualities = {}
+    for name, level in pairs({normal = 0, uncommon = 1, rare = 2, epic = 3, legendary = 5}) do
+        qualities[name] = H.lua_object("LuaQualityPrototype", {name = name, valid = true, level = level, crafting_machine_module_slots_bonus = level,
+            beacon_module_slots_bonus = level, beacon_power_usage_multiplier = 1}, QUALITY_MEMBERS)
+    end
+
     _G.prototypes = {
         recipe = {}, item = {}, fluid = {}, entity = {},
-        quality = {normal = {name = "normal"}, uncommon = {name = "uncommon"}, rare = {name = "rare"}, epic = {name = "epic"}, legendary = {name = "legendary"}},
-        get_entity_filtered = function() return machines end,
-        get_item_filtered = function() return modules end,
+        quality = qualities,
+        get_entity_filtered = function(filters)
+            local filter = filters[1]
+            if filter.filter == "crafting-machine" then return machines end
+            if filter.filter == "type" and filter.type == "beacon" then return beacons end
+            error("harness does not support entity filter " .. tostring(filter.filter))
+        end,
+        get_item_filtered = function(filters)
+            local filter = filters[1]
+            if filter.filter == "type" and filter.type == "module" then return modules end
+            error("harness does not support item filter " .. tostring(filter.filter))
+        end,
     }
     _G.game = {players = {}, get_player = function(index) return game.players[index] end}
 
     function world.add_item(name)
-        prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name}}, ITEM_MEMBERS)
+        prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name}}, ITEM_MEMBERS, ITEM_GATES)
     end
 
-    function world.add_module(name, category, module_effects)
+    --effects_by_quality: {[quality name] = effects} for qualities whose effects differ; the engine's scaling is not modelled, fixtures give values
+    function world.add_module(name, category, module_effects, effects_by_quality)
         local module = H.lua_object("LuaItemPrototype", {name = name, type = "module", valid = true, localised_name = {"item-name." .. name},
-            category = category, module_effects = module_effects}, ITEM_MEMBERS)
+            category = category, module_effects = module_effects,
+            get_module_effects = function(quality)
+                if quality ~= nil and not prototypes.quality[quality] then error("Unknown quality " .. tostring(quality), 2) end
+                return (effects_by_quality and effects_by_quality[quality or "normal"]) or module_effects
+            end}, ITEM_MEMBERS, ITEM_GATES)
         prototypes.item[name] = module
         modules[name] = module
+    end
+
+    --A mod swap turning a module into a plain item under the same name
+    function world.replace_module_with_item(name)
+        modules[name] = nil
+        world.add_item(name)
     end
 
     function world.remove_module(name)
@@ -290,30 +366,47 @@ function H.new_world(shape)
         prototypes.quality[name] = nil
     end
 
+    --fields: LuaQualityPrototype members to change, e.g. {beacon_power_usage_multiplier = 2}
+    function world.set_quality(name, fields)
+        for key, value in pairs(fields) do prototypes.quality[name][key] = value end
+    end
+
     function world.add_fluid(name)
         prototypes.fluid[name] = H.lua_object("LuaFluidPrototype", {name = name, valid = true, localised_name = {"fluid-name." .. name}}, FLUID_MEMBERS)
     end
 
-    --spec: {name, categories, speed, energy_kw, pollution_per_minute, base_productivity, no_effect_receiver, speeds_by_quality}
+    --spec: {name, categories, speed, energy_kw, pollution_per_minute, base_productivity, no_effect_receiver, speeds_by_quality,
+    --  module_slots (default 4), quality_affects_module_slots, module_slots_quality_bonus, allowed_effects (list), allowed_module_categories (list),
+    --  uses_module_effects, uses_beacon_effects}
     function world.add_machine(spec)
         local energy_usage = (spec.energy_kw or 210) * 1000 / 60 --joules per tick
         local pollution_per_second = (spec.pollution_per_minute or 4) / 60
         local categories = {}
         for _, category in ipairs(spec.categories) do categories[category] = true end
+        local module_slots = spec.module_slots or 4
         local fields = {
             name = spec.name, type = "assembling-machine", valid = true, localised_name = {"entity-name." .. spec.name},
             crafting_categories = categories,
             energy_usage = energy_usage,
-            allowed_effects = {consumption = true, speed = true, productivity = true, pollution = true, quality = true},
+            allowed_effects = effect_dictionary(spec.allowed_effects, true),
+            allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories),
+            module_inventory_size = module_slots,
+            quality_affects_module_slots = spec.quality_affects_module_slots,
+            module_slots_quality_bonus = spec.module_slots_quality_bonus,
+            get_inventory_size = function(index, quality)
+                if index ~= defines.inventory.crafter_modules then return nil end
+                return module_slots_at(module_slots, spec.quality_affects_module_slots, spec.module_slots_quality_bonus, "crafting_machine_module_slots_bonus", quality)
+            end,
             get_crafting_speed = function(quality) return (spec.speeds_by_quality or {})[quality or "normal"] or spec.speed or 1 end,
             get_max_energy_usage = function() return energy_usage end,
             electric_energy_source_prototype = H.lua_object("LuaElectricEnergySourcePrototype",
                 {emissions_per_joule = spec.emissions_per_joule or {pollution = pollution_per_second / (energy_usage * 60)}}, ENERGY_SOURCE_MEMBERS),
         }
         if not spec.no_effect_receiver then
-            fields.effect_receiver = {base_effect = {productivity = spec.base_productivity}, uses_module_effects = true, uses_beacon_effects = true, uses_surface_effects = true}
+            fields.effect_receiver = {base_effect = {productivity = spec.base_productivity}, uses_module_effects = spec.uses_module_effects ~= false,
+                uses_beacon_effects = spec.uses_beacon_effects ~= false, uses_surface_effects = true}
         end
-        local machine = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS)
+        local machine = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
         prototypes.entity[spec.name] = machine
         machines[spec.name] = machine
     end
@@ -322,7 +415,7 @@ function H.new_world(shape)
     function world.replace_machine_with_entity(name, entity_type)
         machines[name] = nil
         prototypes.entity[name] = H.lua_object("LuaEntityPrototype",
-            {name = name, type = entity_type, valid = true, localised_name = {"entity-name." .. name}}, ENTITY_MEMBERS)
+            {name = name, type = entity_type, valid = true, localised_name = {"entity-name." .. name}}, ENTITY_MEMBERS, ENTITY_GATES)
     end
 
     function world.remove_machine(name)
@@ -330,7 +423,45 @@ function H.new_world(shape)
         prototypes.entity[name] = nil
     end
 
-    --spec: {name, category, additional_categories, energy, ingredients = {{type, name, amount}}, products = {product specs}, maximum_productivity}
+    --spec: {name, module_slots (default 2), quality_affects_module_slots, energy_kw (default 480), distribution_effectivity (default 1.5),
+    --  bonus_per_quality_level (default 0.2), profile (default none), beacon_counter (default "same_type"),
+    --  allowed_effects (list, default consumption, speed, pollution), allowed_module_categories (list)}
+    function world.add_beacon(spec)
+        local module_slots = spec.module_slots or 2
+        local beacon = H.lua_object("LuaEntityPrototype", {
+            name = spec.name, type = "beacon", valid = true, localised_name = {"entity-name." .. spec.name},
+            module_inventory_size = module_slots,
+            quality_affects_module_slots = spec.quality_affects_module_slots,
+            get_inventory_size = function(index, quality)
+                if index ~= defines.inventory.beacon_modules then return nil end
+                return module_slots_at(module_slots, spec.quality_affects_module_slots, nil, "beacon_module_slots_bonus", quality)
+            end,
+            energy_usage = (spec.energy_kw or 480) * 1000 / 60,
+            distribution_effectivity = spec.distribution_effectivity == nil and 1.5 or spec.distribution_effectivity,
+            distribution_effectivity_bonus_per_quality_level = spec.bonus_per_quality_level == nil and 0.2 or spec.bonus_per_quality_level,
+            profile = spec.profile,
+            beacon_counter = spec.beacon_counter or "same_type",
+            allowed_effects = effect_dictionary(spec.allowed_effects or {"consumption", "speed", "pollution"}),
+            allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories),
+        }, ENTITY_MEMBERS, ENTITY_GATES)
+        prototypes.entity[spec.name] = beacon
+        beacons[spec.name] = beacon
+    end
+
+    function world.remove_beacon(name)
+        beacons[name] = nil
+        prototypes.entity[name] = nil
+    end
+
+    --A mod swap turning a beacon into another entity type under the same name
+    function world.replace_beacon_with_entity(name, entity_type)
+        beacons[name] = nil
+        prototypes.entity[name] = H.lua_object("LuaEntityPrototype",
+            {name = name, type = entity_type, valid = true, localised_name = {"entity-name." .. name}}, ENTITY_MEMBERS, ENTITY_GATES)
+    end
+
+    --spec: {name, category, additional_categories, energy, ingredients = {{type, name, amount}}, products = {product specs}, maximum_productivity,
+    --  allowed_effects (list), allowed_module_categories (list)}
     function world.add_recipe(spec)
         local products = {}
         for index, product_spec in ipairs(spec.products) do products[index] = H.product(shape, product_spec) end
@@ -339,7 +470,8 @@ function H.new_world(shape)
             ingredients[index] = {type = ingredient.type or "item", name = ingredient.name, amount = ingredient.amount}
         end
         local fields = {name = spec.name, valid = true, object_name = "LuaRecipePrototype", products = products, ingredients = ingredients,
-            energy = spec.energy or 1, maximum_productivity = spec.maximum_productivity or 3}
+            energy = spec.energy or 1, maximum_productivity = spec.maximum_productivity or 3,
+            allowed_effects = effect_dictionary(spec.allowed_effects), allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories)}
         if shape == "2.1" then
             fields.categories = {spec.category, table.unpack(spec.additional_categories or {})}
         else
@@ -440,6 +572,7 @@ function H.parse_report(output_flow)
             row.machine_caption = machine_cell.children[2].caption
             row.machine_tooltip = machine_cell.children[2].tooltip
             row.machine = machine_cell.children[1].elem_value
+            row.module_cell = cells[first + 2]
         else
             row.kind = machine_cell.caption[1]
         end
