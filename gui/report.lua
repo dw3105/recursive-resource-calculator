@@ -131,7 +131,7 @@ local function add_row_for_unsolved_product(report, unsolved_product_full_name, 
     end
 end
 
-function Report.new(parent, recipe_rates_by_recipe_name, product_rates_by_product_full_name, energy_consumption, pollution)
+function Report.new(parent, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution)
     local report = parent.add{type = "table", name = "report", column_count = 4, draw_horizontal_lines = true, draw_vertical_lines = true}
     local pi = report.player_index
 
@@ -139,14 +139,12 @@ function Report.new(parent, recipe_rates_by_recipe_name, product_rates_by_produc
 
     for recipe_name, recipe_rate in pairs(recipe_rates_by_recipe_name) do
         local product_full_name = storage[pi].product_full_names_by_recipe_name[recipe_name]
-        local product_rate = product_rates_by_product_full_name[product_full_name]
-        add_row_for_solved_product(report, product_full_name, product_rate, recipe_rate)
+        add_row_for_solved_product(report, product_full_name, solved_rates_by_product_full_name[product_full_name], recipe_rate)
     end
 
-    for product_full_name, product_rate in pairs(product_rates_by_product_full_name) do
-        if not storage[pi].recipes_by_product_full_name[product_full_name] then
-            add_row_for_unsolved_product(report, product_full_name, product_rate)
-        end
+    --Holds exactly the products without a solved row, including byproducts whose bound recipe is not used here
+    for product_full_name, product_rate in pairs(unsolved_rates_by_product_full_name) do
+        add_row_for_unsolved_product(report, product_full_name, product_rate)
     end
 end
 

@@ -24,37 +24,24 @@ local function get_total_productivity_multiplier_for_recipe(recipe, player_index
     return (1 + base_productivity) * (1 + recipe_productivity) * Utils.module_effect_multiplier(player_index, recipe.name, "productivity")
 end
 
-local function prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, player_index)
+local function prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index)
     local N = #used_recipe_name_list
     local A = {}
     local line_numbers_by_product_full_name = {}
-    local column_numbers_by_recipe_name = {}
     for i, recipe_name in ipairs(used_recipe_name_list) do
         A[i] = {}
 
         local product_full_name = storage[player_index].product_full_names_by_recipe_name[recipe_name]
         line_numbers_by_product_full_name[product_full_name] = i
-        column_numbers_by_recipe_name[recipe_name] = i
         A[i][N+1] = (production_rates_by_product_full_name[product_full_name] or 0)
     end
 
-    for _, recipe_name in ipairs(used_recipe_name_list) do
-        local column = column_numbers_by_recipe_name[recipe_name]
-        local recipe = prototypes.recipe[recipe_name]
-        --TODO catalysts into account.
-        local productivity_multiplier = get_total_productivity_multiplier_for_recipe(recipe, player_index)
-        for _, product in ipairs(recipe.products) do
-            local product_full_name = product.type .. "/" .. product.name
+    --One coefficient per product and recipe: the recipe's net amount of that product, so repeated entries and catalysts count once
+    for column, recipe_name in ipairs(used_recipe_name_list) do
+        for product_full_name, net_amount in pairs(net_amounts_by_recipe_name[recipe_name]) do
             local line = line_numbers_by_product_full_name[product_full_name]
             if line then
-                A[line][column] = productivity_multiplier * Utils.product_amount(product)
-            end
-        end
-        for _, ingredient in ipairs(recipe.ingredients) do
-            local ingredient_full_name = ingredient.type .. "/" .. ingredient.name
-            local line = line_numbers_by_product_full_name[ingredient_full_name]
-            if line then
-                A[line][column] = -ingredient.amount
+                A[line][column] = net_amount
             end
         end
     end
@@ -104,38 +91,35 @@ local function gauss_solve(A)
     return solution_values_by_column
 end
 
-local function compute_product_rates_by_product_full_name(recipe_rates_by_recipe_name, production_rates_of_final_products_by_product_full_name, player_index)
-    local demanded_rates = {}
-    local supplied_rates = {}
+--Solved products (bound to a used recipe) are reported at their recipe's own net output, so intermediates keep a rate even though their global balance is zero.
+--Every other product is reported at its global demand minus supply (negative means byproduct).
+local function compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by_recipe_name, production_rates_of_final_products_by_product_full_name, player_index)
+    local solved_rates = {}
+    local unsolved_rates = {}
 
     for final_product_full_name, production_rate in pairs(production_rates_of_final_products_by_product_full_name) do
-        demanded_rates[final_product_full_name] = production_rate
+        unsolved_rates[final_product_full_name] = production_rate
     end
 
     for recipe_name, recipe_rate in pairs(recipe_rates_by_recipe_name) do
-        local recipe = prototypes.recipe[recipe_name]
-        for _, ingredient in pairs(recipe.ingredients) do
-            local ingredient_full_name = ingredient.type .. "/" .. ingredient.name
-            demanded_rates[ingredient_full_name] = (demanded_rates[ingredient_full_name] or 0) + recipe_rate * Utils.product_amount(ingredient)
-        end
-        for _, product in pairs(recipe.products) do
-            --TODO Handle catalysts
-            local product_full_name = product.type .. "/" .. product.name
-            local productivity_multiplier = get_total_productivity_multiplier_for_recipe(recipe, player_index)
-            supplied_rates[product_full_name] = (supplied_rates[product_full_name] or 0) + recipe_rate * productivity_multiplier * Utils.product_amount(product)
+        local net_amounts = net_amounts_by_recipe_name[recipe_name]
+        local bound_product_full_name = storage[player_index].product_full_names_by_recipe_name[recipe_name]
+        solved_rates[bound_product_full_name] = recipe_rate * (net_amounts[bound_product_full_name] or 0)
+        for product_full_name, net_amount in pairs(net_amounts) do
+            unsolved_rates[product_full_name] = (unsolved_rates[product_full_name] or 0) - recipe_rate * net_amount
         end
     end
 
-    for potential_byproduct_full_name, supplied_rate in pairs(supplied_rates) do
-        local demanded_product_rate = demanded_rates[potential_byproduct_full_name] or 0
-        if 0.001 < supplied_rate - demanded_product_rate then
-            demanded_rates[potential_byproduct_full_name] = demanded_product_rate - supplied_rate
+    for product_full_name, rate in pairs(unsolved_rates) do
+        if solved_rates[product_full_name] or math.abs(rate) < 1e-9 then
+            unsolved_rates[product_full_name] = nil
         end
     end
 
-    return demanded_rates
+    return solved_rates, unsolved_rates
 end
 
+--Returns recipe rates, the rates of solved products and the rates of all other products involved
 function Solver.solve_for(production_rates_by_product_full_name, player_index)
     local used_recipe_name_set = {}
     for product_full_name, _ in pairs(production_rates_by_product_full_name) do
@@ -143,11 +127,14 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
     end
 
     local used_recipe_name_list = {}
+    local net_amounts_by_recipe_name = {}
     for recipe_name, _ in pairs(used_recipe_name_set) do
         table.insert(used_recipe_name_list, recipe_name)
+        local recipe = prototypes.recipe[recipe_name]
+        net_amounts_by_recipe_name[recipe_name] = Utils.net_amounts_by_full_name(recipe, get_total_productivity_multiplier_for_recipe(recipe, player_index) - 1)
     end
 
-    local solutions_by_recipe_index = gauss_solve(prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, player_index))
+    local solutions_by_recipe_index = gauss_solve(prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index))
     if not solutions_by_recipe_index then
         return
     end
@@ -157,7 +144,8 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
         recipe_rates_by_recipe_name[recipe_name] = solutions_by_recipe_index[recipe_index]
     end
 
-    return recipe_rates_by_recipe_name, compute_product_rates_by_product_full_name(recipe_rates_by_recipe_name, production_rates_by_product_full_name, player_index)
+    local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by_recipe_name, production_rates_by_product_full_name, player_index)
+    return recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name
 end
 
 return Solver

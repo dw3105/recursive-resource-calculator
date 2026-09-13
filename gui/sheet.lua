@@ -72,7 +72,7 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
         return
     end
 
-    local recipe_rates_by_recipe_name, product_rates_by_product_full_name = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index)
+    local recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index)
     if not recipe_rates_by_recipe_name then
         --Matrix unsolved
         game.get_player(sheet_flow.player_index).create_local_flying_text{text = {"hxrrc.system_with_no_solution_error"}, create_at_cursor = true}
@@ -83,7 +83,7 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     
     local output_flow = sheet_flow.output_flow
     output_flow.clear()
-    Report.new(output_flow, recipe_rates_by_recipe_name, product_rates_by_product_full_name, energy_consumption, pollution)
+    Report.new(output_flow, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution)
 end
 
 --GUI change added in 1.1.0: the sheets' input flow element was replaced with a new input container that supports multiple desired items with their respective production rates.

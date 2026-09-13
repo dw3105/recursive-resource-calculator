@@ -40,8 +40,66 @@ function Utils.product_amount_from_recipe(recipe, product_full_name)
     end
 end
 
-function Utils.product_amount(product)
-    return (product.amount or (product.amount_min + product.amount_max) / 2) * Utils.product_probability(product)
+--Mean amount above the ignored count: items are a whole number uniformly distributed over [min, max], fluids a continuous uniform amount.
+--Each outcome is clamped before averaging, since productivity never takes back more than an outcome gives.
+local function mean_amount_above(product, min, max, ignored)
+    if product.type == "fluid" then
+        if min == max then
+            return math.max(0, min - ignored)
+        elseif ignored <= min then
+            return (min + max) / 2 - ignored
+        elseif ignored >= max then
+            return 0
+        end
+        return (max - ignored) ^ 2 / (2 * (max - min))
+    end
+
+    local lowest_counted = math.max(min, math.ceil(ignored))
+    if lowest_counted > max then
+        return 0
+    end
+    local counted = max - lowest_counted + 1
+    return (counted * (lowest_counted + max) / 2 - counted * ignored) / (max - min + 1)
+end
+
+--Expected amount of a product per craft, with productivity_bonus being the recipe's total bonus (0.1 = +10%).
+--Extra count is weighted by probability, as measured on Factorio 2.0.77; ignored_by_productivity defaults to ignored_by_stats in the prototype.
+function Utils.product_amount(product, productivity_bonus)
+    local min = product.amount or product.amount_min
+    local max = product.amount or product.amount_max
+    if max < min then
+        max = min
+    end
+    local probability = Utils.product_probability(product)
+    local extra_count_fraction = product.extra_count_fraction or 0
+
+    local amount = probability * ((min + max) / 2 + extra_count_fraction)
+    if productivity_bonus and productivity_bonus ~= 0 then
+        local ignored = product.ignored_by_productivity or product.ignored_by_stats or 0
+        amount = amount + productivity_bonus * probability * (mean_amount_above(product, min, max, ignored) + extra_count_fraction)
+    end
+    return amount
+end
+
+--Net amount per craft of each item or fluid: every product entry of it summed, minus every ingredient entry of it. Zero nets are left out.
+function Utils.net_amounts_by_full_name(recipe, productivity_bonus)
+    local net_amounts = {}
+    for _, product in ipairs(recipe.products) do
+        if product.type ~= "research-progress" then
+            local full_name = product.type .. "/" .. product.name
+            net_amounts[full_name] = (net_amounts[full_name] or 0) + Utils.product_amount(product, productivity_bonus)
+        end
+    end
+    for _, ingredient in ipairs(recipe.ingredients) do
+        local full_name = ingredient.type .. "/" .. ingredient.name
+        net_amounts[full_name] = (net_amounts[full_name] or 0) - ingredient.amount
+    end
+    for full_name, net_amount in pairs(net_amounts) do
+        if net_amount == 0 then
+            net_amounts[full_name] = nil
+        end
+    end
+    return net_amounts
 end
 
 function Utils.get_any_crafting_machine_identifier_for(crafting_category)
