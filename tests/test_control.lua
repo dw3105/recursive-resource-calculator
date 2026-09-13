@@ -65,10 +65,21 @@ for _, shape in ipairs(H.shapes()) do
         require("gui.calculator").recompute_everything(2)
         world.handlers.events[defines.events.on_player_removed]({player_index = 2})
         game.players[2] = nil
+        for _, entry in ipairs(storage.computation_stack) do
+            assert(entry.player_index ~= 2, "removed player's computation still queued")
+        end
         require("gui.calculator").recompute_everything(1)
         drain_ticks(world)
         H.equal(storage.computation_stack[1], nil, "queue drained")
         H.equal(game.players[1].gui.screen.hxrrc_calculator.enabled, true, "remaining player's calculator enabled")
+    end)
+
+    H.test(shape .. " B6 a queued computation whose player data is gone is skipped", function()
+        local world = control_world(shape, {1})
+        local sheet_pane = storage[1].sheet_section.sheet_pane
+        table.insert(storage.computation_stack, {player_index = 5, call_id = 1, parameters = {false, sheet_pane, 1}})
+        drain_ticks(world)
+        H.equal(storage.computation_stack[1], nil, "queue drained")
     end)
 end
 
