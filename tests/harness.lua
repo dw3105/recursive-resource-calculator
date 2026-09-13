@@ -362,8 +362,24 @@ function H.test(name, fn)
     end
 end
 
+--NaN compares false with everything, so a plain tolerance check would let it pass
+local function check_finite(actual, what)
+    if type(actual) ~= "number" or actual ~= actual or actual == math.huge or actual == -math.huge then
+        error(string.format("%s: expected a finite number, got %s", what, tostring(actual)), 3)
+    end
+end
+
 function H.near(actual, expected, what)
-    if type(actual) ~= "number" or math.abs(actual - expected) > TOLERANCE then
+    check_finite(actual, what)
+    if math.abs(actual - expected) > TOLERANCE then
+        error(string.format("%s: expected %.12g, got %s", what, expected, tostring(actual)), 2)
+    end
+end
+
+--Relative tolerance for large magnitudes, where one unit of rounding already exceeds the absolute tolerance
+function H.near_relative(actual, expected, what)
+    check_finite(actual, what)
+    if math.abs(actual - expected) > TOLERANCE * math.max(1, math.abs(expected)) then
         error(string.format("%s: expected %.12g, got %s", what, expected, tostring(actual)), 2)
     end
 end
