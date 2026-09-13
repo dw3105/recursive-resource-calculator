@@ -47,6 +47,12 @@ end)
 
 script.on_event(defines.events.on_player_removed, function(event)
     storage[event.player_index] = nil
+    --queued computations of the removed player would reach its destroyed GUI
+    for index = #storage.computation_stack, 1, -1 do
+        if storage.computation_stack[index].player_index == event.player_index then
+            table.remove(storage.computation_stack, index)
+        end
+    end
 end)
 
 script.on_event("hxrrc_toggle_calculator", function(event)
@@ -86,11 +92,13 @@ end
 script.on_event(defines.events.on_tick, function()
     if storage.computation_stack[1] then
         local async_call_data = table.remove(storage.computation_stack)
-        local call = async_calls[async_call_data.call_id]
-        call(table.unpack(async_call_data.parameters))
         local player_index = async_call_data.player_index
-        storage[player_index].backlogged_computation_count = storage[player_index].backlogged_computation_count - 1
-        game.get_player(player_index).gui.screen.hxrrc_calculator.enabled = storage[player_index].backlogged_computation_count == 0
+        if storage[player_index] then
+            local call = async_calls[async_call_data.call_id]
+            call(table.unpack(async_call_data.parameters))
+            storage[player_index].backlogged_computation_count = storage[player_index].backlogged_computation_count - 1
+            game.get_player(player_index).gui.screen.hxrrc_calculator.enabled = storage[player_index].backlogged_computation_count == 0
+        end
     end
 end)
 

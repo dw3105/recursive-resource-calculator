@@ -59,6 +59,17 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(storage[1].backlogged_computation_count, 0, "backlog after upgrade and drain")
         H.equal(game.players[1].gui.screen.hxrrc_calculator.enabled, true, "calculator enabled")
     end)
+
+    H.test(shape .. " B6 removing a player with queued computations does not break later ticks", function()
+        local world = control_world(shape, {1, 2})
+        require("gui.calculator").recompute_everything(2)
+        world.handlers.events[defines.events.on_player_removed]({player_index = 2})
+        game.players[2] = nil
+        require("gui.calculator").recompute_everything(1)
+        drain_ticks(world)
+        H.equal(storage.computation_stack[1], nil, "queue drained")
+        H.equal(game.players[1].gui.screen.hxrrc_calculator.enabled, true, "remaining player's calculator enabled")
+    end)
 end
 
 H.done("test_control")
