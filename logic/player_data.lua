@@ -1,4 +1,5 @@
 local Utils = require "logic.utils"
+local ModuleSetup = require "logic.module_setup"
 
 local PlayerData = {}
 
@@ -10,12 +11,12 @@ local function initialize_chosen_crafting_machines(player_index)
     storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name = machine_identifiers_by_recipe_name
 end
 
-local function initialize_module_effects(player_index)
-    local module_effects_by_recipe = {}
+local function initialize_module_setups(player_index)
+    local module_setups_by_recipe_name = {}
     for recipe_name, _ in pairs(prototypes.recipe) do
-        module_effects_by_recipe[recipe_name] = {effects = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}}
+        module_setups_by_recipe_name[recipe_name] = ModuleSetup.new_setup()
     end
-    storage[player_index].module_preferences_by_recipe_name = module_effects_by_recipe
+    storage[player_index].module_setups_by_recipe_name = module_setups_by_recipe_name
 end
 
 function PlayerData.initialize_recipe_bindings(player_index)
@@ -40,7 +41,7 @@ function PlayerData.initialize_player_data(player_index)
     storage[player_index] = {}
     storage[player_index].backlogged_computation_count = 0
     initialize_chosen_crafting_machines(player_index)
-    initialize_module_effects(player_index)
+    initialize_module_setups(player_index)
     PlayerData.initialize_recipe_bindings(player_index)
 end
 

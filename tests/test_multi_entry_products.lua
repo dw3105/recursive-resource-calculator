@@ -35,10 +35,11 @@ local function kovarex_world(shape, productivity_module_bonus)
     world.add_recipe({name = "kovarex-enrichment-process", category = "centrifuging", energy = 60,
         ingredients = {{name = "uranium-235", amount = 40}, {name = "uranium-238", amount = 5}},
         products = {{name = "uranium-235", amount = 41, ignored = 40}, {name = "uranium-238", amount = 2, ignored = 2}}})
+    if productivity_module_bonus then world.add_module("bonus-module", "productivity", {productivity = productivity_module_bonus}) end
     world.add_player(1)
     world.init()
     world.bind("item/uranium-235", "kovarex-enrichment-process")
-    storage[1].module_preferences_by_recipe_name["kovarex-enrichment-process"].effects.productivity = productivity_module_bonus or 0
+    if productivity_module_bonus then storage[1].module_setups_by_recipe_name["kovarex-enrichment-process"].modules = {{name = "bonus-module"}} end
     return world
 end
 

@@ -75,13 +75,7 @@ function Calculator.recompute_everything(player_index)
 end
 
 event_handlers.on_gui_elem_changed["hxrrc_choose_module_button"] = function(event)
-    if ModuleGUI.on_gui_elem_changed(event) then
-        Calculator.recompute_everything(event.player_index)
-    end
-end
-
-event_handlers.on_gui_confirmed["hxrrc_module_count_textfield"] = function(event)
-    if ModuleGUI.on_gui_confirmed(event) then
+    if ModuleGUI.on_module_button_changed(event) then
         Calculator.recompute_everything(event.player_index)
     end
 end

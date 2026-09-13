@@ -9,9 +9,10 @@ local function gear_world(shape, spec)
     world.add_machine({name = "foundry", categories = {"crafting"}, speed = 1, base_productivity = spec.base})
     world.add_recipe({name = "gear", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}},
         maximum_productivity = spec.maximum})
+    if spec.module then world.add_module("bonus-module", "productivity", {productivity = spec.module}) end
     world.add_player(1, {gear = spec.research})
     world.init()
-    storage[1].module_preferences_by_recipe_name.gear.effects.productivity = spec.module or 0
+    if spec.module then storage[1].module_setups_by_recipe_name.gear.modules = {{name = "bonus-module"}} end
     return world
 end
 

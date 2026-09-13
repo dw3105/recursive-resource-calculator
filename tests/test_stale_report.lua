@@ -18,17 +18,17 @@ local function stale_world(shape)
     return world
 end
 
---Stores modules the way ModuleGUI does: names at positive indexes, counts at negative ones, summed effects
-local function set_modules(recipe_name, modules)
-    local preferences = storage[1].module_preferences_by_recipe_name[recipe_name]
-    local effects = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}
-    for index, module in ipairs(modules) do
-        preferences[index], preferences[-index] = module[1], module[2]
-        for effect, value in pairs(prototypes.item[module[1]].module_effects) do
-            effects[effect] = effects[effect] + module[2] * value
-        end
-    end
-    preferences.effects = effects
+--Stores machine modules the way the module cell does: a dense list in slot order
+local function set_modules(recipe_name, module_names)
+    local modules = {}
+    for index, name in ipairs(module_names) do modules[index] = {name = name} end
+    storage[1].module_setups_by_recipe_name[recipe_name].modules = modules
+end
+
+local function stored_names(recipe_name)
+    local names = {}
+    for _, module in ipairs(storage[1].module_setups_by_recipe_name[recipe_name].modules) do names[#names + 1] = module.name end
+    return table.concat(names, ",")
 end
 
 local function find_all(element, predicate, found)
@@ -38,14 +38,11 @@ local function find_all(element, predicate, found)
     return found
 end
 
---Module slots of a recipe's row, in order
-local function module_slots(sheet_pane, recipe_name)
-    local buttons = find_all(sheet_pane, function(element)
+--Module slot buttons of a recipe's row, in order
+local function module_buttons(sheet_pane, recipe_name)
+    return find_all(sheet_pane, function(element)
         return element.name == "hxrrc_choose_module_button" and element.parent.parent.tags.recipe_name == recipe_name
     end)
-    local slots = {}
-    for index, button in ipairs(buttons) do slots[index] = button.parent end
-    return slots
 end
 
 local function machine_button(sheet_pane, product_full_name)
@@ -62,10 +59,6 @@ local function fire_elem_changed(element)
     event_handlers.on_gui_elem_changed[element.name]({element = element, player_index = 1})
 end
 
-local function fire_confirmed(element)
-    event_handlers.on_gui_confirmed[element.name]({element = element, player_index = 1})
-end
-
 local function recompute(sheet_pane)
     require("gui.sheet").calculate(nil, sheet_pane, 1)
 end
@@ -76,24 +69,25 @@ local function reconfigure()
 end
 
 local function assert_no_effects(recipe_name)
+    local effects = require("logic.utils").recipe_effects(1, recipe_name)
     for _, effect in ipairs(EFFECTS) do
-        H.near(storage[1].module_preferences_by_recipe_name[recipe_name].effects[effect], 0, recipe_name .. " " .. effect)
+        H.near(effects[effect], 0, recipe_name .. " " .. effect)
     end
 end
 
 --F2a state: grow solved only thanks to a +10% module whose mod is then removed; recomputation fails and the old report stays
 local function removed_module_state(shape)
     local world = stale_world(shape)
-    set_modules("grow", {{"gone-productivity", 1}})
+    set_modules("grow", {"gone-productivity"})
     local report, sheet_pane = H.run_sheet({{item = "catalyst", rate = 1, unit = "/s"}})
     storage[1].sheet_section = {sheet_pane = sheet_pane}
     H.near(report.rows["item/catalyst"].machines, 10, "grow crafts with the module")
-    local slot = module_slots(sheet_pane, "grow")[1]
+    local buttons = module_buttons(sheet_pane, "grow")
     world.remove_module("gone-productivity")
     reconfigure()
     recompute(sheet_pane)
     H.equal(#world.flying_texts, 1, "recomputation failed")
-    return world, sheet_pane, slot
+    return world, sheet_pane, buttons
 end
 
 --F2e state: a report whose recipe was then removed by a mod, never rebuilt
@@ -109,108 +103,100 @@ local function removed_recipe_machine_state(shape)
     return world, sheet_pane, button
 end
 
---F2f state: gear's recipe removed and grow's module removed; recomputation fails and gear's module controls stay
+--F2f state: gear's recipe removed and grow's module removed; recomputation fails and gear's module slots stay
 local function removed_recipe_modules_state(shape)
     local world = stale_world(shape)
-    set_modules("gear", {{"speed-module", 1}})
-    set_modules("grow", {{"gone-productivity", 1}})
+    set_modules("gear", {"speed-module"})
+    set_modules("grow", {"gone-productivity"})
     local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}, {item = "catalyst", rate = 1, unit = "/s"}})
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    local slot = module_slots(sheet_pane, "gear")[1]
+    local buttons = module_buttons(sheet_pane, "gear")
     world.remove_recipe("gear")
     world.remove_module("gone-productivity")
     reconfigure()
     recompute(sheet_pane)
     H.equal(#world.flying_texts, 1, "recomputation failed")
-    H.equal(storage[1].module_preferences_by_recipe_name.gear, nil, "gear preferences removed with the recipe")
-    return world, sheet_pane, slot
+    H.equal(storage[1].module_setups_by_recipe_name.gear, nil, "gear setup removed with the recipe")
+    return world, sheet_pane, buttons
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " F2a a stale module count field refuses edits", function()
-        local world, _, slot = removed_module_state(shape)
-        local field = slot.hxrrc_module_count_textfield
-        field.text = "3"
-        fire_confirmed(field)
-        H.equal(storage[1].module_preferences_by_recipe_name.grow[1], nil, "stored modules")
+    H.test(shape .. " F2a a stale empty module slot refuses a pick", function()
+        local world, _, buttons = removed_module_state(shape)
+        local button = buttons[2]
+        button.elem_value = {name = "speed-module"}
+        fire_elem_changed(button)
+        H.equal(stored_names("grow"), "", "stored modules")
         assert_no_effects("grow")
         H.equal(#world.flying_texts, 1, "no recomputation")
         H.equal(#storage.computation_stack, 0, "nothing queued")
-        H.equal(field.text, "1", "field restored to its count")
+        H.equal(button.elem_value, nil, "slot restored to empty")
     end)
 
-    H.test(shape .. " F2b a stale module button refuses emptying and replacing", function()
-        local world, _, slot = removed_module_state(shape)
-        local button = slot.hxrrc_choose_module_button
+    H.test(shape .. " F2b a stale module slot refuses emptying and replacing", function()
+        local world, _, buttons = removed_module_state(shape)
+        local button = buttons[1]
         button.elem_value = nil
         fire_elem_changed(button)
-        button.elem_value = "speed-module"
+        button.elem_value = {name = "speed-module"}
         fire_elem_changed(button)
-        H.equal(storage[1].module_preferences_by_recipe_name.grow[1], nil, "stored modules")
+        H.equal(stored_names("grow"), "", "stored modules")
         assert_no_effects("grow")
         H.equal(#storage.computation_stack, 0, "nothing queued")
-        H.equal(button.elem_value, nil, "button restored to empty, its module no longer exists")
+        H.equal(button.elem_value, nil, "slot restored to empty, its module no longer exists")
         H.equal(#world.flying_texts, 1, "no recomputation")
     end)
 
-    H.test(shape .. " F2c module controls on a current report still apply changes", function()
+    H.test(shape .. " F2c module slots on a current report still apply changes", function()
         stale_world(shape)
         local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
         storage[1].sheet_section = {sheet_pane = sheet_pane}
-        local preferences = storage[1].module_preferences_by_recipe_name.gear
+        local Utils = require "logic.utils"
+        local function pick(value)
+            local button = module_buttons(sheet_pane, "gear")[1]
+            button.elem_value = value
+            fire_elem_changed(button)
+        end
 
-        local slot = module_slots(sheet_pane, "gear")[1]
-        slot.hxrrc_choose_module_button.elem_value = "speed-module"
-        fire_elem_changed(slot.hxrrc_choose_module_button)
-        H.equal(preferences[1], "speed-module", "added module")
-        H.equal(preferences[-1], 1, "added count")
-        H.near(preferences.effects.speed, 0.2, "speed after adding")
+        pick({name = "speed-module"})
+        H.equal(stored_names("gear"), "speed-module", "added module")
+        H.near(Utils.recipe_effects(1, "gear").speed, 0.2, "speed after adding")
         assert(#storage.computation_stack > 0, "adding a module recomputes")
-        H.equal(#module_slots(sheet_pane, "gear"), 2, "new empty slot")
+        H.equal(#module_buttons(sheet_pane, "gear"), 4, "every slot after rebuilding")
 
         storage.computation_stack = {}
-        slot.hxrrc_module_count_textfield.text = "3"
-        fire_confirmed(slot.hxrrc_module_count_textfield)
-        H.equal(preferences[-1], 3, "changed count")
-        H.near(preferences.effects.speed, 0.6, "speed after count change")
-        assert(#storage.computation_stack > 0, "changing a count recomputes")
+        pick({name = "gone-productivity"})
+        H.equal(stored_names("gear"), "gone-productivity", "replaced module")
+        H.near(Utils.recipe_effects(1, "gear").speed, 0, "speed after replacing")
+        H.near(Utils.recipe_effects(1, "gear").productivity, 0.1, "productivity after replacing")
+        assert(#storage.computation_stack > 0, "replacing a module recomputes")
 
-        slot.hxrrc_choose_module_button.elem_value = "gone-productivity"
-        fire_elem_changed(slot.hxrrc_choose_module_button)
-        H.equal(preferences[1], "gone-productivity", "replaced module")
-        H.near(preferences.effects.speed, 0, "speed after replacing")
-        H.near(preferences.effects.productivity, 0.3, "productivity after replacing")
-
-        slot.hxrrc_choose_module_button.elem_value = nil
-        fire_elem_changed(slot.hxrrc_choose_module_button)
-        H.equal(preferences[1], nil, "removed module")
+        pick(nil)
+        H.equal(stored_names("gear"), "", "removed module")
         assert_no_effects("gear")
-        H.equal(#module_slots(sheet_pane, "gear"), 1, "only the empty slot left")
     end)
 
-    H.test(shape .. " F2d a stale slot showing another module with the same count refuses edits", function()
+    H.test(shape .. " F2d a stale slot showing a module replaced through another sheet refuses edits", function()
         stale_world(shape)
-        set_modules("gear", {{"speed-module", 2}})
+        set_modules("gear", {"speed-module"})
         local _, pane_a = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
         local _, pane_b = H.run_sheet({{item = "gear", rate = 2, unit = "/s"}})
         storage[1].sheet_section = {sheet_pane = pane_a}
 
         --replace in sheet A; sheet B is not rebuilt, the way a failed recomputation leaves it
-        local slot_a = module_slots(pane_a, "gear")[1]
-        slot_a.hxrrc_choose_module_button.elem_value = "gone-productivity"
-        fire_elem_changed(slot_a.hxrrc_choose_module_button)
-        local preferences = storage[1].module_preferences_by_recipe_name.gear
-        H.equal(preferences[1], "gone-productivity", "replaced through sheet A")
+        local button_a = module_buttons(pane_a, "gear")[1]
+        button_a.elem_value = {name = "gone-productivity"}
+        fire_elem_changed(button_a)
+        H.equal(stored_names("gear"), "gone-productivity", "replaced through sheet A")
         local queued = #storage.computation_stack
 
-        local field_b = module_slots(pane_b, "gear")[1].hxrrc_module_count_textfield
-        field_b.text = "5"
-        fire_confirmed(field_b)
-        H.equal(preferences[-1], 2, "count unchanged")
-        H.near(preferences.effects.productivity, 0.2, "productivity unchanged")
-        H.near(preferences.effects.speed, 0, "speed unchanged")
+        local button_b = module_buttons(pane_b, "gear")[1]
+        button_b.elem_value = nil
+        fire_elem_changed(button_b)
+        H.equal(stored_names("gear"), "gone-productivity", "module unchanged")
+        H.near(require("logic.utils").recipe_effects(1, "gear").productivity, 0.1, "productivity unchanged")
         H.equal(#storage.computation_stack, queued, "no recomputation from sheet B")
-        H.equal(field_b.text, "2", "field restored")
+        H.equal(button_b.elem_value and button_b.elem_value.name, "speed-module", "slot restored")
     end)
 
     H.test(shape .. " F2e a stale machine button of a removed recipe refuses changes", function()
@@ -222,26 +208,26 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(button.elem_value.name, shown, "button restored")
     end)
 
-    H.test(shape .. " F2f a module count field of a removed recipe refuses edits", function()
-        local world, _, slot = removed_recipe_modules_state(shape)
-        local field = slot.hxrrc_module_count_textfield
-        field.text = "4"
-        fire_confirmed(field)
-        H.equal(storage[1].module_preferences_by_recipe_name.gear, nil, "preferences not recreated")
+    H.test(shape .. " F2f an empty module slot of a removed recipe refuses a pick", function()
+        local world, _, buttons = removed_recipe_modules_state(shape)
+        local button = buttons[2]
+        button.elem_value = {name = "speed-module"}
+        fire_elem_changed(button)
+        H.equal(storage[1].module_setups_by_recipe_name.gear, nil, "setup not recreated")
         H.equal(#storage.computation_stack, 0, "nothing queued")
         H.equal(#world.flying_texts, 1, "no recomputation")
-        H.equal(field.text, "1", "field restored")
+        H.equal(button.elem_value, nil, "slot restored to empty")
     end)
 
-    H.test(shape .. " F2g a module button of a removed recipe refuses changes", function()
-        local world, _, slot = removed_recipe_modules_state(shape)
-        local button = slot.hxrrc_choose_module_button
+    H.test(shape .. " F2g a module slot of a removed recipe refuses changes", function()
+        local world, _, buttons = removed_recipe_modules_state(shape)
+        local button = buttons[1]
         button.elem_value = nil
         fire_elem_changed(button)
-        H.equal(storage[1].module_preferences_by_recipe_name.gear, nil, "preferences not recreated")
+        H.equal(storage[1].module_setups_by_recipe_name.gear, nil, "setup not recreated")
         H.equal(#storage.computation_stack, 0, "nothing queued")
         H.equal(#world.flying_texts, 1, "no recomputation")
-        H.equal(button.elem_value, "speed-module", "button restored, its module still exists")
+        H.equal(button.elem_value and button.elem_value.name, "speed-module", "slot restored, its module still exists")
     end)
 
     H.test(shape .. " F2h a target item removed by a mod is left out of the report", function()
@@ -257,13 +243,13 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " F2i refused changes restore once even if the restore raises the event again", function()
-        local _, _, slot = removed_module_state(shape)
+        local _, _, buttons = removed_module_state(shape)
         H.refire_on_script_set = true
-        slot.hxrrc_module_count_textfield.text = "3"
-        H.equal(slot.hxrrc_module_count_textfield.text, "1", "field restored")
-        slot.hxrrc_choose_module_button.elem_value = "speed-module"
-        H.equal(slot.hxrrc_choose_module_button.elem_value, nil, "module button restored to empty")
-        H.equal(storage[1].module_preferences_by_recipe_name.grow[1], nil, "stored modules")
+        buttons[2].elem_value = {name = "speed-module"}
+        H.equal(buttons[2].elem_value, nil, "empty slot restored")
+        buttons[1].elem_value = {name = "speed-module"}
+        H.equal(buttons[1].elem_value, nil, "slot of a removed module restored to empty")
+        H.equal(stored_names("grow"), "", "stored modules")
 
         local _, _, button = removed_recipe_machine_state(shape)
         H.refire_on_script_set = true
@@ -328,6 +314,45 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(button.elem_value.name, "assembler", "button restored to its machine")
         H.equal(button.elem_value.quality, nil, "removed quality not restored")
         H.equal(#storage.computation_stack, 0, "nothing queued")
+    end)
+
+    H.test(shape .. " F2n a module cell left from an older version refuses changes and restores its module", function()
+        stale_world(shape)
+        local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        --the 1.1.14 cell: a flow tagged with the recipe, one flow per slot holding an item button and a count field
+        local old_cell = H.gui_root({type = "flow", name = "old_cell", tags = {recipe_name = "gear"}})
+        local old_slot = old_cell.add{type = "flow", tags = {module_name = "speed-module", count = 2}}
+        local button = old_slot.add{type = "choose-elem-button", name = "hxrrc_choose_module_button", elem_type = "item", item = "speed-module"}
+        old_slot.add{type = "textfield", name = "hxrrc_module_count_textfield", text = "2"}
+
+        button.elem_value = nil
+        fire_elem_changed(button)
+        H.equal(button.elem_value, "speed-module", "old button restored to its module")
+        H.equal(stored_names("gear"), "", "stored modules")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+        H.equal(event_handlers.on_gui_confirmed.hxrrc_module_count_textfield, nil, "old count field has no handler")
+    end)
+
+    H.test(shape .. " W1 a machine change through one sheet makes another sheet's module slots stale", function()
+        local world = stale_world(shape)
+        world.add_machine({name = "fast-assembler", categories = {"crafting"}, speed = 2})
+        reconfigure()
+        local _, pane_a = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+        local _, pane_b = H.run_sheet({{item = "gear", rate = 2, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = pane_a}
+
+        local button = machine_button(pane_a, "item/gear")
+        button.elem_value = {name = button.elem_value.name == "fast-assembler" and "assembler" or "fast-assembler"}
+        fire_elem_changed(button)
+        local queued = #storage.computation_stack
+
+        local slot_b = module_buttons(pane_b, "gear")[1]
+        slot_b.elem_value = {name = "speed-module"}
+        fire_elem_changed(slot_b)
+        H.equal(stored_names("gear"), "", "stored modules")
+        H.equal(#storage.computation_stack, queued, "no recomputation from sheet B")
+        H.equal(slot_b.elem_value, nil, "slot restored")
     end)
 end
 

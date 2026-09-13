@@ -1,191 +1,112 @@
 local Utils = require "logic.utils"
+local ModuleSetup = require "logic.module_setup"
 
 local ModuleGUI = {}
 
-local function add_module_slot(module_gui, recipe_name, module_name, module_count)
-    local module_slot = module_gui.add{type = "flow", direction = "vertical"}
-    module_slot.style.horizontal_align = "center"
-    --snapshot of what this slot shows, to recognise it when a failed recomputation leaves the report stale
-    module_slot.tags = {module_name = module_name, count = module_count}
-    module_slot.add{
-        type = "choose-elem-button",
-        name = "hxrrc_choose_module_button",
-        tooltip = {"hxrrc.choose_module_button_tooltip"},
-        elem_type = "item",
-        item = module_name,
-        elem_filters = {{filter = "name", name = storage.names_of_allowed_modules_by_recipe_name[recipe_name]}},
-    }
-    local textfield = module_slot.add{
-        type = "textfield",
-        name = "hxrrc_module_count_textfield",
-        tooltip = {"hxrrc.module_count_textfield_tooltip"},
-        text = module_count,
-        enabled = not not module_count,
-        numeric = true,
-        allow_decimal = true,
-        lose_focus_on_confirm = true,
-    }
-    textfield.style.width = 32
-end
-
-local function add_module_data(main_module_flow)
-    local label_flow = main_module_flow.add{type = "flow", direction = "vertical"}
-    local module_preferences = storage[main_module_flow.player_index].module_preferences_by_recipe_name[main_module_flow.tags.recipe_name]
+local function add_effects_label(cell, recipe_name)
+    local label_flow = cell.add{type = "flow", direction = "vertical"}
+    local effects = Utils.recipe_effects(cell.player_index, recipe_name)
     for _, effect in ipairs(Utils.module_effect_names) do
-        local effect_value = module_preferences.effects[effect]
+        local effect_value = effects[effect]
         if math.abs(effect_value) >= 0.01 then
             label_flow.add{type = "label", caption = {"", {"hxrrc." .. effect}, ": ", string.format("%+.0f", (effect_value > -0.8 and effect_value or -0.8) * 100) .. "%"}}
         end
     end
 end
 
-function ModuleGUI.new(parent, recipe_name, allowed_effects)
-    if allowed_effects then
-        local an_allowed_effect = false
-        for _, value in pairs(allowed_effects) do
-            if(value) then an_allowed_effect = true end
+--Builds the cell's controls from the stored setup; the cell's tags remember the recipe and the setup it shows
+local function fill(cell, recipe, machine, identifier)
+    local setup = storage[cell.player_index].module_setups_by_recipe_name[recipe.name]
+    cell.tags = {recipe_name = recipe.name, signature = ModuleSetup.signature(setup, identifier)}
+
+    local capacity = ModuleSetup.machine_capacity(machine, identifier.quality)
+    local allowed = ModuleSetup.allowed_module_names({machine}, recipe)
+    if capacity > 0 and #allowed > 0 then
+        local slots = cell.add{type = "flow", direction = "horizontal", name = "hxrrc_module_slots"}
+        slots.style.right_padding = 4
+        for index = 1, capacity do
+            local module = setup.modules[index]
+            local value = module and {name = module.name, quality = module.quality}
+            slots.add{
+                type = "choose-elem-button",
+                name = "hxrrc_choose_module_button",
+                tooltip = {"hxrrc.choose_module_button_tooltip"},
+                elem_type = "item-with-quality",
+                ["item-with-quality"] = value,
+                elem_filters = {{filter = "name", name = allowed}},
+                tags = {index = index, value = value}, --snapshot for refused changes on a stale report
+            }
         end
-        if an_allowed_effect then
-            local main_module_flow = parent.add{type = "flow", direction = "horizontal"}
-            main_module_flow.tags = {recipe_name = recipe_name}
+    end
 
-            local module_gui = main_module_flow.add{type = "flow", direction = "horizontal"}
-            module_gui.tags = {recipe_name = recipe_name}
-            module_gui.style.right_padding = 4
+    add_effects_label(cell, recipe.name)
+end
 
-            local modules = storage[module_gui.player_index].module_preferences_by_recipe_name[recipe_name]
-            for index, module_name in ipairs(modules) do
-                add_module_slot(module_gui, recipe_name, module_name, modules[-index])
-            end
-            add_module_slot(module_gui, recipe_name)
-
-            add_module_data(main_module_flow)
-        else
-            parent.add{type = "empty-widget"}
-        end
-    else
+function ModuleGUI.new(parent, recipe, machine, identifier)
+    if ModuleSetup.machine_capacity(machine, identifier.quality) == 0 then
         parent.add{type = "empty-widget"}
+        return
     end
+    local cell = parent.add{type = "flow", direction = "vertical"}
+    fill(cell, recipe, machine, identifier)
 end
 
---The module a refused change puts back: the slot's snapshot, unless that module no longer exists
-local function restored_module(module_slot)
-    local module_name = module_slot.tags.module_name
-    return module_name and prototypes.item[module_name] and module_name or nil
-end
-
-local function restored_count_text(module_slot)
-    local count = module_slot.tags.count
-    return count and tostring(count) or ""
-end
-
---A slot is stale when the stored modules changed and its report was not rebuilt, e.g. after a failed recomputation or a removed mod
-local function is_slot_current(module_slot, module_preferences)
-    if not module_preferences or #module_slot.parent.children ~= #module_preferences + 1 then
-        return false
+local function same_value(a, b)
+    if type(a) == "table" and type(b) == "table" then
+        return a.name == b.name and (a.quality or "normal") == (b.quality or "normal")
     end
-    local index = module_slot.get_index_in_parent()
-    local module_name = module_preferences[index]
-    return module_slot.tags.module_name == module_name
-        and module_slot.tags.count == module_preferences[-index]
-        and (module_name == nil or prototypes.item[module_name] ~= nil)
+    return a == b
 end
 
-local function remove_module_effects(module_preferences, index)
-    local module_prototype = prototypes.item[module_preferences[index]]
-    for _, effect in ipairs(Utils.module_effect_names) do
-        if module_prototype.module_effects[effect] then
-            module_preferences.effects[effect] = module_preferences.effects[effect] - module_preferences[-index] * module_prototype.module_effects[effect]
-        end
+--What a refused change puts back: the button's own snapshot, unless its module no longer exists; a removed quality falls back to normal
+local function restored_value(button)
+    if button.elem_type == "item" then --a slot button built before module slots had qualities; its snapshot sits on its slot flow
+        local module_name = button.parent.tags.module_name
+        return module_name and prototypes.item[module_name] and module_name or nil
     end
-end
-
-local function add_module_effects(module_preferences, index)
-    local module_prototype = prototypes.item[module_preferences[index]]
-    for _, effect in ipairs(Utils.module_effect_names) do
-        if module_prototype.module_effects[effect] then
-            module_preferences.effects[effect] = module_preferences.effects[effect] + module_preferences[-index] * module_prototype.module_effects[effect]
-        end
+    local value = button.tags.value
+    if not (value and prototypes.item[value.name]) then
+        return nil
     end
+    return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
 end
 
---Returns true when the stored module preferences changed
-function ModuleGUI.on_gui_elem_changed(event)
-    local choose_module_button = event.element
-    local module_slot = choose_module_button.parent
-    local module_gui = module_slot.parent
-    local recipe_name = module_gui.tags.recipe_name
-    local module_preferences = storage[choose_module_button.player_index].module_preferences_by_recipe_name[recipe_name]
-
+--Returns true when the stored setup changed
+function ModuleGUI.on_module_button_changed(event)
+    local button = event.element
+    local restored = restored_value(button)
     --a refused change restores the button, which may raise this event again: the restored value is then a no-op
-    if choose_module_button.elem_value == restored_module(module_slot) then
-        return false
-    end
-    if not is_slot_current(module_slot, module_preferences) then
-        choose_module_button.elem_value = restored_module(module_slot)
+    if same_value(button.elem_value, restored) then
         return false
     end
 
-    local index = module_slot.get_index_in_parent()
-    if not choose_module_button.elem_value then
-        remove_module_effects(module_preferences, index)
-        --a button that was not the last one was emptied, so the module data must be shifted to fill the gap, and the button must be deleted along with its textfield buddy
-        for i = index + 1, #module_preferences do
-            module_preferences[i - 1] = module_preferences[i]
-            module_preferences[-i + 1] = module_preferences[-i]
-        end
-        module_preferences[#module_preferences], module_preferences[-#module_preferences] = nil, nil
-
-        module_slot.destroy()
-        return true
+    local cell = button.parent.parent
+    local recipe_name = cell.tags.recipe_name
+    local player_index = button.player_index
+    local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
+    local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
+    --stale: the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built
+    if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
+        button.elem_value = restored
+        return false
     end
 
-    if index == #module_gui.children then
-        --the last module slot was set, so its textfiled must be enabled, the module's count set to 1 by default, and a new one must be added
-        module_preferences[-index] = 1
-        add_module_slot(module_gui, recipe_name)
+    local picked = button.elem_value
+    local index = button.tags.index
+    if picked == nil then
+        table.remove(setup.modules, index)
     else
-        --a previous module was replaced
-        remove_module_effects(module_preferences, index)
-    end
-    module_preferences[index] = choose_module_button.elem_value
-    add_module_effects(module_preferences, index)
-
-    module_slot.tags = {module_name = module_preferences[index], count = module_preferences[-index]}
-    local textfield = module_slot.hxrrc_module_count_textfield
-    textfield.enabled = true
-    textfield.text = tostring(module_preferences[-index])
-    return true
-end
-
---Returns true when the stored module preferences changed
-function ModuleGUI.on_gui_confirmed(event)
-    local textfield = event.element
-    local module_slot = textfield.parent
-    local recipe_name = module_slot.parent.tags.recipe_name
-    local module_preferences = storage[textfield.player_index].module_preferences_by_recipe_name[recipe_name]
-
-    --a refused change restores the text, which may raise this event again: the restored value is then a no-op
-    if textfield.text == restored_count_text(module_slot) then
-        return false
-    end
-    if not module_slot.tags.module_name or not is_slot_current(module_slot, module_preferences) then
-        textfield.text = restored_count_text(module_slot)
-        return false
-    end
-
-    local index = module_slot.get_index_in_parent()
-    local module_prototype = prototypes.item[module_preferences[index]]
-    local new_value = tonumber(textfield.text) or 0
-    local delta = new_value - module_preferences[-index]
-    for _, effect in ipairs(Utils.module_effect_names) do
-        if module_prototype.module_effects[effect] then
-            module_preferences.effects[effect] = module_preferences.effects[effect] + delta * module_prototype.module_effects[effect]
+        local module = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
+        if index <= #setup.modules then
+            setup.modules[index] = module
+        else --any empty slot appends, so the list never has holes
+            setup.modules[#setup.modules + 1] = module
         end
     end
+    ModuleSetup.sanitize(player_index, recipe_name)
 
-    module_preferences[-index] = new_value
-    module_slot.tags = {module_name = module_preferences[index], count = new_value}
+    cell.clear()
+    fill(cell, prototypes.recipe[recipe_name], prototypes.entity[identifier.name], identifier)
     return true
 end
 

@@ -1,4 +1,5 @@
 local ModuleGUI = require "gui.modulegui"
+local ModuleSetup = require "logic.module_setup"
 local Utils = require "logic.utils"
 
 local Report = {}
@@ -144,7 +145,7 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
         add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines)
-        ModuleGUI.new(report, recipe.name, crafting_machine.allowed_effects)
+        ModuleGUI.new(report, recipe, crafting_machine, crafting_machine_identifier)
     end
 
     add_recipe_cell(report, product_full_name, recipe)
@@ -237,6 +238,7 @@ function Report.handle_crafting_machine_change(event)
     end
 
     storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name] = new_machine_identifier
+    ModuleSetup.sanitize(player_index, recipe_name) --the new machine may have fewer slots or refuse some modules
     choose_crafting_machine_button.tags = {name = new_machine_identifier.name, quality = new_machine_identifier.quality}
 
     return true

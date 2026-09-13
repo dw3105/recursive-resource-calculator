@@ -22,8 +22,21 @@ function Utils.product_probability(product)
     return product.probability or 1
 end
 
+--Summed effects of a recipe's stored modules, each at its quality; stored setups are kept valid, so every module still exists
+function Utils.recipe_effects(player_index, recipe_name)
+    local totals = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}
+    local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
+    for _, module in ipairs(setup.modules) do
+        local effects = prototypes.item[module.name].get_module_effects(module.quality)
+        for _, effect in ipairs(Utils.module_effect_names) do
+            totals[effect] = totals[effect] + (effects[effect] or 0)
+        end
+    end
+    return totals
+end
+
 function Utils.module_effect_multiplier(player_index, recipe_name, effect)
-    local multiplier = storage[player_index].module_preferences_by_recipe_name[recipe_name].effects[effect] + 1
+    local multiplier = Utils.recipe_effects(player_index, recipe_name)[effect] + 1
     return multiplier > 0.2 and multiplier or 0.2
 end
 
