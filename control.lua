@@ -61,8 +61,8 @@ end)
 script.on_event(defines.events.on_research_finished, function(event)
     for _, effect in ipairs(event.research.prototype.effects) do
         if effect.type == "change-recipe-productivity" then
-            for player_index, _ in ipairs(event.research.force.players) do
-                Calculator.recompute_everything(player_index)
+            for _, player in pairs(event.research.force.players) do
+                Calculator.recompute_everything(player.index)
             end
             return
         end
