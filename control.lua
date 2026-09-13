@@ -89,10 +89,10 @@ for _, event_type in ipairs({
     end)
 end
 
---Do each sheet calculation in its own tick
+--Do each sheet calculation in its own tick, oldest request first (computation_stack is used as a queue; the name is kept for existing saves)
 script.on_event(defines.events.on_tick, function()
     if storage.computation_stack[1] then
-        local async_call_data = table.remove(storage.computation_stack)
+        local async_call_data = table.remove(storage.computation_stack, 1)
         local player_index = async_call_data.player_index
         if storage[player_index] then
             local call = async_calls[async_call_data.call_id]
