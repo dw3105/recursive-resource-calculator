@@ -16,6 +16,15 @@ function ModuleSetup.machine_capacity(machine, quality)
     return machine.get_inventory_size(defines.inventory.crafter_modules, quality) or 0
 end
 
+function ModuleSetup.beacon_capacity(beacon, quality)
+    return beacon.get_inventory_size(defines.inventory.beacon_modules, quality) or 0
+end
+
+--Beacon counts and sharing are whole numbers from 1 to 9999, so every accepted value is written exactly in a signature; nan and infinities fail here
+function ModuleSetup.is_valid_count(value)
+    return type(value) == "number" and value >= 1 and value <= 9999 and value == math.floor(value)
+end
+
 --An entity without a list of allowed effects allows none; a recipe without one allows all
 local function allows(allowed_effects, effect, allowed_when_absent)
     if allowed_effects == nil then
@@ -96,7 +105,29 @@ function ModuleSetup.sanitize(player_index, recipe_name)
     end
     local setup = setups[recipe_name]
     local machine = prototypes.entity[identifier.name]
-    setup.modules = kept_modules(setup.modules, {machine}, prototypes.recipe[recipe_name], ModuleSetup.machine_capacity(machine, identifier.quality))
+    local recipe = prototypes.recipe[recipe_name]
+    setup.modules = kept_modules(setup.modules, {machine}, recipe, ModuleSetup.machine_capacity(machine, identifier.quality))
+
+    local kept_groups = {}
+    local effect_receiver = machine.effect_receiver
+    if not (effect_receiver and effect_receiver.uses_beacon_effects == false) then
+        for _, group in ipairs(setup.beacons) do
+            --the beacon index is checked first, so nothing is read from an entity a mod turned into something else
+            if storage.beacon_names[group.name] and ModuleSetup.is_valid_count(group.count) then
+                local beacon = prototypes.entity[group.name]
+                local quality = group.quality and prototypes.quality[group.quality] and group.quality or nil
+                kept_groups[#kept_groups + 1] = {
+                    name = group.name,
+                    quality = quality,
+                    count = group.count,
+                    --a bad count means no beacons, so its group goes; a bad sharing only loses an estimate, so it falls back to one machine per beacon
+                    sharing = ModuleSetup.is_valid_count(group.sharing) and group.sharing or 1,
+                    modules = kept_modules(group.modules, {beacon, machine}, recipe, ModuleSetup.beacon_capacity(beacon, quality)),
+                }
+            end
+        end
+    end
+    setup.beacons = kept_groups
 end
 
 --After a configuration change, once chosen machines are valid: a setup for every recipe and none for removed ones, each made valid

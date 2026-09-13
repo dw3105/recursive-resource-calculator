@@ -47,7 +47,7 @@ local function index_crafting_machine_pollution()
     storage.pollution_by_crafting_machine = pollution_by_crafting_machine
 end
 
---Names of every module, so a stored module name is checked before anything is read from its item
+--Names of every module and every beacon, so a stored name is checked before anything is read from its prototype
 local function index_modules()
     local module_names = {}
     for module_name, _ in pairs(prototypes.get_item_filtered({{filter="type", type="module"}})) do
@@ -55,6 +55,12 @@ local function index_modules()
     end
     storage.module_names = module_names
     storage.names_of_allowed_modules_by_recipe_name = nil --kept by versions before module slots
+
+    local beacon_names = {}
+    for beacon_name, _ in pairs(prototypes.get_entity_filtered({{filter="type", type="beacon"}})) do
+        beacon_names[beacon_name] = true
+    end
+    storage.beacon_names = beacon_names
 end
 
 function Indexer.run()

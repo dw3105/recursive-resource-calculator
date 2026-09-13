@@ -22,7 +22,7 @@ function Utils.product_probability(product)
     return product.probability or 1
 end
 
---Summed effects of a recipe's stored modules, each at its quality; stored setups are kept valid, so every module still exists
+--Summed effects of a recipe's stored modules and beacons, each module at its quality; stored setups are kept valid, so every module and beacon still exists
 function Utils.recipe_effects(player_index, recipe_name)
     local totals = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}
     local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
@@ -30,6 +30,29 @@ function Utils.recipe_effects(player_index, recipe_name)
         local effects = prototypes.item[module.name].get_module_effects(module.quality)
         for _, effect in ipairs(Utils.module_effect_names) do
             totals[effect] = totals[effect] + (effects[effect] or 0)
+        end
+    end
+
+    --A beacon passes its modules' effects times its distribution effectivity at its quality, times the profile's sample for the beacons reaching
+    --the machine: those of its own type or all of them, as its counter says; the sample past the profile's end is its last value
+    local count_by_beacon_name, beacon_total = {}, 0
+    for _, group in ipairs(setup.beacons) do
+        count_by_beacon_name[group.name] = (count_by_beacon_name[group.name] or 0) + group.count
+        beacon_total = beacon_total + group.count
+    end
+    for _, group in ipairs(setup.beacons) do
+        local beacon = prototypes.entity[group.name]
+        local effectivity = (beacon.distribution_effectivity or 1)
+            + (beacon.distribution_effectivity_bonus_per_quality_level or 0) * prototypes.quality[group.quality or "normal"].level
+        local reaching = beacon.beacon_counter == "same_type" and count_by_beacon_name[group.name] or beacon_total
+        local profile = beacon.profile
+        local sample = profile and profile[math.min(reaching, #profile)] or 1
+        local weight = group.count * effectivity * sample
+        for _, beacon_module in ipairs(group.modules) do
+            local effects = prototypes.item[beacon_module.name].get_module_effects(beacon_module.quality)
+            for _, effect in ipairs(Utils.module_effect_names) do
+                totals[effect] = totals[effect] + weight * (effects[effect] or 0)
+            end
         end
     end
     return totals
