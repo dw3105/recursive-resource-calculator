@@ -7,4 +7,6 @@ The mod leverages the game's API (https://lua-api.factorio.com/latest/) to:
 + compile the results of the computations into neatly built reports;
 + and finally, build the GUI that puts it all together.
 
-For pictures, more detailed information, and downloads, visit the official Factorio Mod Portal page: https://mods.factorio.com/mod/RecursiveResourceCalculator
+This is a fork of Herddex's mod, published on the Factorio Mod Portal as RRC-Fork: https://mods.factorio.com/mod/RRC-Fork
+
+The original mod lives at https://mods.factorio.com/mod/RecursiveResourceCalculator

@@ -60,6 +60,22 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(game.players[1].gui.screen.hxrrc_calculator.enabled, true, "calculator enabled")
     end)
 
+    H.test(shape .. " R1 configuration change migrates from the old version listed under this mod's own name", function()
+        local world = control_world(shape, {1})
+        local Updates = require "updates"
+        local update_from = Updates.update_from
+        local old_versions = {}
+        Updates.update_from = function(old_version) old_versions[#old_versions + 1] = old_version end
+        local ok, err = pcall(function()
+            world.handlers.on_configuration_changed({mod_changes = {RecursiveResourceCalculator = {old_version = "1.0.8", new_version = "1.1.15"}}})
+            H.equal(#old_versions, 0, "migrations run for another mod's name")
+            world.handlers.on_configuration_changed({mod_changes = {["RRC-Fork"] = {old_version = "1.0.8", new_version = "1.1.15"}}})
+            H.equal(table.concat(old_versions, " "), "1.0.8", "migrated from")
+        end)
+        Updates.update_from = update_from
+        assert(ok, err)
+    end)
+
     H.test(shape .. " B6 removing a player with queued computations does not break later ticks", function()
         local world = control_world(shape, {1, 2})
         require("gui.calculator").recompute_everything(2)

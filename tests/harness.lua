@@ -301,7 +301,8 @@ function H.new_world(shape)
         inventory = {beacon_modules = 1, crafter_modules = 4}}
     _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions}, HELPERS_MEMBERS)
     _G.script = H.lua_object("LuaBootstrap", {
-        active_mods = {base = base_version, RecursiveResourceCalculator = "1.1.10"},
+        active_mods = {base = base_version, ["RRC-Fork"] = "1.1.10"},
+        mod_name = "RRC-Fork",
         on_init = function(handler) world.handlers.on_init = handler end,
         on_configuration_changed = function(handler) world.handlers.on_configuration_changed = handler end,
         on_event = function(event, handler) world.handlers.events[event] = handler end,

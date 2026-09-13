@@ -8,6 +8,9 @@ Version: 1.1.15
 Date: 2026.09.13
   Info:
     - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.16).
+    - First release as RRC-Fork, a fork of RecursiveResourceCalculator by Herddex. The game treats it as a
+      different mod: sheets saved with RecursiveResourceCalculator do not carry over. Disable the original
+      while this one is enabled, since both open on the same key.
   Features:
     - Each report row shows exactly the chosen machine's module slots at the machine's quality, and
       each slot offers only modules that both the machine and the recipe accept. Modules can have quality.
