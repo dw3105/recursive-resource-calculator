@@ -18,6 +18,13 @@ for _, shape in ipairs(H.shapes()) do
         local report = H.run_sheet({})
         H.equal(report, nil, "report on empty sheet")
     end)
+
+    H.test(shape .. " B13 V9 the same item in two rows is summed across time units", function()
+        gear_world(shape)
+        local report = H.run_sheet({{item = "gear", rate = 60, unit = "/m"}, {item = "gear", rate = 2, unit = "/s"}})
+        H.near(report.rows["item/gear"].rate, 3, "gear rate")
+        H.near(report.rows["item/raw"].rate, 3, "raw demand")
+    end)
 end
 
 H.done("test_input")

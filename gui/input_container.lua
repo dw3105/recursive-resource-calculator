@@ -81,7 +81,7 @@ function InputContainer.get_desired_production_rates_by_full_item_name(input_con
         local rate = get_desired_production_rate(row)
         local item = row.hxrrc_desired_item_button.elem_value
         if rate ~= 0 and item then
-            rates_by_full_item_name["item/" .. item] = rate
+            rates_by_full_item_name["item/" .. item] = (rates_by_full_item_name["item/" .. item] or 0) + rate
         end
     end
 
