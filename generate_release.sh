@@ -1,7 +1,8 @@
 #!/bin/bash
 # Usage: generate_release.sh <mod version> <factorio version>
 # The code runs on both Factorio 2.0 and 2.1; releases differ only in info.json, e.g. "1.1.11 2.0" and "1.1.12 2.1"
-dir_name="RecursiveResourceCalculator_$1"
+mod_name=$(sed -n 's/.*"name": "\([^"]*\)".*/\1/p' info.json)
+dir_name="${mod_name}_$1"
 mkdir $dir_name
 cp -r gui $dir_name/gui
 cp -r locale $dir_name/locale

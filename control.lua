@@ -29,7 +29,7 @@ end)
 script.on_configuration_changed(function(configuration_changed_data)
     Indexer.run()
 
-    local rrc_version_change = configuration_changed_data.mod_changes.RecursiveResourceCalculator
+    local rrc_version_change = configuration_changed_data.mod_changes[script.mod_name]
     if rrc_version_change then
         Updates.update_from(rrc_version_change.old_version)
     end
