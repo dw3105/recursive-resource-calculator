@@ -79,7 +79,7 @@ local function add_recipe_cell(report, product_full_name, recipe)
     }
 end
 
-local function add_machine_cell(report, crafting_machine, recipe, recipe_rate)
+local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier)
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
     machine_cell.style.horizontally_stretchable = true
@@ -88,13 +88,13 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate)
         type = "choose-elem-button",
         name = "hxrrc_choose_crafting_machine_button",
         elem_type = "entity-with-quality",
-        ["entity-with-quality"] = {name = crafting_machine.name},
+        ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
         elem_filters = {{filter = "crafting-category", crafting_category = Utils.recipe_category(recipe)}},
         enabled = #storage.crafting_machines_by_category[Utils.recipe_category(recipe)] > 1,
     }
 
     --the machine amount:
-    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi)
+    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi, crafting_machine_identifier.quality)
     local label = machine_cell.add{type = "label", name = "label"}
     label.caption = " x " .. format_by_precision( machine_amount, pi)
 end
@@ -112,7 +112,7 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
         report.add{type = "empty-widget"}
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
-        add_machine_cell(report, crafting_machine, recipe, recipe_rate)
+        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier)
         ModuleGUI.new(report, recipe.name, crafting_machine.allowed_effects)
     end
 

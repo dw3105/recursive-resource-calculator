@@ -26,9 +26,10 @@ function Utils.module_effect_multiplier(player_index, recipe_name, effect)
     return multiplier > 0.2 and multiplier or 0.2
 end
 
-function Utils.machine_amount(recipe, recipe_rate, crafting_machine, player_index)
+--quality is the chosen machine's quality name, nil meaning normal
+function Utils.machine_amount(recipe, recipe_rate, crafting_machine, player_index, quality)
     local speed_multiplier = Utils.module_effect_multiplier(player_index, recipe.name, "speed")
-    local crafting_speed = crafting_machine.get_crafting_speed() * speed_multiplier
+    local crafting_speed = crafting_machine.get_crafting_speed(quality) * speed_multiplier
     return recipe_rate * recipe.energy / crafting_speed
 end
 
