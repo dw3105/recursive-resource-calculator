@@ -5,11 +5,12 @@ Utils.module_effect_names = {"consumption", "speed", "productivity", "pollution"
 --Factorio 2.1 renamed recipe and product members, and LuaObjects throw on unknown members, so the API shape is chosen by game version instead of probing
 Utils.IS_2_1 = helpers.compare_versions(script.active_mods["base"], "2.1.0") >= 0
 
-function Utils.recipe_category(recipe)
+--Every category a machine may craft the recipe through, primary first: 2.0 keeps additional categories apart, 2.1 lists them all
+function Utils.recipe_categories(recipe)
     if Utils.IS_2_1 then
-        return recipe.categories[1]
+        return recipe.categories
     end
-    return recipe.category
+    return {recipe.category, table.unpack(recipe.additional_categories)}
 end
 
 --Products are plain tables, so absent optional keys read as nil; 2.1 defaults are independent_probability = 1 and shared_probability = {min = 0, max = 1}
@@ -103,9 +104,33 @@ function Utils.net_amounts_by_full_name(recipe, productivity_bonus)
     return net_amounts
 end
 
-function Utils.get_any_crafting_machine_identifier_for(crafting_category)
-    local crafting_machines = storage.crafting_machines_by_category[crafting_category]
-    return crafting_machines and {name = crafting_machines[1].name}
+--Machines able to craft the recipe, each once, in category order and then in indexing order
+function Utils.crafting_machines_for(recipe)
+    local machines, seen = {}, {}
+    for _, category in ipairs(Utils.recipe_categories(recipe)) do
+        for _, machine in ipairs(storage.crafting_machines_by_category[category] or {}) do
+            if not seen[machine.name] then
+                seen[machine.name] = true
+                machines[#machines + 1] = machine
+            end
+        end
+    end
+    return machines
+end
+
+function Utils.get_any_crafting_machine_identifier_for(recipe)
+    local machine = Utils.crafting_machines_for(recipe)[1]
+    return machine and {name = machine.name}
+end
+
+--Looks the machine up in the index Indexer.run builds, so no member of an entity a mod may have swapped is read
+function Utils.can_craft(machine_name, recipe)
+    for _, machine in ipairs(Utils.crafting_machines_for(recipe)) do
+        if machine.name == machine_name then
+            return true
+        end
+    end
+    return false
 end
 
 return Utils

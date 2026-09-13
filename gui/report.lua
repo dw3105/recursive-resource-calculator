@@ -86,6 +86,15 @@ local function add_recipe_cell(report, product_full_name, recipe)
     }
 end
 
+--One filter per category the recipe can be crafted through; filters in a list combine with "or"
+local function crafting_category_filters(recipe)
+    local filters = {}
+    for _, category in ipairs(Utils.recipe_categories(recipe)) do
+        filters[#filters + 1] = {filter = "crafting-category", crafting_category = category}
+    end
+    return filters
+end
+
 local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier)
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
@@ -97,8 +106,8 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
         elem_type = "entity-with-quality",
         ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
         tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality}, --snapshot for refused changes on a stale report
-        elem_filters = {{filter = "crafting-category", crafting_category = Utils.recipe_category(recipe)}},
-        enabled = #storage.crafting_machines_by_category[Utils.recipe_category(recipe)] > 1,
+        elem_filters = crafting_category_filters(recipe),
+        enabled = #Utils.crafting_machines_for(recipe) > 1,
     }
 
     --the machine amount:

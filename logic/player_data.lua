@@ -5,7 +5,7 @@ local PlayerData = {}
 local function initialize_chosen_crafting_machines(player_index)
     local machine_identifiers_by_recipe_name = {}
     for recipe_name, recipe in pairs(prototypes.recipe) do
-        machine_identifiers_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(Utils.recipe_category(recipe))
+        machine_identifiers_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(recipe)
     end
     storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name = machine_identifiers_by_recipe_name
 end
