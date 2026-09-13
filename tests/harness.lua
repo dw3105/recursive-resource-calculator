@@ -314,7 +314,7 @@ function H.run_sheet(targets, player_index)
         event_handlers.on_gui_elem_changed["hxrrc_desired_item_button"]({element = row.hxrrc_desired_item_button, player_index = player_index or 1})
     end
     Sheet.calculate(sheet_flow.hxrrc_compute_button)
-    return H.parse_report(sheet_flow.output_flow)
+    return H.parse_report(sheet_flow.output_flow), sheet_pane
 end
 
 local function number_in(caption)

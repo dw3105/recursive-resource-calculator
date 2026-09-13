@@ -8,7 +8,8 @@ local Sheet = {}
 local function update_sheet_title(sheet_pane, sheet_index)
     local sheet_and_flow = sheet_pane.tabs[sheet_index]
     local item_name = sheet_and_flow.content.input_container.children[1].hxrrc_desired_item_button.elem_value
-    sheet_and_flow.tab.caption = item_name and prototypes.item[item_name].localised_name or {"hxrrc.empty_sheet"}
+    local item_prototype = item_name and prototypes.item[item_name] --nil once the mod adding the item is removed
+    sheet_and_flow.tab.caption = item_prototype and item_prototype.localised_name or {"hxrrc.empty_sheet"}
 end
 
 local function add_compute_button(sheet_flow)
