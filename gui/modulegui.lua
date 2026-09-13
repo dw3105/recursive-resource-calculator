@@ -14,6 +14,67 @@ local function add_effects_label(cell, recipe_name)
     end
 end
 
+--A machine receives beacon groups unless it ignores beacon effects, and only when some beacon exists
+local function receives_beacons(machine)
+    local effect_receiver = machine.effect_receiver
+    return not (effect_receiver and effect_receiver.uses_beacon_effects == false) and next(storage.beacon_names) ~= nil
+end
+
+local function sorted_beacon_names()
+    local names = {}
+    for beacon_name, _ in pairs(storage.beacon_names) do
+        names[#names + 1] = beacon_name
+    end
+    table.sort(names)
+    return names
+end
+
+local function add_module_buttons(row, name, modules, capacity, allowed, group_index)
+    for index = 1, capacity do
+        local module = modules[index]
+        local value = module and {name = module.name, quality = module.quality}
+        row.add{
+            type = "choose-elem-button",
+            name = name,
+            tooltip = {"hxrrc.choose_module_button_tooltip"},
+            elem_type = "item-with-quality",
+            ["item-with-quality"] = value,
+            elem_filters = {{filter = "name", name = allowed}},
+            tags = {group = group_index, index = index, value = value}, --snapshot for refused changes on a stale report
+        }
+    end
+end
+
+--group nil makes the button that adds a group
+local function add_beacon_button(row, group, group_index, beacon_filter)
+    local value = group and {name = group.name, quality = group.quality}
+    row.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_beacon_button",
+        tooltip = {"hxrrc.beacon_button_tooltip"},
+        elem_type = "entity-with-quality",
+        ["entity-with-quality"] = value,
+        elem_filters = beacon_filter,
+        tags = {group = group_index, value = value},
+    }
+end
+
+local function add_count_field(row, name, tooltip, group_index, value)
+    local text = string.format("%d", value)
+    local field = row.add{
+        type = "textfield",
+        name = name,
+        tooltip = {tooltip},
+        text = text,
+        numeric = true,
+        allow_decimal = false,
+        allow_negative = false,
+        lose_focus_on_confirm = true,
+        tags = {group = group_index, text = text},
+    }
+    field.style.width = 40
+end
+
 --Builds the cell's controls from the stored setup; the cell's tags remember the recipe and the setup it shows
 local function fill(cell, recipe, machine, identifier)
     local setup = storage[cell.player_index].module_setups_by_recipe_name[recipe.name]
@@ -24,31 +85,57 @@ local function fill(cell, recipe, machine, identifier)
     if capacity > 0 and #allowed > 0 then
         local slots = cell.add{type = "flow", direction = "horizontal", name = "hxrrc_module_slots"}
         slots.style.right_padding = 4
-        for index = 1, capacity do
-            local module = setup.modules[index]
-            local value = module and {name = module.name, quality = module.quality}
-            slots.add{
-                type = "choose-elem-button",
-                name = "hxrrc_choose_module_button",
-                tooltip = {"hxrrc.choose_module_button_tooltip"},
-                elem_type = "item-with-quality",
-                ["item-with-quality"] = value,
-                elem_filters = {{filter = "name", name = allowed}},
-                tags = {index = index, value = value}, --snapshot for refused changes on a stale report
-            }
+        add_module_buttons(slots, "hxrrc_choose_module_button", setup.modules, capacity, allowed)
+    end
+
+    if receives_beacons(machine) then
+        local beacon_filter = {{filter = "name", name = sorted_beacon_names()}}
+        for group_index, group in ipairs(setup.beacons) do
+            local row = cell.add{type = "flow", direction = "horizontal"}
+            add_beacon_button(row, group, group_index, beacon_filter)
+            add_count_field(row, "hxrrc_beacon_count_textfield", "hxrrc.beacon_count_textfield_tooltip", group_index, group.count)
+            add_count_field(row, "hxrrc_beacon_sharing_textfield", "hxrrc.beacon_sharing_textfield_tooltip", group_index, group.sharing)
+            local beacon = prototypes.entity[group.name]
+            local beacon_allowed = ModuleSetup.allowed_module_names({beacon, machine}, recipe)
+            if #beacon_allowed > 0 then
+                add_module_buttons(row, "hxrrc_choose_beacon_module_button", group.modules, ModuleSetup.beacon_capacity(beacon, group.quality), beacon_allowed, group_index)
+            end
         end
+        local add_row = cell.add{type = "flow", direction = "horizontal"}
+        add_beacon_button(add_row, nil, #setup.beacons + 1, beacon_filter)
     end
 
     add_effects_label(cell, recipe.name)
 end
 
 function ModuleGUI.new(parent, recipe, machine, identifier)
-    if ModuleSetup.machine_capacity(machine, identifier.quality) == 0 then
+    if ModuleSetup.machine_capacity(machine, identifier.quality) == 0 and not receives_beacons(machine) then
         parent.add{type = "empty-widget"}
         return
     end
     local cell = parent.add{type = "flow", direction = "vertical"}
     fill(cell, recipe, machine, identifier)
+end
+
+--The stored setup a control of a cell acts on, or nil when the cell is stale:
+--the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built
+local function current_setup(element)
+    local cell = element.parent.parent
+    local recipe_name = cell.tags.recipe_name
+    local player_index = element.player_index
+    local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
+    local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
+    if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
+        return nil
+    end
+    return setup, cell, recipe_name, identifier
+end
+
+--Makes the stored setup valid again and rebuilds the cell from it, with a fresh signature
+local function apply(cell, recipe_name, identifier)
+    ModuleSetup.sanitize(cell.player_index, recipe_name)
+    cell.clear()
+    fill(cell, prototypes.recipe[recipe_name], prototypes.entity[identifier.name], identifier)
 end
 
 local function same_value(a, b)
@@ -71,6 +158,20 @@ local function restored_value(button)
     return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
 end
 
+--Stores a pick into a dense module list: an empty button appends, an occupied one is replaced, an emptied one is removed and the rest shift left
+local function store_pick(modules, index, picked)
+    if picked == nil then
+        table.remove(modules, index)
+    else
+        local module = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
+        if index <= #modules then
+            modules[index] = module
+        else --any empty slot appends, so the list never has holes
+            modules[#modules + 1] = module
+        end
+    end
+end
+
 --Returns true when the stored setup changed
 function ModuleGUI.on_module_button_changed(event)
     local button = event.element
@@ -79,35 +180,102 @@ function ModuleGUI.on_module_button_changed(event)
     if same_value(button.elem_value, restored) then
         return false
     end
-
-    local cell = button.parent.parent
-    local recipe_name = cell.tags.recipe_name
-    local player_index = button.player_index
-    local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
-    local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
-    --stale: the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built
-    if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
+    local setup, cell, recipe_name, identifier = current_setup(button)
+    if not setup then
         button.elem_value = restored
         return false
     end
-
-    local picked = button.elem_value
-    local index = button.tags.index
-    if picked == nil then
-        table.remove(setup.modules, index)
-    else
-        local module = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
-        if index <= #setup.modules then
-            setup.modules[index] = module
-        else --any empty slot appends, so the list never has holes
-            setup.modules[#setup.modules + 1] = module
-        end
-    end
-    ModuleSetup.sanitize(player_index, recipe_name)
-
-    cell.clear()
-    fill(cell, prototypes.recipe[recipe_name], prototypes.entity[identifier.name], identifier)
+    store_pick(setup.modules, button.tags.index, button.elem_value)
+    apply(cell, recipe_name, identifier)
     return true
+end
+
+--Returns true when the stored setup changed
+function ModuleGUI.on_beacon_module_button_changed(event)
+    local module_button = event.element
+    local restored = restored_value(module_button)
+    if same_value(module_button.elem_value, restored) then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(module_button)
+    if not setup then
+        module_button.elem_value = restored
+        return false
+    end
+    store_pick(setup.beacons[module_button.tags.group].modules, module_button.tags.index, module_button.elem_value)
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+local function restored_beacon(beacon_button)
+    local value = beacon_button.tags.value
+    if not (value and storage.beacon_names[value.name]) then
+        return nil
+    end
+    return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
+end
+
+--Returns true when the stored setup changed: the add button appends a group of one beacon per machine, one machine per beacon;
+--changing a group's beacon keeps its numbers and the modules the new beacon accepts; emptying it removes the group
+function ModuleGUI.on_beacon_button_changed(event)
+    local beacon_button = event.element
+    local restored = restored_beacon(beacon_button)
+    if same_value(beacon_button.elem_value, restored) then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(beacon_button)
+    if not setup then
+        beacon_button.elem_value = restored
+        return false
+    end
+    local picked_beacon = beacon_button.elem_value
+    local group_index = beacon_button.tags.group
+    if picked_beacon == nil then
+        table.remove(setup.beacons, group_index)
+    elseif group_index <= #setup.beacons then
+        local group = setup.beacons[group_index]
+        group.name, group.quality = picked_beacon.name, picked_beacon.quality ~= "normal" and picked_beacon.quality or nil
+    else
+        setup.beacons[#setup.beacons + 1] = {name = picked_beacon.name, quality = picked_beacon.quality ~= "normal" and picked_beacon.quality or nil,
+            count = 1, sharing = 1, modules = {}}
+    end
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+--Text of a count or sharing field as a whole number from 1 to 9999, or nil
+local function parse_count(text)
+    if not text:match("^%d%d?%d?%d?$") then
+        return nil
+    end
+    local value = tonumber(text)
+    return value >= 1 and value or nil
+end
+
+local function apply_beacon_number(field, key, value)
+    local restored = field.tags.text
+    --a refused change restores the text, which may raise this event again: the restored text is then a no-op
+    if field.text == restored then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(field)
+    if not setup or value == nil then
+        field.text = restored
+        return false
+    end
+    setup.beacons[field.tags.group][key] = value
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+--Returns true when the stored setup changed
+function ModuleGUI.on_beacon_count_confirmed(event)
+    return apply_beacon_number(event.element, "count", parse_count(event.element.text))
+end
+
+--Returns true when the stored setup changed
+function ModuleGUI.on_beacon_sharing_confirmed(event)
+    return apply_beacon_number(event.element, "sharing", parse_count(event.element.text))
 end
 
 return ModuleGUI

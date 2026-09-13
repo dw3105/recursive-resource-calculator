@@ -80,6 +80,30 @@ event_handlers.on_gui_elem_changed["hxrrc_choose_module_button"] = function(even
     end
 end
 
+event_handlers.on_gui_elem_changed["hxrrc_choose_beacon_button"] = function(event)
+    if ModuleGUI.on_beacon_button_changed(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_beacon_module_button"] = function(event)
+    if ModuleGUI.on_beacon_module_button_changed(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_confirmed["hxrrc_beacon_count_textfield"] = function(event)
+    if ModuleGUI.on_beacon_count_confirmed(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_confirmed["hxrrc_beacon_sharing_textfield"] = function(event)
+    if ModuleGUI.on_beacon_sharing_confirmed(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
 event_handlers.on_gui_elem_changed["hxrrc_choose_recipe_button"] = function(event)
     if Report.handle_recipe_binding_change(event) then
         Calculator.recompute_everything(event.player_index)
