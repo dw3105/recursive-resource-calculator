@@ -21,7 +21,8 @@ local function get_productivity_bonus_for_recipe(recipe, player_index)
     local player_recipe = game.players[player_index].force.recipes[recipe.name]
     local research_bonus = player_recipe and player_recipe.productivity_bonus or 0
     local crafting_machine_identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
-    local machine_bonus = crafting_machine_identifier and prototypes.entity[crafting_machine_identifier.name].effect_receiver.base_effect.productivity or 0
+    local effect_receiver = crafting_machine_identifier and prototypes.entity[crafting_machine_identifier.name].effect_receiver --optional in the API
+    local machine_bonus = effect_receiver and effect_receiver.base_effect.productivity or 0
     local module_bonus = storage[player_index].module_preferences_by_recipe_name[recipe.name].effects.productivity
     return math.min(math.max(machine_bonus + research_bonus + module_bonus, 0), recipe.maximum_productivity)
 end
