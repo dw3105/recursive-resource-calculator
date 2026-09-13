@@ -168,6 +168,21 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(module and module.quality, nil, "normal quality stored as none")
         H.equal(#storage.computation_stack, 2, "one recomputation: the sheet, then centering")
     end)
+
+    H.test(shape .. " K6 a modded module without an effects list fits, counts as no effects in slots and beacons, and crashes nothing", function()
+        local world = module_world(shape)
+        world.add_module("empty-module", "speed", nil) --2.1 marks module effects optional
+        world.add_beacon({name = "beacon", allowed_module_categories = {"speed"}})
+        require("logic.indexer").run()
+        local setup = storage[1].module_setups_by_recipe_name.gear
+        setup.modules = {{name = "empty-module"}}
+        setup.beacons = {{name = "beacon", count = 1, sharing = 1, modules = {{name = "empty-module"}}}}
+
+        local report, sheet_pane = gear_sheet(10)
+        H.near(report.rows["item/gear"].machines, 10, "machines without effects")
+        local offered_names = offered(slot_buttons(sheet_pane)[1])
+        assert(offered_names:find("empty-module", 1, true), "module without effects not offered: " .. offered_names)
+    end)
 end
 
 H.test("W3a signatures keep module lists, beacon groups, qualities and counts apart", function()

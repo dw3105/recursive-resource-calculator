@@ -49,7 +49,7 @@ function ModuleSetup.fits(module_name, entities, recipe)
     if recipe.allowed_module_categories and not recipe.allowed_module_categories[category] then
         return false
     end
-    for effect, value in pairs(module.module_effects) do
+    for effect, value in pairs(module.module_effects or {}) do --2.1 marks module effects optional
         if value > 0 then
             for _, entity in ipairs(entities) do
                 if not allows(entity.allowed_effects, effect, false) then

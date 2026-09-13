@@ -27,7 +27,7 @@ function Utils.recipe_effects(player_index, recipe_name)
     local totals = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}
     local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
     for _, module in ipairs(setup.modules) do
-        local effects = prototypes.item[module.name].get_module_effects(module.quality)
+        local effects = prototypes.item[module.name].get_module_effects(module.quality) or {} --2.1 marks module effects optional
         for _, effect in ipairs(Utils.module_effect_names) do
             totals[effect] = totals[effect] + (effects[effect] or 0)
         end
@@ -49,7 +49,7 @@ function Utils.recipe_effects(player_index, recipe_name)
         local sample = profile and profile[math.min(reaching, #profile)] or 1
         local weight = group.count * effectivity * sample
         for _, beacon_module in ipairs(group.modules) do
-            local effects = prototypes.item[beacon_module.name].get_module_effects(beacon_module.quality)
+            local effects = prototypes.item[beacon_module.name].get_module_effects(beacon_module.quality) or {}
             for _, effect in ipairs(Utils.module_effect_names) do
                 totals[effect] = totals[effect] + weight * (effects[effect] or 0)
             end
