@@ -1,4 +1,27 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.16
+Date: 2026.09.13
+  Info:
+    - Same code as 1.1.15, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.15
+Date: 2026.09.13
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.16).
+  Features:
+    - Each report row shows exactly the chosen machine's module slots at the machine's quality, and
+      each slot offers only modules that both the machine and the recipe accept. Modules can have quality.
+    - Beacon groups: each group sets a beacon and its quality, how many beacons reach one machine, how
+      many machines share each beacon, and the modules inside the beacon. Effects follow the beacon's
+      distribution effectivity, quality bonus, profile and beacon counter.
+    - Energy consumption includes beacons, counted once per physical beacon.
+  Changes:
+    - Module counts from older saves are converted once into whole slots in their stored order.
+      Fractions, modules the machine or recipe refuses, and modules past the machine's slots are
+      dropped, so machine counts in old sheets change.
+    - Beacon effects are computed exactly. Factorio 2.0 rounds them internally, so its machine tooltip
+      can differ slightly.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.14
 Date: 2026.09.13
   Info:
