@@ -31,9 +31,11 @@ for _, shape in ipairs(H.shapes()) do
         world.add_item("gone-item")
         world.add_player(1)
         world.init()
+        --the item is chosen while it exists and removed by a mod afterwards
+        local sheet_pane, sheet_flow = H.fill_sheet({{item = "gone-item", rate = 0, unit = "/s"}})
         prototypes.item["gone-item"] = nil
-        local report, sheet_pane = H.run_sheet({{item = "gone-item", rate = 0, unit = "/s"}})
-        H.equal(report, nil, "report")
+        require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
+        H.equal(H.parse_report(sheet_flow.output_flow), nil, "report")
         H.equal(sheet_pane.tabs[1].tab.caption[1], "hxrrc.empty_sheet", "tab title")
     end)
 end

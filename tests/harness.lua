@@ -56,18 +56,61 @@ local GUI_MEMBERS = set_of({"type", "name", "caption", "tooltip", "children", "p
 
 local gui_methods = {}
 
+--Values a player can change; kept out of the element table so every script write goes through __newindex
+local VALUE_KEYS = {elem_value = true, text = true}
+
+--Conservative assumption (not established for the engine): choose-elem-buttons refuse names of prototypes that do not exist
+local function check_elem_value(element, value)
+    if value == nil then return end
+    local elem_type = rawget(element, "elem_type")
+    if elem_type == "item" and not prototypes.item[value] then
+        error("Unknown item " .. tostring(value), 3)
+    elseif elem_type == "entity-with-quality" and not prototypes.entity[value.name] then
+        error("Unknown entity " .. tostring(value.name), 3)
+    end
+end
+
+local function normalize_value(key, value)
+    if key == "text" and type(value) == "number" then return tostring(value) end
+    return value
+end
+
+H.refire_on_script_set = false
+local refire_depth = 0
+
+--Re-fire mode: a script write raises the element's handler, as the engine might; a restore that is not idempotent then loops
+local function refire(element, key)
+    if not H.refire_on_script_set then return end
+    local handlers = key == "elem_value" and event_handlers.on_gui_elem_changed or event_handlers.on_gui_confirmed
+    local handler = handlers[rawget(element, "name")]
+    if not handler then return end
+    refire_depth = refire_depth + 1
+    if refire_depth > 5 then
+        refire_depth = 0
+        error("event re-fire loop", 3)
+    end
+    local ok, err = pcall(handler, {element = element, player_index = rawget(element, "player_index")})
+    refire_depth = refire_depth - 1
+    if not ok then error(err, 0) end
+end
+
 local function new_gui_element(params, parent, player_index)
-    local element = {children = {}, style = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}}
+    local element = {children = {}, style = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}, _values = {}}
     for key, value in pairs(params) do
-        if key ~= "index" and GUI_MEMBERS[key] then element[key] = value end
+        if key ~= "index" and GUI_MEMBERS[key] and not VALUE_KEYS[key] then element[key] = value end
     end
     if params.enabled == false then element.enabled = false end
     if params.visible == false then element.visible = false end
-    if params.elem_type then element.elem_value = params[params.elem_type] end
+    if params.elem_type then
+        check_elem_value(element, params[params.elem_type])
+        element._values.elem_value = params[params.elem_type]
+    end
+    element._values.text = normalize_value("text", params.text)
     element.parent = parent
     element.player_index = parent and parent.player_index or player_index
     return setmetatable(element, {
         __index = function(self, key)
+            if VALUE_KEYS[key] then return rawget(self, "_values")[key] end
             --the engine binds methods, so mod code calls element.add{...} without self; accept both call styles
             local method = gui_methods[key]
             if method then
@@ -83,6 +126,12 @@ local function new_gui_element(params, parent, player_index)
             error("LuaGuiElement doesn't contain key " .. tostring(key), 2)
         end,
         __newindex = function(self, key, value)
+            if VALUE_KEYS[key] then
+                if key == "elem_value" then check_elem_value(self, value) end
+                rawget(self, "_values")[key] = normalize_value(key, value)
+                refire(self, key)
+                return
+            end
             if not GUI_MEMBERS[key] then error("LuaGuiElement doesn't contain key " .. tostring(key), 2) end
             rawset(self, key, value)
         end,
@@ -90,6 +139,11 @@ local function new_gui_element(params, parent, player_index)
 end
 
 function gui_methods.add(self, params)
+    --item and fluid sprites need their prototype (see LuaHelpers::is_valid_sprite_path)
+    local sprite_type, sprite_name = tostring(params.sprite or ""):match("^(%a+)/(.+)$")
+    if (sprite_type == "item" and not prototypes.item[sprite_name]) or (sprite_type == "fluid" and not prototypes.fluid[sprite_name]) then
+        error("Unknown sprite " .. params.sprite, 3)
+    end
     local child = new_gui_element(params, self)
     if params.index then
         table.insert(self.children, params.index, child)
@@ -191,8 +245,12 @@ function H.new_world(shape)
 
     local machines = {}
     local modules = {}
+    H.refire_on_script_set = false
+    refire_depth = 0
+
     _G.prototypes = {
         recipe = {}, item = {}, fluid = {}, entity = {},
+        quality = {normal = {name = "normal"}, uncommon = {name = "uncommon"}, rare = {name = "rare"}, epic = {name = "epic"}, legendary = {name = "legendary"}},
         get_entity_filtered = function() return machines end,
         get_item_filtered = function() return modules end,
     }
@@ -212,6 +270,16 @@ function H.new_world(shape)
     function world.remove_module(name)
         prototypes.item[name] = nil
         modules[name] = nil
+    end
+
+    --A mod removing a recipe: the prototype object turns invalid and disappears from prototypes; its product item stays
+    function world.remove_recipe(name)
+        prototypes.recipe[name].valid = false
+        prototypes.recipe[name] = nil
+    end
+
+    function world.remove_quality(name)
+        prototypes.quality[name] = nil
     end
 
     function world.add_fluid(name)
@@ -299,8 +367,8 @@ function H.new_world(shape)
     return world
 end
 
---Builds a sheet, types the targets into it and presses Compute. targets: {{item, rate, unit = "/s" | "/m"}}
-function H.run_sheet(targets, player_index)
+--Builds a sheet and types the targets into it without computing. targets: {{item, rate, unit = "/s" | "/m"}}
+function H.fill_sheet(targets, player_index)
     local Sheet = require "gui.sheet"
     local sheet_pane = H.gui_root({type = "tabbed-pane", name = "sheet_pane"}, player_index or 1)
     Sheet.new(sheet_pane)
@@ -313,7 +381,13 @@ function H.run_sheet(targets, player_index)
         row.hxrrc_desired_item_button.elem_value = target.item
         event_handlers.on_gui_elem_changed["hxrrc_desired_item_button"]({element = row.hxrrc_desired_item_button, player_index = player_index or 1})
     end
-    Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    return sheet_pane, sheet_flow
+end
+
+--Builds a sheet, types the targets into it and presses Compute
+function H.run_sheet(targets, player_index)
+    local sheet_pane, sheet_flow = H.fill_sheet(targets, player_index)
+    require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
     return H.parse_report(sheet_flow.output_flow), sheet_pane
 end
 

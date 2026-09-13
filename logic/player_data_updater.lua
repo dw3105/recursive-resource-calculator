@@ -10,6 +10,8 @@ local function reinitialize_chosen_crafting_machines(player_index)
             machine_identifier_by_recipe_name[recipe_name] = nil
         elseif not prototypes.entity[crafting_machine_identifier.name] or not prototypes.entity[crafting_machine_identifier.name].crafting_categories[Utils.recipe_category(recipe)] then
             machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(Utils.recipe_category(recipe))
+        elseif crafting_machine_identifier.quality and not prototypes.quality[crafting_machine_identifier.quality] then
+            crafting_machine_identifier.quality = nil --the mod adding this quality was removed
         end
     end
 

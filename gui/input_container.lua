@@ -80,7 +80,7 @@ function InputContainer.get_desired_production_rates_by_full_item_name(input_con
     for _, row in ipairs(input_container.children) do
         local rate = get_desired_production_rate(row)
         local item = row.hxrrc_desired_item_button.elem_value
-        if rate ~= 0 and item then
+        if rate ~= 0 and item and prototypes.item[item] then --a target whose item was removed by a mod is left out
             rates_by_full_item_name["item/" .. item] = (rates_by_full_item_name["item/" .. item] or 0) + rate
         end
     end
