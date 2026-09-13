@@ -8,14 +8,14 @@ local function reinitialize_chosen_crafting_machines(player_index)
         local recipe = prototypes.recipe[recipe_name]
         if not recipe then
             machine_identifier_by_recipe_name[recipe_name] = nil
-        elseif not prototypes.entity[crafting_machine_identifier.name] or not prototypes.entity[crafting_machine_identifier.name].crafting_categories[recipe.categories[1]] then
-            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(recipe.categories[1])
+        elseif not prototypes.entity[crafting_machine_identifier.name] or not prototypes.entity[crafting_machine_identifier.name].crafting_categories[Utils.recipe_category(recipe)] then
+            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(Utils.recipe_category(recipe))
         end
     end
 
     for recipe_name, recipe in pairs(prototypes.recipe) do
         if not machine_identifier_by_recipe_name[recipe_name] then
-            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(recipe.categories[1])
+            machine_identifier_by_recipe_name[recipe_name] = Utils.get_any_crafting_machine_identifier_for(Utils.recipe_category(recipe))
         end
     end
 end
