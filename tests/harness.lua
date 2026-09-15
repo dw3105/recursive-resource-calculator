@@ -416,7 +416,7 @@ function H.new_world(shape)
         prototypes.fluid[name] = H.lua_object("LuaFluidPrototype", {name = name, valid = true, localised_name = {"fluid-name." .. name}}, FLUID_MEMBERS)
     end
 
-    --spec: {name, categories, speed, energy_kw, pollution_per_minute, base_productivity, no_effect_receiver, speeds_by_quality,
+    --spec: {name, type (default assembling-machine), categories, speed, energy_kw, pollution_per_minute, base_productivity, no_effect_receiver, speeds_by_quality,
     --  module_slots (default 4), quality_affects_module_slots, module_slots_quality_bonus, allowed_effects (list), allowed_module_categories (list),
     --  uses_module_effects, uses_beacon_effects}
     function world.add_machine(spec)
@@ -426,7 +426,7 @@ function H.new_world(shape)
         for _, category in ipairs(spec.categories) do categories[category] = true end
         local module_slots = spec.module_slots or 4
         local fields = {
-            name = spec.name, type = "assembling-machine", valid = true, localised_name = {"entity-name." .. spec.name},
+            name = spec.name, type = spec.type or "assembling-machine", valid = true, localised_name = {"entity-name." .. spec.name},
             crafting_categories = categories,
             energy_usage = energy_usage,
             allowed_effects = effect_dictionary(spec.allowed_effects, true),

@@ -1,5 +1,6 @@
 local ModuleGUI = require "gui.modulegui"
 local ModuleSetup = require "logic.module_setup"
+local Solver = require "logic.solver"
 local Utils = require "logic.utils"
 
 local Report = {}
@@ -79,31 +80,32 @@ local function add_item_cell(report, product_full_name, production_rate)
     item_cell.add{type = "label", caption = production_rate and (format_by_precision(production_rate, report.player_index) .. " /s") or ""}
 end
 
-local function add_byproduct_widgets(report)
-    report.add{type = "label", caption = {"hxrrc.byproduct"}}
-    report.add{type = "empty-widget"}
-    report.add{type = "empty-widget"}
-end
-
-local function add_recipe_cell(report, product_full_name, recipe)
+--consumer: the button picks a recipe that consumes the product (any recipe with it as ingredient) instead of one that makes it
+local function add_recipe_cell(report, product_full_name, recipe, consumer)
     local recipe_cell = report.add{type = "flow"}
     recipe_cell.style.horizontally_stretchable = true
     local type, product_short_name = split_product_name(product_full_name)
     recipe_cell.add{
         type = "choose-elem-button",
         name = "hxrrc_choose_recipe_button",
-        tooltip = {"hxrrc.empty_the_recipe_button"},
+        tooltip = consumer and {"hxrrc.choose_consumer_tooltip"} or {"hxrrc.empty_the_recipe_button"},
         elem_tooltip = recipe and {type = "recipe", name = recipe.name},
         elem_type = "recipe",
         recipe = recipe and recipe.name,
-        tags = {product_full_name = product_full_name}, --used in Calculator.on_gui_elem_changed
+        tags = {product_full_name = product_full_name, consumer = consumer or nil}, --used in Report.handle_recipe_binding_change
         elem_filters = {
             {
-                filter = type == "item" and "has-product-item" or "has-product-fluid",
+                filter = (consumer and "has-ingredient-" or "has-product-") .. type,
                 elem_filters = {{filter = "name", name = product_short_name}},
             },
         },
     }
+end
+
+local function add_byproduct_widgets(report, product_full_name)
+    report.add{type = "label", caption = {"hxrrc.byproduct"}}
+    report.add{type = "empty-widget"}
+    add_recipe_cell(report, product_full_name, nil, true)
 end
 
 --One filter per category the recipe can be crafted through; filters in a list combine with "or"
@@ -165,14 +167,14 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
         ModuleGUI.new(report, recipe, crafting_machine, crafting_machine_identifier, product_full_name)
     end
 
-    add_recipe_cell(report, product_full_name, recipe)
+    add_recipe_cell(report, product_full_name, recipe, storage[pi].consumer_product_full_names[product_full_name])
 end
 
 local function add_row_for_unsolved_product(report, unsolved_product_full_name, unsolved_product_rate)
     add_item_cell(report, unsolved_product_full_name, unsolved_product_rate)
 
     if unsolved_product_rate < 0 then
-        add_byproduct_widgets(report)
+        add_byproduct_widgets(report, unsolved_product_full_name)
     else --TODO See what happens for undecomposable products
         report.add{type = "label", caption = {"hxrrc.unselected_recipe"}}
         report.add{type = "empty-widget"}
@@ -287,29 +289,45 @@ function Report.handle_crafting_machine_change(event)
     return true
 end
 
+--Returns true when the binding changed. A consumer button binds a recipe that consumes the product and flags it; any other button binds a producer.
+--Each button shows only a binding of its own kind, so clearing a consumer button leaves a producer binding alone and the other way round.
 function Report.handle_recipe_binding_change(event)
     local pi = event.player_index
+    local player_storage = storage[pi]
     local button = event.element
     local product_full_name = button.tags.product_full_name
-    local old_recipe = storage[pi].recipes_by_product_full_name[product_full_name]
+    local consumer = button.tags.consumer == true
+    local old_recipe = player_storage.recipes_by_product_full_name[product_full_name]
     local name_of_old_recipe = old_recipe and old_recipe.name
+    local shown_recipe_name = (player_storage.consumer_product_full_names[product_full_name] == true) == consumer and name_of_old_recipe or nil
     local name_of_new_recipe = button.elem_value
 
-    if name_of_old_recipe == name_of_new_recipe then
-        return false
-    elseif name_of_new_recipe and storage[pi].product_full_names_by_recipe_name[name_of_new_recipe] then
-        game.get_player(pi).create_local_flying_text{text = {"hxrrc.recipe_already_used_by_another_product_error"}, create_at_cursor = true}
-        button.elem_value = name_of_old_recipe
+    --a refused pick restores the button, which may raise this event again: the restored value is then a no-op
+    if shown_recipe_name == name_of_new_recipe then
         return false
     end
-
-    storage[pi].recipes_by_product_full_name[product_full_name] = name_of_new_recipe and prototypes.recipe[name_of_new_recipe]
-    if name_of_new_recipe then
-        storage[pi].product_full_names_by_recipe_name[name_of_new_recipe] = product_full_name
+    local new_recipe_owner = name_of_new_recipe and player_storage.product_full_names_by_recipe_name[name_of_new_recipe]
+    if new_recipe_owner and new_recipe_owner ~= product_full_name then
+        game.get_player(pi).create_local_flying_text{text = {"hxrrc.recipe_already_used_by_another_product_error"}, create_at_cursor = true}
+        button.elem_value = shown_recipe_name
+        return false
+    end
+    if name_of_new_recipe and consumer then
+        local net_amount = Solver.net_amount_of(prototypes.recipe[name_of_new_recipe], product_full_name, pi)
+        if not (net_amount and net_amount < 0) then
+            game.get_player(pi).create_local_flying_text{text = {"hxrrc.recipe_does_not_consume_error"}, create_at_cursor = true}
+            button.elem_value = shown_recipe_name
+            return false
+        end
     end
     if name_of_old_recipe then
-        storage[pi].product_full_names_by_recipe_name[name_of_old_recipe] = nil
+        player_storage.product_full_names_by_recipe_name[name_of_old_recipe] = nil
     end
+    player_storage.recipes_by_product_full_name[product_full_name] = name_of_new_recipe and prototypes.recipe[name_of_new_recipe]
+    if name_of_new_recipe then
+        player_storage.product_full_names_by_recipe_name[name_of_new_recipe] = product_full_name
+    end
+    player_storage.consumer_product_full_names[product_full_name] = (name_of_new_recipe and consumer) or nil
 
     return true
 end

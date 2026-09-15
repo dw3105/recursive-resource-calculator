@@ -17,6 +17,9 @@ local function consumer_world(shape)
     world.add_recipe({name = "cast", category = "crafting", ingredients = {{name = "ore", amount = 1}}, products = {{name = "x", amount = 1}}})
     --burn2 takes one x and gives one back at probability 0.5: net -0.5, zero at +100% productivity, +0.5 at +200%
     world.add_recipe({name = "burn2", category = "crafting", ingredients = {{name = "x", amount = 1}}, products = {{name = "x", amount = 1, p = 0.5}}})
+    world.add_recipe({name = "dup", category = "crafting", ingredients = {{name = "x", amount = 1}}, products = {{name = "x", amount = 2}}}) --net +1
+    world.add_recipe({name = "swap", category = "crafting", ingredients = {{name = "x", amount = 1}}, products = {{name = "x", amount = 1}}}) --net 0
+    world.add_recipe({name = "melt", category = "crafting", ingredients = {{name = "x", amount = 1}}, products = {{name = "y", amount = 1}}}) --y's only recipe
     world.add_player(1)
     world.init()
     world.bind("item/target", "make")
@@ -38,6 +41,21 @@ local function pick_recipe(report, product_full_name, recipe_name)
     button.elem_value = recipe_name
     fire_elem_changed(button)
     return button
+end
+
+--A consumer world whose report is on screen with its handlers registered; returns world, report, sheet pane
+local function consumer_sheet(shape, rate)
+    local world = consumer_world(shape)
+    require "gui.calculator" --registers the event handlers the tests fire
+    local report, sheet_pane = H.run_sheet({{item = "target", rate = rate or 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    return world, report, sheet_pane
+end
+
+local function flying_text_keys(world)
+    local keys = {}
+    for _, text in ipairs(world.flying_texts) do keys[#keys + 1] = text[1] end
+    return table.concat(keys, ",")
 end
 
 --craft: plate -> target + scrap; recycle: scrap -> 2 plate; smelt: ore -> plate. Consuming the scrap returns more plate than the craft eats.
@@ -212,6 +230,326 @@ for _, shape in ipairs(H.shapes()) do
         fire_elem_changed(untagged)
         H.equal(chosen.b.name, "assembler", "untagged button refused")
         H.equal(untagged.elem_value.name, "assembler", "untagged button restored")
+    end)
+
+    H.test(shape .. " R4-1 oil byproducts cracked down to the target fluid, picked on their byproduct rows", function()
+        local world = H.new_world(shape)
+        require "gui.calculator"
+        for _, fluid in ipairs({"crude", "water", "heavy", "light", "gas"}) do world.add_fluid(fluid) end
+        world.add_machine({name = "refinery", categories = {"oil-processing"}, speed = 1, energy_kw = 420})
+        world.add_machine({name = "chemical-plant", categories = {"chemistry"}, speed = 1, energy_kw = 210})
+        world.add_recipe({name = "advanced-oil", category = "oil-processing", energy = 5,
+            ingredients = {{type = "fluid", name = "crude", amount = 100}, {type = "fluid", name = "water", amount = 50}},
+            products = {{type = "fluid", name = "heavy", amount = 25}, {type = "fluid", name = "light", amount = 45}, {type = "fluid", name = "gas", amount = 55}}})
+        world.add_recipe({name = "heavy-cracking", category = "chemistry", energy = 2,
+            ingredients = {{type = "fluid", name = "heavy", amount = 40}, {type = "fluid", name = "water", amount = 30}},
+            products = {{type = "fluid", name = "light", amount = 30}}})
+        world.add_recipe({name = "light-cracking", category = "chemistry", energy = 2,
+            ingredients = {{type = "fluid", name = "light", amount = 30}, {type = "fluid", name = "water", amount = 30}},
+            products = {{type = "fluid", name = "gas", amount = 20}}})
+        world.add_player(1)
+        world.init()
+        world.bind("fluid/gas", "advanced-oil")
+        local report, sheet_pane = H.run_sheet({{fluid = "gas", rate = 100, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        H.near(report.rows["fluid/heavy"].rate, -25 * 100 / 55, "heavy excess before cracking")
+        H.near(report.rows["fluid/light"].rate, -45 * 100 / 55, "light excess before cracking")
+        local heavy_button = report.rows["fluid/heavy"].recipe_button
+        H.equal(heavy_button.tags.consumer, true, "byproduct row has a consumer button")
+        H.equal(heavy_button.elem_filters[1].filter, "has-ingredient-fluid", "it lists recipes eating heavy oil")
+        H.equal(heavy_button.elem_filters[1].elem_filters[1].name, "heavy", "filtered by name")
+
+        pick_recipe(report, "fluid/heavy", "heavy-cracking")
+        report = recompute(sheet_pane)
+        pick_recipe(report, "fluid/light", "light-cracking")
+        report = recompute(sheet_pane)
+
+        --gas: 55a + 20l = 100; heavy: 25a - 40h = 0; light: 45a + 30h - 30l = 0, so h = 0.625a, l = 2.125a, 97.5a = 100
+        local a = 100 / 97.5
+        local h, l = 0.625 * a, 2.125 * a
+        H.equal(report.rows["fluid/heavy"].kind, "solved", "heavy is a consumer row now")
+        H.equal(report.rows["fluid/light"].kind, "solved", "light is a consumer row now")
+        H.near(report.rows["fluid/heavy"].rate, -40 * h, "heavy consumed (-25.641025641)")
+        H.near(report.rows["fluid/light"].rate, -30 * l, "light consumed (-65.3846153846)")
+        H.near(report.rows["fluid/gas"].rate, 55 * a, "gas made by advanced oil (56.4102564103)")
+        H.near(report.rows["fluid/gas"].machines, 5 * a, "refineries (5.12820512821)")
+        H.near(report.rows["fluid/heavy"].machines, 2 * h, "heavy cracking plants (1.28205128205)")
+        H.near(report.rows["fluid/light"].machines, 2 * l, "light cracking plants (4.35897435897)")
+        H.near(report.rows["fluid/water"].rate, 50 * a + 30 * h + 30 * l, "water (135.897435897)")
+        H.near(report.rows["fluid/crude"].rate, 100 * a, "crude (102.564102564)")
+        H.equal(report.rows["fluid/heavy"].recipe_button.tags.consumer, true, "solved consumer row keeps a consumer button")
+        H.equal(report.rows["fluid/heavy"].recipe_button.elem_value, "heavy-cracking", "showing its binding")
+        H.near(report.energy_mw, 0.42 * 5 * a + 0.21 * (2 * h + 2 * l), "MW (3.56666666667)")
+        H.equal(report.row_count, 5, "gas, heavy, light, water, crude")
+    end)
+
+    H.test(shape .. " R4-2 a recycling recipe picked for an item byproduct gives back part of the ingredient", function()
+        local world = H.new_world(shape)
+        require "gui.calculator"
+        for _, item in ipairs({"ore", "plate", "gear", "widget"}) do world.add_item(item) end
+        world.add_machine({name = "furnace", type = "furnace", categories = {"smelting"}, speed = 1})
+        world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+        world.add_machine({name = "recycler", type = "furnace", categories = {"recycling"}, speed = 0.5})
+        world.add_recipe({name = "smelt", category = "smelting", ingredients = {{name = "ore", amount = 1}}, products = {{name = "plate", amount = 1}}})
+        world.add_recipe({name = "widget", category = "crafting", ingredients = {{name = "plate", amount = 2}},
+            products = {{name = "widget", amount = 1}, {name = "gear", amount = 1}}})
+        world.add_recipe({name = "gear-recycling", category = "recycling", hidden = true, energy = 0.5,
+            ingredients = {{name = "gear", amount = 1}}, products = {{name = "plate", amount = 1, p = 0.25}}})
+        world.add_player(1)
+        world.init()
+        world.bind("item/widget", "widget")
+        world.bind("item/plate", "smelt")
+        local report, sheet_pane = H.run_sheet({{item = "widget", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        H.near(report.rows["item/ore"].rate, 2, "ore before recycling")
+        pick_recipe(report, "item/gear", "gear-recycling")
+        report = recompute(sheet_pane)
+        H.near(report.rows["item/gear"].rate, -1, "every gear recycled")
+        H.near(report.rows["item/gear"].machines, 1 * 0.5 / 0.5, "recyclers")
+        H.near(report.rows["item/plate"].rate, 1.75, "smelting only what recycling does not return")
+        H.near(report.rows["item/ore"].rate, 1.75, "ore drops by the returned quarter plate")
+    end)
+
+    H.test(shape .. " R4-4 a consumer pick must consume the product: net below zero is taken, zero and gains are refused", function()
+        local world, report = consumer_sheet(shape)
+        local button = report.rows["item/x"].recipe_button
+        for _, refused in ipairs({"dup", "swap"}) do
+            button.elem_value = refused
+            fire_elem_changed(button)
+            H.equal(button.elem_value, nil, refused .. ": button restored")
+            H.equal(storage[1].recipes_by_product_full_name["item/x"], nil, refused .. ": no binding")
+            H.equal(storage[1].consumer_product_full_names["item/x"], nil, refused .. ": no flag")
+            H.equal(storage[1].product_full_names_by_recipe_name[refused], nil, refused .. ": recipe still free")
+            H.equal(#storage.computation_stack, 0, refused .. ": nothing queued")
+        end
+        H.equal(flying_text_keys(world), "hxrrc.recipe_does_not_consume_error,hxrrc.recipe_does_not_consume_error", "a message per refusal")
+        button.elem_value = "burn2"
+        fire_elem_changed(button)
+        H.equal(storage[1].recipes_by_product_full_name["item/x"].name, "burn2", "net -0.5 is taken")
+        H.equal(storage[1].consumer_product_full_names["item/x"], true, "flagged")
+        H.equal(#storage.computation_stack > 0, true, "recomputation queued")
+    end)
+
+    H.test(shape .. " R4-4 clearing a consumer button removes the binding and its flag; clearing an empty one changes nothing", function()
+        local _, report, sheet_pane = consumer_sheet(shape)
+        local button = report.rows["item/x"].recipe_button
+        button.elem_value = nil
+        fire_elem_changed(button)
+        H.equal(#storage.computation_stack, 0, "empty consumer button cleared: nothing queued")
+        pick_recipe(report, "item/x", "burn")
+        report = recompute(sheet_pane)
+        pick_recipe(report, "item/x", nil)
+        H.equal(storage[1].recipes_by_product_full_name["item/x"], nil, "binding removed")
+        H.equal(storage[1].consumer_product_full_names["item/x"], nil, "flag removed")
+        H.equal(storage[1].product_full_names_by_recipe_name.burn, nil, "burn free again")
+        report = recompute(sheet_pane)
+        H.equal(report.rows["item/x"].kind, "hxrrc.byproduct", "x is a byproduct again")
+    end)
+
+    H.test(shape .. " R4-4 a consumer pick replaces a producer binding the byproduct row does not show, and clearing it leaves the producer", function()
+        local world, report, sheet_pane = consumer_sheet(shape)
+        world.bind("item/x", "cast")
+        report = recompute(sheet_pane)
+        local button = report.rows["item/x"].recipe_button
+        H.equal(button.elem_value, nil, "consumer button shows no producer")
+        button.elem_value = nil
+        fire_elem_changed(button)
+        H.equal(storage[1].recipes_by_product_full_name["item/x"].name, "cast", "clearing the empty consumer button keeps cast")
+        pick_recipe(report, "item/x", "burn")
+        H.equal(storage[1].recipes_by_product_full_name["item/x"].name, "burn", "consumer replaces cast")
+        H.equal(storage[1].product_full_names_by_recipe_name.cast, nil, "cast released")
+    end)
+
+    H.test(shape .. " R4-8 a recipe serving another product is refused on a byproduct row, and a re-raised restore does not loop", function()
+        local world, report = consumer_sheet(shape)
+        H.equal(storage[1].recipes_by_product_full_name["item/y"].name, "melt", "melt already makes y")
+        H.refire_on_script_set = true
+        local button = report.rows["item/x"].recipe_button
+        button.elem_value = "melt"
+        H.equal(button.elem_value, nil, "restored")
+        H.equal(storage[1].recipes_by_product_full_name["item/x"], nil, "no binding")
+        H.equal(storage[1].product_full_names_by_recipe_name.melt, "item/y", "melt still serves y")
+        button.elem_value = "dup"
+        H.equal(button.elem_value, nil, "net gain restored without a loop")
+        H.equal(flying_text_keys(world), "hxrrc.recipe_already_used_by_another_product_error,hxrrc.recipe_does_not_consume_error", "messages")
+    end)
+
+    H.test(shape .. " R4-9 modded consumer through an additional category, with unequal product probabilities", function()
+        local world = H.new_world(shape)
+        require "gui.calculator"
+        for _, item in ipairs({"raw", "target", "scrap", "metal", "dust"}) do world.add_item(item) end
+        world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+        world.add_machine({name = "mod-sorter", categories = {"sorting"}, speed = 1})
+        world.add_machine({name = "mod-grinder", type = "furnace", categories = {"grinding"}, speed = 0.5})
+        world.add_recipe({name = "salvage", category = "crafting", ingredients = {{name = "raw", amount = 1}},
+            products = {{name = "target", amount = 1}, {name = "scrap", amount = 1}}})
+        world.add_recipe({name = "scrap-sort", category = "sorting", additional_categories = {"grinding"},
+            ingredients = {{name = "scrap", amount = 2}}, products = {{name = "metal", amount = 1, p = 0.5}, {name = "dust", amount = 3, p = 0.25}}})
+        world.add_player(1)
+        world.init()
+        world.bind("item/target", "salvage")
+        local report, sheet_pane = H.run_sheet({{item = "target", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        pick_recipe(report, "item/scrap", "scrap-sort")
+        report = recompute(sheet_pane)
+        H.near(report.rows["item/scrap"].rate, -1, "scrap consumed")
+        H.near(report.rows["item/metal"].rate, -0.25, "metal left over")
+        H.near(report.rows["item/dust"].rate, -0.375, "dust left over")
+        H.equal(report.rows["item/scrap"].machine.name, "mod-sorter", "primary category's machine first")
+        H.near(report.rows["item/scrap"].machines, 0.5, "sorters")
+        local machine_button = report.rows["item/scrap"].machine_button
+        H.equal(machine_button.enabled, true, "two machines can sort scrap")
+        H.equal(#machine_button.elem_filters, 2, "one filter per category")
+        H.equal(machine_button.elem_filters[2].crafting_category, "grinding", "additional category listed")
+        machine_button.elem_value = {name = "mod-grinder"}
+        fire_elem_changed(machine_button)
+        report = recompute(sheet_pane)
+        H.near(report.rows["item/scrap"].machines, 1, "grinders at half speed")
+        H.equal(require("logic.utils").can_craft("assembler", prototypes.recipe["scrap-sort"]), false, "assembler cannot sort")
+    end)
+
+    H.test(shape .. " R4-10 one sheet through zero and positive net: diagnostic with working consumer controls, then solved again", function()
+        local world, report, sheet_pane = consumer_sheet(shape)
+        pick_recipe(report, "item/x", "burn2")
+        report = recompute(sheet_pane)
+        H.near(report.energy_mw, 0.21 * 3, "solved: one make, two burn2")
+        local force_recipe = game.players[1].force.recipes.burn2
+
+        force_recipe.productivity_bonus = 1
+        report = recompute(sheet_pane)
+        H.equal(report.rows["item/x"].reason, "hxrrc.consumer_no_longer_consumes", "zero net: diagnostic")
+        H.equal(report.energy_mw, nil, "zero net: old totals gone")
+        local button = report.rows["item/x"].recipe_button
+        H.equal(button.tags.consumer, true, "diagnostic row keeps the consumer button")
+        storage.computation_stack = {}
+        button.elem_value = "burn2" --already bound: no change
+        fire_elem_changed(button)
+        H.equal(#storage.computation_stack, 0, "re-picking the bound recipe does nothing")
+        pick_recipe(report, "item/x", "burn")
+        H.equal(storage[1].recipes_by_product_full_name["item/x"].name, "burn", "another consumer picked from the diagnostic")
+        report = recompute(sheet_pane)
+        H.near(report.energy_mw, 0.21 * 2, "solved with burn")
+
+        force_recipe.productivity_bonus = 2
+        pick_recipe(report, "item/x", "burn2")
+        H.equal(storage[1].recipes_by_product_full_name["item/x"].name, "burn", "burn2 at net +0.5 refused")
+        H.equal(report.rows["item/x"].recipe_button.elem_value, "burn", "button restored to burn")
+
+        force_recipe.productivity_bonus = 0
+        pick_recipe(report, "item/x", "burn2")
+        report = recompute(sheet_pane)
+        H.near(report.energy_mw, 0.21 * 3, "solved with burn2 again")
+        H.equal(flying_text_keys(world), "hxrrc.recipe_does_not_consume_error", "one refusal message")
+    end)
+
+    H.test(shape .. " R4-12 a consumer row's machine button refuses once the row's consumer changes; machine then module changes both apply", function()
+        local world, report, sheet_pane = consumer_sheet(shape)
+        world.add_machine({name = "fast-assembler", categories = {"crafting"}, speed = 2})
+        world.add_module("speed-module", "speed", {speed = 0.5})
+        reconfigure()
+        pick_recipe(report, "item/x", "burn")
+        report = recompute(sheet_pane)
+        local chosen = storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name
+        local old_button = report.rows["item/x"].machine_button
+        H.equal(old_button.tags.recipe_name, "burn", "consumer row tagged with its consumer")
+
+        pick_recipe(report, "item/x", "burn2")
+        storage.computation_stack = {}
+        local shown = old_button.elem_value.name
+        old_button.elem_value = {name = shown == "fast-assembler" and "assembler" or "fast-assembler"}
+        fire_elem_changed(old_button)
+        H.equal(old_button.elem_value.name, shown, "stale consumer machine button restored")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+
+        report = recompute(sheet_pane)
+        local button = report.rows["item/x"].machine_button
+        button.elem_value = {name = "fast-assembler"}
+        fire_elem_changed(button)
+        H.equal(chosen.burn2.name, "fast-assembler", "machine change applies to burn2")
+        report = recompute(sheet_pane)
+        local slots = {}
+        for _, flow in ipairs(report.rows["item/x"].module_cell.hxrrc_module_slots.children) do slots[#slots + 1] = flow.children[1] end
+        slots[1].elem_value = {name = "speed-module"}
+        fire_elem_changed(slots[1])
+        H.equal(storage[1].module_setups_by_recipe_name.burn2.modules[1].name, "speed-module", "module change applies to burn2")
+        report = recompute(sheet_pane)
+        H.near(report.rows["item/x"].machines, 2 * 1 / (2 * 1.5), "burn2 on fast assemblers with a speed module")
+    end)
+
+    H.test(shape .. " R4-14 a module that makes the consumer net zero is removed from the diagnostic row, and the sheet solves again", function()
+        local world, report, sheet_pane = consumer_sheet(shape)
+        world.add_module("prod", "productivity", {productivity = 0.5})
+        reconfigure()
+        pick_recipe(report, "item/x", "burn2")
+        report = recompute(sheet_pane)
+        local function slot(row_report, index)
+            return row_report.rows["item/x"].module_cell.hxrrc_module_slots.children[index].children[1]
+        end
+        local first = slot(report, 1)
+        first.elem_value = {name = "prod"}
+        fire_elem_changed(first)
+        report = recompute(sheet_pane)
+        H.near(report.rows["item/x"].machines, 4, "one module: net -0.25, four burns")
+        local second = slot(report, 2)
+        second.elem_value = {name = "prod"}
+        fire_elem_changed(second)
+        report = recompute(sheet_pane)
+        H.equal(report.rows["item/x"].reason, "hxrrc.consumer_no_longer_consumes", "two modules: net zero, diagnostic")
+        H.equal(report.energy_mw, nil, "no totals")
+        second = slot(report, 2)
+        H.equal(second.elem_value.name, "prod", "diagnostic row shows the module")
+        second.elem_value = nil
+        fire_elem_changed(second)
+        H.equal(#storage[1].module_setups_by_recipe_name.burn2.modules, 1, "module removed from the diagnostic row")
+        report = recompute(sheet_pane)
+        H.near(report.rows["item/x"].machines, 4, "solved again")
+        H.near(report.energy_mw, 0.21 * 5, "totals back: one make, four burns")
+    end)
+
+    H.test(shape .. " R4-15 a machine whose productivity makes the consumer net zero is swapped on the diagnostic row", function()
+        local world = consumer_world(shape)
+        require "gui.calculator"
+        world.add_machine({name = "hot-assembler", categories = {"crafting"}, speed = 1, base_productivity = 1})
+        reconfigure()
+        local chosen = storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name
+        chosen.make, chosen.burn2 = {name = "assembler"}, {name = "hot-assembler"}
+        world.bind_consumer("item/x", "burn2")
+        local report, sheet_pane = H.run_sheet({{item = "target", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        H.equal(report.rows["item/x"].reason, "hxrrc.consumer_no_longer_consumes", "hot machine: net zero")
+        local button = report.rows["item/x"].machine_button
+        button.elem_value = {name = "assembler"}
+        fire_elem_changed(button)
+        H.equal(chosen.burn2.name, "assembler", "machine changed from the diagnostic row")
+        report = recompute(sheet_pane)
+        H.near(report.rows["item/x"].machines, 2, "solved: two burns")
+        H.near(report.energy_mw, 0.21 * 3, "totals back")
+    end)
+
+    H.test(shape .. " R4-16 a modded venting recipe that makes nothing consumes an excess fluid", function()
+        local world = H.new_world(shape)
+        require "gui.calculator"
+        world.add_item("raw")
+        world.add_item("target")
+        world.add_fluid("waste-gas")
+        world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+        world.add_machine({name = "flare-stack", type = "furnace", categories = {"venting"}, speed = 1, energy_kw = 50})
+        world.add_recipe({name = "crack", category = "crafting", ingredients = {{name = "raw", amount = 1}},
+            products = {{name = "target", amount = 1}, {type = "fluid", name = "waste-gas", amount = 30}}})
+        world.add_recipe({name = "vent-waste-gas", category = "venting", energy = 1,
+            ingredients = {{type = "fluid", name = "waste-gas", amount = 10}}, products = {}})
+        world.add_player(1)
+        world.init()
+        world.bind("item/target", "crack")
+        local report, sheet_pane = H.run_sheet({{item = "target", rate = 2, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        H.near(report.rows["fluid/waste-gas"].rate, -60, "waste gas excess")
+        pick_recipe(report, "fluid/waste-gas", "vent-waste-gas")
+        report = recompute(sheet_pane)
+        H.near(report.rows["fluid/waste-gas"].rate, -60, "all of it vented")
+        H.near(report.rows["fluid/waste-gas"].machines, 6, "flare stacks")
+        H.near(report.energy_mw, 0.21 * 2 + 0.05 * 6, "totals include the flare stacks")
+        H.equal(report.row_count, 3, "target, waste gas, raw")
     end)
 
     H.test(shape .. " R4-7 configuration change keeps a consumer binding while its recipe consumes the product", function()
