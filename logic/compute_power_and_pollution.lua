@@ -64,6 +64,20 @@ return function(player_index, columns, recipe_rates_by_recipe_name)
                 local energy_usage, pollution = compute_for_stage(recycle.recipe, rate * recycle_crafts, recycle.machine, recycle.setup)
                 total_energy_usage = total_energy_usage + energy_usage
                 total_pollution = total_pollution + pollution
+                --items recycled into themselves in the pool: each recipe's own work, with the pool's setup as that recipe allows it
+                for name, crafts in pairs(info.tiers[1] and info.tiers[1].ingredient_recycles or {}) do
+                    local recycler = info.ingredient_recycles[name]
+                    energy_usage, pollution = compute_for_stage(prototypes.recipe[recycler.recipe_name], rate * crafts, recycle.machine, recycler.setup)
+                    total_energy_usage = total_energy_usage + energy_usage
+                    total_pollution = total_pollution + pollution
+                end
+            end
+            local assist_crafts = info.tiers[1] and info.tiers[1].assist_crafts
+            local assist = assist_crafts and QualityLoops.stage(player_index, info.config, "assist")
+            if assist and assist.machine then
+                local energy_usage, pollution = compute_for_stage(assist.recipe, rate * assist_crafts, assist.machine, assist.setup)
+                total_energy_usage = total_energy_usage + energy_usage
+                total_pollution = total_pollution + pollution
             end
         elseif column.burner then
             local units_per_entity, pollution_per_entity = Burners.draw(column.product_full_name, column.burner)

@@ -8,7 +8,11 @@ local M = {} --modules loaded after each new world
 local function tier_world(shape, options)
     options = options or {}
     local world = H.new_world(shape)
-    world.set_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "rare", level = 2}})
+    if options.two_tiers then
+        world.set_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}})
+    else
+        world.set_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "rare", level = 2}})
+    end
     world.add_item("A")
     world.add_item("X")
     world.add_fluid("molten")
@@ -27,11 +31,16 @@ local function tier_world(shape, options)
     end
     world.add_recipe({name = "X-recycling", category = "recycling", energy = 0.5, hidden = true, ingredients = {{name = "X", amount = 1}},
         products = {{name = "A", amount = 2, p = 0.25}}})
-    world.add_recipe({name = "A-recycling", category = "recycling", energy = 0.25, hidden = true, ingredients = {{name = "A", amount = 1}},
-        products = {{name = "A", amount = 1, p = 0.25}}})
+    if options.a_recycling_category then
+        world.add_machine({name = "sorter", categories = {options.a_recycling_category}, speed = 1, energy_kw = 10, module_slots = 0})
+    end
+    world.add_recipe({name = "A-recycling", category = options.a_recycling_category or "recycling", energy = options.a_recycling_energy or 0.25, hidden = true,
+        ingredients = {{name = "A", amount = 1}}, products = {{name = "A", amount = 1, p = 0.25}},
+        allowed_effects = options.a_recycling_no_quality and {"consumption", "speed", "productivity", "pollution"} or nil})
     world.add_recipe({name = "A-mining", category = "mining", ingredients = {}, products = {{name = "A", amount = 1}}})
     world.add_player(1)
     world.init()
+    storage[1].calculator = {force_auto_center = function() end}
     world.bind("item/X", options.bind or "X-casting")
     world.bind("item/A", "A-mining")
     M.QualityId = require "logic.quality_id"
@@ -66,8 +75,8 @@ local function configure(quality, no_recycle)
     return key
 end
 
-local function solve(key, quality, rate)
-    return M.Solver.solve_for({[key] = rate or 1}, 1, {[key] = {type = "item", name = "X", quality = quality}})
+local function solve(key, quality, rate, mode)
+    return M.Solver.solve_for({[key] = rate or 1}, 1, {[key] = {type = "item", name = "X", quality = quality}}, mode and {start_leftovers = mode})
 end
 
 local function column_of(result, key)
@@ -282,6 +291,231 @@ H.test("2.0 QT-6 power: every tier draws with its own recipe and machine", funct
         + (info.tiers[1].recycle_crafts + info.tiers[2].recycle_crafts) * rate * 0.5 * 50e3
     local energy = require("logic.compute_power_and_pollution")(1, result.columns, result.recipe_rates)
     H.near_relative(energy, expected, "electric power")
+end)
+
+
+local MODES = {byproduct = 1, craft = 2, recycle = 3}
+
+local function child_named(flow, name)
+    for _, child in ipairs(flow.children) do
+        if child.name == name then return child end
+    end
+end
+
+--Adds a second sheet to a pane and types one target into it
+local function add_sheet(sheet_pane, target)
+    M.Sheet.new(sheet_pane)
+    local sheet_flow = sheet_pane.tabs[#sheet_pane.tabs].content
+    local row = sheet_flow.input_container.children[1]
+    row.rate_textfield.text = tostring(target.rate)
+    row.time_unit_dropdown.selected_index = 2
+    row.hxrrc_desired_item_button.elem_value = {name = target.item, quality = target.quality}
+    event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
+    return sheet_flow
+end
+
+local function select_mode(sheet_flow, mode)
+    local dropdown = child_named(sheet_flow, "hxrrc_start_leftovers_dropdown")
+    dropdown.selected_index = MODES[mode]
+    event_handlers.on_gui_selection_state_changed[dropdown.name]({element = dropdown, player_index = 1})
+end
+
+H.test("2.0 QS-1 each sheet has the start leftovers choice; old sheets get it; 2.1 has none; a change recomputes only its sheet", function()
+    tier_world("2.0")
+    configure("rare")
+    local sheet_pane, first = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    local dropdown = child_named(first, "hxrrc_start_leftovers_dropdown")
+    assert(dropdown, "drop-down on a new sheet")
+    H.equal(#dropdown.items, 3, "three choices")
+    H.equal(dropdown.selected_index, 1, "left over by default")
+    local second = add_sheet(sheet_pane, {item = "X", quality = "rare", rate = 2})
+    M.Sheet.calculate(first.hxrrc_compute_button)
+    M.Sheet.calculate(second.hxrrc_compute_button)
+    local first_report = first.output_flow.children[1]
+    select_mode(second, "craft")
+    H.equal(first.output_flow.children[1], first_report, "other sheet's report untouched")
+    assert(H.parse_report(second.output_flow).loops[M.QualityId.encode("X", "rare")].assist, "changed sheet recomputed with assist crafts")
+
+    child_named(first, "hxrrc_start_leftovers_dropdown").destroy()
+    M.Sheet.add_missing_controls(sheet_pane)
+    local repaired = child_named(first, "hxrrc_start_leftovers_dropdown")
+    assert(repaired, "old sheet repaired")
+    H.equal(repaired.selected_index, 1, "repaired with the default")
+    local compute_index, dropdown_index
+    for index, child in ipairs(first.children) do
+        if child == repaired then dropdown_index = index end
+        if child.name == "hxrrc_compute_button" then compute_index = index end
+    end
+    H.equal(dropdown_index + 1, compute_index, "placed before the compute button")
+
+    tier_world("2.1")
+    local _, sheet_21 = H.fill_sheet({{item = "X", rate = 1, unit = "/s"}})
+    H.equal(child_named(sheet_21, "hxrrc_start_leftovers_dropdown"), nil, "no choice on 2.1")
+    M.Sheet.add_missing_controls(sheet_21.parent)
+    H.equal(child_named(sheet_21, "hxrrc_start_leftovers_dropdown"), nil, "not added by repair on 2.1")
+end)
+
+local function loop_numbers(result, key)
+    local column = column_of(result, key)
+    local tiers = {}
+    for index, tier in ipairs(column.quality_loop.tiers or {}) do
+        tiers[index] = {crafts = tier.crafts, recycle_crafts = tier.recycle_crafts, x = tier.x, assist_crafts = tier.assist_crafts}
+    end
+    return {nets = column.net_amounts, tiers = tiers, reason = column.quality_loop.reason}
+end
+
+H.test("2.0 QS-2 left over: the choice changes nothing from QT-1, and returned normal A is a byproduct", function()
+    tier_world("2.0")
+    local key = configure("rare")
+    H.deep_equal(loop_numbers(solve(key, "rare", 1, "byproduct"), key), loop_numbers(solve(key, "rare"), key), "same as no choice")
+    local sheet_flow = handler_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    H.equal(H.parse_report(sheet_flow.output_flow).rows["item/A"].kind, "hxrrc.byproduct", "normal A left over")
+end)
+
+H.test("2.0 QS-3 crafted by another recipe: assist crafts bound by the returns, their row and settings", function()
+    tier_world("2.0", {two_tiers = true})
+    local key = configure("uncommon")
+    L(key).recycle.setup.modules = {} --recycling returns A at normal only
+    L(key).assist.setup.modules = four("q")
+    local result = solve(key, "uncommon", 1, "craft")
+    local info = column_of(result, key).quality_loop
+    --per cast: X at normal 0.9 (quality 1: 10% up); recycled into 0.5 A each; assist crafts c = 0.45 / (2 - 0.5 * 0.9) = 9/31; target (1 + c) * 0.1 = 4/31
+    H.near_relative(info.tiers[1].crafts, 31 / 4, "casts per target")
+    H.near_relative(info.tiers[1].assist_crafts, 9 / 4, "assist crafts per target")
+    H.near_relative(info.tiers[1].recycle_crafts, 9, "normal X recycled per target: (0.9 + 0.9 * 9/31) * 31/4")
+    H.equal(column_of(result, key).net_amounts["item/A"], nil, "no normal A left over")
+    H.near_relative(-column_of(result, key).net_amounts["fluid/molten"], 77.5, "molten per target")
+    --cross-check with a craft-by-craft simulation of the same loop
+    local A, X_normal, target, casts, assists, recycled = 0, 0, 0, 1, 0, 0
+    for _ = 1, 4000 do
+        local moved = 0
+        if casts > 0 then X_normal = X_normal + 0.9 * casts; target = target + 0.1 * casts; moved = moved + casts; casts = 0 end
+        local c = A / 2
+        if c > 0 then A = 0; assists = assists + c; X_normal = X_normal + 0.9 * c; target = target + 0.1 * c; moved = moved + c end
+        if X_normal > 0 then A = A + 0.5 * X_normal; recycled = recycled + X_normal; moved = moved + X_normal; X_normal = 0 end
+        if moved < 1e-15 then break end
+    end
+    H.near_relative(info.tiers[1].assist_crafts, assists / target, "simulated assist crafts")
+
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
+    local report = recompute(sheet_flow)
+    local loop = report.loops[key]
+    assert(loop.assist, "assist row")
+    H.equal(loop.assist.row_index, 2, "right after the normal tier row")
+    H.equal(loop.assist.machine.name, "assembler", "assist machine")
+    H.near_relative(loop.assist.machines, 9 / 4, "assist machines: 2.25 crafts/s, 1 s each")
+    H.equal(loop.assist.recipe_button.elem_value, "X-assembly", "assist recipe shown")
+    local slot = find_all(loop.assist.module_flow, "hxrrc_choose_module_button")[1]
+    local crafts_before = M.QualityLoops._deep_copy(L(key).crafts)
+    local modules_before = #L(key).assist.setup.modules
+    slot.elem_value = nil
+    fire(slot)
+    H.equal(#L(key).assist.setup.modules, modules_before - 1, "assist setup changed")
+    H.deep_equal(L(key).crafts, crafts_before, "tier setups unchanged")
+
+    local second = add_sheet(sheet_pane, {item = "X", quality = "uncommon", rate = 1})
+    local second_report = recompute(second)
+    H.equal(second_report.loops[key].assist, nil, "a sheet leaving items over shows no assist row")
+    H.equal(second_report.rows["item/A"].kind, "hxrrc.byproduct", "and leaves A over")
+end)
+
+H.test("2.0 QS-4 crafted by another recipe without one: the loop names the missing assist recipe", function()
+    tier_world("2.0", {two_tiers = true, no_assembly = true})
+    local key = configure("uncommon", true)
+    H.equal(loop_numbers(solve(key, "uncommon", 1, "craft"), key).reason, "quality_loop_assist_recipe_missing", "reason")
+end)
+
+H.test("2.0 QS-5 recycled into themselves: returned A recycled until gone or upgraded; a pool machine that cannot do it keeps A over", function()
+    tier_world("2.0", {two_tiers = true})
+    local key = configure("uncommon")
+    local result = solve(key, "uncommon", 1, "recycle")
+    local column = column_of(result, key)
+    local info = column.quality_loop
+    --per cast (all quality effects 1): normal X 0.9 recycled into A 0.5 at 90% normal / 10% uncommon -> normal A 0.405, uncommon A 0.045;
+    --normal A recycled: kept share 0.25 * 0.9, so V = 0.405 / 0.775 recycled, 0.025 V rising; uncommon crafts take 2 A; target 0.1 + uncommon A / 2
+    local V = 0.405 / 0.775
+    local target = 0.1 + (0.045 + 0.025 * V) / 2
+    H.near_relative(info.tiers[1].crafts, 1 / target, "casts per target")
+    H.near_relative(info.tiers[1].ingredient_recycles.A, V / target, "A recycled per target")
+    H.equal(column.net_amounts["item/A"], nil, "no normal A left over")
+    H.near_relative(info.tiers[2].crafts, (0.045 + 0.025 * V) / 2 / target, "uncommon crafts")
+
+    tier_world("2.0", {two_tiers = true, a_recycling_category = "sorting"})
+    key = configure("uncommon")
+    result = solve(key, "uncommon", 1, "recycle")
+    column = column_of(result, key)
+    H.deep_equal(column.quality_loop.kept_ingredients, {"A"}, "A kept")
+    H.near_relative(column.net_amounts["item/A"], 0.405 / 0.1225, "normal A left over as without recycling")
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.recycle
+    local tooltip = recompute(sheet_flow).loops[key].pool.recycle.tooltip
+    local found = false
+    for index = 3, #tooltip do
+        if type(tooltip[index][3]) == "table" and tooltip[index][3][1] == "hxrrc.recycler_pool_ingredient_kept" then found = true end
+    end
+    H.equal(found, true, "pool tooltip names the kept item")
+end)
+
+H.test("2.0 QS-5b pooled recipes count their own work, and a recipe forbidding quality recycles without it", function()
+    tier_world("2.0", {two_tiers = true, a_recycling_energy = 4})
+    local key = configure("uncommon")
+    local result = solve(key, "uncommon", 2, "recycle")
+    local column = column_of(result, key)
+    local rate = result.recipe_rates[column.recipe_name]
+    local tier = column.quality_loop.tiers[1]
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 2, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.recycle
+    local pool = recompute(sheet_flow).loops[key].pool.recycle
+    --X recycling 0.5 s, A recycling 4 s, speed 1 (q changes no speed)
+    local x_machines = tier.recycle_crafts * rate * 0.5
+    local a_machines = tier.ingredient_recycles.A * rate * 4
+    H.near_relative(pool.machines, x_machines + a_machines, "pool machines: each recipe's own time")
+    local expected_energy = tier.crafts * rate * 2 / 2 * 400e3 + column.quality_loop.tiers[2].crafts * rate * 100e3 + (x_machines + a_machines) * 50e3
+    H.near_relative(require("logic.compute_power_and_pollution")(1, result.columns, result.recipe_rates), expected_energy, "power per recipe")
+
+    tier_world("2.0", {two_tiers = true, a_recycling_no_quality = true})
+    key = configure("uncommon")
+    local stored_pool = M.QualityLoops._deep_copy(L(key).recycle)
+    result = solve(key, "uncommon", 1, "recycle")
+    local info = column_of(result, key).quality_loop
+    --A recycling may not use quality: its modules are dropped for it, so recycled A only stays normal: V = 0.405 / 0.75, nothing rises
+    local target = 0.1 + 0.045 / 2
+    H.near_relative(info.tiers[1].ingredient_recycles.A, 0.405 / 0.75 / target, "A recycled without quality")
+    H.near_relative(info.tiers[2].crafts, 0.045 / 2 / target, "uncommon crafts only from X recycling")
+    H.deep_equal(info.ingredient_recycles.A.setup.modules, {}, "modules dropped for that recipe")
+    H.deep_equal(L(key).recycle, stored_pool, "pool setup unchanged")
+    H.equal((info.tiers[1].recycle_chances[2] or 0) > 0, true, "X recycling still uses quality")
+end)
+
+H.test("2.0 QS-6 a start recipe taking items: every choice gives the same loop and no assist row", function()
+    tier_world("2.0", {bind = "X-assembly"})
+    local key = configure("rare")
+    local byproduct = loop_numbers(solve(key, "rare", 1, "byproduct"), key)
+    H.deep_equal(loop_numbers(solve(key, "rare", 1, "craft"), key), byproduct, "craft")
+    H.deep_equal(loop_numbers(solve(key, "rare", 1, "recycle"), key), byproduct, "recycle")
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
+    H.equal(recompute(sheet_flow).loops[key].assist, nil, "no assist row")
+end)
+
+H.test("2.0 QS-7 power with assist crafts", function()
+    tier_world("2.0", {two_tiers = true})
+    local key = configure("uncommon")
+    L(key).recycle.setup.modules = {}
+    L(key).assist.setup.modules = four("q")
+    local result = solve(key, "uncommon", 2, "craft")
+    local column = column_of(result, key)
+    local rate = result.recipe_rates[column.recipe_name]
+    local tiers = column.quality_loop.tiers
+    local expected = tiers[1].crafts * rate * 2 / 2 * 400e3 + (tiers[1].assist_crafts + tiers[2].crafts) * rate * 100e3 + tiers[1].recycle_crafts * rate * 0.5 * 50e3
+    H.near_relative(require("logic.compute_power_and_pollution")(1, result.columns, result.recipe_rates), expected, "assist crafts draw")
+    H.near_relative(tiers[1].assist_crafts * rate, 2 * 9 / 4, "assist crafts per second")
 end)
 
 H.done("test_quality_tier_recipes")

@@ -3,6 +3,7 @@ local Solver = require "logic.solver"
 local InputContainer = require "gui.input_container"
 local compute_power_and_pollution = require "logic.compute_power_and_pollution"
 local QualityLoops = require "logic.quality_loops"
+local Utils = require "logic.utils"
 
 local Sheet = {}
 
@@ -28,6 +29,20 @@ local function add_round_up_checkbox(sheet_flow, index)
     }
 end
 
+--The sheet's choice for items quality loops return at their start quality when the start recipe takes no items (Factorio 2.0 only)
+local START_LEFTOVER_MODES = {"byproduct", "craft", "recycle"}
+
+local function add_start_leftovers_dropdown(sheet_flow, index)
+    sheet_flow.add{
+        type = "drop-down",
+        name = "hxrrc_start_leftovers_dropdown",
+        tooltip = {"hxrrc.start_leftovers_tooltip"},
+        items = {{"hxrrc.start_leftovers_byproduct"}, {"hxrrc.start_leftovers_craft"}, {"hxrrc.start_leftovers_recycle"}},
+        selected_index = 1,
+        index = index,
+    }
+end
+
 local function add_compute_button(sheet_flow)
     sheet_flow.add{
         type = "button",
@@ -46,6 +61,9 @@ function Sheet.new(sheet_pane)
     --Input section:
     InputContainer.build_and_add_to(sheet_flow)
     add_round_up_checkbox(sheet_flow)
+    if not Utils.IS_2_1 then
+        add_start_leftovers_dropdown(sheet_flow)
+    end
     add_compute_button(sheet_flow)
 
     --Output section:
@@ -90,7 +108,11 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
         return
     end
 
-    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index, product_parts)
+    local mode = "byproduct"
+    for _, child in ipairs(sheet_flow.children) do --found by name among the children: absent on 2.1 sheets
+        if child.name == "hxrrc_start_leftovers_dropdown" then mode = START_LEFTOVER_MODES[child.selected_index] or mode end
+    end
+    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index, product_parts, {start_leftovers = mode})
 
     --every loop the solve used keeps exactly the configuration it was solved with (new, unchanged or repaired), before power and the report read it
     for _, column in ipairs(result.columns) do
@@ -126,13 +148,18 @@ function Sheet.add_missing_controls(sheet_pane)
         local sheet_flow = tab_and_content.content
         InputContainer.repair_rows(sheet_flow.input_container)
 
-        local compute_button_index, has_round_up_checkbox
+        local compute_button_index, has_round_up_checkbox, has_start_leftovers_dropdown
         for index, child in ipairs(sheet_flow.children) do
             if child.name == "hxrrc_compute_button" then compute_button_index = index end
             if child.name == "hxrrc_round_up_machines_checkbox" then has_round_up_checkbox = true end
+            if child.name == "hxrrc_start_leftovers_dropdown" then has_start_leftovers_dropdown = true end
         end
         if compute_button_index and not has_round_up_checkbox then
             add_round_up_checkbox(sheet_flow, compute_button_index)
+            compute_button_index = compute_button_index + 1
+        end
+        if compute_button_index and not has_start_leftovers_dropdown and not Utils.IS_2_1 then
+            add_start_leftovers_dropdown(sheet_flow, compute_button_index)
         end
     end
 end
@@ -165,6 +192,12 @@ end
 
 event_handlers.on_gui_click["hxrrc_compute_button"] = function(event)
     Sheet.calculate(event.element)
+    storage[event.player_index].calculator.force_auto_center()
+end
+
+--Recomputes only the sheet owning the drop-down; nothing here writes the selection, so the event cannot loop
+event_handlers.on_gui_selection_state_changed["hxrrc_start_leftovers_dropdown"] = function(event)
+    Sheet.calculate(event.element.parent.hxrrc_compute_button)
     storage[event.player_index].calculator.force_auto_center()
 end
 

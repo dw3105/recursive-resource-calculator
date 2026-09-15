@@ -138,7 +138,7 @@ end
 --their parts added to product_parts. column.quality_loop: {key, item, quality, config, chain, craft_recipe_name, recycle_recipe_name,
 --tiers = {{quality, crafts, recycle_crafts, x, craft_chances, recycle_chances}}, reason}; chances are indexed by chain position.
 --config: tests only, a raw configuration to build from in place of the normalized one (the guards must hold without normalizing)
-local function loop_column(player_index, key, parts, product_parts, config)
+local function loop_column(player_index, key, parts, product_parts, config, options)
     local loop_info = {key = key, item = parts.name, quality = parts.quality}
     local column = {recipe_name = Solver.LOOP_PREFIX .. key, product_full_name = key, consumer = false, quality_loop = loop_info,
         net_amounts = {[key] = 1}}
@@ -203,8 +203,50 @@ local function loop_column(player_index, key, parts, product_parts, config)
         end
     end
 
+    --items recycling returns at the start quality, when the start recipe takes no items: left over, crafted by assist crafts, or recycled into
+    --themselves in the recycler pool (the sheet's choice); otherwise the start crafts take what they use and the choice changes nothing
+    local mode = options and options.start_leftovers or "byproduct"
+    loop_info.start_leftovers = mode
+    loop_info.start_takes_no_items = craft_tiers[1] ~= nil and not craft_tiers[1].none and #craft_tiers[1].ingredients == 0 --no tier 1: an unsanitized start the balance refuses
+    local assist_spec, ingredient_recycles
+    if loop_info.start_takes_no_items and mode == "craft" then
+        local assist = QualityLoops.stage(player_index, config, "assist")
+        if not assist then
+            loop_info.reason = "quality_loop_assist_recipe_missing"
+            return column
+        end
+        assist_spec = craft_tier_spec(assist, parts.name, player_index)
+    elseif loop_info.start_takes_no_items and mode == "recycle" and recycle_spec then
+        ingredient_recycles, loop_info.ingredient_recycles, loop_info.kept_ingredients = {}, {}, {}
+        local names = {}
+        for name, _ in pairs(recycle_spec.yields) do
+            if name ~= parts.name then names[#names + 1] = name end
+        end
+        table.sort(names)
+        for _, name in ipairs(names) do
+            local recipe = QualityLoops.self_recycle_recipe(name)
+            if recipe and recycle.machine and Utils.can_craft(recycle.machine.name, recipe) then
+                --its own recipe on the pool's machine, with the pool's modules as that recipe allows them
+                local stage = {recipe = recipe, machine = recycle.machine, prototype = recycle.prototype,
+                    setup = QualityLoops.fitted_setup_copy(recycle.setup, recycle.machine, recipe)}
+                local bonus = productivity_bonus(recipe, stage.machine, stage.setup, player_index)
+                local consumed, yield = 0, 0
+                for _, ingredient in ipairs(recipe.ingredients) do
+                    if ingredient.type == "item" then consumed = consumed + ingredient.amount end
+                end
+                for _, product in ipairs(recipe.products) do
+                    if product.type == "item" then yield = yield + Utils.product_amount(product, bonus) end
+                end
+                ingredient_recycles[name] = {quality_effect = stage_quality_effect(stage), consumed = consumed, yield = yield}
+                loop_info.ingredient_recycles[name] = {recipe_name = recipe.name, setup = stage.setup}
+            else
+                loop_info.kept_ingredients[#loop_info.kept_ingredients + 1] = name
+            end
+        end
+    end
+
     local result = QualityLoop.balance({next_probabilities = next_probabilities, unlocked = unlocked, start = start, target = target, item = parts.name,
-        craft = {tiers = craft_tiers}, recycle = recycle_spec})
+        craft = {tiers = craft_tiers}, recycle = recycle_spec, assist = assist_spec, ingredient_recycles = ingredient_recycles})
     if result.reason then
         loop_info.reason = result.reason
         return column
@@ -243,7 +285,7 @@ end
 --The columns the targets need, found breadth first over every column kind; a key is visited once, so cyclic bindings terminate.
 --Each column: {recipe_name (the column key: a recipe name, Burners.COLUMN_PREFIX .. product, or Solver.LOOP_PREFIX .. identity), product_full_name,
 --consumer, burner, quality_loop, net_amounts}
-local function collect_columns(production_rates_by_product_full_name, player_index, product_parts)
+local function collect_columns(production_rates_by_product_full_name, player_index, product_parts, options)
     local player_storage = storage[player_index]
     local columns, queue, visited = {}, {}, {}
     local function enqueue(key, product_full_name)
@@ -263,7 +305,7 @@ local function collect_columns(production_rates_by_product_full_name, player_ind
         local burner = player_storage.burners_by_product_full_name[entry.product_full_name]
         local column, inputs, outputs
         if entry.key == Solver.LOOP_PREFIX .. entry.product_full_name then
-            column = loop_column(player_index, entry.product_full_name, product_parts[entry.product_full_name], product_parts)
+            column = loop_column(player_index, entry.product_full_name, product_parts[entry.product_full_name], product_parts, nil, options)
             inputs, outputs = {}, {}
             for product_full_name, net_amount in pairs(column.net_amounts) do
                 if product_full_name ~= entry.product_full_name then
@@ -579,11 +621,12 @@ end
 --  recipe_rates and reasons_by_column are keyed by column key: a recipe name, or Burners.COLUMN_PREFIX .. product for a burner.
 --  product_parts: {[full name] = {type, name, quality}} for every item above normal quality the result names (see QualityId); others are "type/name".
 --product_parts: the parts of the targets above normal quality
-function Solver.solve_for(production_rates_by_product_full_name, player_index, product_parts)
+--options: {start_leftovers = "byproduct" (default) | "craft" | "recycle"}, the sheet's choice for items loops return at their start quality
+function Solver.solve_for(production_rates_by_product_full_name, player_index, product_parts, options)
     local parts = {} --the targets' parts, joined by those of the items loops leave above normal quality
     for full_name, target_parts in pairs(product_parts or {}) do parts[full_name] = target_parts end
     product_parts = parts
-    local columns = collect_columns(production_rates_by_product_full_name, player_index, product_parts)
+    local columns = collect_columns(production_rates_by_product_full_name, player_index, product_parts, options)
     local reasons_by_column = {}
     for _, column in ipairs(columns) do
         --checked before solving: a consumer netting zero leaves its product's equation empty, and the solve would fail without saying why

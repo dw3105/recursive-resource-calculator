@@ -38,10 +38,10 @@ function H.lua_object(class, fields, members, gates)
 end
 
 local RECIPE_MEMBERS = {
-    ["2.0"] = {"name", "valid", "object_name", "hidden", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories"},
-    ["2.1"] = {"name", "valid", "object_name", "hidden", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "categories", "get_product_amount"},
+    ["2.0"] = {"name", "valid", "object_name", "localised_name", "hidden", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories"},
+    ["2.1"] = {"name", "valid", "object_name", "localised_name", "hidden", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "categories", "get_product_amount"},
     --shape the code at cb6b529 expects: 2.1 recipe members with 2.0 product fields (portal 1.1.9 on Factorio 2.0.77)
-    ["hybrid"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories", "categories"},
+    ["hybrid"] = {"name", "valid", "object_name", "localised_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories", "categories"},
 }
 
 local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_categories", "effect_receiver", "energy_usage", "allowed_effects",
@@ -384,11 +384,12 @@ function H.new_world(shape)
     local base_version = shape == "2.1" and "2.1.17" or "2.0.77"
 
     _G.storage = {}
-    _G.event_handlers = {on_gui_click = {}, on_gui_confirmed = {}, on_gui_elem_changed = {}, on_gui_checked_state_changed = {}}
+    _G.event_handlers = {on_gui_click = {}, on_gui_confirmed = {}, on_gui_elem_changed = {}, on_gui_checked_state_changed = {}, on_gui_selection_state_changed = {}}
     _G.async_calls = nil
     _G.defines = {events = {on_player_created = "on_player_created", on_player_removed = "on_player_removed", on_gui_closed = "on_gui_closed",
         on_research_finished = "on_research_finished", on_gui_click = "on_gui_click", on_gui_elem_changed = "on_gui_elem_changed",
-        on_gui_confirmed = "on_gui_confirmed", on_gui_checked_state_changed = "on_gui_checked_state_changed", on_tick = "on_tick",
+        on_gui_confirmed = "on_gui_confirmed", on_gui_checked_state_changed = "on_gui_checked_state_changed",
+        on_gui_selection_state_changed = "on_gui_selection_state_changed", on_tick = "on_tick",
         on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed"},
         inventory = {beacon_modules = 1, crafter_modules = 4}}
     _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions}, HELPERS_MEMBERS)
@@ -665,7 +666,7 @@ function H.new_world(shape)
         for index, ingredient in ipairs(spec.ingredients) do
             ingredients[index] = {type = ingredient.type or "item", name = ingredient.name, amount = ingredient.amount}
         end
-        local fields = {name = spec.name, valid = true, object_name = "LuaRecipePrototype", products = products, ingredients = ingredients,
+        local fields = {name = spec.name, valid = true, object_name = "LuaRecipePrototype", localised_name = {"recipe-name." .. spec.name}, products = products, ingredients = ingredients,
             energy = spec.energy or 1, maximum_productivity = spec.maximum_productivity or 3, hidden = spec.hidden == true,
             allowed_effects = effect_dictionary(spec.allowed_effects), allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories)}
         for _, category in ipairs({spec.category, table.unpack(spec.additional_categories or {})}) do
@@ -831,7 +832,14 @@ function H.parse_report(output_flow)
         local rate_caption = item_cell.children[2].caption
         local rate = type(rate_caption) == "string" and number_in(rate_caption) or nil
         local quality = icon.type == "sprite-button" and icon.quality and icon.quality.name or nil
-        if item_cell.tags.pool then
+        if item_cell.tags.assist then
+            local loop = loop_of(item_cell.tags.loop_key)
+            loop.assist = parse_loop_lines(machine_cell).assist or {}
+            loop.assist.module_flow = module_cell
+            loop.assist.recipe_button = recipe_cell.children[1]
+            loop.assist.row_index = parsed.loop_row_count + 1
+            parsed.loop_row_count = parsed.loop_row_count + 1
+        elseif item_cell.tags.pool then
             local loop = loop_of(item_cell.tags.loop_key)
             loop.pool = parse_loop_lines(machine_cell)
             loop.pool.module_flow = module_cell

@@ -88,7 +88,8 @@ end
 local function owned_setup(player_index, recipe_name, owner)
     if owner and owner.loop_key then
         local loop = storage[player_index].quality_loops_by_key[owner.loop_key]
-        local settings = loop and (owner.stage == "craft" and loop.crafts[owner.tier] or owner.stage == "recycle" and loop.recycle)
+        local settings = loop and (owner.stage == "craft" and loop.crafts[owner.tier] or owner.stage == "recycle" and loop.recycle
+            or owner.stage == "assist" and loop.assist)
         return settings and settings.setup
     end
     return storage[player_index].module_setups_by_recipe_name[recipe_name]

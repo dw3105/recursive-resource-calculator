@@ -380,6 +380,44 @@ local function add_tier_recipe_cell(report, info, tier_quality)
     }
 end
 
+--The row of the assist crafts, right after the start tier's: items recycling returns at the start quality crafted into the item by another recipe
+local function add_assist_row(report, info, first_tier, recipe_rate, round_up_machines, solved)
+    local pi = report.player_index
+    local stage = QualityLoops.stage(pi, info.config, "assist")
+    local start = info.config.start_quality
+    local item_cell = report.add{type = "flow", tags = {loop_key = info.key, assist = true}}
+    item_cell.style.horizontally_stretchable = true
+    item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = start, tooltip = prototypes.item[info.item].localised_name}
+    item_cell.add{type = "label", caption = {"hxrrc.assist_row"}}
+    local machine_cell = report.add{type = "flow", direction = "vertical"}
+    local line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "assist"}}
+    if stage and stage.machine then
+        add_loop_machine_button(line, info, "assist", stage)
+        local label = line.add{type = "label", caption = ""}
+        if solved and first_tier.assist_crafts then
+            label.caption = count_caption(Utils.machine_amount(stage.recipe, first_tier.assist_crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
+                round_up_machines, pi)
+            label.tooltip = chances_tooltip(info.chain, first_tier.assist_chances or {})
+        end
+    elseif stage then
+        line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+    else
+        line.add{type = "label", caption = ""}
+    end
+    add_loop_module_cell(report, info, "assist", stage)
+    local recipe_cell = report.add{type = "flow"}
+    local shown = stage and stage.recipe.name
+    recipe_cell.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_assist_recipe_button",
+        tooltip = {"hxrrc.choose_assist_recipe_tooltip"},
+        elem_type = "recipe",
+        recipe = shown,
+        elem_filters = {{filter = "has-product-item", elem_filters = {{filter = "name", name = info.item}}}},
+        tags = {loop_key = info.key, shown = shown}, --the recipe shown, for Report.handle_assist_recipe_change
+    }
+end
+
 --The rows of a quality loop: one per tier from the recipe's quality to the target, each with its crafting machines, their count and upgrade chances,
 --its own module editor, and the recyclers running at that tier; then the recycler pool with the total, the recycler editors and the recycle recipe.
 --A loop with a reason, or without rates, shows the same rows with every editor and no counts, the reason in the first craft line.
@@ -461,6 +499,9 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         else
             add_tier_recipe_cell(report, info, tier.quality)
         end
+        if index == 1 and info.start_takes_no_items and info.start_leftovers == "craft" then
+            add_assist_row(report, info, tier, recipe_rate, round_up_machines, solved)
+        end
     end
 
     --the recycler pool: every tier's recyclers are one set of machines with one setup
@@ -474,8 +515,23 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         add_loop_machine_button(pool_line, info, "recycle", recycle)
         local label = pool_line.add{type = "label", caption = ""}
         if solved then
+            local tooltip = per_tier_tooltip("hxrrc.recycler_pool_tooltip", info.chain, recycler_counts, pi)
+            --items recycled into themselves: machines from each recipe's own work
+            local names = {}
+            for name, _ in pairs(tiers[1] and tiers[1].ingredient_recycles or {}) do names[#names + 1] = name end
+            table.sort(names)
+            for _, name in ipairs(names) do
+                local recycler = info.ingredient_recycles[name]
+                local recipe = prototypes.recipe[recycler.recipe_name]
+                local count = Utils.machine_amount(recipe, tiers[1].ingredient_recycles[name] * recipe_rate, recycle.prototype, recycle.machine.quality, recycler.setup)
+                recycler_total = recycler_total + count
+                if #tooltip < 20 then tooltip[#tooltip + 1] = {"", "\n", recipe.localised_name, ": ", format_by_precision(count, pi)} end
+            end
+            for _, name in ipairs(info.kept_ingredients or {}) do
+                if #tooltip < 20 then tooltip[#tooltip + 1] = {"", "\n", {"hxrrc.recycler_pool_ingredient_kept", prototypes.item[name].localised_name}} end
+            end
             label.caption = count_caption(recycler_total, round_up_machines, pi)
-            label.tooltip = per_tier_tooltip("hxrrc.recycler_pool_tooltip", info.chain, recycler_counts, pi)
+            label.tooltip = tooltip
         end
     elseif recycle then
         pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
@@ -777,7 +833,7 @@ function Report.handle_loop_machine_change(event)
     if not Utils.can_craft(picked.name, stage.recipe) then
         return restore()
     end
-    local settings = tags.stage == "craft" and loop.crafts[tags.tier] or loop.recycle
+    local settings = tags.stage == "craft" and loop.crafts[tags.tier] or tags.stage == "assist" and loop.assist or loop.recycle
     settings.machine = picked
     ModuleSetup.sanitize_setup(settings.setup, picked, stage.recipe) --the new machine may have fewer slots or refuse some modules
     button.tags = {name = picked.name, quality = picked.quality, loop_key = tags.loop_key, stage = tags.stage, tier = tags.tier, recipe_name = tags.recipe_name}
@@ -907,6 +963,49 @@ function Report.handle_tier_recipe_change(event)
         end
     end
     button.tags = {loop_key = tags.loop_key, tier = tags.tier, shown = recipe and recipe.name}
+    return true
+end
+
+--Returns true when the recipe of a loop's assist crafts changed. Stale unless the loop's assist recipe is still the one shown; a pick that does not make
+--the item from items is refused; emptying goes back to the automatic choice. The machine and modules are fitted to the recipe now used.
+function Report.handle_assist_recipe_change(event)
+    local pi = event.player_index
+    local button = event.element
+    local tags = button.tags
+    local picked = button.elem_value
+    if picked == tags.shown then
+        return false
+    end
+    local function restore()
+        button.elem_value = tags.shown and prototypes.recipe[tags.shown] and tags.shown or nil
+        return false
+    end
+    local loop = storage[pi].quality_loops_by_key[tags.loop_key]
+    local current = loop and QualityLoops.assist_recipe(pi, loop)
+    if not loop or (current and current.name) ~= tags.shown then
+        return restore()
+    end
+    if picked and QualityLoop.tier_recipe_refusal(prototypes.recipe[picked], loop.item, 2) then
+        game.get_player(pi).create_local_flying_text{text = {"hxrrc.tier_recipe_refused_error"}, create_at_cursor = true}
+        return restore()
+    end
+    loop.assist = loop.assist or {setup = ModuleSetup.new_setup()}
+    local settings = loop.assist
+    settings.recipe_name = picked
+    settings.setup = settings.setup or ModuleSetup.new_setup()
+    local recipe = QualityLoops.assist_recipe(pi, loop)
+    if recipe then
+        if not (settings.machine and Utils.can_craft(settings.machine.name, recipe)) then
+            local chosen = storage[pi].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
+            settings.machine = chosen and Utils.can_craft(chosen.name, recipe) and {name = chosen.name, quality = chosen.quality} or nil
+        end
+        if settings.machine then
+            ModuleSetup.sanitize_setup(settings.setup, settings.machine, recipe)
+        else
+            settings.setup = ModuleSetup.new_setup()
+        end
+    end
+    button.tags = {loop_key = tags.loop_key, shown = recipe and recipe.name}
     return true
 end
 

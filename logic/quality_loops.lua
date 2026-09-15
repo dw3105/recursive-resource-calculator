@@ -82,11 +82,47 @@ function QualityLoops.tier_recipe(player_index, loop, tier)
     return auto_tier_recipe(loop.item, index)
 end
 
+--The recipe of the assist crafts at the start quality (items returned there crafted into the item): the chosen one while it takes items and makes
+--the item without using it, else the only such recipe; nil when there is none. Pure.
+function QualityLoops.assist_recipe(player_index, loop)
+    local chosen_name = loop.assist and loop.assist.recipe_name
+    local chosen = chosen_name and prototypes.recipe[chosen_name]
+    if chosen and not QualityLoop.tier_recipe_refusal(chosen, loop.item, 2) then
+        return chosen
+    end
+    return auto_tier_recipe(loop.item, 2) --index 2: the rule for a recipe that must take items
+end
+
+--The only recipe recycling an item into itself: it takes only that item and makes no other item; nil when none or several. Found through the index.
+function QualityLoops.self_recycle_recipe(item_name)
+    local found
+    for _, recipe in ipairs(storage.recipe_lists_by_ingredient_full_name["item/" .. item_name] or {}) do
+        local fits = recipe.valid and not QualityLoop.recycler_refusal(recipe, item_name)
+        local makes_it = false
+        for _, product in ipairs(recipe.products) do
+            if product.type == "item" then
+                if product.name ~= item_name then fits = false else makes_it = true end
+            end
+        end
+        if fits and makes_it then
+            if found then
+                return nil
+            end
+            found = recipe
+        end
+    end
+    return found
+end
+
 --The recipe a stage runs, its machine (nil when hand-crafted), that machine's prototype and the stage's setup; nil for a recycle stage without a
---recipe, or a craft stage without a recipe (see QualityLoops.tier_recipe) or without settings for that tier
+--recipe, or a craft stage without a recipe (see QualityLoops.tier_recipe) or without settings for that tier. Stages: "craft" (per tier), "recycle"
+--(the pool), "assist" (see QualityLoops.assist_recipe).
 function QualityLoops.stage(player_index, loop, stage_name, tier)
     local recipe, settings
-    if stage_name == "craft" then
+    if stage_name == "assist" then
+        recipe = QualityLoops.assist_recipe(player_index, loop)
+        settings = loop.assist
+    elseif stage_name == "craft" then
         recipe = QualityLoops.tier_recipe(player_index, loop, tier)
         settings = loop.crafts[tier]
     else
@@ -256,6 +292,23 @@ function QualityLoops.normalized(player_index, key, parts)
         config.recycle = {setup = ModuleSetup.new_setup()}
     end
 
+    --the assist crafts' settings, used only by sheets crafting the items returned at the start quality
+    local stored_assist = stored and stored.assist or {}
+    local assist_name = stored_assist.recipe_name
+    local assist_named = assist_name and prototypes.recipe[assist_name]
+    if not (assist_named and not QualityLoop.tier_recipe_refusal(assist_named, item, 2)) then assist_name = nil end
+    config.assist = {recipe_name = assist_name}
+    local assist_recipe = QualityLoops.assist_recipe(player_index, config)
+    if assist_recipe then
+        local machine = kept_machine(stored_assist.machine, assist_recipe)
+            or kept_machine(player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[assist_recipe.name], assist_recipe)
+        config.assist.machine = machine
+        config.assist.setup = valid_setup_copy(stored_assist.setup, machine, assist_recipe)
+    else
+        config.assist.machine = deep_copy(stored_assist.machine)
+        config.assist.setup = deep_copy(stored_assist.setup) or ModuleSetup.new_setup()
+    end
+
     --machines and setups fitted to each tier's recipe; a tier without a recipe keeps its settings as they are until it has one
     local chosen_machines = player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name
     for tier, settings in pairs(config.crafts) do
@@ -294,5 +347,6 @@ function QualityLoops.reinitialize(player_index)
 end
 
 QualityLoops._deep_copy = deep_copy
+QualityLoops.fitted_setup_copy = valid_setup_copy
 
 return QualityLoops
