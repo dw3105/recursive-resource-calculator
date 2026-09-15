@@ -8,7 +8,8 @@ local Sheet = {}
 local function update_sheet_title(sheet_pane, sheet_index)
     local sheet_and_flow = sheet_pane.tabs[sheet_index]
     local first_row = sheet_and_flow.content.input_container.children[1]
-    local item_name = first_row.hxrrc_desired_item_button.elem_value
+    local item = first_row.hxrrc_desired_item_button.elem_value
+    local item_name = item and item.name
     local fluid_name = first_row.hxrrc_desired_fluid_button.elem_value
     --nil once the mod adding the item or fluid is removed
     local prototype = (item_name and prototypes.item[item_name]) or (fluid_name and prototypes.fluid[fluid_name])
@@ -81,14 +82,14 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
 
     update_sheet_title(sheet_pane, sheet_index)
 
-    local production_rates_by_product_full_name = InputContainer.get_desired_production_rates_by_full_item_name(sheet_flow.input_container)
+    local production_rates_by_product_full_name, product_parts = InputContainer.get_desired_production_rates_by_full_item_name(sheet_flow.input_container)
 
     if next(production_rates_by_product_full_name) == nil then --Empty sheet
         sheet_flow.output_flow.clear()
         return
     end
 
-    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index)
+    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index, product_parts)
 
     --the previous report goes in every case, so no totals or controls of an earlier state stay on screen
     local output_flow = sheet_flow.output_flow
@@ -115,7 +116,7 @@ end
 function Sheet.add_missing_controls(sheet_pane)
     for _, tab_and_content in ipairs(sheet_pane.tabs) do
         local sheet_flow = tab_and_content.content
-        InputContainer.add_missing_fluid_buttons(sheet_flow.input_container)
+        InputContainer.repair_rows(sheet_flow.input_container)
 
         local compute_button_index, has_round_up_checkbox
         for index, child in ipairs(sheet_flow.children) do

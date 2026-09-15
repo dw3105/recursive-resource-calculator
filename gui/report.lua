@@ -61,8 +61,11 @@ local function split_product_name(product_full_name)
     return product_full_name:sub(1, slash_position - 1), product_full_name:sub(slash_position + 1)
 end
 
---nil once the mod adding the item or fluid is removed
-local function prototype_of(product_full_name)
+--nil once the mod adding the item or fluid is removed; parts: those of an item above normal quality, whose full name is never split
+local function prototype_of(product_full_name, parts)
+    if parts then
+        return prototypes.item[parts.name]
+    end
     local type, short_name = split_product_name(product_full_name)
     if type == "item" then
         return prototypes.item[short_name]
@@ -70,13 +73,17 @@ local function prototype_of(product_full_name)
     return prototypes.fluid[short_name]
 end
 
---production_rate nil: a row of a result without rates
-local function add_item_cell(report, product_full_name, production_rate)
+--production_rate nil: a row of a result without rates. An item above normal quality (parts given) shows its quality on a sprite-button.
+local function add_item_cell(report, product_full_name, production_rate, parts)
     local item_cell = report.add{type = "flow"}
     item_cell.style.horizontally_stretchable = true
 
-    local prototype = prototype_of(product_full_name)
-    item_cell.add{type = "sprite", sprite = product_full_name, tooltip = prototype.localised_name}
+    local prototype = prototype_of(product_full_name, parts)
+    if parts then
+        item_cell.add{type = "sprite-button", sprite = "item/" .. parts.name, quality = parts.quality, tooltip = prototype.localised_name}
+    else
+        item_cell.add{type = "sprite", sprite = product_full_name, tooltip = prototype.localised_name}
+    end
 
     item_cell.add{type = "label", caption = production_rate and (format_by_precision(production_rate, report.player_index) .. " /s") or ""}
 end
@@ -228,10 +235,21 @@ local function add_row_for_solved_product(report, column, product_rate, recipe_r
     add_recipe_cell(report, product_full_name, recipe, storage[pi].consumer_product_full_names[product_full_name])
 end
 
-local function add_row_for_unsolved_product(report, unsolved_product_full_name, unsolved_product_rate)
-    add_item_cell(report, unsolved_product_full_name, unsolved_product_rate)
+local function add_row_for_unsolved_product(report, unsolved_product_full_name, unsolved_product_rate, parts)
+    add_item_cell(report, unsolved_product_full_name, unsolved_product_rate, parts)
 
-    if unsolved_product_rate < 0 then
+    if parts then
+        --bindings are kept by plain item names, so an item above normal quality is made through its item's producer and has no consumer or burner control
+        if unsolved_product_rate < 0 then
+            report.add{type = "label", caption = {"hxrrc.byproduct"}}
+            report.add{type = "empty-widget"}
+            report.add{type = "empty-widget"}
+        else
+            report.add{type = "label", caption = {"hxrrc.unselected_recipe"}}
+            report.add{type = "empty-widget"}
+            add_recipe_cell(report, "item/" .. parts.name)
+        end
+    elseif unsolved_product_rate < 0 then
         add_byproduct_widgets(report, unsolved_product_full_name)
     else --TODO See what happens for undecomposable products
         report.add{type = "label", caption = {"hxrrc.unselected_recipe"}}
@@ -262,8 +280,9 @@ function Report.new(parent, result, energy_consumption, pollution, round_up_mach
 
     --Holds exactly the products without a solved row, including byproducts whose bound recipe is not used here
     for product_full_name, product_rate in pairs(result.unsolved_rates) do
-        if prototype_of(product_full_name) then
-            add_row_for_unsolved_product(report, product_full_name, product_rate)
+        local parts = result.product_parts and result.product_parts[product_full_name]
+        if prototype_of(product_full_name, parts) then
+            add_row_for_unsolved_product(report, product_full_name, product_rate, parts)
         end
     end
 end

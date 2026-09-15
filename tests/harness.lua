@@ -126,6 +126,8 @@ local function check_elem_value(element, value)
         error("Unknown item " .. tostring(value), 3)
     elseif elem_type == "fluid" and not prototypes.fluid[value] then
         error("Unknown fluid " .. tostring(value), 3)
+    elseif elem_type == "item-with-quality" and type(value) ~= "table" then
+        error("item-with-quality value must be a table with name and quality, got " .. tostring(value), 3)
     elseif elem_type == "item-with-quality" and not prototypes.item[value.name] then
         error("Unknown item " .. tostring(value.name), 3)
     elseif elem_type == "item-with-quality" and value.quality and not prototypes.quality[value.quality] then

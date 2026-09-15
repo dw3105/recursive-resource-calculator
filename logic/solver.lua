@@ -356,7 +356,10 @@ end
 --  "unsolvable": the equations have no single answer, no rates.
 --  columns: the used columns in matrix order, known before solving (see collect_columns); burner columns carry burner = {name, quality}.
 --  recipe_rates and reasons_by_column are keyed by column key: a recipe name, or Burners.COLUMN_PREFIX .. product for a burner.
-function Solver.solve_for(production_rates_by_product_full_name, player_index)
+--  product_parts: {[full name] = {type, name, quality}} for every item above normal quality the result names (see QualityId); others are "type/name".
+--product_parts: the parts of the targets above normal quality
+function Solver.solve_for(production_rates_by_product_full_name, player_index, product_parts)
+    product_parts = product_parts or {}
     local columns = collect_columns(production_rates_by_product_full_name, player_index)
     local reasons_by_column = {}
     for _, column in ipairs(columns) do
@@ -367,14 +370,14 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
         end
     end
     if next(reasons_by_column) then
-        return {status = "infeasible", columns = columns, reasons_by_column = reasons_by_column}
+        return {status = "infeasible", columns = columns, reasons_by_column = reasons_by_column, product_parts = product_parts}
     end
 
     local matrix = prepare_matrix(columns, production_rates_by_product_full_name)
     local original_matrix = copy_matrix(matrix) --gauss_solve eliminates in place
     local solutions_by_column_index = gauss_solve(matrix)
     if not solutions_by_column_index then
-        return {status = "unsolvable", columns = columns, reasons_by_column = reasons_by_column}
+        return {status = "unsolvable", columns = columns, reasons_by_column = reasons_by_column, product_parts = product_parts}
     end
 
     local recipe_rates_by_recipe_name = {}
@@ -391,6 +394,7 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
         solved_rates = solved_rates_by_product_full_name,
         unsolved_rates = unsolved_rates_by_product_full_name,
         reasons_by_column = reasons_by_column,
+        product_parts = product_parts,
     }
 end
 

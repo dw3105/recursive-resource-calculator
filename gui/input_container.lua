@@ -1,3 +1,17 @@
+local QualityId = require "logic.quality_id"
+
+--value: {name, quality} or nil
+local function add_item_button(row, index, value)
+    row.add{
+        name = "hxrrc_desired_item_button",
+        type = "choose-elem-button",
+        tooltip = {"hxrrc.item_input_tooltip"},
+        elem_type = "item-with-quality",
+        ["item-with-quality"] = value,
+        index = index,
+    }
+end
+
 local function add_fluid_button(row, index)
     row.add{
         name = "hxrrc_desired_fluid_button",
@@ -32,12 +46,7 @@ local function add_row(input_container, index)
         items = {"/m", "/s"},
     }
 
-    row.add{
-        name = "hxrrc_desired_item_button",
-        type = "choose-elem-button",
-        tooltip = {"hxrrc.item_input_tooltip"},
-        elem_type = "item",
-    }
+    add_item_button(row)
     add_fluid_button(row)
 
     row.style.vertical_align = "center"
@@ -94,30 +103,58 @@ function InputContainer.build_and_add_to(parent)
     return input_container
 end
 
+--A quality's name, whether the engine gives a name or a prototype; nil for normal, so normal targets keep their plain full name
+local function quality_name_of(quality)
+    local name = type(quality) == "string" and quality or (quality and quality.name)
+    return name ~= "normal" and name or nil
+end
+
+--The full name a row targets and, for an item above normal quality, its parts; nil when the row is empty or its item, fluid or quality was removed by a mod
+local function target_of(row)
+    local item = row.hxrrc_desired_item_button.elem_value
+    local fluid = row.hxrrc_desired_fluid_button.elem_value
+    if item and prototypes.item[item.name] then
+        local quality_name = quality_name_of(item.quality)
+        if not quality_name then
+            return "item/" .. item.name
+        elseif prototypes.quality[quality_name] then
+            return QualityId.encode(item.name, quality_name), {type = "item", name = item.name, quality = quality_name}
+        end
+    elseif fluid and prototypes.fluid[fluid] then
+        return "fluid/" .. fluid
+    end
+end
+
+--Returns the rates by full name, and the parts of every full name of an item above normal quality
 function InputContainer.get_desired_production_rates_by_full_item_name(input_container)
     local rates_by_full_item_name = {}
+    local parts_by_full_name = {}
 
     for _, row in ipairs(input_container.children) do
         local rate = get_desired_production_rate(row)
-        local item = row.hxrrc_desired_item_button.elem_value
-        local fluid = row.hxrrc_desired_fluid_button.elem_value
-        --a target whose item or fluid was removed by a mod is left out
-        local full_name = (item and prototypes.item[item] and "item/" .. item) or (fluid and prototypes.fluid[fluid] and "fluid/" .. fluid)
+        local full_name, parts = target_of(row)
         if rate ~= 0 and full_name then
             rates_by_full_item_name[full_name] = (rates_by_full_item_name[full_name] or 0) + rate
+            parts_by_full_name[full_name] = parts
         end
     end
 
-    return rates_by_full_item_name
+    return rates_by_full_item_name, parts_by_full_name
 end
 
---Rows saved before fluid targets existed have no fluid button. The engine returns nil for a missing child, so children are scanned by name.
-function InputContainer.add_missing_fluid_buttons(input_container)
+--Rows saved by older versions: before fluid targets they had no fluid button, and before quality targets their item button had elem_type "item",
+--which cannot be changed, so that button is replaced at its place with its item kept. The engine returns nil for a missing child, so children are scanned by name.
+function InputContainer.repair_rows(input_container)
     for _, row in ipairs(input_container.children) do
-        local item_button_index, has_fluid_button
+        local item_button_index, item_button, has_fluid_button
         for index, child in ipairs(row.children) do
-            if child.name == "hxrrc_desired_item_button" then item_button_index = index end
+            if child.name == "hxrrc_desired_item_button" then item_button_index, item_button = index, child end
             if child.name == "hxrrc_desired_fluid_button" then has_fluid_button = true end
+        end
+        if item_button and item_button.elem_type == "item" then
+            local item_name = item_button.elem_value
+            item_button.destroy() --first, since two children of one row may not share a name
+            add_item_button(row, item_button_index, item_name and prototypes.item[item_name] and {name = item_name} or nil)
         end
         if item_button_index and not has_fluid_button then
             add_fluid_button(row, item_button_index + 1)
@@ -129,7 +166,7 @@ function InputContainer._add_existing_row(input_container, rate_text, selected_d
     local row = add_row(input_container, 1)
     row.rate_textfield.text = rate_text
     row.time_unit_dropdown.selected_index = selected_dropdown_index
-    row.hxrrc_desired_item_button.elem_value = item
+    row.hxrrc_desired_item_button.elem_value = item and {name = item}
 end
 
 return InputContainer

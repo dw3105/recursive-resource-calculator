@@ -72,15 +72,15 @@ for _, shape in ipairs(H.shapes()) do
         local input_container = new_sheet_pane().tabs[1].content.input_container
         H.refire_on_script_set = true --each write below stands for one player action and raises its handler once
         local row = input_container.children[1]
-        row.hxrrc_desired_item_button.elem_value = "gear"
+        row.hxrrc_desired_item_button.elem_value = {name = "gear"}
         H.equal(#input_container.children, 2, "rows after the first item")
         row.hxrrc_desired_fluid_button.elem_value = "lube"
         H.equal(row.hxrrc_desired_item_button.elem_value, nil, "item cleared by fluid")
         H.equal(row.hxrrc_desired_fluid_button.elem_value, "lube", "fluid kept")
         H.equal(#input_container.children, 2, "row kept when its item is cleared")
-        row.hxrrc_desired_item_button.elem_value = "gear"
+        row.hxrrc_desired_item_button.elem_value = {name = "gear"}
         H.equal(row.hxrrc_desired_fluid_button.elem_value, nil, "fluid cleared by item")
-        H.equal(row.hxrrc_desired_item_button.elem_value, "gear", "item kept")
+        H.equal(row.hxrrc_desired_item_button.elem_value.name, "gear", "item kept")
         H.equal(#input_container.children, 2, "rows after switching back")
         row.hxrrc_desired_fluid_button.elem_value = "lube"
         row.hxrrc_desired_fluid_button.elem_value = nil
@@ -113,7 +113,7 @@ for _, shape in ipairs(H.shapes()) do
         require "control"
         world.handlers.on_init()
         local input_container = storage[1].sheet_section.sheet_pane.tabs[1].content.input_container
-        input_container.children[1].hxrrc_desired_item_button.elem_value = "gear"
+        input_container.children[1].hxrrc_desired_item_button.elem_value = {name = "gear"}
         event_handlers.on_gui_elem_changed["hxrrc_desired_item_button"]({element = input_container.children[1].hxrrc_desired_item_button, player_index = 1})
         for _, row in ipairs(input_container.children) do --what a 1.1.11 save holds
             for index = #row.children, 1, -1 do
