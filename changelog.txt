@@ -1,4 +1,36 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.24
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.23, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality is not calculated in Factorio 2.1 yet: none of the 1.1.23 quality changes apply there.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.23
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.24).
+    - A recipe that takes no items (e.g. casting from molten metal) crafts only normal quality, so it can start
+      a loop but not craft its higher tiers.
+    - When higher-quality items are shared by several loops, each loop may cover the same share of its target
+      from them; a loop held back by another missing item leaves its part to the others. If the calculator
+      cannot settle the shares it says so; the sheet may still be possible.
+    - Sheets with several loops using the same higher-quality items take longer to compute.
+  Features:
+    - Each tier of a quality loop above its start quality has its own recipe: casting gears from molten iron at
+      normal quality and assembling higher-quality gears from recycled plates now works. The recipe is picked
+      automatically and can be changed on each tier row.
+    - Loops use higher-quality items made elsewhere on the sheet, e.g. uncommon plates from a foundry with
+      quality modules go into the uncommon gear tier instead of showing as byproducts. The tier row's tooltip
+      shows what it takes from other rows. A loop that needs such items to reach its target at all uses them.
+    - Each sheet chooses what happens to items a loop gets back at its start quality when its start recipe
+      takes no items: left over, crafted into the item by another recipe (an extra row after the start tier),
+      or recycled into themselves in the recycler pool until gone or upgraded.
+  Bugfixes:
+    - The recycle recipe control lists only recipes that can recycle the item, instead of every recipe using
+      it (such as the recycler building). It is disabled when no recipe can.
+    - The byproduct row of a loop's own item offers that loop's recycle recipe instead of a consumer or burner,
+      which replaced the item's recipe and broke the loop.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.22
 Date: 2026.09.15
   Info:
