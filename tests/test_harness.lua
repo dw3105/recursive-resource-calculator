@@ -194,4 +194,48 @@ H.test("H5 burner and fluid energy source mocks follow their version's members, 
     end
 end)
 
+H.test("H6 quality prototypes chain through next, and forces answer is_quality_unlocked", function()
+    local world = H.new_world("2.0")
+    world.add_player(1)
+    local normal = prototypes.quality.normal
+    H.equal(normal.next.name, "uncommon", "normal's next")
+    H.equal(normal.next_probability, 0.1, "vanilla next_probability")
+    H.equal(prototypes.quality.legendary.next, nil, "last quality has no next")
+    H.equal(prototypes.quality.legendary.next_probability, 0, "last quality's next_probability")
+    H.equal(prototypes.quality.epic.next.name, "legendary", "epic's next skips no quality")
+    local force = game.players[1].force
+    H.equal(force.is_quality_unlocked("rare"), true, "unlocked by default")
+    world.lock_quality("rare")
+    H.equal(force.is_quality_unlocked(prototypes.quality.rare), false, "locked, asked by prototype")
+    H.errors(function() force.is_quality_unlocked("shiny") end, "Unknown quality shiny", "unknown quality")
+    world.remove_quality("legendary")
+    H.equal(prototypes.quality.epic.next, nil, "a removed quality is no one's next")
+    world.set_quality_chain({{name = "normal", level = 0, next_probability = 0.3}, {name = "c", level = 1, next_probability = 0.05}, {name = "b:c", level = 2}})
+    H.equal(prototypes.quality.normal.next.name, "c", "modded chain")
+    H.equal(prototypes.quality.c.next_probability, 0.05, "modded next_probability")
+    H.equal(prototypes.quality.uncommon, nil, "vanilla qualities replaced")
+    H.errors(function() return normal.hidden end, "LuaQualityPrototype doesn't contain key hidden", "quality mock stays strict")
+end)
+
+H.test("H6 GUI mock: elem_type is read-only, only sprite-buttons show a quality, and a destroyed child's name can be reused", function()
+    H.new_world("2.0")
+    local root = H.gui_root({type = "flow"})
+    local button = root.add{type = "choose-elem-button", name = "hxrrc_desired_item_button", elem_type = "item"}
+    H.errors(function() button.elem_type = "item-with-quality" end, "elem_type is read-only", "elem_type write")
+    button.destroy()
+    local replaced = root.add{type = "choose-elem-button", name = "hxrrc_desired_item_button", elem_type = "item-with-quality", index = 1}
+    H.equal(root.hxrrc_desired_item_button, replaced, "same name after destroy")
+    H.errors(function() root.add{type = "choose-elem-button", name = "hxrrc_desired_item_button", elem_type = "item"} end, "already present", "duplicate still refused")
+    local badge = root.add{type = "sprite-button", quality = "rare"}
+    H.equal(badge.quality.name, "rare", "quality reads back as the prototype")
+    H.equal(badge.quality.level, 2, "prototype members readable")
+    badge.quality = nil
+    H.equal(badge.quality, nil, "quality cleared")
+    H.errors(function() root.add{type = "sprite-button", quality = "shiny"} end, "Unknown quality shiny", "unknown badge quality")
+    H.errors(function() badge.quality = "shiny" end, "Unknown quality shiny", "unknown badge quality write")
+    H.errors(function() root.add{type = "sprite", quality = "rare"} end, "only used on a sprite-button", "quality on a sprite")
+    local locked = root.add{type = "choose-elem-button", elem_type = "item", locked = true}
+    H.equal(locked.locked, true, "locked member")
+end)
+
 H.done("test_harness")

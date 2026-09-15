@@ -51,7 +51,8 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "profile", "beacon_counter", "get_max_power_output"}
 local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
     "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier"}
-local QUALITY_MEMBERS = {"name", "valid", "level", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus", "beacon_power_usage_multiplier"}
+local QUALITY_MEMBERS = {"name", "valid", "localised_name", "level", "next", "next_probability", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus",
+    "beacon_power_usage_multiplier"}
 
 local function gate(types)
     local set = set_of(types)
@@ -102,7 +103,7 @@ local FLUID_ENERGY_SOURCE_MEMBERS = {
 FLUID_ENERGY_SOURCE_MEMBERS.hybrid = FLUID_ENERGY_SOURCE_MEMBERS["2.0"]
 local FLUID_BOX_MEMBERS = {"valid", "filter"}
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
-local FORCE_MEMBERS = {"name", "valid", "recipes", "players"}
+local FORCE_MEMBERS = {"name", "valid", "recipes", "players", "is_quality_unlocked"}
 local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text"}
 local HELPERS_MEMBERS = {"compare_versions"}
 local SCRIPT_MEMBERS = {"active_mods", "mod_name", "on_init", "on_load", "on_configuration_changed", "on_event", "on_nth_tick"}
@@ -110,7 +111,7 @@ local SCRIPT_MEMBERS = {"active_mods", "mod_name", "on_init", "on_load", "on_con
 local GUI_MEMBERS = set_of({"type", "name", "caption", "tooltip", "children", "parent", "style", "tags", "player_index", "enabled", "visible",
     "text", "elem_value", "elem_type", "elem_filters", "elem_tooltip", "selected_index", "items", "tabs", "selected_tab_index", "numeric",
     "allow_decimal", "allow_negative", "lose_focus_on_confirm", "direction", "column_count", "draw_horizontal_lines", "draw_vertical_lines",
-    "sprite", "valid", "auto_center", "state"})
+    "sprite", "valid", "auto_center", "state", "quality", "locked"})
 
 local gui_methods = {}
 
@@ -120,7 +121,7 @@ local VALUE_KEYS = {elem_value = true, text = true, state = true}
 --Conservative assumption (not established for the engine): choose-elem-buttons refuse names of prototypes that do not exist
 local function check_elem_value(element, value)
     if value == nil then return end
-    local elem_type = rawget(element, "elem_type")
+    local elem_type = rawget(element, "_values").elem_type
     if elem_type == "item" and not prototypes.item[value] then
         error("Unknown item " .. tostring(value), 3)
     elseif elem_type == "fluid" and not prototypes.fluid[value] then
@@ -167,6 +168,15 @@ local function check_elem_filters(params)
     end
 end
 
+--Conservative assumptions: only a sprite-button shows a quality, and it must name an existing one
+local function check_quality(element, quality_name)
+    if quality_name == nil then return end
+    if rawget(element, "type") ~= "sprite-button" then
+        error("quality is only used on a sprite-button, not " .. tostring(rawget(element, "type")), 4)
+    end
+    if not prototypes.quality[quality_name] then error("Unknown quality " .. tostring(quality_name), 4) end
+end
+
 local function normalize_value(key, value)
     if key == "text" and type(value) == "number" then return tostring(value) end
     return value
@@ -196,21 +206,30 @@ end
 local function new_gui_element(params, parent, player_index)
     local element = {children = {}, style = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}, _values = {}}
     for key, value in pairs(params) do
-        if key ~= "index" and GUI_MEMBERS[key] and not VALUE_KEYS[key] then element[key] = value end
+        if key ~= "index" and key ~= "quality" and key ~= "elem_type" and GUI_MEMBERS[key] and not VALUE_KEYS[key] then element[key] = value end
     end
     if params.enabled == false then element.enabled = false end
     if params.visible == false then element.visible = false end
+    --elem_type is read-only, so it is kept where only reads reach it
+    element._values.elem_type = params.elem_type
     if params.elem_type then
         check_elem_value(element, params[params.elem_type])
         element._values.elem_value = params[params.elem_type]
     end
     element._values.text = normalize_value("text", params.text)
     element._values.state = params.state
+    check_quality(element, params.quality)
+    element._values.quality = params.quality
     element.parent = parent
     element.player_index = parent and parent.player_index or player_index
     return setmetatable(element, {
         __index = function(self, key)
-            if VALUE_KEYS[key] then return rawget(self, "_values")[key] end
+            if VALUE_KEYS[key] or key == "elem_type" then return rawget(self, "_values")[key] end
+            --a sprite-button's quality is written as a name and read as the quality prototype
+            if key == "quality" then
+                local quality_name = rawget(self, "_values").quality
+                return quality_name and prototypes.quality[quality_name]
+            end
             --the engine binds methods, so mod code calls element.add{...} without self; accept both call styles
             local method = gui_methods[key]
             if method then
@@ -232,6 +251,12 @@ local function new_gui_element(params, parent, player_index)
                 refire(self, key)
                 return
             end
+            if key == "quality" then
+                check_quality(self, value)
+                rawget(self, "_values").quality = value
+                return
+            end
+            if key == "elem_type" then error("LuaGuiElement::elem_type is read-only", 2) end
             if not GUI_MEMBERS[key] then error("LuaGuiElement doesn't contain key " .. tostring(key), 2) end
             rawset(self, key, value)
         end,
@@ -362,10 +387,23 @@ function H.new_world(shape)
     refire_depth = 0
 
     local qualities = {}
-    for name, level in pairs({normal = 0, uncommon = 1, rare = 2, epic = 3, legendary = 5}) do
-        qualities[name] = H.lua_object("LuaQualityPrototype", {name = name, valid = true, level = level, crafting_machine_module_slots_bonus = level,
-            beacon_module_slots_bonus = level, beacon_power_usage_multiplier = 1}, QUALITY_MEMBERS)
+    world.locked_qualities = {}
+    --specs in chain order: {name, level, next_probability (default 0.1, 0 on the last)}; each quality's next is the one after it
+    local function build_quality_chain(specs)
+        for name, _ in pairs(qualities) do qualities[name] = nil end
+        local previous
+        for index, spec in ipairs(specs) do
+            local next_probability = spec.next_probability or (index < #specs and 0.1 or 0)
+            local quality = H.lua_object("LuaQualityPrototype", {name = spec.name, valid = true, localised_name = {"quality-name." .. spec.name},
+                level = spec.level, next_probability = next_probability, crafting_machine_module_slots_bonus = spec.level,
+                beacon_module_slots_bonus = spec.level, beacon_power_usage_multiplier = 1}, QUALITY_MEMBERS)
+            qualities[spec.name] = quality
+            if previous then previous.next = quality end
+            previous = quality
+        end
     end
+    build_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "rare", level = 2}, {name = "epic", level = 3},
+        {name = "legendary", level = 5}})
 
     _G.prototypes = {
         recipe = {}, item = {}, fluid = {}, entity = {},
@@ -434,9 +472,22 @@ function H.new_world(shape)
         prototypes.recipe[name] = nil
     end
 
+    --Prototypes reload after a mod change, so no remaining quality keeps the removed one as its next
     function world.remove_quality(name)
+        local removed = prototypes.quality[name]
         prototypes.quality[name] = nil
+        for _, quality in pairs(prototypes.quality) do
+            if rawget(quality, "next") == removed then quality.next = nil end
+        end
     end
+
+    --Replaces every quality with a modded chain; specs in chain order: {name, level, next_probability}
+    function world.set_quality_chain(specs)
+        build_quality_chain(specs)
+    end
+
+    function world.lock_quality(name) world.locked_qualities[name] = true end
+    function world.unlock_quality(name) world.locked_qualities[name] = nil end
 
     --fields: LuaQualityPrototype members to change, e.g. {beacon_power_usage_multiplier = 2}
     function world.set_quality(name, fields)
@@ -489,7 +540,7 @@ function H.new_world(shape)
         prototypes.entity[spec.name] = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
     end
 
-    --spec: {name, type (default assembling-machine), categories, speed, energy_kw, pollution_per_minute, base_productivity, no_effect_receiver, speeds_by_quality,
+    --spec: {name, type (default assembling-machine), categories, speed, energy_kw, pollution_per_minute, base_productivity, base_quality, no_effect_receiver, speeds_by_quality,
     --  module_slots (default 4), quality_affects_module_slots, module_slots_quality_bonus, allowed_effects (list), allowed_module_categories (list),
     --  uses_module_effects, uses_beacon_effects}
     function world.add_machine(spec)
@@ -517,7 +568,7 @@ function H.new_world(shape)
                 {emissions_per_joule = spec.emissions_per_joule or {pollution = pollution_per_second / (energy_usage * 60)}}, ENERGY_SOURCE_MEMBERS),
         }
         if not spec.no_effect_receiver then
-            fields.effect_receiver = {base_effect = {productivity = spec.base_productivity}, uses_module_effects = spec.uses_module_effects ~= false,
+            fields.effect_receiver = {base_effect = {productivity = spec.base_productivity, quality = spec.base_quality}, uses_module_effects = spec.uses_module_effects ~= false,
                 uses_beacon_effects = spec.uses_beacon_effects ~= false, uses_surface_effects = true}
         end
         local machine = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
@@ -598,7 +649,13 @@ function H.new_world(shape)
 
     function world.add_player(index, research_bonus_by_recipe_name)
         world.research_bonus_by_recipe_name = research_bonus_by_recipe_name or {}
-        local force = H.lua_object("LuaForce", {name = "player", valid = true, recipes = {}, players = {}}, FORCE_MEMBERS)
+        local force = H.lua_object("LuaForce", {name = "player", valid = true, recipes = {}, players = {},
+            --takes a quality name or prototype, as QualityID does
+            is_quality_unlocked = function(quality)
+                local quality_name = type(quality) == "table" and quality.name or quality
+                if not prototypes.quality[quality_name] then error("Unknown quality " .. tostring(quality_name), 2) end
+                return not world.locked_qualities[quality_name]
+            end}, FORCE_MEMBERS)
         local player = H.lua_object("LuaPlayer", {
             index = index, name = "player" .. index, valid = true, force = force,
             gui = {screen = H.gui_root({type = "empty-widget", name = "screen"}, index)},
@@ -644,7 +701,7 @@ function H.new_world(shape)
     return world
 end
 
---Builds a sheet and types the targets into it without computing. targets: {{item | fluid, rate, unit = "/s" | "/m"}}
+--Builds a sheet and types the targets into it without computing. targets: {{item | fluid, quality (items only), rate, unit = "/s" | "/m"}}
 function H.fill_sheet(targets, player_index)
     local Sheet = require "gui.sheet"
     local sheet_pane = H.gui_root({type = "tabbed-pane", name = "sheet_pane"}, player_index or 1)
@@ -656,7 +713,13 @@ function H.fill_sheet(targets, player_index)
         row.rate_textfield.text = string.format("%.17g", target.rate) --17 significant digits round-trip a double; tostring keeps 14
         row.time_unit_dropdown.selected_index = target.unit == "/m" and 1 or 2
         local button_name = target.fluid and "hxrrc_desired_fluid_button" or "hxrrc_desired_item_button"
-        row[button_name].elem_value = target.fluid or target.item
+        local value = target.fluid or target.item
+        if not target.fluid and row[button_name].elem_type == "item-with-quality" then
+            value = {name = target.item, quality = target.quality}
+        elseif target.quality then
+            error("fixture gives a quality to a button of elem_type " .. tostring(row[button_name].elem_type), 2)
+        end
+        row[button_name].elem_value = value
         event_handlers.on_gui_elem_changed[button_name]({element = row[button_name], player_index = player_index or 1})
     end
     return sheet_pane, sheet_flow
@@ -681,9 +744,35 @@ local function caption_key(caption)
     return type(caption) == "table" and caption[1] or caption
 end
 
---Reads the report table back into {energy_mw, pollution_per_minute, energy_caption, pollution_caption, rows = {[product_full_name] = row}, row_count}.
---row: {rate, kind, machines, machine_caption, machine_tooltip, machine, machine_button, reason, module_cell, recipe_button}; numbers are nil where the report shows none
+--The machine cell's lines of a quality loop tier row: {[stage] = {machine_button, machine, machines, reason, caption, tooltip}}
+local function parse_loop_lines(machine_cell)
+    local lines = {}
+    for _, line in ipairs(machine_cell.children) do
+        local entry = {}
+        local first = line.children[1]
+        local label = first
+        if first.name == "hxrrc_choose_loop_machine_button" then
+            entry.machine_button, entry.machine, label = first, first.elem_value, line.children[2]
+        end
+        if type(label.caption) == "table" then
+            entry.reason = label.caption[1]
+        else
+            entry.machines = number_in(label.caption)
+        end
+        entry.caption, entry.tooltip = label.caption, label.tooltip
+        lines[line.tags.stage] = entry
+    end
+    return lines
+end
+
+--Reads the report table back into {energy_mw, pollution_per_minute, energy_caption, pollution_caption, rows = {[product_full_name] = row}, row_count,
+--  loops = {[loop key] = loop}, loop_row_count}.
+--row: {rate, kind, machines, machine_caption, machine_tooltip, machine, machine_button, reason, module_cell, recipe_button}; numbers are nil where the report shows none.
+--Rows of items above normal are keyed by QualityId.encode(item, quality) read from the sprite and its quality badge.
+--loop: {tiers = {{quality, rate, craft = line, recycle = line}} in row order, reason (tier 1's craft line), recipe_button, recycle_button,
+--  module_flows = {[stage] = flow}}
 function H.parse_report(output_flow)
+    local QualityId = require "logic.quality_id"
     local report
     for _, child in ipairs(output_flow.children) do
         if child.name == "report" then report = child end
@@ -691,41 +780,69 @@ function H.parse_report(output_flow)
     if not report then return nil end
     local cells = report.children
     local energy_caption, pollution_caption = cells[2].caption, cells[4].children[1].caption
-    local parsed = {energy_caption = caption_key(energy_caption), pollution_caption = caption_key(pollution_caption), rows = {}, row_count = 0}
+    local parsed = {energy_caption = caption_key(energy_caption), pollution_caption = caption_key(pollution_caption), rows = {}, row_count = 0,
+        loops = {}, loop_row_count = 0}
     parsed.energy_mw = type(energy_caption) == "string" and number_in(energy_caption) or nil
     parsed.pollution_per_minute = type(pollution_caption) == "string" and number_in(pollution_caption) or nil
     local HEADER_CELLS = 8
     assert((#cells - HEADER_CELLS) % 4 == 0, "report cell count " .. #cells .. " is not header + whole rows")
     for first = HEADER_CELLS + 1, #cells, 4 do
-        local item_cell, machine_cell, recipe_cell = cells[first], cells[first + 1], cells[first + 3]
-        local product_full_name = item_cell.children[1].sprite
+        local item_cell, machine_cell, module_cell, recipe_cell = cells[first], cells[first + 1], cells[first + 2], cells[first + 3]
+        local icon = item_cell.children[1]
         local rate_caption = item_cell.children[2].caption
-        local row = {rate = type(rate_caption) == "string" and number_in(rate_caption) or nil}
-        local machine_button_name = machine_cell.type == "flow" and machine_cell.children[1] and machine_cell.children[1].name
-        if machine_button_name == "hxrrc_choose_crafting_machine_button" or machine_button_name == "hxrrc_choose_burner_entity_button" then
-            row.kind = machine_button_name == "hxrrc_choose_burner_entity_button" and "burner" or "solved"
-            local label = machine_cell.children[2]
-            if type(label.caption) == "table" then
-                row.reason = label.caption[1]
-            else
-                row.machines = number_in(label.caption)
+        local rate = type(rate_caption) == "string" and number_in(rate_caption) or nil
+        local quality = icon.type == "sprite-button" and icon.quality and icon.quality.name or nil
+        if icon.type == "sprite-button" and icon.tags.loop_key then
+            local loop = parsed.loops[icon.tags.loop_key] or {tiers = {}, module_flows = {}}
+            parsed.loops[icon.tags.loop_key] = loop
+            local tier = parse_loop_lines(machine_cell)
+            tier.quality, tier.rate = quality or "normal", rate
+            loop.tiers[#loop.tiers + 1] = tier
+            if #loop.tiers == 1 then
+                loop.reason = tier.craft and tier.craft.reason
             end
-            row.machine_caption = label.caption
-            row.machine_tooltip = label.tooltip
-            row.machine = machine_cell.children[1].elem_value
-            row.machine_button = machine_cell.children[1]
-            row.module_cell = cells[first + 2]
+            if module_cell.type == "flow" then
+                for _, flow in ipairs(module_cell.children) do loop.module_flows[flow.tags.stage] = flow end
+            end
+            if recipe_cell.type == "flow" then
+                for _, child in ipairs(recipe_cell.children) do
+                    if child.name == "hxrrc_choose_recipe_button" then loop.recipe_button = child end
+                    if child.name == "hxrrc_choose_recycle_recipe_button" then loop.recycle_button = child end
+                end
+            end
+            parsed.loop_row_count = parsed.loop_row_count + 1
         else
-            row.kind = machine_cell.caption[1]
-            if row.kind ~= "hxrrc.byproduct" and row.kind ~= "hxrrc.unselected_recipe" and row.kind ~= "hxrrc.not_automatically_craftable" then
-                row.reason = row.kind
+            local product_full_name = icon.sprite
+            if quality then
+                product_full_name = QualityId.encode(icon.sprite:match("^item/(.+)$"), quality)
             end
+            local row = {rate = rate, quality = quality}
+            local machine_button_name = machine_cell.type == "flow" and machine_cell.children[1] and machine_cell.children[1].name
+            if machine_button_name == "hxrrc_choose_crafting_machine_button" or machine_button_name == "hxrrc_choose_burner_entity_button" then
+                row.kind = machine_button_name == "hxrrc_choose_burner_entity_button" and "burner" or "solved"
+                local label = machine_cell.children[2]
+                if type(label.caption) == "table" then
+                    row.reason = label.caption[1]
+                else
+                    row.machines = number_in(label.caption)
+                end
+                row.machine_caption = label.caption
+                row.machine_tooltip = label.tooltip
+                row.machine = machine_cell.children[1].elem_value
+                row.machine_button = machine_cell.children[1]
+                row.module_cell = module_cell
+            else
+                row.kind = machine_cell.caption[1]
+                if row.kind ~= "hxrrc.byproduct" and row.kind ~= "hxrrc.unselected_recipe" and row.kind ~= "hxrrc.not_automatically_craftable" then
+                    row.reason = row.kind
+                end
+            end
+            row.recipe_button = recipe_cell.type == "flow" and recipe_cell.children[1] or nil
+            row.burner_button = recipe_cell.type == "flow" and recipe_cell.children[2] or nil
+            assert(not parsed.rows[product_full_name], "report has two rows for " .. product_full_name)
+            parsed.rows[product_full_name] = row
+            parsed.row_count = parsed.row_count + 1
         end
-        row.recipe_button = recipe_cell.type == "flow" and recipe_cell.children[1] or nil
-        row.burner_button = recipe_cell.type == "flow" and recipe_cell.children[2] or nil
-        assert(not parsed.rows[product_full_name], "report has two rows for " .. product_full_name)
-        parsed.rows[product_full_name] = row
-        parsed.row_count = parsed.row_count + 1
     end
     return parsed
 end
