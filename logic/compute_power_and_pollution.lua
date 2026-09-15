@@ -2,9 +2,9 @@ local Utils = require "logic.utils"
 local Burners = require "logic.burners"
 
 --Beacons draw power once per physical beacon: a group's beacons per machine times the machines, divided by the machines sharing each beacon
-local function beacon_energy_consumption(player_index, recipe_name, machine_amount)
+local function beacon_energy_consumption(setup, machine_amount)
     local energy_consumption = 0
-    for _, group in ipairs(storage[player_index].module_setups_by_recipe_name[recipe_name].beacons) do
+    for _, group in ipairs(setup.beacons) do
         local beacon = prototypes.entity[group.name]
         local physical_beacons = group.count * machine_amount / group.sharing
         local power_multiplier = prototypes.quality[group.quality or "normal"].beacon_power_usage_multiplier
@@ -13,22 +13,29 @@ local function beacon_energy_consumption(player_index, recipe_name, machine_amou
     return energy_consumption
 end
 
-local function compute_for_recipe(recipe, recipe_rate, player_index)
-    local crafting_machine_identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
-    if not crafting_machine_identifier then --manually crafted recipe
+--A recipe crafted at recipe_rate by the given machine and setup; crafting_machine_identifier nil is hand crafting, which draws and pollutes nothing
+local function compute_for_stage(recipe, recipe_rate, crafting_machine_identifier, setup)
+    if not crafting_machine_identifier then
         return 0, 0
     end
 
-    local energy_consumption_multiplier = Utils.module_effect_multiplier(player_index, recipe.name, "consumption")
+    local effects = Utils.setup_effects(setup)
+    local energy_consumption_multiplier = Utils.effect_multiplier(effects, "consumption")
     local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
 
-    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, player_index, crafting_machine_identifier.quality)
+    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, crafting_machine_identifier.quality, setup)
     local energy_consumption = crafting_machine.energy_usage * 60 * machine_amount * energy_consumption_multiplier
 
-    local pollution_multiplier = Utils.module_effect_multiplier(player_index, recipe.name, "pollution")
+    local pollution_multiplier = Utils.effect_multiplier(effects, "pollution")
     local pollution = storage.pollution_by_crafting_machine[crafting_machine.name] * machine_amount * pollution_multiplier * energy_consumption_multiplier
 
-    return energy_consumption + beacon_energy_consumption(player_index, recipe.name, machine_amount), pollution
+    return energy_consumption + beacon_energy_consumption(setup, machine_amount), pollution
+end
+
+local function compute_for_recipe(recipe, recipe_rate, player_index)
+    local player_storage = storage[player_index]
+    return compute_for_stage(recipe, recipe_rate, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name],
+        player_storage.module_setups_by_recipe_name[recipe.name])
 end
 
 --Electric energy (J/s) and pollution (per second) of a solved result's columns; burners draw no electricity

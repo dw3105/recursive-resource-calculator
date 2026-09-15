@@ -3,9 +3,9 @@ local ModuleSetup = require "logic.module_setup"
 
 local ModuleGUI = {}
 
-local function add_effects_label(cell, recipe_name)
+local function add_effects_label(cell, setup)
     local label_flow = cell.add{type = "flow", direction = "vertical"}
-    local effects = Utils.recipe_effects(cell.player_index, recipe_name)
+    local effects = Utils.setup_effects(setup)
     for _, effect in ipairs(Utils.module_effect_names) do
         local effect_value = effects[effect]
         if math.abs(effect_value) >= 0.01 then
@@ -107,7 +107,7 @@ local function fill(cell, recipe, machine, identifier, product_full_name)
         add_beacon_button(add_row, nil, #setup.beacons + 1, beacon_filter)
     end
 
-    add_effects_label(cell, recipe.name)
+    add_effects_label(cell, setup)
 end
 
 function ModuleGUI.new(parent, recipe, machine, identifier, product_full_name)

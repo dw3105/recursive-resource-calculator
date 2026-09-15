@@ -3,15 +3,20 @@ local Burners = require "logic.burners"
 
 local Solver = {}
 
---Machine, research and module bonuses add up, and the total is capped by the recipe
-local function get_productivity_bonus_for_recipe(recipe, player_index)
+--Machine, research and module bonuses add up, and the total is capped by the recipe; machine_identifier nil is hand crafting
+local function productivity_bonus(recipe, machine_identifier, setup, player_index)
     local player_recipe = game.players[player_index].force.recipes[recipe.name]
     local research_bonus = player_recipe and player_recipe.productivity_bonus or 0
-    local crafting_machine_identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
-    local effect_receiver = crafting_machine_identifier and prototypes.entity[crafting_machine_identifier.name].effect_receiver --optional in the API
+    local effect_receiver = machine_identifier and prototypes.entity[machine_identifier.name].effect_receiver --optional in the API
     local machine_bonus = effect_receiver and effect_receiver.base_effect.productivity or 0
-    local module_bonus = Utils.recipe_effects(player_index, recipe.name).productivity
+    local module_bonus = Utils.setup_effects(setup).productivity
     return math.min(math.max(machine_bonus + research_bonus + module_bonus, 0), recipe.maximum_productivity)
+end
+
+local function get_productivity_bonus_for_recipe(recipe, player_index)
+    local player_storage = storage[player_index]
+    return productivity_bonus(recipe, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name],
+        player_storage.module_setups_by_recipe_name[recipe.name], player_index)
 end
 
 --The column key of a product's binding, when the walk follows it. Inputs follow any binding; outputs follow only a binding picked to
@@ -388,6 +393,8 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
         reasons_by_column = reasons_by_column,
     }
 end
+
+Solver.productivity_bonus = productivity_bonus
 
 --Exposed for offline tests only
 Solver._gauss_solve = gauss_solve

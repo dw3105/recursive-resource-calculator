@@ -192,7 +192,8 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
         label.caption = {"hxrrc." .. reason}
         return
     end
-    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi, crafting_machine_identifier.quality)
+    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, crafting_machine_identifier.quality,
+        storage[pi].module_setups_by_recipe_name[recipe.name])
     if round_up_machines then --labels only: rates, energy and pollution stay exact
         label.caption = " x " .. rounded_up_count_text(machine_amount)
         label.tooltip = format_by_precision(machine_amount, pi)
