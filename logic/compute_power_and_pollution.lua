@@ -1,4 +1,5 @@
 local Utils = require "logic.utils"
+local Burners = require "logic.burners"
 
 --Beacons draw power once per physical beacon: a group's beacons per machine times the machines, divided by the machines sharing each beacon
 local function beacon_energy_consumption(player_index, recipe_name, machine_amount)
@@ -30,15 +31,21 @@ local function compute_for_recipe(recipe, recipe_rate, player_index)
     return energy_consumption + beacon_energy_consumption(player_index, recipe.name, machine_amount), pollution
 end
 
-return function(player_index, recipe_rates_by_recipe_name)
+--Electric energy (J/s) and pollution (per second) of a solved result's columns; burners draw no electricity
+return function(player_index, columns, recipe_rates_by_recipe_name)
     local total_energy_usage = 0
     local total_pollution = 0
 
-    for recipe_name, recipe_rate in pairs(recipe_rates_by_recipe_name) do
-        local recipe = prototypes.recipe[recipe_name]
-        local energy_usage, pollution = compute_for_recipe(recipe, recipe_rate, player_index)
-        total_energy_usage = total_energy_usage + energy_usage
-        total_pollution = total_pollution + pollution
+    for _, column in ipairs(columns) do
+        local rate = recipe_rates_by_recipe_name[column.recipe_name]
+        if column.burner then
+            local units_per_entity, pollution_per_entity = Burners.draw(column.product_full_name, column.burner)
+            total_pollution = total_pollution + rate / units_per_entity * pollution_per_entity
+        else
+            local energy_usage, pollution = compute_for_recipe(prototypes.recipe[column.recipe_name], rate, player_index)
+            total_energy_usage = total_energy_usage + energy_usage
+            total_pollution = total_pollution + pollution
+        end
     end
 
     return total_energy_usage, total_pollution

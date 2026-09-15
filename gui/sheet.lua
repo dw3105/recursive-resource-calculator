@@ -106,7 +106,7 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     --totals only for a result whose every rate is usable
     local energy_consumption, pollution
     if result.status == "ok" then
-        energy_consumption, pollution = compute_power_and_pollution(sheet_flow.player_index, result.recipe_rates)
+        energy_consumption, pollution = compute_power_and_pollution(sheet_flow.player_index, result.columns, result.recipe_rates)
     end
     Report.new(output_flow, result, energy_consumption, pollution, sheet_flow.hxrrc_round_up_machines_checkbox.state)
 end

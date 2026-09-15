@@ -1,32 +1,7 @@
 local Utils = require "logic.utils"
+local Burners = require "logic.burners"
 
 local Solver = {}
-
---Follows every ingredient to its bound recipe, and every product only into a recipe the player picked to consume it,
---so byproducts bound to a producer stay out of the system as before
-local function determine_used_recipes(recipe, used_recipe_name_set, player_index)
-    if not recipe or used_recipe_name_set[recipe.name] then
-        return
-    end
-
-    used_recipe_name_set[recipe.name] = true
-    local player_storage = storage[player_index]
-
-    for _, ingredient in ipairs(recipe.ingredients) do
-        local ingridient_full_name = ingredient.type .. "/" .. ingredient.name
-        local ingridient_recipe = player_storage.recipes_by_product_full_name[ingridient_full_name]
-        determine_used_recipes(ingridient_recipe, used_recipe_name_set, player_index)
-    end
-
-    for _, product in ipairs(recipe.products) do
-        if product.type ~= "research-progress" then
-            local product_full_name = product.type .. "/" .. product.name
-            if player_storage.consumer_product_full_names[product_full_name] then
-                determine_used_recipes(player_storage.recipes_by_product_full_name[product_full_name], used_recipe_name_set, player_index)
-            end
-        end
-    end
-end
 
 --Machine, research and module bonuses add up, and the total is capped by the recipe
 local function get_productivity_bonus_for_recipe(recipe, player_index)
@@ -39,24 +14,91 @@ local function get_productivity_bonus_for_recipe(recipe, player_index)
     return math.min(math.max(machine_bonus + research_bonus + module_bonus, 0), recipe.maximum_productivity)
 end
 
-local function prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index)
-    local N = #used_recipe_name_list
-    local A = {}
-    local line_numbers_by_product_full_name = {}
-    for i, recipe_name in ipairs(used_recipe_name_list) do
-        A[i] = {}
+--The column key of a product's binding, when the walk follows it. Inputs follow any binding; outputs follow only a binding picked to
+--get rid of them (a consumer recipe or a burner), so byproducts bound to a producer stay out of the system as before.
+local function followed_binding(product_full_name, as_output, player_storage)
+    if player_storage.burners_by_product_full_name[product_full_name] then
+        return Burners.COLUMN_PREFIX .. product_full_name
+    end
+    local recipe = player_storage.recipes_by_product_full_name[product_full_name]
+    if recipe and (not as_output or player_storage.consumer_product_full_names[product_full_name]) then
+        return recipe.name
+    end
+end
 
-        local product_full_name = storage[player_index].product_full_names_by_recipe_name[recipe_name]
-        line_numbers_by_product_full_name[product_full_name] = i
-        A[i][N+1] = (production_rates_by_product_full_name[product_full_name] or 0)
+--The columns the targets need, found breadth first over every column kind; a key is visited once, so cyclic bindings terminate.
+--Each column: {recipe_name (the column key: a recipe name or Burners.COLUMN_PREFIX .. product), product_full_name, consumer, burner, net_amounts}
+local function collect_columns(production_rates_by_product_full_name, player_index)
+    local player_storage = storage[player_index]
+    local columns, queue, visited = {}, {}, {}
+    local function enqueue(key, product_full_name)
+        if key and not visited[key] then
+            visited[key] = true
+            queue[#queue + 1] = {key = key, product_full_name = product_full_name}
+        end
+    end
+    for product_full_name, _ in pairs(production_rates_by_product_full_name) do
+        enqueue(followed_binding(product_full_name, false, player_storage), product_full_name)
     end
 
-    --One coefficient per product and recipe: the recipe's net amount of that product, so repeated entries and catalysts count once
-    for column, recipe_name in ipairs(used_recipe_name_list) do
-        for product_full_name, net_amount in pairs(net_amounts_by_recipe_name[recipe_name]) do
+    local head = 1
+    while queue[head] do
+        local entry = queue[head]
+        head = head + 1
+        local burner = player_storage.burners_by_product_full_name[entry.product_full_name]
+        local column, inputs, outputs
+        if burner and entry.key == Burners.COLUMN_PREFIX .. entry.product_full_name then
+            column = {recipe_name = entry.key, product_full_name = entry.product_full_name, consumer = false, burner = burner,
+                net_amounts = Burners.net_amounts(entry.product_full_name, burner)}
+            inputs = {entry.product_full_name}
+            outputs = {}
+            for product_full_name, net_amount in pairs(column.net_amounts) do
+                if net_amount > 0 then outputs[#outputs + 1] = product_full_name end
+            end
+        else
+            local recipe = prototypes.recipe[entry.key]
+            local product_full_name = player_storage.product_full_names_by_recipe_name[entry.key]
+            column = {recipe_name = entry.key, product_full_name = product_full_name,
+                consumer = player_storage.consumer_product_full_names[product_full_name] == true,
+                net_amounts = Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))}
+            inputs, outputs = {}, {}
+            for _, ingredient in ipairs(recipe.ingredients) do
+                inputs[#inputs + 1] = ingredient.type .. "/" .. ingredient.name
+            end
+            for _, product in ipairs(recipe.products) do
+                if product.type ~= "research-progress" then
+                    outputs[#outputs + 1] = product.type .. "/" .. product.name
+                end
+            end
+        end
+        columns[#columns + 1] = column
+        for _, product_full_name in ipairs(inputs) do
+            enqueue(followed_binding(product_full_name, false, player_storage), product_full_name)
+        end
+        for _, product_full_name in ipairs(outputs) do
+            enqueue(followed_binding(product_full_name, true, player_storage), product_full_name)
+        end
+    end
+    return columns
+end
+
+--Line i is the equation of column i's bound product
+local function prepare_matrix(columns, production_rates_by_product_full_name)
+    local N = #columns
+    local A = {}
+    local line_numbers_by_product_full_name = {}
+    for i, column in ipairs(columns) do
+        A[i] = {}
+        line_numbers_by_product_full_name[column.product_full_name] = i
+        A[i][N+1] = (production_rates_by_product_full_name[column.product_full_name] or 0)
+    end
+
+    --One coefficient per product and column: the column's net amount of that product, so repeated entries and catalysts count once
+    for column_index, column in ipairs(columns) do
+        for product_full_name, net_amount in pairs(column.net_amounts) do
             local line = line_numbers_by_product_full_name[product_full_name]
             if line then
-                A[line][column] = net_amount
+                A[line][column_index] = net_amount
             end
         end
     end
@@ -240,7 +282,7 @@ end
 
 --Solved products (bound to a used recipe) are reported at their recipe's own net output, so intermediates keep a rate even though their global balance is zero.
 --Every other product is reported at its global demand minus supply (negative means byproduct).
-local function compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by_recipe_name, production_rates_of_final_products_by_product_full_name, player_index)
+local function compute_product_rates(columns, rates_by_column_index, production_rates_of_final_products_by_product_full_name)
     local solved_rates = {}
     local unsolved_rates = {}
 
@@ -248,9 +290,10 @@ local function compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by
         unsolved_rates[final_product_full_name] = production_rate
     end
 
-    for recipe_name, recipe_rate in pairs(recipe_rates_by_recipe_name) do
-        local net_amounts = net_amounts_by_recipe_name[recipe_name]
-        local bound_product_full_name = storage[player_index].product_full_names_by_recipe_name[recipe_name]
+    for column_index, column in ipairs(columns) do
+        local recipe_rate = rates_by_column_index[column_index]
+        local net_amounts = column.net_amounts
+        local bound_product_full_name = column.product_full_name
         solved_rates[bound_product_full_name] = recipe_rate * (net_amounts[bound_product_full_name] or 0)
         for product_full_name, net_amount in pairs(net_amounts) do
             unsolved_rates[product_full_name] = (unsolved_rates[product_full_name] or 0) - recipe_rate * net_amount
@@ -306,50 +349,36 @@ end
 --Solves the sheet's targets. Returns {status, columns, recipe_rates, solved_rates, unsolved_rates, reasons_by_column}:
 --  status "ok": every rate is usable; "infeasible": reasons_by_column names the columns at fault, with rates only when the system was solved;
 --  "unsolvable": the equations have no single answer, no rates.
---  columns: the used recipes in matrix order, known before solving, each {recipe_name, product_full_name, consumer}.
---  reasons_by_column: [recipe name] = locale key under hxrrc.
+--  columns: the used columns in matrix order, known before solving (see collect_columns); burner columns carry burner = {name, quality}.
+--  recipe_rates and reasons_by_column are keyed by column key: a recipe name, or Burners.COLUMN_PREFIX .. product for a burner.
 function Solver.solve_for(production_rates_by_product_full_name, player_index)
-    local player_storage = storage[player_index]
-    local used_recipe_name_set = {}
-    for product_full_name, _ in pairs(production_rates_by_product_full_name) do
-        determine_used_recipes(player_storage.recipes_by_product_full_name[product_full_name], used_recipe_name_set, player_index)
-    end
-
-    local used_recipe_name_list = {}
-    local columns = {}
+    local columns = collect_columns(production_rates_by_product_full_name, player_index)
     local reasons_by_column = {}
-    local net_amounts_by_recipe_name = {}
-    for recipe_name, _ in pairs(used_recipe_name_set) do
-        table.insert(used_recipe_name_list, recipe_name)
-        local recipe = prototypes.recipe[recipe_name]
-        local product_full_name = player_storage.product_full_names_by_recipe_name[recipe_name]
-        local consumer = player_storage.consumer_product_full_names[product_full_name] == true
-        columns[#columns + 1] = {recipe_name = recipe_name, product_full_name = product_full_name, consumer = consumer}
-        net_amounts_by_recipe_name[recipe_name] = Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))
+    for _, column in ipairs(columns) do
         --checked before solving: a consumer netting zero leaves its product's equation empty, and the solve would fail without saying why
-        local net_amount = net_amounts_by_recipe_name[recipe_name][product_full_name]
-        if consumer and not (net_amount and net_amount < 0) then
-            reasons_by_column[recipe_name] = "consumer_no_longer_consumes"
+        local net_amount = column.net_amounts[column.product_full_name]
+        if column.consumer and not (net_amount and net_amount < 0) then
+            reasons_by_column[column.recipe_name] = "consumer_no_longer_consumes"
         end
     end
     if next(reasons_by_column) then
         return {status = "infeasible", columns = columns, reasons_by_column = reasons_by_column}
     end
 
-    local matrix = prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index)
+    local matrix = prepare_matrix(columns, production_rates_by_product_full_name)
     local original_matrix = copy_matrix(matrix) --gauss_solve eliminates in place
-    local solutions_by_recipe_index = gauss_solve(matrix)
-    if not solutions_by_recipe_index then
+    local solutions_by_column_index = gauss_solve(matrix)
+    if not solutions_by_column_index then
         return {status = "unsolvable", columns = columns, reasons_by_column = reasons_by_column}
     end
 
     local recipe_rates_by_recipe_name = {}
-    for recipe_index, recipe_name in ipairs(used_recipe_name_list) do
-        recipe_rates_by_recipe_name[recipe_name] = solutions_by_recipe_index[recipe_index]
+    for column_index, column in ipairs(columns) do
+        recipe_rates_by_recipe_name[column.recipe_name] = solutions_by_column_index[column_index]
     end
-    reasons_by_column = backwards_reasons(original_matrix, columns, solutions_by_recipe_index)
+    reasons_by_column = backwards_reasons(original_matrix, columns, solutions_by_column_index)
 
-    local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by_recipe_name, production_rates_by_product_full_name, player_index)
+    local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(columns, solutions_by_column_index, production_rates_by_product_full_name)
     return {
         status = next(reasons_by_column) and "infeasible" or "ok",
         columns = columns,

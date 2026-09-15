@@ -36,6 +36,7 @@ function PlayerData.initialize_recipe_bindings(player_index)
     storage[player_index].recipes_by_product_full_name = recipes_by_product_full_name
     storage[player_index].product_full_names_by_recipe_name = product_full_names_by_recipe_name
     storage[player_index].consumer_product_full_names = {} --products bound to a recipe picked to consume them; every other binding produces its product
+    storage[player_index].burners_by_product_full_name = {} --products burnt as fuel: [product] = {name, quality} of the burning entity
 end
 
 function PlayerData.initialize_player_data(player_index)

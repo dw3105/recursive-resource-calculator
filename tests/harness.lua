@@ -701,8 +701,9 @@ function H.parse_report(output_flow)
         local product_full_name = item_cell.children[1].sprite
         local rate_caption = item_cell.children[2].caption
         local row = {rate = type(rate_caption) == "string" and number_in(rate_caption) or nil}
-        if machine_cell.type == "flow" and machine_cell.children[1].name == "hxrrc_choose_crafting_machine_button" then
-            row.kind = "solved"
+        local machine_button_name = machine_cell.type == "flow" and machine_cell.children[1] and machine_cell.children[1].name
+        if machine_button_name == "hxrrc_choose_crafting_machine_button" or machine_button_name == "hxrrc_choose_burner_entity_button" then
+            row.kind = machine_button_name == "hxrrc_choose_burner_entity_button" and "burner" or "solved"
             local label = machine_cell.children[2]
             if type(label.caption) == "table" then
                 row.reason = label.caption[1]
@@ -721,6 +722,7 @@ function H.parse_report(output_flow)
             end
         end
         row.recipe_button = recipe_cell.type == "flow" and recipe_cell.children[1] or nil
+        row.burner_button = recipe_cell.type == "flow" and recipe_cell.children[2] or nil
         assert(not parsed.rows[product_full_name], "report has two rows for " .. product_full_name)
         parsed.rows[product_full_name] = row
         parsed.row_count = parsed.row_count + 1

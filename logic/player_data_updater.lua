@@ -1,5 +1,6 @@
 local Utils = require "logic.utils"
 local ModuleSetup = require "logic.module_setup"
+local Burners = require "logic.burners"
 
 local PlayerDataUpdater = {}
 
@@ -84,6 +85,7 @@ end
 function PlayerDataUpdater.reinitialize(player_index)
     reinitialize_chosen_crafting_machines(player_index)
     update_recipe_bindings(player_index)
+    Burners.reinitialize(player_index)
     ModuleSetup.migrate(player_index)
     ModuleSetup.reinitialize(player_index)
 end

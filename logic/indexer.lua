@@ -1,3 +1,5 @@
+local Burners = require "logic.burners"
+
 local Indexer = {}
 
 local function insert_multimap(multimap, key, value)
@@ -68,6 +70,7 @@ function Indexer.run()
     index_crafting_machines()
     index_crafting_machine_pollution()
     index_modules()
+    Burners.index()
 end
 
 return Indexer

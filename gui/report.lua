@@ -1,6 +1,7 @@
 local ModuleGUI = require "gui.modulegui"
 local ModuleSetup = require "logic.module_setup"
 local Solver = require "logic.solver"
+local Burners = require "logic.burners"
 local Utils = require "logic.utils"
 
 local Report = {}
@@ -100,10 +101,61 @@ local function add_recipe_cell(report, product_full_name, recipe, consumer)
             },
         },
     }
+    --a product to get rid of may also be burnt, when some entity accepts it as fuel
+    if consumer then
+        local accepted = Burners.accepted_names(product_full_name)
+        if #accepted > 0 then
+            local burner = storage[report.player_index].burners_by_product_full_name[product_full_name]
+            local value = burner and {name = burner.name, quality = burner.quality}
+            recipe_cell.add{
+                type = "choose-elem-button",
+                name = "hxrrc_choose_burner_button",
+                tooltip = {"hxrrc.choose_burner_tooltip"},
+                elem_type = "entity-with-quality",
+                ["entity-with-quality"] = value,
+                elem_filters = {{filter = "name", name = accepted}},
+                tags = {product_full_name = product_full_name},
+            }
+        end
+    end
 end
 
 local function add_byproduct_widgets(report, product_full_name)
     report.add{type = "label", caption = {"hxrrc.byproduct"}}
+    report.add{type = "empty-widget"}
+    add_recipe_cell(report, product_full_name, nil, true)
+end
+
+--A row of a product burnt as fuel: the entity and how many burn it at their maximum draw, no modules, and the controls to change how it is disposed of
+local function add_row_for_burner(report, column, product_rate, rate, round_up_machines, reason)
+    local pi = report.player_index
+    local product_full_name, burner = column.product_full_name, column.burner
+    add_item_cell(report, product_full_name, product_rate)
+
+    local machine_cell = report.add{type = "flow"}
+    machine_cell.style.horizontally_stretchable = true
+    machine_cell.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_burner_entity_button",
+        elem_type = "entity-with-quality",
+        ["entity-with-quality"] = {name = burner.name, quality = burner.quality},
+        elem_filters = {{filter = "name", name = Burners.accepted_names(product_full_name)}},
+        tags = {name = burner.name, quality = burner.quality, product_full_name = product_full_name}, --snapshot for refused changes on a stale report
+    }
+    local label = machine_cell.add{type = "label", name = "label"}
+    if reason then
+        label.caption = {"hxrrc." .. reason}
+    else
+        local units_per_entity = Burners.draw(product_full_name, burner)
+        local count = rate / units_per_entity
+        if round_up_machines then
+            label.caption = " x " .. rounded_up_count_text(count)
+        else
+            label.caption = " x " .. format_by_precision(count, pi)
+        end
+        label.tooltip = {"hxrrc.burner_count_tooltip", format_by_precision(count, pi)}
+    end
+
     report.add{type = "empty-widget"}
     add_recipe_cell(report, product_full_name, nil, true)
 end
@@ -149,8 +201,13 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
     end
 end
 
---A row of a recipe the system uses. Rates are nil on a diagnostic row: its editors are all there, its numbers are not.
-local function add_row_for_solved_product(report, product_full_name, product_rate, recipe_rate, round_up_machines, reason)
+--A row of a column the system uses. Rates are nil on a diagnostic row: its editors are all there, its numbers are not.
+local function add_row_for_solved_product(report, column, product_rate, recipe_rate, round_up_machines, reason)
+    if column.burner then
+        add_row_for_burner(report, column, product_rate, recipe_rate, round_up_machines, reason)
+        return
+    end
+    local product_full_name = column.product_full_name
     local pi = report.player_index
     local recipe = storage[pi].recipes_by_product_full_name[product_full_name]
 
@@ -197,7 +254,7 @@ function Report.new(parent, result, energy_consumption, pollution, round_up_mach
     for _, column in ipairs(result.columns) do
         local product_full_name = column.product_full_name
         if prototype_of(product_full_name) then
-            add_row_for_solved_product(report, product_full_name, result.solved_rates[product_full_name], result.recipe_rates[column.recipe_name],
+            add_row_for_solved_product(report, column, result.solved_rates[product_full_name], result.recipe_rates[column.recipe_name],
                 round_up_machines, result.reasons_by_column[column.recipe_name])
         end
     end
@@ -219,7 +276,7 @@ function Report.new_diagnostic(parent, result)
     for _, column in ipairs(result.columns) do
         if prototype_of(column.product_full_name) then
             --a row without a reason still shows a blank label where its count would be
-            add_row_for_solved_product(report, column.product_full_name, nil, nil, false, result.reasons_by_column[column.recipe_name] or "no_rate")
+            add_row_for_solved_product(report, column, nil, nil, false, result.reasons_by_column[column.recipe_name] or "no_rate")
         end
     end
 end
@@ -326,9 +383,83 @@ function Report.handle_recipe_binding_change(event)
     player_storage.recipes_by_product_full_name[product_full_name] = name_of_new_recipe and prototypes.recipe[name_of_new_recipe]
     if name_of_new_recipe then
         player_storage.product_full_names_by_recipe_name[name_of_new_recipe] = product_full_name
+        player_storage.burners_by_product_full_name[product_full_name] = nil --a product has one binding: a recipe or a burner
     end
     player_storage.consumer_product_full_names[product_full_name] = (name_of_new_recipe and consumer) or nil
 
+    return true
+end
+
+local function same_entity(a, b)
+    if not a or not b then
+        return not a and not b
+    end
+    return a.name == b.name and (a.quality or "normal") == (b.quality or "normal")
+end
+
+local function as_identifier(value)
+    return value and {name = value.name, quality = value.quality ~= "normal" and value.quality or nil}
+end
+
+--Returns true when the product's burner binding changed. Picking an entity replaces any recipe binding of the product; emptying removes the burner.
+--Every refusal restores the stored binding, so a re-raised event is a no-op.
+function Report.handle_burner_change(event)
+    local pi = event.player_index
+    local player_storage = storage[pi]
+    local button = event.element
+    local product_full_name = button.tags.product_full_name
+    local current = player_storage.burners_by_product_full_name[product_full_name]
+    local picked = as_identifier(button.elem_value)
+    if same_entity(picked, current) then
+        return false
+    end
+    if picked and not Burners.accepts(picked.name, product_full_name) then
+        button.elem_value = current and {name = current.name, quality = current.quality}
+        return false
+    end
+
+    if picked then
+        local old_recipe = player_storage.recipes_by_product_full_name[product_full_name]
+        if old_recipe then
+            player_storage.product_full_names_by_recipe_name[old_recipe.name] = nil
+        end
+        player_storage.recipes_by_product_full_name[product_full_name] = nil
+        player_storage.consumer_product_full_names[product_full_name] = nil
+    end
+    player_storage.burners_by_product_full_name[product_full_name] = picked
+    return true
+end
+
+--Returns true when the burning entity of a current burner binding changed. A button whose binding changed or went since it was built is stale:
+--refused and restored from its snapshot, as is emptying it or picking an entity that cannot burn the product.
+function Report.handle_burner_entity_change(event)
+    local pi = event.player_index
+    local button = event.element
+    local tags = button.tags
+    local snapshot = tags.name and storage.burner_names[tags.name] and
+        {name = tags.name, quality = tags.quality and prototypes.quality[tags.quality] and tags.quality or nil} or nil
+    local picked = as_identifier(button.elem_value)
+    if same_entity(picked, snapshot) then
+        return false
+    end
+    local function restore()
+        button.elem_value = snapshot and {name = snapshot.name, quality = snapshot.quality}
+        return false
+    end
+    local burners = storage[pi].burners_by_product_full_name
+    local current = burners[tags.product_full_name]
+    if not current or not same_entity(current, {name = tags.name, quality = tags.quality}) then
+        return restore()
+    end
+    if not picked then
+        game.get_player(pi).create_local_flying_text{text = {"hxrrc.cannot_empty_a_choose_crafting_machine_button_error"}, create_at_cursor = true}
+        return restore()
+    end
+    if not Burners.accepts(picked.name, tags.product_full_name) then
+        return restore()
+    end
+    burners[tags.product_full_name] = picked
+    button.tags = {name = picked.name, quality = picked.quality, product_full_name = tags.product_full_name}
     return true
 end
 
