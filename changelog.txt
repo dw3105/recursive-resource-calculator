@@ -1,4 +1,32 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.20
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.19, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality targets are not calculated in Factorio 2.1 yet, as its quality mechanics are not verified:
+      a target above normal quality says so on its row.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.19
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.20).
+    - Quality loops assume each tier crafts as many sets as its returned ingredients allow and recycles
+      everything below the target. Chances after a first upgrade use the reached quality's next_probability
+      (10% in the base game); modded quality chains are not verified in game. Items the loop leaves above
+      normal quality show as byproducts without a consumer or burner control.
+  Features:
+    - Targets can have a quality. A target above normal quality is made by a quality loop: crafting with
+      quality modules, and recycling what misses the target quality back into its ingredients. The report
+      shows a row per quality tier with the crafting machines and recyclers running there, their counts
+      and upgrade chances, and the loop's module and recycle recipe controls. The recycle recipe is
+      picked automatically when only one recipe fits; without one, nothing is recycled.
+    - Loop settings are kept per item and quality and shared by every sheet.
+  Changes:
+    - The module effects label shows a quality effect as the chance to upgrade from normal quality
+      (Factorio 2.0), instead of the raw effect.
+    - A recipe with a single possible machine can still pick that machine's quality.
+    - Sheets saved by older versions keep their targets; their item buttons now also pick a quality.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.18
 Date: 2026.09.15
   Info:
