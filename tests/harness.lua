@@ -38,8 +38,8 @@ function H.lua_object(class, fields, members, gates)
 end
 
 local RECIPE_MEMBERS = {
-    ["2.0"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories"},
-    ["2.1"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "categories", "get_product_amount"},
+    ["2.0"] = {"name", "valid", "object_name", "hidden", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories"},
+    ["2.1"] = {"name", "valid", "object_name", "hidden", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "categories", "get_product_amount"},
     --shape the code at cb6b529 expects: 2.1 recipe members with 2.0 product fields (portal 1.1.9 on Factorio 2.0.77)
     ["hybrid"] = {"name", "valid", "object_name", "products", "ingredients", "energy", "allowed_effects", "allowed_module_categories", "maximum_productivity", "category", "additional_categories", "categories"},
 }
@@ -119,6 +119,37 @@ local function check_elem_value(element, value)
         error("Unknown entity " .. tostring(value.name), 3)
     elseif elem_type == "entity-with-quality" and value.quality and not prototypes.quality[value.quality] then
         error("Unknown quality " .. tostring(value.quality), 3)
+    end
+end
+
+--Filter names each choose-elem-button type accepts, from the 2.0.77 RecipePrototypeFilter, EntityPrototypeFilter and ItemPrototypeFilter pages (subset the mod uses)
+local FILTER_NAMES_BY_ELEM_TYPE = {
+    ["recipe"] = set_of({"has-product-item", "has-product-fluid", "has-ingredient-item", "has-ingredient-fluid", "hidden", "category"}),
+    ["entity-with-quality"] = set_of({"crafting-category", "name"}),
+    ["item-with-quality"] = set_of({"name"}),
+}
+--Nested item and fluid filters of has-product/has-ingredient filters match by name here
+local NESTED_FILTER_ELEM_TYPE = {["has-product-item"] = "item", ["has-product-fluid"] = "fluid", ["has-ingredient-item"] = "item", ["has-ingredient-fluid"] = "fluid"}
+
+local function check_elem_filters(params)
+    if params.type ~= "choose-elem-button" or params.elem_filters == nil then return end
+    local allowed = FILTER_NAMES_BY_ELEM_TYPE[params.elem_type]
+    if not allowed then error("harness does not know filters for elem_type " .. tostring(params.elem_type), 3) end
+    for _, filter in ipairs(params.elem_filters) do
+        if not allowed[filter.filter] then
+            error("Unknown " .. params.elem_type .. " filter " .. tostring(filter.filter), 3)
+        end
+        local nested = NESTED_FILTER_ELEM_TYPE[filter.filter]
+        if nested then
+            if type(filter.elem_filters) ~= "table" or #filter.elem_filters == 0 then
+                error(filter.filter .. " filter needs nested elem_filters", 3)
+            end
+            for _, inner in ipairs(filter.elem_filters) do
+                if inner.filter ~= "name" or not prototypes[nested][inner.name] then
+                    error(filter.filter .. " filter names unknown " .. nested .. " " .. tostring(inner.name), 3)
+                end
+            end
+        end
     end
 end
 
@@ -207,6 +238,7 @@ function gui_methods.add(self, params)
     if (sprite_type == "item" and not prototypes.item[sprite_name]) or (sprite_type == "fluid" and not prototypes.fluid[sprite_name]) then
         error("Unknown sprite " .. params.sprite, 3)
     end
+    check_elem_filters(params)
     local child = new_gui_element(params, self)
     if params.index then
         table.insert(self.children, params.index, child)
@@ -470,7 +502,7 @@ function H.new_world(shape)
     end
 
     --spec: {name, category, additional_categories, energy, ingredients = {{type, name, amount}}, products = {product specs}, maximum_productivity,
-    --  allowed_effects (list), allowed_module_categories (list)}
+    --  allowed_effects (list), allowed_module_categories (list), hidden}
     function world.add_recipe(spec)
         local products = {}
         for index, product_spec in ipairs(spec.products) do products[index] = H.product(shape, product_spec) end
@@ -479,7 +511,7 @@ function H.new_world(shape)
             ingredients[index] = {type = ingredient.type or "item", name = ingredient.name, amount = ingredient.amount}
         end
         local fields = {name = spec.name, valid = true, object_name = "LuaRecipePrototype", products = products, ingredients = ingredients,
-            energy = spec.energy or 1, maximum_productivity = spec.maximum_productivity or 3,
+            energy = spec.energy or 1, maximum_productivity = spec.maximum_productivity or 3, hidden = spec.hidden == true,
             allowed_effects = effect_dictionary(spec.allowed_effects), allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories)}
         if shape == "2.1" then
             fields.categories = {spec.category, table.unpack(spec.additional_categories or {})}
@@ -525,6 +557,12 @@ function H.new_world(shape)
         player_storage.product_full_names_by_recipe_name[recipe_name] = product_full_name
     end
 
+    --Binds a product to a recipe that consumes it, as a pick from a consumer control stores it
+    function world.bind_consumer(product_full_name, recipe_name, player_index)
+        world.bind(product_full_name, recipe_name, player_index)
+        storage[player_index or 1].consumer_product_full_names[product_full_name] = true
+    end
+
     return world
 end
 
@@ -560,7 +598,13 @@ local function number_in(caption)
     return tonumber(caption:match("(-?[%d%.]+)"))
 end
 
---Reads the report table back into {energy_mw, pollution_per_minute, rows = {[product_full_name] = {rate, machines, kind}}, row_count}
+--Localised captions read back as their key, plain captions as themselves
+local function caption_key(caption)
+    return type(caption) == "table" and caption[1] or caption
+end
+
+--Reads the report table back into {energy_mw, pollution_per_minute, energy_caption, pollution_caption, rows = {[product_full_name] = row}, row_count}.
+--row: {rate, kind, machines, machine_caption, machine_tooltip, machine, machine_button, reason, module_cell, recipe_button}; numbers are nil where the report shows none
 function H.parse_report(output_flow)
     local report
     for _, child in ipairs(output_flow.children) do
@@ -568,23 +612,37 @@ function H.parse_report(output_flow)
     end
     if not report then return nil end
     local cells = report.children
-    local parsed = {energy_mw = number_in(cells[2].caption), pollution_per_minute = number_in(cells[4].children[1].caption), rows = {}, row_count = 0}
+    local energy_caption, pollution_caption = cells[2].caption, cells[4].children[1].caption
+    local parsed = {energy_caption = caption_key(energy_caption), pollution_caption = caption_key(pollution_caption), rows = {}, row_count = 0}
+    parsed.energy_mw = type(energy_caption) == "string" and number_in(energy_caption) or nil
+    parsed.pollution_per_minute = type(pollution_caption) == "string" and number_in(pollution_caption) or nil
     local HEADER_CELLS = 8
     assert((#cells - HEADER_CELLS) % 4 == 0, "report cell count " .. #cells .. " is not header + whole rows")
     for first = HEADER_CELLS + 1, #cells, 4 do
-        local item_cell, machine_cell = cells[first], cells[first + 1]
+        local item_cell, machine_cell, recipe_cell = cells[first], cells[first + 1], cells[first + 3]
         local product_full_name = item_cell.children[1].sprite
-        local row = {rate = number_in(item_cell.children[2].caption)}
+        local rate_caption = item_cell.children[2].caption
+        local row = {rate = type(rate_caption) == "string" and number_in(rate_caption) or nil}
         if machine_cell.type == "flow" and machine_cell.children[1].name == "hxrrc_choose_crafting_machine_button" then
             row.kind = "solved"
-            row.machines = number_in(machine_cell.children[2].caption)
-            row.machine_caption = machine_cell.children[2].caption
-            row.machine_tooltip = machine_cell.children[2].tooltip
+            local label = machine_cell.children[2]
+            if type(label.caption) == "table" then
+                row.reason = label.caption[1]
+            else
+                row.machines = number_in(label.caption)
+            end
+            row.machine_caption = label.caption
+            row.machine_tooltip = label.tooltip
             row.machine = machine_cell.children[1].elem_value
+            row.machine_button = machine_cell.children[1]
             row.module_cell = cells[first + 2]
         else
             row.kind = machine_cell.caption[1]
+            if row.kind ~= "hxrrc.byproduct" and row.kind ~= "hxrrc.unselected_recipe" and row.kind ~= "hxrrc.not_automatically_craftable" then
+                row.reason = row.kind
+            end
         end
+        row.recipe_button = recipe_cell.type == "flow" and recipe_cell.children[1] or nil
         assert(not parsed.rows[product_full_name], "report has two rows for " .. product_full_name)
         parsed.rows[product_full_name] = row
         parsed.row_count = parsed.row_count + 1

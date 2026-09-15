@@ -139,4 +139,26 @@ H.test("H3 GUI mock refuses a second child with the same name under one parent, 
     H.equal(#root.children, 3, "unnamed siblings and equal names under different parents are allowed")
 end)
 
+H.test("H4 recipe buttons accept documented ingredient and product filters and refuse unknown ones", function()
+    local world = H.new_world("2.0")
+    world.add_item("plate")
+    world.add_fluid("oil")
+    world.add_recipe({name = "burn", category = "crafting", hidden = true, ingredients = {{name = "plate", amount = 1}}, products = {}})
+    H.equal(prototypes.recipe.burn.hidden, true, "recipes expose hidden")
+    local root = H.gui_root({type = "flow"})
+    for _, filter in ipairs({{"has-ingredient-item", "plate"}, {"has-ingredient-fluid", "oil"}, {"has-product-item", "plate"}, {"has-product-fluid", "oil"}}) do
+        root.add{type = "flow"}.add{type = "choose-elem-button", elem_type = "recipe",
+            elem_filters = {{filter = filter[1], elem_filters = {{filter = "name", name = filter[2]}}}}}
+    end
+    H.errors(function()
+        root.add{type = "choose-elem-button", elem_type = "recipe", elem_filters = {{filter = "consumes-item", elem_filters = {{filter = "name", name = "plate"}}}}}
+    end, "Unknown recipe filter consumes-item", "made-up filter name")
+    H.errors(function()
+        root.add{type = "choose-elem-button", elem_type = "recipe", elem_filters = {{filter = "has-ingredient-fluid", elem_filters = {{filter = "name", name = "plate"}}}}}
+    end, "has-ingredient-fluid filter names unknown fluid plate", "item name in a fluid filter")
+    H.errors(function()
+        root.add{type = "choose-elem-button", elem_type = "recipe", elem_filters = {{filter = "has-ingredient-item"}}}
+    end, "has-ingredient-item filter needs nested elem_filters", "missing nested filters")
+end)
+
 H.done("test_harness")
