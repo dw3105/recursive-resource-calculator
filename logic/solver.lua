@@ -19,21 +19,14 @@ local function productivity_bonus(recipe, machine_identifier, setup, player_inde
     return math.min(math.max(machine_bonus + research_bonus + module_bonus, 0), recipe.maximum_productivity)
 end
 
-local function get_productivity_bonus_for_recipe(recipe, player_index)
-    local player_storage = storage[player_index]
-    return productivity_bonus(recipe, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name],
-        player_storage.module_setups_by_recipe_name[recipe.name], player_index)
-end
-
 --The column key of a product's binding, when the walk follows it. Inputs follow any binding; outputs follow only a binding picked to
 --get rid of them (a consumer recipe or a burner), so byproducts bound to a producer stay out of the system as before.
---An item above normal quality (it has parts) is made by its quality loop once its item has a producer, and in 2.0 once the loop is configured;
---as an output of a loop it is never followed.
+--An item above normal quality (it has parts) is made by its quality loop once its item has a producer, whether or not the loop was configured
+--before (a target's, or an ingredient's of another loop); as an output it is never followed.
 local function followed_binding(product_full_name, as_output, player_storage, product_parts, player_index)
     local parts = product_parts[product_full_name]
     if parts then
-        if not as_output and QualityLoops.producer_of(player_index, parts.name)
-            and (Utils.IS_2_1 or player_storage.quality_loops_by_key[product_full_name]) then
+        if not as_output and QualityLoops.producer_of(player_index, parts.name) then
             return Solver.LOOP_PREFIX .. product_full_name
         end
         return nil
@@ -66,10 +59,86 @@ local function stage_quality_effect(stage)
     return Utils.setup_effects(stage.setup).quality + base
 end
 
---The column of the quality loop making the target key (parts: its item and quality). Its net amounts are per target item; items it leaves above
---normal quality get their parts added to product_parts. column.quality_loop: {key, item, quality, craft_recipe_name, recycle_recipe_name,
---tiers = {{quality, crafts, recycle_crafts, x, craft_chances, recycle_chances}}, reason}
-local function loop_column(player_index, key, parts, product_parts)
+--The quality chain with each quality's next_probability and whether the player's force unlocked it
+local function chain_data(player_index)
+    local chain = QualityLoop.chain()
+    local force = game.players[player_index].force
+    local next_probabilities, unlocked, indexes = {}, {}, {}
+    for index, quality in ipairs(chain) do
+        next_probabilities[index] = index < #chain and quality.next_probability or 0
+        unlocked[index] = force.is_quality_unlocked(quality.name)
+        indexes[quality.name] = index
+    end
+    return chain, next_probabilities, unlocked, indexes
+end
+
+--Net amounts per craft of a recipe crafted at normal quality by a machine with a setup. With a quality effect (Factorio 2.0), each item product's
+--expected amount is spread over the qualities it can come out at before the ingredients are taken off, so an item that is both ingredient and
+--product nets gross output at normal minus what the recipe takes. product_parts, when given, gains the parts of every item above normal.
+local function column_net_amounts(recipe, identifier, setup, player_index, product_parts)
+    local bonus = productivity_bonus(recipe, identifier, setup, player_index)
+    local quality_effect = 0
+    if not Utils.IS_2_1 then --quality mechanics of 2.1 are not verified
+        quality_effect = stage_quality_effect({recipe = recipe, machine = identifier, prototype = identifier and prototypes.entity[identifier.name], setup = setup})
+    end
+    if not (quality_effect > 0) then
+        return Utils.net_amounts_by_full_name(recipe, bonus)
+    end
+    local chain, next_probabilities, unlocked = chain_data(player_index)
+    local shares = QualityLoop.distribution(next_probabilities, unlocked, 1, quality_effect)
+    local net_amounts, gross_by_item = {}, {}
+    for _, product in ipairs(recipe.products) do
+        if product.type == "item" then
+            gross_by_item[product.name] = (gross_by_item[product.name] or 0) + Utils.product_amount(product, bonus)
+        elseif product.type == "fluid" then
+            local full_name = "fluid/" .. product.name
+            net_amounts[full_name] = (net_amounts[full_name] or 0) + Utils.product_amount(product, bonus)
+        end
+    end
+    for item_name, gross in pairs(gross_by_item) do
+        for tier, share in pairs(shares) do
+            local full_name = "item/" .. item_name
+            if tier > 1 then
+                full_name = QualityId.encode(item_name, chain[tier].name)
+                if product_parts then product_parts[full_name] = {type = "item", name = item_name, quality = chain[tier].name} end
+            end
+            net_amounts[full_name] = (net_amounts[full_name] or 0) + gross * share
+        end
+    end
+    for _, ingredient in ipairs(recipe.ingredients) do
+        local full_name = ingredient.type .. "/" .. ingredient.name
+        net_amounts[full_name] = (net_amounts[full_name] or 0) - ingredient.amount
+    end
+    for full_name, net_amount in pairs(net_amounts) do
+        if net_amount == 0 then net_amounts[full_name] = nil end
+    end
+    return net_amounts
+end
+
+--One craft tier's part of a loop: the stage's quality effect, net target output, item ingredients and byproducts, fluids, at its own productivity
+local function craft_tier_spec(stage, item_name, player_index)
+    local net = Utils.net_amounts_by_full_name(stage.recipe, productivity_bonus(stage.recipe, stage.machine, stage.setup, player_index))
+    local spec = {quality_effect = stage_quality_effect(stage), output = net["item/" .. item_name] or 0,
+        ingredients = {}, fluid_ingredients = {}, byproducts = {}, fluid_products = {}}
+    for full_name, net_amount in pairs(net) do
+        local product_type, name = split_full_name(full_name)
+        local entry = {name = name, amount = math.abs(net_amount)}
+        if product_type == "item" and name ~= item_name then
+            table.insert(net_amount < 0 and spec.ingredients or spec.byproducts, entry)
+        elseif product_type == "fluid" then
+            table.insert(net_amount < 0 and spec.fluid_ingredients or spec.fluid_products, entry)
+        end
+    end
+    table.sort(spec.ingredients, function(a, b) return a.name < b.name end) --a fixed order, so equal ties always resolve alike
+    return spec
+end
+
+--The column of the quality loop making the target key (parts: its item and quality), built from the loop's normalized configuration, which the
+--column keeps for power, pollution, the report and storing. Its net amounts are per target item; items it takes or leaves above normal quality get
+--their parts added to product_parts. column.quality_loop: {key, item, quality, config, chain, craft_recipe_name, recycle_recipe_name,
+--tiers = {{quality, crafts, recycle_crafts, x, craft_chances, recycle_chances}}, reason}; chances are indexed by chain position.
+--config: tests only, a raw configuration to build from in place of the normalized one (the guards must hold without normalizing)
+local function loop_column(player_index, key, parts, product_parts, config)
     local loop_info = {key = key, item = parts.name, quality = parts.quality}
     local column = {recipe_name = Solver.LOOP_PREFIX .. key, product_full_name = key, consumer = false, quality_loop = loop_info,
         net_amounts = {[key] = 1}}
@@ -77,51 +146,40 @@ local function loop_column(player_index, key, parts, product_parts)
         loop_info.reason = "quality_loop_unavailable"
         return column
     end
-    local loop = storage[player_index].quality_loops_by_key[key]
-    local craft = QualityLoops.stage(player_index, loop, "craft")
-    loop_info.craft_recipe_name = craft.recipe.name
-    loop_info.recycle_recipe_name = loop.recycle_recipe_name
+    config = config or QualityLoops.normalized(player_index, key, parts)
+    loop_info.config = config
+    local craft_recipe = QualityLoops.producer_of(player_index, parts.name)
+    loop_info.craft_recipe_name = craft_recipe.name
+    loop_info.recycle_recipe_name = config.recycle_recipe_name
 
-    local reason, consumed = QualityLoop.recipe_refusal(craft.recipe, parts.name)
-    if not reason and loop.recycle_recipe_name then
-        reason, consumed = QualityLoop.recycler_refusal(prototypes.recipe[loop.recycle_recipe_name], parts.name)
+    local reason, consumed = QualityLoop.recipe_refusal(craft_recipe, parts.name)
+    if not reason and config.recycle_recipe_name then
+        reason, consumed = QualityLoop.recycler_refusal(prototypes.recipe[config.recycle_recipe_name], parts.name)
     end
     if reason then
         loop_info.reason = reason
         return column
     end
 
-    local chain = QualityLoop.chain()
-    local force = game.players[player_index].force
-    local next_probabilities, unlocked, target = {}, {}, nil
-    for index, quality in ipairs(chain) do
-        next_probabilities[index] = index < #chain and quality.next_probability or 0
-        unlocked[index] = force.is_quality_unlocked(quality.name)
-        if quality.name == parts.quality then target = index end
-    end
+    local chain, next_probabilities, unlocked, indexes = chain_data(player_index)
+    loop_info.chain = chain
+    local target = indexes[parts.quality]
     if not target then
         loop_info.reason = "quality_target_unreachable"
         return column
     end
+    local start = indexes[config.start_quality or "normal"]
 
-    local craft_net = Utils.net_amounts_by_full_name(craft.recipe, Solver.productivity_bonus(craft.recipe, craft.machine, craft.setup, player_index))
-    local craft_spec = {quality_effect = stage_quality_effect(craft), output = craft_net["item/" .. parts.name] or 0,
-        ingredients = {}, fluid_ingredients = {}, byproducts = {}, fluid_products = {}}
-    for full_name, net_amount in pairs(craft_net) do
-        local product_type, name = split_full_name(full_name)
-        local entry = {name = name, amount = math.abs(net_amount)}
-        if product_type == "item" and name ~= parts.name then
-            table.insert(net_amount < 0 and craft_spec.ingredients or craft_spec.byproducts, entry)
-        elseif product_type == "fluid" then
-            table.insert(net_amount < 0 and craft_spec.fluid_ingredients or craft_spec.fluid_products, entry)
-        end
+    local craft_tiers = {}
+    for index = start or 1, target do
+        local stage = QualityLoops.stage(player_index, config, "craft", chain[index].name)
+        craft_tiers[index - (start or 1) + 1] = craft_tier_spec(stage, parts.name, player_index)
     end
-    table.sort(craft_spec.ingredients, function(a, b) return a.name < b.name end) --a fixed order, so equal ties always resolve alike
 
     local recycle_spec
-    local recycle = QualityLoops.stage(player_index, loop, "recycle")
+    local recycle = QualityLoops.stage(player_index, config, "recycle")
     if recycle then
-        local bonus = Solver.productivity_bonus(recycle.recipe, recycle.machine, recycle.setup, player_index)
+        local bonus = productivity_bonus(recycle.recipe, recycle.machine, recycle.setup, player_index)
         recycle_spec = {quality_effect = stage_quality_effect(recycle), consumed = consumed, yields = {}, fluid_ingredients = {}, fluid_products = {}}
         for _, product in ipairs(recycle.recipe.products) do
             if product.type == "item" then
@@ -137,18 +195,17 @@ local function loop_column(player_index, key, parts, product_parts)
         end
     end
 
-    local craft_tiers = {}
-    for tier = 1, target do craft_tiers[tier] = craft_spec end
-    local result = QualityLoop.balance({next_probabilities = next_probabilities, unlocked = unlocked, start = 1, target = target, item = parts.name,
+    local result = QualityLoop.balance({next_probabilities = next_probabilities, unlocked = unlocked, start = start, target = target, item = parts.name,
         craft = {tiers = craft_tiers}, recycle = recycle_spec})
     if result.reason then
         loop_info.reason = result.reason
         return column
     end
 
+    local offset = result.offset
     for name, amounts_by_tier in pairs(result.items) do
         for tier, amount in pairs(amounts_by_tier) do
-            local quality_name = chain[tier].name
+            local quality_name = chain[tier + offset].name
             local full_name = "item/" .. name
             if quality_name ~= "normal" then
                 full_name = QualityId.encode(name, quality_name)
@@ -161,10 +218,17 @@ local function loop_column(player_index, key, parts, product_parts)
         column.net_amounts["fluid/" .. name] = (column.net_amounts["fluid/" .. name] or 0) + amount
     end
     for index, tier in ipairs(result.tiers) do
-        tier.quality = chain[index].name
+        tier.quality = chain[index + offset].name
+        --chances keyed by chain position, like loop_info.chain
+        for _, field in ipairs({"craft_chances", "recycle_chances"}) do
+            if tier[field] then
+                local shifted = {}
+                for slice_index, share in pairs(tier[field]) do shifted[slice_index + offset] = share end
+                tier[field] = shifted
+            end
+        end
     end
     loop_info.tiers = result.tiers
-    loop_info.chain = chain
     return column
 end
 
@@ -211,7 +275,8 @@ local function collect_columns(production_rates_by_product_full_name, player_ind
             local product_full_name = player_storage.product_full_names_by_recipe_name[entry.key]
             column = {recipe_name = entry.key, product_full_name = product_full_name,
                 consumer = player_storage.consumer_product_full_names[product_full_name] == true,
-                net_amounts = Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))}
+                net_amounts = column_net_amounts(recipe, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[entry.key],
+                    player_storage.module_setups_by_recipe_name[entry.key], player_index, product_parts)}
             inputs, outputs = {}, {}
             for _, ingredient in ipairs(recipe.ingredients) do
                 inputs[#inputs + 1] = ingredient.type .. "/" .. ingredient.name
@@ -492,9 +557,11 @@ local function backwards_reasons(original_matrix, columns, solution)
     return reasons_by_column
 end
 
---Net amount per craft of a product in a recipe at the productivity the solver uses now; nil when the recipe nets none of it
+--Net amount per craft of a product in a recipe with its chosen machine and setup, quality spread included, as the solver uses it now; nil when none
 function Solver.net_amount_of(recipe, product_full_name, player_index)
-    return Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))[product_full_name]
+    local player_storage = storage[player_index]
+    return column_net_amounts(recipe, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name],
+        player_storage.module_setups_by_recipe_name[recipe.name], player_index)[product_full_name]
 end
 
 --Solves the sheet's targets. Returns {status, columns, recipe_rates, solved_rates, unsolved_rates, reasons_by_column}:
@@ -557,5 +624,6 @@ Solver._gauss_solve = gauss_solve
 Solver._solve_once = solve_once
 Solver._worst_residual = worst_residual
 Solver._backwards_reasons = backwards_reasons
+Solver._loop_column = loop_column
 
 return Solver

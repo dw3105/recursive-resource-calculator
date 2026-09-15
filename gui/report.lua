@@ -270,104 +270,176 @@ local function chances_tooltip(chain, chances)
     return tooltip
 end
 
-local STAGE_NAMES = {"craft", "recycle"}
-
---One line of a loop tier row's machine cell: the stage's machine and how many run at this tier, or why none is counted
-local function add_loop_stage_line(machine_cell, column, stage_name, stage, crafts, recipe_rate, round_up_machines, reason, chances)
-    local pi = machine_cell.player_index
-    local info = column.quality_loop
-    local line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = stage_name}}
-    if stage and stage.machine then
-        line.add{
-            type = "choose-elem-button",
-            name = "hxrrc_choose_loop_machine_button",
-            elem_type = "entity-with-quality",
-            ["entity-with-quality"] = {name = stage.machine.name, quality = stage.machine.quality},
-            elem_filters = crafting_category_filters(stage.recipe),
-            --snapshot for refused changes on a stale report, and the loop stage the button edits
-            tags = {name = stage.machine.name, quality = stage.machine.quality, loop_key = info.key, stage = stage_name, recipe_name = stage.recipe.name},
-        }
+--Chances of the quality loop's recycle line or pool, one line per tier
+local function per_tier_tooltip(header, chain_names, counts, pi)
+    local tooltip = {"", {header}}
+    for index, entry in ipairs(counts) do
+        if #tooltip < 20 then --a localised string takes at most 20 parameters
+            tooltip[#tooltip + 1] = {"", "\n", prototypes.quality[entry.quality].localised_name, ": ", format_by_precision(entry.count, pi)}
+        end
     end
-    local label = line.add{type = "label"}
-    if reason then
-        label.caption = {"hxrrc." .. reason}
-    elseif not (stage and stage.machine) then
-        label.caption = {"hxrrc.not_automatically_craftable"}
+    return tooltip
+end
+
+--A loop's machine button: tier nil for the recycler pool
+local function add_loop_machine_button(line, info, stage_name, stage, tier)
+    line.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_loop_machine_button",
+        elem_type = "entity-with-quality",
+        ["entity-with-quality"] = {name = stage.machine.name, quality = stage.machine.quality},
+        elem_filters = crafting_category_filters(stage.recipe), --always enabled: with one machine, its quality can still be picked
+        --snapshot for refused changes on a stale report, and the loop stage the button edits
+        tags = {name = stage.machine.name, quality = stage.machine.quality, loop_key = info.key, stage = stage_name, tier = tier, recipe_name = stage.recipe.name},
+    }
+end
+
+local function count_caption(machine_amount, round_up_machines, pi)
+    return " x " .. (round_up_machines and rounded_up_count_text(machine_amount) or format_by_precision(machine_amount, pi))
+end
+
+--The module editor of a loop stage (tier nil for the recycler pool), in a flow of its own tagged with the stage
+local function add_loop_module_cell(report, info, stage_name, stage, tier)
+    local cell = report.add{type = "flow", direction = "vertical", tags = {stage = stage_name, tier = tier}}
+    if stage and stage.machine then
+        ModuleGUI.new(cell, stage.recipe, stage.prototype, stage.machine, info.key, {loop_key = info.key, stage = stage_name, tier = tier})
     else
-        local machine_amount = Utils.machine_amount(stage.recipe, crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup)
-        label.caption = " x " .. (round_up_machines and rounded_up_count_text(machine_amount) or format_by_precision(machine_amount, pi))
-        label.tooltip = chances_tooltip(info.chain, chances)
+        cell.add{type = "empty-widget"}
     end
 end
 
---The rows of a quality loop: one per tier from normal to the target, each with the machines crafting and recycling at that tier; the first row
---also holds the loop's module and recipe editors. A loop with a reason, or without rates, shows only that first row, with every editor and no count.
+--The loop's recipe control: the recipe its item is bound to and the quality its ingredients come at
+local function add_loop_recipe_cell(report, info)
+    local pi = report.player_index
+    local recipe = QualityLoops.producer_of(pi, info.item)
+    local shown = {name = recipe and recipe.name, quality = info.config.start_quality}
+    local recipe_cell = report.add{type = "flow"}
+    recipe_cell.style.horizontally_stretchable = true
+    recipe_cell.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_loop_recipe_button",
+        tooltip = {"hxrrc.choose_loop_recipe_tooltip"},
+        elem_tooltip = recipe and {type = "recipe", name = recipe.name},
+        elem_type = "recipe-with-quality",
+        ["recipe-with-quality"] = shown.name and {name = shown.name, quality = shown.quality},
+        elem_filters = {{filter = "has-product-item", elem_filters = {{filter = "name", name = info.item}}}},
+        tags = {product_full_name = "item/" .. info.item, loop_key = info.key, shown = shown}, --the whole value shown, for Report.handle_loop_recipe_change
+    }
+end
+
+--The rows of a quality loop: one per tier from the recipe's quality to the target, each with its crafting machines, their count and upgrade chances,
+--its own module editor, and the recyclers running at that tier; then the recycler pool with the total, the recycler editors and the recycle recipe.
+--A loop with a reason, or without rates, shows the same rows with every editor and no counts, the reason in the first craft line.
 local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_machines, reason)
     local pi = report.player_index
     local info = column.quality_loop
-    local loop = storage[pi].quality_loops_by_key[info.key] --none in Factorio 2.1
-    local stages = {}
-    if loop then
-        for _, stage_name in ipairs(STAGE_NAMES) do stages[stage_name] = QualityLoops.stage(pi, loop, stage_name) end
-    end
-    local tiers = not reason and recipe_rate and info.tiers
-    local row_count = tiers and #tiers or 1
+    local config = info.config
+    local item_prototype = prototypes.item[info.item]
 
-    for index = 1, row_count do
-        local tier = tiers and tiers[index]
+    if not config then --Factorio 2.1: quality loops are not calculated
+        local item_cell = report.add{type = "flow"}
+        item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = info.quality, tooltip = item_prototype.localised_name,
+            tags = {loop_key = info.key, tier = info.quality}}
+        item_cell.add{type = "label", caption = ""}
+        local machine_cell = report.add{type = "flow", direction = "vertical"}
+        machine_cell.add{type = "flow", tags = {stage = "craft"}}.add{type = "label", caption = {"hxrrc." .. reason}}
+        report.add{type = "empty-widget"}
+        add_recipe_cell(report, "item/" .. info.item, QualityLoops.producer_of(pi, info.item))
+        return
+    end
+
+    local solved = not reason and recipe_rate and info.tiers
+    local tiers = {}
+    if solved then
+        tiers = info.tiers
+    else
+        for _, quality in ipairs(QualityLoops.tier_names(config)) do tiers[#tiers + 1] = {quality = quality} end
+    end
+    local recycle = QualityLoops.stage(pi, config, "recycle")
+    local recycler_counts, recycler_total = {}, 0
+
+    for index, tier in ipairs(tiers) do
+        local stage = QualityLoops.stage(pi, config, "craft", tier.quality)
         local item_cell = report.add{type = "flow"}
         item_cell.style.horizontally_stretchable = true
-        local quality = tier and tier.quality or info.quality
-        item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = quality ~= "normal" and quality or nil,
-            tooltip = prototypes.item[info.item].localised_name, tags = {loop_key = info.key, tier = index}}
-        item_cell.add{type = "label", caption = tier and (format_by_precision(tier.x * recipe_rate, pi) .. " /s") or ""}
+        item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = tier.quality ~= "normal" and tier.quality or nil,
+            tooltip = item_prototype.localised_name, tags = {loop_key = info.key, tier = tier.quality}}
+        item_cell.add{type = "label", caption = solved and (format_by_precision(tier.x * recipe_rate, pi) .. " /s") or ""}
 
         local machine_cell = report.add{type = "flow", direction = "vertical"}
         machine_cell.style.horizontally_stretchable = true
-        if loop then
-            add_loop_stage_line(machine_cell, column, "craft", stages.craft, tier and tier.crafts, recipe_rate, round_up_machines, reason,
-                tier and tier.craft_chances)
-            if stages.recycle and (not tier or index < row_count) then
-                add_loop_stage_line(machine_cell, column, "recycle", stages.recycle, tier and tier.recycle_crafts, recipe_rate, round_up_machines, reason,
-                    tier and tier.recycle_chances)
-            end
-        else
-            add_loop_stage_line(machine_cell, column, "craft", nil, nil, nil, false, reason)
+        local craft_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "craft"}}
+        if stage and stage.machine then
+            add_loop_machine_button(craft_line, info, "craft", stage, tier.quality)
+        end
+        local craft_label = craft_line.add{type = "label", caption = ""}
+        if index == 1 and reason then
+            craft_label.caption = {"hxrrc." .. reason}
+        elseif not (stage and stage.machine) then
+            craft_label.caption = {"hxrrc.not_automatically_craftable"}
+        elseif solved then
+            craft_label.caption = count_caption(Utils.machine_amount(stage.recipe, tier.crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
+                round_up_machines, pi)
+            craft_label.tooltip = chances_tooltip(info.chain, tier.craft_chances)
         end
 
-        if index == 1 and loop then
-            local module_cell = report.add{type = "flow", direction = "vertical"}
-            for _, stage_name in ipairs(STAGE_NAMES) do
-                local stage = stages[stage_name]
-                local stage_flow = module_cell.add{type = "flow", direction = "vertical", tags = {stage = stage_name}}
-                if stage and stage.machine then
-                    ModuleGUI.new(stage_flow, stage.recipe, stage.prototype, stage.machine, info.key, {loop_key = info.key, stage = stage_name})
-                else
-                    stage_flow.add{type = "empty-widget"}
+        if recycle and index < #tiers then
+            local recycle_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "recycle"}}
+            local recycle_label
+            if recycle.machine then
+                recycle_line.add{type = "sprite-button", sprite = "entity/" .. recycle.machine.name, quality = recycle.machine.quality,
+                    tooltip = recycle.prototype.localised_name}
+                recycle_label = recycle_line.add{type = "label", caption = ""}
+                if solved then
+                    local count = Utils.machine_amount(recycle.recipe, tier.recycle_crafts * recipe_rate, recycle.prototype, recycle.machine.quality, recycle.setup)
+                    recycler_counts[#recycler_counts + 1] = {quality = tier.quality, count = count}
+                    recycler_total = recycler_total + count
+                    recycle_label.caption = count_caption(count, round_up_machines, pi)
+                    recycle_label.tooltip = chances_tooltip(info.chain, tier.recycle_chances)
                 end
+            else
+                recycle_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
             end
-        else
-            report.add{type = "empty-widget"}
         end
 
+        add_loop_module_cell(report, info, "craft", stage, tier.quality)
         if index == 1 then
-            local item_full_name = "item/" .. info.item
-            local recipe_cell = add_recipe_cell(report, item_full_name, QualityLoops.producer_of(pi, info.item))
-            if loop then
-                recipe_cell.add{
-                    type = "choose-elem-button",
-                    name = "hxrrc_choose_recycle_recipe_button",
-                    tooltip = {"hxrrc.choose_recycle_recipe_tooltip"},
-                    elem_type = "recipe",
-                    recipe = loop.recycle_recipe_name,
-                    elem_filters = {{filter = "has-ingredient-item", elem_filters = {{filter = "name", name = info.item}}}},
-                    tags = {loop_key = info.key, recipe_name = loop.recycle_recipe_name},
-                }
-            end
+            add_loop_recipe_cell(report, info)
         else
             report.add{type = "empty-widget"}
         end
     end
+
+    --the recycler pool: every tier's recyclers are one set of machines with one setup
+    local pool_cell = report.add{type = "flow", tags = {loop_key = info.key, pool = true}}
+    pool_cell.style.horizontally_stretchable = true
+    pool_cell.add{type = "label", caption = {"hxrrc.recycler_pool"}}
+    pool_cell.add{type = "label", caption = ""}
+    local machine_cell = report.add{type = "flow", direction = "vertical"}
+    local pool_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "recycle"}}
+    if recycle and recycle.machine then
+        add_loop_machine_button(pool_line, info, "recycle", recycle)
+        local label = pool_line.add{type = "label", caption = ""}
+        if solved then
+            label.caption = count_caption(recycler_total, round_up_machines, pi)
+            label.tooltip = per_tier_tooltip("hxrrc.recycler_pool_tooltip", info.chain, recycler_counts, pi)
+        end
+    elseif recycle then
+        pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+    else
+        pool_line.add{type = "label", caption = ""}
+    end
+    add_loop_module_cell(report, info, "recycle", recycle)
+    local recipe_cell = report.add{type = "flow"}
+    recipe_cell.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_recycle_recipe_button",
+        tooltip = {"hxrrc.choose_recycle_recipe_tooltip"},
+        elem_type = "recipe",
+        recipe = config.recycle_recipe_name,
+        elem_filters = {{filter = "has-ingredient-item", elem_filters = {{filter = "name", name = info.item}}}},
+        tags = {loop_key = info.key, recipe_name = config.recycle_recipe_name},
+    }
 end
 
 local function new_table(parent)
@@ -487,6 +559,39 @@ function Report.handle_crafting_machine_change(event)
     return true
 end
 
+--The locale key (without "hxrrc.") refusing to bind a product to a recipe, or nil: one recipe serves one product, and a consumer must consume it.
+--recipe_name nil (emptying) is always allowed.
+function Report.validate_binding(player_index, product_full_name, recipe_name, consumer)
+    if not recipe_name then
+        return nil
+    end
+    local owner = storage[player_index].product_full_names_by_recipe_name[recipe_name]
+    if owner and owner ~= product_full_name then
+        return "recipe_already_used_by_another_product_error"
+    end
+    if consumer then
+        local net_amount = Solver.net_amount_of(prototypes.recipe[recipe_name], product_full_name, player_index)
+        if not (net_amount and net_amount < 0) then
+            return "recipe_does_not_consume_error"
+        end
+    end
+end
+
+--Binds a product to a recipe (nil unbinds), replacing its previous recipe or burner binding; checks come first, from Report.validate_binding
+function Report.apply_binding(player_index, product_full_name, recipe_name, consumer)
+    local player_storage = storage[player_index]
+    local old_recipe = player_storage.recipes_by_product_full_name[product_full_name]
+    if old_recipe then
+        player_storage.product_full_names_by_recipe_name[old_recipe.name] = nil
+    end
+    player_storage.recipes_by_product_full_name[product_full_name] = recipe_name and prototypes.recipe[recipe_name]
+    if recipe_name then
+        player_storage.product_full_names_by_recipe_name[recipe_name] = product_full_name
+        player_storage.burners_by_product_full_name[product_full_name] = nil --a product has one binding: a recipe or a burner
+    end
+    player_storage.consumer_product_full_names[product_full_name] = (recipe_name and consumer) or nil
+end
+
 --Returns true when the binding changed. A consumer button binds a recipe that consumes the product and flags it; any other button binds a producer.
 --Each button shows only a binding of its own kind, so clearing a consumer button leaves a producer binding alone and the other way round.
 function Report.handle_recipe_binding_change(event)
@@ -504,30 +609,13 @@ function Report.handle_recipe_binding_change(event)
     if shown_recipe_name == name_of_new_recipe then
         return false
     end
-    local new_recipe_owner = name_of_new_recipe and player_storage.product_full_names_by_recipe_name[name_of_new_recipe]
-    if new_recipe_owner and new_recipe_owner ~= product_full_name then
-        game.get_player(pi).create_local_flying_text{text = {"hxrrc.recipe_already_used_by_another_product_error"}, create_at_cursor = true}
+    local error_key = Report.validate_binding(pi, product_full_name, name_of_new_recipe, consumer)
+    if error_key then
+        game.get_player(pi).create_local_flying_text{text = {"hxrrc." .. error_key}, create_at_cursor = true}
         button.elem_value = shown_recipe_name
         return false
     end
-    if name_of_new_recipe and consumer then
-        local net_amount = Solver.net_amount_of(prototypes.recipe[name_of_new_recipe], product_full_name, pi)
-        if not (net_amount and net_amount < 0) then
-            game.get_player(pi).create_local_flying_text{text = {"hxrrc.recipe_does_not_consume_error"}, create_at_cursor = true}
-            button.elem_value = shown_recipe_name
-            return false
-        end
-    end
-    if name_of_old_recipe then
-        player_storage.product_full_names_by_recipe_name[name_of_old_recipe] = nil
-    end
-    player_storage.recipes_by_product_full_name[product_full_name] = name_of_new_recipe and prototypes.recipe[name_of_new_recipe]
-    if name_of_new_recipe then
-        player_storage.product_full_names_by_recipe_name[name_of_new_recipe] = product_full_name
-        player_storage.burners_by_product_full_name[product_full_name] = nil --a product has one binding: a recipe or a burner
-    end
-    player_storage.consumer_product_full_names[product_full_name] = (name_of_new_recipe and consumer) or nil
-
+    Report.apply_binding(pi, product_full_name, name_of_new_recipe, consumer)
     return true
 end
 
@@ -622,7 +710,7 @@ function Report.handle_loop_machine_change(event)
         return false
     end
     local loop = storage[pi].quality_loops_by_key[tags.loop_key]
-    local stage = loop and QualityLoops.stage(pi, loop, tags.stage)
+    local stage = loop and (tags.stage ~= "craft" or QualityLoops.crafts_at(loop, tags.tier)) and QualityLoops.stage(pi, loop, tags.stage, tags.tier)
     if not (stage and stage.machine and stage.recipe.name == tags.recipe_name and same_entity(stage.machine, {name = tags.name, quality = tags.quality})) then
         return restore()
     end
@@ -633,9 +721,74 @@ function Report.handle_loop_machine_change(event)
     if not Utils.can_craft(picked.name, stage.recipe) then
         return restore()
     end
-    loop[tags.stage].machine = picked
-    ModuleSetup.sanitize_setup(loop[tags.stage].setup, picked, stage.recipe) --the new machine may have fewer slots or refuse some modules
-    button.tags = {name = picked.name, quality = picked.quality, loop_key = tags.loop_key, stage = tags.stage, recipe_name = tags.recipe_name}
+    local settings = tags.stage == "craft" and loop.crafts[tags.tier] or loop.recycle
+    settings.machine = picked
+    ModuleSetup.sanitize_setup(settings.setup, picked, stage.recipe) --the new machine may have fewer slots or refuse some modules
+    button.tags = {name = picked.name, quality = picked.quality, loop_key = tags.loop_key, stage = tags.stage, tier = tags.tier, recipe_name = tags.recipe_name}
+    return true
+end
+
+--A recipe-with-quality value as {name, quality}, quality nil for normal whether the engine gives a name or a prototype
+local function recipe_value(value)
+    if not value then
+        return nil
+    end
+    local quality = type(value.quality) == "table" and value.quality.name or value.quality
+    return {name = value.name, quality = quality ~= "normal" and quality or nil}
+end
+
+--Returns true when a loop's recipe or the quality its ingredients come at changed. The button keeps the whole value it showed: it is stale unless
+--the item is still bound to that recipe and the loop still starts at that quality. The picked recipe and quality are checked together before
+--anything is stored; any refusal restores the shown value. Emptying unbinds the item and keeps the loop's configuration.
+function Report.handle_loop_recipe_change(event)
+    local pi = event.player_index
+    local button = event.element
+    local tags = button.tags
+    local shown = tags.shown or {}
+    local picked = recipe_value(button.elem_value)
+    if (picked and picked.name) == shown.name and (picked and picked.quality) == shown.quality then
+        return false
+    end
+    local function restore()
+        local name = shown.name and prototypes.recipe[shown.name] and shown.name
+        local quality = shown.quality and prototypes.quality[shown.quality] and shown.quality or nil
+        button.elem_value = name and {name = name, quality = quality} or nil
+        return false
+    end
+    local function refuse(error_key)
+        game.get_player(pi).create_local_flying_text{text = {"hxrrc." .. error_key}, create_at_cursor = true}
+        return restore()
+    end
+    local loop = storage[pi].quality_loops_by_key[tags.loop_key]
+    local bound = loop and QualityLoops.producer_of(pi, loop.item)
+    if not loop or (bound and bound.name) ~= shown.name or loop.start_quality ~= shown.quality then
+        return restore()
+    end
+
+    if not picked then
+        Report.apply_binding(pi, tags.product_full_name, nil, false)
+        button.tags = {product_full_name = tags.product_full_name, loop_key = tags.loop_key, shown = {quality = shown.quality}}
+        return true
+    end
+    if picked.name ~= shown.name then
+        local error_key = Report.validate_binding(pi, tags.product_full_name, picked.name, false)
+        if error_key then
+            return refuse(error_key)
+        end
+    end
+    if picked.quality then
+        local indexes = {}
+        for index, quality in ipairs(QualityLoop.chain()) do indexes[quality.name] = index end
+        if not (prototypes.quality[picked.quality] and indexes[picked.quality] and indexes[loop.quality] and indexes[picked.quality] <= indexes[loop.quality]) then
+            return refuse("start_quality_above_target_error")
+        end
+    end
+
+    if picked.name ~= shown.name then
+        Report.apply_binding(pi, tags.product_full_name, picked.name, false)
+    end
+    loop.start_quality = picked.quality
+    button.tags = {product_full_name = tags.product_full_name, loop_key = tags.loop_key, shown = {name = picked.name, quality = picked.quality}}
     return true
 end
 

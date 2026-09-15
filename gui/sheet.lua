@@ -3,7 +3,6 @@ local Solver = require "logic.solver"
 local InputContainer = require "gui.input_container"
 local compute_power_and_pollution = require "logic.compute_power_and_pollution"
 local QualityLoops = require "logic.quality_loops"
-local Utils = require "logic.utils"
 
 local Sheet = {}
 
@@ -91,13 +90,14 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
         return
     end
 
-    --a target above normal quality gets its loop configured, in 2.0 only (2.1 quality mechanics are not verified)
-    if not Utils.IS_2_1 then
-        for full_name, parts in pairs(product_parts) do
-            QualityLoops.ensure(sheet_flow.player_index, full_name, parts)
+    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index, product_parts)
+
+    --every loop the solve used keeps exactly the configuration it was solved with (new, unchanged or repaired), before power and the report read it
+    for _, column in ipairs(result.columns) do
+        if column.quality_loop and column.quality_loop.config then
+            QualityLoops.store(sheet_flow.player_index, column.quality_loop.key, column.quality_loop.config)
         end
     end
-    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index, product_parts)
 
     --the previous report goes in every case, so no totals or controls of an earlier state stay on screen
     local output_flow = sheet_flow.output_flow

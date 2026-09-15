@@ -128,6 +128,12 @@ event_handlers.on_gui_elem_changed["hxrrc_choose_loop_machine_button"] = functio
     end
 end
 
+event_handlers.on_gui_elem_changed["hxrrc_choose_loop_recipe_button"] = function(event)
+    if Report.handle_loop_recipe_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
 event_handlers.on_gui_elem_changed["hxrrc_choose_recycle_recipe_button"] = function(event)
     if Report.handle_recycle_recipe_change(event) then
         Calculator.recompute_everything(event.player_index)

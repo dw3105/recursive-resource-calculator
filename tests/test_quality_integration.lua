@@ -34,16 +34,26 @@ local function four_q()
     return {{name = "q"}, {name = "q"}, {name = "q"}, {name = "q"}}
 end
 
---Configures the loop of X at the quality and gives both stages four quality modules
-local function configured(quality, craft_modules, recycle_modules)
-    local key = S.QualityId.encode("X", quality)
-    S.QualityLoops.ensure(1, key, {type = "item", name = "X", quality = quality})
-    local loop = storage[1].quality_loops_by_key[key]
+--The stored loop of a key; every calculate and configuration change stores a fresh table, so tests read it again after those
+local function L(key)
+    return storage[1].quality_loops_by_key[key]
+end
+
+--Stores the valid configuration of an item's loop at a quality, as a first calculate would, and gives every craft tier and the recycler pool the
+--given modules (default four quality modules each, as separate tables)
+local function configure_loop(item, quality, craft_modules, recycle_modules)
+    local key = S.QualityId.encode(item, quality)
+    S.QualityLoops.store(1, key, S.QualityLoops.normalized(1, key, {type = "item", name = item, quality = quality}))
+    local loop = L(key)
     if loop then
-        loop.craft.setup.modules = craft_modules or four_q()
-        loop.recycle.setup.modules = recycle_modules or four_q()
+        for _, settings in pairs(loop.crafts) do settings.setup.modules = craft_modules and S.QualityLoops._deep_copy(craft_modules) or four_q() end
+        loop.recycle.setup.modules = recycle_modules and S.QualityLoops._deep_copy(recycle_modules) or four_q()
     end
     return key, loop
+end
+
+local function configured(quality, craft_modules, recycle_modules)
+    return configure_loop("X", quality, craft_modules, recycle_modules)
 end
 
 --What on_configuration_changed runs for the mod's data
@@ -60,6 +70,15 @@ local function parts_of(key, quality)
     return {[key] = {type = "item", name = "X", quality = quality}}
 end
 
+local function find_module_buttons(element, found)
+    found = found or {}
+    for _, child in ipairs(element.children) do
+        if child.name == "hxrrc_choose_module_button" and child.elem_value then found[#found + 1] = child end
+        find_module_buttons(child, found)
+    end
+    return found
+end
+
 local function loop_column_of(result)
     for _, column in ipairs(result.columns) do
         if column.quality_loop then return column end
@@ -72,7 +91,8 @@ for _, shape in ipairs({"2.0"}) do
         local key, loop = configured("uncommon")
         H.equal(loop.recycle_recipe_name, "X-recycling", "default recycle recipe")
         H.equal(loop.recycle.machine.name, "recycler", "recycle machine")
-        H.equal(loop.craft.machine.name, "assembler", "craft machine")
+        H.equal(loop.crafts.normal.machine.name, "assembler", "craft machine")
+        H.equal(loop.crafts.uncommon.machine.name, "assembler", "craft machine of the target tier")
         local result = solve({[key] = 2}, parts_of(key, "uncommon"))
         H.equal(result.status, "ok", "status")
         local column = loop_column_of(result)
@@ -105,9 +125,9 @@ for _, shape in ipairs({"2.0"}) do
         loop_world(shape, {five = true})
         local uncommon = S.QualityId.encode("X", "uncommon")
         local legendary = configured("legendary")
-        S.QualityLoops.ensure(1, uncommon, {type = "item", name = "X", quality = "uncommon"})
-        H.equal(#storage[1].quality_loops_by_key[uncommon].craft.setup.modules, 0, "uncommon loop has its own empty setup")
-        H.equal(#storage[1].quality_loops_by_key[legendary].craft.setup.modules, 4, "legendary loop keeps its modules")
+        S.QualityLoops.store(1, uncommon, S.QualityLoops.normalized(1, uncommon, {type = "item", name = "X", quality = "uncommon"}))
+        H.equal(#L(uncommon).crafts.normal.setup.modules, 0, "uncommon loop has its own empty setup")
+        H.equal(#L(legendary).crafts.normal.setup.modules, 4, "legendary loop keeps its modules")
         H.equal(solve({[uncommon] = 1}, parts_of(uncommon, "uncommon")).reasons_by_column["quality-loop:" .. uncommon], "quality_target_unreachable",
             "no quality effect in the uncommon loop")
         H.equal(solve({[legendary] = 1}, parts_of(legendary, "legendary")).status, "ok", "legendary loop solves")
@@ -117,7 +137,7 @@ for _, shape in ipairs({"2.0"}) do
         local count = 0
         for _ in pairs(storage[1].quality_loops_by_key) do count = count + 1 end
         H.equal(count, 2, "two sheets add no loop")
-        H.equal(#storage[1].quality_loops_by_key[legendary].craft.setup.modules, 4, "shared loop untouched by sheets")
+        H.equal(#L(legendary).crafts.normal.setup.modules, 4, "shared loop untouched by sheets")
     end)
 
     H.test(shape .. " the default recycle recipe must be unique and return only the craft's ingredients or the item", function()
@@ -197,9 +217,9 @@ for _, shape in ipairs({"2.0"}) do
         end})
         local key = S.QualityId.encode("Z", "uncommon")
         local parts = {[key] = {type = "item", name = "Z", quality = "uncommon"}}
-        S.QualityLoops.ensure(1, key, parts[key])
-        local loop = storage[1].quality_loops_by_key[key]
-        H.equal(loop.craft.machine.name, "quality-assembler", "modded machine")
+        S.QualityLoops.store(1, key, S.QualityLoops.normalized(1, key, parts[key]))
+        local loop = L(key)
+        H.equal(loop.crafts.normal.machine.name, "quality-assembler", "modded machine")
         loop.recycle_recipe_name = "Z-washing"
         loop.recycle.machine = {name = "recycler"}
         loop.recycle.setup.modules = four_q()
@@ -212,8 +232,8 @@ for _, shape in ipairs({"2.0"}) do
 
         local w_key = S.QualityId.encode("W", "uncommon")
         local w_parts = {[w_key] = {type = "item", name = "W", quality = "uncommon"}}
-        S.QualityLoops.ensure(1, w_key, w_parts[w_key])
-        local w_loop = storage[1].quality_loops_by_key[w_key]
+        S.QualityLoops.store(1, w_key, S.QualityLoops.normalized(1, w_key, w_parts[w_key]))
+        local w_loop = L(w_key)
         w_loop.recycle_recipe_name, w_loop.recycle.machine = nil, nil
         H.equal(solve({[w_key] = 1}, w_parts).reasons_by_column["quality-loop:" .. w_key], "quality_target_unreachable",
             "the machine's own quality effect does not apply to a recipe forbidding quality")
@@ -239,19 +259,20 @@ for _, shape in ipairs({"2.0"}) do
         storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.X = {name = "small-assembler"}
         world.remove_machine("assembler")
         configuration_change()
-        H.equal(loop.craft.machine.name, "small-assembler", "craft machine replaced")
-        H.equal(#loop.craft.setup.modules, 2, "setup fits two slots")
+        H.equal(L(key).crafts.normal.machine.name, "small-assembler", "craft machine replaced")
+        H.equal(#L(key).crafts.normal.setup.modules, 2, "setup fits two slots")
+        H.equal(#L(key).crafts.uncommon.setup.modules, 2, "every tier's setup fits")
 
         --the recycle machine goes: another one that recycles
         world.remove_machine("old-recycler")
         configuration_change()
-        H.equal(loop.recycle.machine.name, "recycler", "recycle machine replaced")
+        H.equal(L(key).recycle.machine.name, "recycler", "recycle machine replaced")
 
         --the recycle recipe goes: no recycling
         world.remove_recipe("X-recycling")
         configuration_change()
-        H.equal(loop.recycle_recipe_name, nil, "recycle recipe dropped")
-        H.equal(loop.recycle.machine, nil, "recycle machine dropped")
+        H.equal(L(key).recycle_recipe_name, nil, "recycle recipe dropped")
+        H.equal(L(key).recycle.machine, nil, "recycle machine dropped")
 
         --the craft recipe goes: the binding goes, so the target is no loop any more
         world.remove_recipe("X")
@@ -271,14 +292,17 @@ for _, shape in ipairs({"2.0"}) do
         local key, loop = configured("uncommon")
         H.equal(#loop.recycle.setup.modules, 4, "recycle setup has modules")
 
-        --(g) written straight into storage, not sanitized: the solver refuses before dividing by what it consumes
+        --(g) the stored configuration, not normalized, given straight to the column builder: it refuses before dividing by what it consumes
         local recycling = prototypes.recipe["X-recycling"]
         local original_ingredients = recycling.ingredients
         recycling.ingredients = {{type = "fluid", name = "water", amount = 10}}
+        local column = S.Solver._loop_column(1, key, {type = "item", name = "X", quality = "uncommon"}, {}, L(key))
+        H.equal(column.quality_loop.reason, "quality_loop_recycle_recipe_consumes_no_target", "builder guard")
+        H.equal(column.quality_loop.tiers, nil, "nothing balanced")
+        --a solve normalizes first, so the same storage solves without recycling and stores nothing
         local result = solve({[key] = 1}, parts_of(key, "uncommon"))
-        H.equal(result.status, "infeasible", "status")
-        H.equal(result.recipe_rates, nil, "no rates")
-        H.equal(result.reasons_by_column["quality-loop:" .. key], "quality_loop_recycle_recipe_consumes_no_target", "reason")
+        H.equal(result.status, "ok", "normalized before solving")
+        H.equal(L(key).recycle_recipe_name, "X-recycling", "a solve does not write storage")
 
         --(f) the same change through a configuration change: the recipe is cleared and so is its stage
         local nil_recipe_calls = 0
@@ -292,19 +316,19 @@ for _, shape in ipairs({"2.0"}) do
             return can_craft(name, recipe)
         end
         configuration_change()
-        H.equal(loop.recycle_recipe_name, nil, "recycle recipe cleared")
-        H.equal(loop.recycle.machine, nil, "recycle machine cleared")
-        H.equal(#loop.recycle.setup.modules, 0, "recycle setup emptied")
+        H.equal(L(key).recycle_recipe_name, nil, "recycle recipe cleared")
+        H.equal(L(key).recycle.machine, nil, "recycle machine cleared")
+        H.equal(#L(key).recycle.setup.modules, 0, "recycle setup emptied")
         result = solve({[key] = 1}, parts_of(key, "uncommon"))
         H.equal(result.status, "ok", "no-recycler state solves")
         H.near(result.unsolved_rates["item/X"], -9, "normal X left over")
 
         --(d) the recipe prototype removed
         recycling.ingredients = original_ingredients
-        loop.recycle_recipe_name = "X-recycling"
+        L(key).recycle_recipe_name = "X-recycling"
         world.remove_recipe("X-recycling")
         configuration_change()
-        H.equal(loop.recycle_recipe_name, nil, "removed recipe cleared")
+        H.equal(L(key).recycle_recipe_name, nil, "removed recipe cleared")
         H.equal(nil_recipe_calls, 0, "no machine lookup with a nil recipe")
         Utils.get_any_crafting_machine_identifier_for, Utils.can_craft = any_machine, can_craft
     end)
@@ -319,6 +343,170 @@ H.test("2.1 Q-14 a target above normal is unavailable, and no loop is configured
     H.equal(result.status, "infeasible", "status")
     H.equal(result.reasons_by_column["quality-loop:" .. key], "quality_loop_unavailable", "reason")
     assert(report, "a report is shown")
+end)
+
+H.test("2.0 QL-1 a loop starting at uncommon takes its ingredients at uncommon and solves like the two-tier loop", function()
+    loop_world("2.0", {extra = function(world) world.set_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "rare", level = 2}}) end})
+    local key = configured("rare")
+    L(key).start_quality = "uncommon"
+    local parts = {[key] = {type = "item", name = "X", quality = "rare"}}
+    local result = solve({[key] = 1}, parts)
+    H.equal(result.status, "ok", "status")
+    local Y = 0.1225
+    local column = loop_column_of(result)
+    H.equal(#column.quality_loop.tiers, 2, "uncommon and rare tiers")
+    H.equal(column.quality_loop.tiers[1].quality, "uncommon", "first tier")
+    H.near(result.unsolved_rates[S.QualityId.encode("A", "uncommon")], (1 - 0.2025) / Y, "A at uncommon")
+    H.equal(result.unsolved_rates["item/A"], nil, "no normal A")
+    H.equal(result.product_parts[S.QualityId.encode("A", "uncommon")].quality, "uncommon", "parts of the ingredient identity")
+end)
+
+H.test("2.0 QL-2 a loop starting at its target crafts once per target from ingredients at that quality", function()
+    loop_world("2.0", {five = true})
+    local key = configured("legendary")
+    L(key).start_quality = "legendary"
+    local result = solve({[key] = 2}, {[key] = {type = "item", name = "X", quality = "legendary"}})
+    H.equal(result.status, "ok", "status")
+    local tiers = loop_column_of(result).quality_loop.tiers
+    H.equal(#tiers, 1, "one tier")
+    H.near(tiers[1].crafts, 1, "one craft per target")
+    H.near(tiers[1].recycle_crafts, 0, "nothing recycled")
+    H.near(result.unsolved_rates[S.QualityId.encode("A", "legendary")], 2, "legendary A")
+end)
+
+--X crafted from A; A smelted from ore, by a smelter with 4 quality module slots, or by a second recipe that only a quality smelter runs
+local function dependency_world()
+    local world = loop_world("2.0", {extra = function(w)
+        w.set_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "rare", level = 2}})
+        w.add_item("ore")
+        w.add_machine({name = "smelter", categories = {"smelt-1"}, speed = 1, module_slots = 4})
+        w.add_machine({name = "quality-smelter", categories = {"smelt-2"}, speed = 1, module_slots = 4, base_quality = 2,
+            allowed_effects = {"speed", "productivity", "consumption", "pollution"}})
+        w.add_recipe({name = "A-smelting", category = "smelt-1", ingredients = {{name = "ore", amount = 1}}, products = {{name = "A", amount = 1}}})
+        w.add_recipe({name = "A-quality-smelting", category = "smelt-2", ingredients = {{name = "ore", amount = 1}}, products = {{name = "A", amount = 1}}})
+    end})
+    world.bind("item/A", "A-smelting")
+    local x_key = configured("rare")
+    L(x_key).start_quality = "uncommon"
+    return world, x_key
+end
+
+H.test("2.0 QL-3 (a) (c) an ingredient above normal is made by its own loop, stored as solved; normalizing is pure and idempotent", function()
+    local _, x_key = dependency_world()
+    local a_key = S.QualityId.encode("A", "uncommon")
+    local a_parts = {type = "item", name = "A", quality = "uncommon"}
+    H.equal(L(a_key), nil, "no stored A loop")
+    local before = S.QualityLoops._deep_copy(storage[1].quality_loops_by_key)
+    local snapshot = S.QualityLoops.normalized(1, a_key, a_parts)
+    H.deep_equal(storage[1].quality_loops_by_key, before, "normalized writes nothing")
+    assert(snapshot, "a default loop for A")
+
+    local report = H.run_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    assert(L(a_key), "A's loop stored by the calculate")
+    local result = solve({[x_key] = 1}, {[x_key] = {type = "item", name = "X", quality = "rare"}})
+    local a_column
+    for _, column in ipairs(result.columns) do
+        if column.quality_loop and column.quality_loop.key == a_key then a_column = column end
+    end
+    assert(a_column, "A's loop column used")
+    H.deep_equal(L(a_key), a_column.quality_loop.config, "stored equals solved")
+    H.deep_equal(S.QualityLoops.normalized(1, a_key, a_parts), L(a_key), "idempotent")
+    assert(report.loops[a_key], "A's tier rows rendered")
+end)
+
+H.test("2.0 QL-3 (b) a stored ingredient loop is repaired before solving when its item's recipe changed on another sheet", function()
+    local _, x_key = dependency_world()
+    local a_key = S.QualityId.encode("A", "uncommon")
+    local a_parts = {type = "item", name = "A", quality = "uncommon"}
+    S.QualityLoops.store(1, a_key, S.QualityLoops.normalized(1, a_key, a_parts))
+    for _, settings in pairs(L(a_key).crafts) do settings.setup.modules = four_q() end
+    H.equal(L(a_key).crafts.normal.machine.name, "smelter", "stored with the smelter")
+    --the binding changes elsewhere: only the quality smelter runs the new recipe, with base quality 2 and no room for quality modules
+    storage[1].recipes_by_product_full_name["item/A"] = prototypes.recipe["A-quality-smelting"]
+    storage[1].product_full_names_by_recipe_name["A-smelting"] = nil
+    storage[1].product_full_names_by_recipe_name["A-quality-smelting"] = "item/A"
+
+    local report = H.run_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    H.equal(L(a_key).crafts.normal.machine.name, "quality-smelter", "machine repaired")
+    H.equal(#L(a_key).crafts.normal.setup.modules, 0, "modules the machine refuses removed")
+    --X loop takes (1 - 0.2025) / 0.1225 A at uncommon per target; A's loop has no recycler, and a craft ends at uncommon with 0.2 × 0.9 = 0.18
+    --(the rest of its upgrades go on to rare), so 1/0.18 ore each; the stale smelter's 10% would need 1/0.09, twice as much
+    local a_demand = (1 - 0.2025) / 0.1225
+    H.near(report.rows["item/ore"].rate, a_demand / 0.18, "ore for the repaired loop")
+    local result = solve({[x_key] = 1}, {[x_key] = {type = "item", name = "X", quality = "rare"}})
+    for _, column in ipairs(result.columns) do
+        if column.quality_loop and column.quality_loop.key == a_key then H.deep_equal(L(a_key), column.quality_loop.config, "stored equals solved") end
+    end
+    H.equal(#find_module_buttons(report.loops[a_key].tiers[1].module_flow), 0, "rendered module cell shows no slot for the refused modules")
+end)
+
+H.test("2.0 QL-8 a loop saved by 1.1.19 gets its one craft setup copied to every tier, as separate tables", function()
+    loop_world("2.0", {five = true})
+    local key = S.QualityId.encode("X", "legendary")
+    storage[1].quality_loops_by_key[key] = {item = "X", quality = "legendary", recycle_recipe_name = "X-recycling",
+        craft = {machine = {name = "assembler"}, setup = {modules = four_q(), beacons = {}}},
+        recycle = {machine = {name = "recycler"}, setup = {modules = four_q(), beacons = {}}}}
+    configuration_change()
+    local loop = L(key)
+    H.equal(loop.craft, nil, "old field gone")
+    H.equal(loop.start_quality, nil, "starts at normal")
+    for _, quality in ipairs({"normal", "uncommon", "rare", "epic", "legendary"}) do
+        H.equal(#loop.crafts[quality].setup.modules, 4, quality .. " tier has the modules")
+    end
+    table.remove(loop.crafts.legendary.setup.modules)
+    H.equal(#loop.crafts.epic.setup.modules, 4, "tiers do not share a table")
+
+    local migrated = solve({[key] = 1}, {[key] = {type = "item", name = "X", quality = "legendary"}})
+    loop_world("2.0", {five = true})
+    local fresh_key = configured("legendary")
+    L(fresh_key).crafts.legendary.setup.modules = {{name = "q"}, {name = "q"}, {name = "q"}}
+    local fresh = solve({[fresh_key] = 1}, {[fresh_key] = {type = "item", name = "X", quality = "legendary"}})
+    H.near_relative(migrated.unsolved_rates["item/A"], fresh.unsolved_rates["item/A"], "same A as the same settings made today")
+end)
+
+H.test("2.0 QL-12 power counts every craft tier with its own setup and the recycler pool once", function()
+    loop_world("2.0")
+    local key = configured("uncommon")
+    L(key).crafts.uncommon.setup.modules = {}
+    local result = solve({[key] = 2}, parts_of(key, "uncommon"))
+    local Y = 0.1225
+    --normal tier: 1/Y crafts at speed 0.8; uncommon tier: 0.0225/Y crafts at speed 1; recyclers: 0.9/Y at 0.5 s and speed 0.8
+    local expected = 2 * (1 / Y) / 0.8 * 100e3 + 2 * (0.0225 / Y) / 1 * 100e3 + 2 * (0.9 / Y) * 0.5 / 0.8 * 50e3
+    local energy = require("logic.compute_power_and_pollution")(1, result.columns, result.recipe_rates)
+    H.near_relative(energy, expected, "electric power")
+end)
+
+H.test("2.0 QL-14 a start quality that is gone, off the chain or above the target falls back to normal, once", function()
+    local cases = {
+        {"removed", function(world) world.set_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "legendary", level = 5}}) end},
+        {"off the chain", function(world)
+            world.set_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "legendary", level = 5}})
+            world.add_unlinked_quality("rare", 2)
+        end},
+        {"above the target", function(world) world.set_quality_chain({{name = "normal", level = 0}, {name = "legendary", level = 5}, {name = "rare", level = 2}}) end},
+    }
+    for _, case in ipairs(cases) do
+        local world = loop_world("2.0", {five = true})
+        local key = configured("legendary")
+        L(key).start_quality = "rare"
+        case[2](world)
+        configuration_change()
+        H.equal(L(key).start_quality, nil, case[1] .. ": starts at normal")
+        local once = S.QualityLoops._deep_copy(L(key))
+        configuration_change()
+        H.deep_equal(L(key), once, case[1] .. ": a second reinitialize changes nothing")
+        local report = H.run_sheet({{item = "X", quality = "legendary", rate = 1, unit = "/s"}})
+        H.equal(report.loops[key].tiers[1].quality, "normal", case[1] .. ": tiers from normal")
+        H.equal(report.loops[key].recipe_button.elem_value.quality, nil, case[1] .. ": button shows normal")
+    end
+    --the column builder refuses a raw configuration whose start is above its target
+    loop_world("2.0", {five = true})
+    local key = configured("uncommon")
+    local raw = S.QualityLoops._deep_copy(L(key))
+    raw.start_quality = "legendary"
+    raw.crafts.legendary = raw.crafts.uncommon
+    local column = S.Solver._loop_column(1, key, {type = "item", name = "X", quality = "uncommon"}, {}, raw)
+    H.equal(column.quality_loop.reason, "quality_loop_start_invalid", "builder guard")
 end)
 
 H.done("test_quality_integration")

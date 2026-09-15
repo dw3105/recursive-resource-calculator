@@ -84,11 +84,12 @@ local function add_count_field(row, name, tooltip, group_index, value)
     field.style.width = 40
 end
 
---The setup a cell edits: a quality loop stage's (owner {loop_key, stage}) or the recipe's own
+--The setup a cell edits: a quality loop stage's (owner {loop_key, stage, tier}; tier names the craft tier, nil for the recycler pool) or the recipe's own
 local function owned_setup(player_index, recipe_name, owner)
     if owner and owner.loop_key then
         local loop = storage[player_index].quality_loops_by_key[owner.loop_key]
-        return loop and loop[owner.stage].setup
+        local settings = loop and (owner.stage == "craft" and loop.crafts[owner.tier] or owner.stage == "recycle" and loop.recycle)
+        return settings and settings.setup
     end
     return storage[player_index].module_setups_by_recipe_name[recipe_name]
 end
@@ -97,10 +98,10 @@ end
 --A rebuild passes no product or owner and keeps the ones already tagged.
 local function fill(cell, recipe, machine, identifier, product_full_name, owner)
     local old_tags = cell.tags
-    owner = owner or {loop_key = old_tags.loop_key, stage = old_tags.stage}
+    owner = owner or {loop_key = old_tags.loop_key, stage = old_tags.stage, tier = old_tags.tier}
     local setup = owned_setup(cell.player_index, recipe.name, owner)
     cell.tags = {recipe_name = recipe.name, product_full_name = product_full_name or old_tags.product_full_name, signature = ModuleSetup.signature(setup, identifier),
-        loop_key = owner.loop_key, stage = owner.stage}
+        loop_key = owner.loop_key, stage = owner.stage, tier = owner.tier}
 
     local capacity = ModuleSetup.machine_capacity(machine, identifier.quality)
     local allowed = ModuleSetup.allowed_module_names({machine}, recipe)
@@ -155,7 +156,8 @@ local function current_setup(element)
     if cell.tags.loop_key then
         --a loop stage's cell: stale once the loop, its stage recipe, its machine or its setup changed
         local loop = storage[player_index].quality_loops_by_key[cell.tags.loop_key]
-        local stage = loop and QualityLoops.stage(player_index, loop, cell.tags.stage)
+        local stage = loop and (cell.tags.stage ~= "craft" or QualityLoops.crafts_at(loop, cell.tags.tier))
+            and QualityLoops.stage(player_index, loop, cell.tags.stage, cell.tags.tier)
         if not (stage and stage.machine and stage.recipe.name == recipe_name) or ModuleSetup.signature(stage.setup, stage.machine) ~= cell.tags.signature then
             return nil
         end

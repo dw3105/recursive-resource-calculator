@@ -132,6 +132,12 @@ local function check_elem_value(element, value)
         error("Unknown item " .. tostring(value.name), 3)
     elseif elem_type == "item-with-quality" and value.quality and not prototypes.quality[value.quality] then
         error("Unknown quality " .. tostring(value.quality), 3)
+    elseif elem_type == "recipe-with-quality" and type(value) ~= "table" then
+        error("recipe-with-quality value must be a table with name and quality, got " .. tostring(value), 3)
+    elseif elem_type == "recipe-with-quality" and not prototypes.recipe[value.name] then
+        error("Unknown recipe " .. tostring(value.name), 3)
+    elseif elem_type == "recipe-with-quality" and value.quality and not prototypes.quality[value.quality] then
+        error("Unknown quality " .. tostring(value.quality), 3)
     elseif elem_type == "entity-with-quality" and not prototypes.entity[value.name] then
         error("Unknown entity " .. tostring(value.name), 3)
     elseif elem_type == "entity-with-quality" and value.quality and not prototypes.quality[value.quality] then
@@ -142,6 +148,8 @@ end
 --Filter names each choose-elem-button type accepts, from the 2.0.77 RecipePrototypeFilter, EntityPrototypeFilter and ItemPrototypeFilter pages (subset the mod uses)
 local FILTER_NAMES_BY_ELEM_TYPE = {
     ["recipe"] = set_of({"has-product-item", "has-product-fluid", "has-ingredient-item", "has-ingredient-fluid", "hidden", "category"}),
+    --not documented for with-quality types (P12); modelled as the recipe filters
+    ["recipe-with-quality"] = set_of({"has-product-item", "has-product-fluid", "has-ingredient-item", "has-ingredient-fluid", "hidden", "category"}),
     ["entity-with-quality"] = set_of({"crafting-category", "name"}),
     ["item-with-quality"] = set_of({"name"}),
 }
@@ -276,7 +284,8 @@ function gui_methods.add(self, params)
     end
     --item and fluid sprites need their prototype (see LuaHelpers::is_valid_sprite_path)
     local sprite_type, sprite_name = tostring(params.sprite or ""):match("^(%a+)/(.+)$")
-    if (sprite_type == "item" and not prototypes.item[sprite_name]) or (sprite_type == "fluid" and not prototypes.fluid[sprite_name]) then
+    if (sprite_type == "item" and not prototypes.item[sprite_name]) or (sprite_type == "fluid" and not prototypes.fluid[sprite_name])
+        or (sprite_type == "entity" and not prototypes.entity[sprite_name]) then
         error("Unknown sprite " .. params.sprite, 3)
     end
     check_elem_filters(params)
@@ -486,6 +495,13 @@ function H.new_world(shape)
     --Replaces every quality with a modded chain; specs in chain order: {name, level, next_probability}
     function world.set_quality_chain(specs)
         build_quality_chain(specs)
+    end
+
+    --A quality that exists but that no quality's next leads to, as a mod could add
+    function world.add_unlinked_quality(name, level)
+        prototypes.quality[name] = H.lua_object("LuaQualityPrototype", {name = name, valid = true, localised_name = {"quality-name." .. name},
+            level = level, next_probability = 0.1, crafting_machine_module_slots_bonus = level, beacon_module_slots_bonus = level,
+            beacon_power_usage_multiplier = 1}, QUALITY_MEMBERS)
     end
 
     function world.lock_quality(name) world.locked_qualities[name] = true end
@@ -746,15 +762,15 @@ local function caption_key(caption)
     return type(caption) == "table" and caption[1] or caption
 end
 
---The machine cell's lines of a quality loop tier row: {[stage] = {machine_button, machine, machines, reason, caption, tooltip}}
+--The machine cell's lines of a quality loop row: {[stage] = {machine_button, machine, machine_sprite, machines, reason, caption, tooltip}}
 local function parse_loop_lines(machine_cell)
     local lines = {}
     for _, line in ipairs(machine_cell.children) do
         local entry = {}
-        local first = line.children[1]
-        local label = first
-        if first.name == "hxrrc_choose_loop_machine_button" then
-            entry.machine_button, entry.machine, label = first, first.elem_value, line.children[2]
+        local label = line.children[#line.children]
+        for _, child in ipairs(line.children) do
+            if child.name == "hxrrc_choose_loop_machine_button" then entry.machine_button, entry.machine = child, child.elem_value end
+            if child.type == "sprite-button" then entry.machine_sprite = child end
         end
         if type(label.caption) == "table" then
             entry.reason = label.caption[1]
@@ -771,8 +787,8 @@ end
 --  loops = {[loop key] = loop}, loop_row_count}.
 --row: {rate, kind, machines, machine_caption, machine_tooltip, machine, machine_button, reason, module_cell, recipe_button}; numbers are nil where the report shows none.
 --Rows of items above normal are keyed by QualityId.encode(item, quality) read from the sprite and its quality badge.
---loop: {tiers = {{quality, rate, craft = line, recycle = line}} in row order, reason (tier 1's craft line), recipe_button, recycle_button,
---  module_flows = {[stage] = flow}}
+--loop: {tiers = {{quality, rate, craft = line, recycle = line, module_flow}} in row order, tiers_by_quality, reason (first tier's craft line),
+--  recipe_button (the loop recipe button, or in 2.1 the item's recipe button), pool = {craft? no: recycle = line, module_flow, recycle_button}}
 function H.parse_report(output_flow)
     local QualityId = require "logic.quality_id"
     local report
@@ -788,28 +804,35 @@ function H.parse_report(output_flow)
     parsed.pollution_per_minute = type(pollution_caption) == "string" and number_in(pollution_caption) or nil
     local HEADER_CELLS = 8
     assert((#cells - HEADER_CELLS) % 4 == 0, "report cell count " .. #cells .. " is not header + whole rows")
+    local function loop_of(key)
+        local loop = parsed.loops[key] or {tiers = {}, tiers_by_quality = {}}
+        parsed.loops[key] = loop
+        return loop
+    end
     for first = HEADER_CELLS + 1, #cells, 4 do
         local item_cell, machine_cell, module_cell, recipe_cell = cells[first], cells[first + 1], cells[first + 2], cells[first + 3]
         local icon = item_cell.children[1]
         local rate_caption = item_cell.children[2].caption
         local rate = type(rate_caption) == "string" and number_in(rate_caption) or nil
         local quality = icon.type == "sprite-button" and icon.quality and icon.quality.name or nil
-        if icon.type == "sprite-button" and icon.tags.loop_key then
-            local loop = parsed.loops[icon.tags.loop_key] or {tiers = {}, module_flows = {}}
-            parsed.loops[icon.tags.loop_key] = loop
+        if item_cell.tags.pool then
+            local loop = loop_of(item_cell.tags.loop_key)
+            loop.pool = parse_loop_lines(machine_cell)
+            loop.pool.module_flow = module_cell
+            loop.pool.recycle_button = recipe_cell.children[1]
+            parsed.loop_row_count = parsed.loop_row_count + 1
+        elseif icon.type == "sprite-button" and icon.tags.loop_key then
+            local loop = loop_of(icon.tags.loop_key)
             local tier = parse_loop_lines(machine_cell)
-            tier.quality, tier.rate = quality or "normal", rate
+            tier.quality, tier.rate, tier.module_flow = quality or "normal", rate, module_cell
             loop.tiers[#loop.tiers + 1] = tier
+            loop.tiers_by_quality[tier.quality] = tier
             if #loop.tiers == 1 then
                 loop.reason = tier.craft and tier.craft.reason
             end
-            if module_cell.type == "flow" then
-                for _, flow in ipairs(module_cell.children) do loop.module_flows[flow.tags.stage] = flow end
-            end
             if recipe_cell.type == "flow" then
                 for _, child in ipairs(recipe_cell.children) do
-                    if child.name == "hxrrc_choose_recipe_button" then loop.recipe_button = child end
-                    if child.name == "hxrrc_choose_recycle_recipe_button" then loop.recycle_button = child end
+                    if child.name == "hxrrc_choose_loop_recipe_button" or child.name == "hxrrc_choose_recipe_button" then loop.recipe_button = child end
                 end
             end
             parsed.loop_row_count = parsed.loop_row_count + 1
@@ -887,6 +910,21 @@ function H.equal(actual, expected, what)
     if actual ~= expected then
         error(string.format("%s: expected %s, got %s", what, tostring(expected), tostring(actual)), 2)
     end
+end
+
+--Tables equal key by key, recursively
+function H.deep_equal(actual, expected, what)
+    local function compare(a, b, path)
+        if type(a) ~= "table" or type(b) ~= "table" then
+            if a ~= b then error(string.format("%s: at %s expected %s, got %s", what, path, tostring(b), tostring(a)), 4) end
+            return
+        end
+        for key, value in pairs(b) do compare(a[key], value, path .. "." .. tostring(key)) end
+        for key, value in pairs(a) do
+            if b[key] == nil then error(string.format("%s: at %s unexpected %s", what, path .. "." .. tostring(key), tostring(value)), 4) end
+        end
+    end
+    compare(actual, expected, "")
 end
 
 function H.errors(fn, pattern, what)

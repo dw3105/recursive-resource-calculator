@@ -47,19 +47,23 @@ return function(player_index, columns, recipe_rates_by_recipe_name)
     for _, column in ipairs(columns) do
         local rate = recipe_rates_by_recipe_name[column.recipe_name]
         if column.quality_loop then
-            --each stage with a machine draws for all the crafts it makes over every tier; a missing or hand-crafted stage draws nothing
-            local loop = storage[player_index].quality_loops_by_key[column.quality_loop.key]
-            for _, stage_name in ipairs({"craft", "recycle"}) do
-                local stage = QualityLoops.stage(player_index, loop, stage_name)
+            --every craft tier draws with its own machine and setup, the recycler pool once for all tiers; missing or hand-crafted stages draw nothing
+            local info = column.quality_loop
+            local recycle_crafts = 0
+            for _, tier in ipairs(info.tiers) do
+                local stage = QualityLoops.stage(player_index, info.config, "craft", tier.quality)
                 if stage and stage.machine then
-                    local crafts = 0
-                    for _, tier in ipairs(column.quality_loop.tiers) do
-                        crafts = crafts + (stage_name == "craft" and tier.crafts or tier.recycle_crafts)
-                    end
-                    local energy_usage, pollution = compute_for_stage(stage.recipe, rate * crafts, stage.machine, stage.setup)
+                    local energy_usage, pollution = compute_for_stage(stage.recipe, rate * tier.crafts, stage.machine, stage.setup)
                     total_energy_usage = total_energy_usage + energy_usage
                     total_pollution = total_pollution + pollution
                 end
+                recycle_crafts = recycle_crafts + tier.recycle_crafts
+            end
+            local recycle = QualityLoops.stage(player_index, info.config, "recycle")
+            if recycle and recycle.machine then
+                local energy_usage, pollution = compute_for_stage(recycle.recipe, rate * recycle_crafts, recycle.machine, recycle.setup)
+                total_energy_usage = total_energy_usage + energy_usage
+                total_pollution = total_pollution + pollution
             end
         elseif column.burner then
             local units_per_entity, pollution_per_entity = Burners.draw(column.product_full_name, column.burner)
