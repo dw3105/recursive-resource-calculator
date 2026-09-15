@@ -32,6 +32,15 @@ local function has_product(recipe_prototype, product_full_name)
     return false
 end
 
+local function has_ingredient(recipe_prototype, product_full_name)
+    for _, ingredient in ipairs(recipe_prototype.ingredients) do
+        if ingredient.type .. "/" .. ingredient.name == product_full_name then
+            return true
+        end
+    end
+    return false
+end
+
 local function rebuild_inverse_recipe_bindings(player_index)
     local product_full_names_by_recipe_name = {}
 
@@ -42,13 +51,29 @@ local function rebuild_inverse_recipe_bindings(player_index)
     storage[player_index].product_full_names_by_recipe_name = product_full_names_by_recipe_name
 end
 
+--Saves from before consumer bindings have no flags: every binding there produces its product
 local function update_recipe_bindings(player_index)
     local recipes_by_product_full_name = storage[player_index].recipes_by_product_full_name
+    storage[player_index].consumer_product_full_names = storage[player_index].consumer_product_full_names or {}
+    local consumer_product_full_names = storage[player_index].consumer_product_full_names
 
-    --remove recipes that are no longer valid:
+    --remove recipes that are no longer valid: a consumer binding needs the product among the ingredients, any other binding among the products
     for item_or_fluid_full_name, recipe_prototype in pairs(recipes_by_product_full_name) do
-        if not recipe_prototype.valid or not has_product(recipe_prototype, item_or_fluid_full_name) then
+        local still_fits = false
+        if recipe_prototype.valid then
+            if consumer_product_full_names[item_or_fluid_full_name] then
+                still_fits = has_ingredient(recipe_prototype, item_or_fluid_full_name)
+            else
+                still_fits = has_product(recipe_prototype, item_or_fluid_full_name)
+            end
+        end
+        if not still_fits then
             recipes_by_product_full_name[item_or_fluid_full_name] = nil
+        end
+    end
+    for item_or_fluid_full_name, _ in pairs(consumer_product_full_names) do
+        if not recipes_by_product_full_name[item_or_fluid_full_name] then
+            consumer_product_full_names[item_or_fluid_full_name] = nil
         end
     end
 

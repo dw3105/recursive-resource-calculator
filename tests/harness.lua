@@ -551,8 +551,13 @@ function H.new_world(shape)
         end
     end
 
+    --One recipe serves one product, as the recipe button enforces; a fixture breaking that would test a state the mod never stores
     function world.bind(product_full_name, recipe_name, player_index)
         local player_storage = storage[player_index or 1]
+        local bound_product = player_storage.product_full_names_by_recipe_name[recipe_name]
+        if bound_product and bound_product ~= product_full_name then
+            error("fixture binds recipe " .. recipe_name .. " to " .. product_full_name .. " while it serves " .. bound_product, 2)
+        end
         player_storage.recipes_by_product_full_name[product_full_name] = prototypes.recipe[recipe_name]
         player_storage.product_full_names_by_recipe_name[recipe_name] = product_full_name
     end
