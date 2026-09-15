@@ -266,13 +266,41 @@ local function compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by
     return solved_rates, unsolved_rates
 end
 
+local function is_finite(x)
+    return x == x and x ~= math.huge and x ~= -math.huge
+end
+
+--Columns whose rate is not finite or runs backwards. Line c of the matrix is the equation of column c's bound product, so a column's rate is
+--judged against the rounding of its own equation: the largest term of that line (or its demand) over the column's own coefficient.
+--A huge rate elsewhere in the system never widens it.
+local function backwards_reasons(original_matrix, columns, solution)
+    local N = #original_matrix
+    local reasons_by_column = {}
+    for c = 1, N do
+        local rate = solution[c]
+        if not is_finite(rate) then
+            reasons_by_column[columns[c].recipe_name] = "rate_not_finite"
+        else
+            local line = original_matrix[c]
+            local scale = math.abs(line[N + 1] or 0)
+            for column, coefficient in pairs(line) do
+                if column <= N and is_finite(solution[column]) then
+                    scale = math.max(scale, math.abs(coefficient * solution[column]))
+                end
+            end
+            local own_coefficient = line[c]
+            local tolerance = (own_coefficient and own_coefficient ~= 0) and 1e-9 * scale / math.abs(own_coefficient) or 1e-9
+            if rate < -tolerance then
+                reasons_by_column[columns[c].recipe_name] = "recipe_runs_backwards"
+            end
+        end
+    end
+    return reasons_by_column
+end
+
 --Net amount per craft of a product in a recipe at the productivity the solver uses now; nil when the recipe nets none of it
 function Solver.net_amount_of(recipe, product_full_name, player_index)
     return Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))[product_full_name]
-end
-
-local function is_finite(x)
-    return x == x and x ~= math.huge and x ~= -math.huge
 end
 
 --Solves the sheet's targets. Returns {status, columns, recipe_rates, solved_rates, unsolved_rates, reasons_by_column}:
@@ -308,28 +336,18 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index)
         return {status = "infeasible", columns = columns, reasons_by_column = reasons_by_column}
     end
 
-    local solutions_by_recipe_index = gauss_solve(prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index))
+    local matrix = prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index)
+    local original_matrix = copy_matrix(matrix) --gauss_solve eliminates in place
+    local solutions_by_recipe_index = gauss_solve(matrix)
     if not solutions_by_recipe_index then
         return {status = "unsolvable", columns = columns, reasons_by_column = reasons_by_column}
     end
 
     local recipe_rates_by_recipe_name = {}
-    local largest_rate = 1
     for recipe_index, recipe_name in ipairs(used_recipe_name_list) do
-        local rate = solutions_by_recipe_index[recipe_index]
-        recipe_rates_by_recipe_name[recipe_name] = rate
-        if is_finite(rate) then
-            largest_rate = math.max(largest_rate, math.abs(rate))
-        end
+        recipe_rates_by_recipe_name[recipe_name] = solutions_by_recipe_index[recipe_index]
     end
-    --A recipe cannot run backwards: a negative rate beyond rounding of the system's largest rate means the bindings ask for the impossible
-    for recipe_name, rate in pairs(recipe_rates_by_recipe_name) do
-        if not is_finite(rate) then
-            reasons_by_column[recipe_name] = "rate_not_finite"
-        elseif rate < -1e-9 * largest_rate then
-            reasons_by_column[recipe_name] = "recipe_runs_backwards"
-        end
-    end
+    reasons_by_column = backwards_reasons(original_matrix, columns, solutions_by_recipe_index)
 
     local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by_recipe_name, production_rates_by_product_full_name, player_index)
     return {
@@ -346,5 +364,6 @@ end
 Solver._gauss_solve = gauss_solve
 Solver._solve_once = solve_once
 Solver._worst_residual = worst_residual
+Solver._backwards_reasons = backwards_reasons
 
 return Solver

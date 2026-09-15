@@ -75,13 +75,36 @@ local function counterexample_world(shape)
     return world
 end
 
+H.test("R4-3c a rate is judged against the rounding of its own equation only", function()
+    H.new_world("2.0")
+    local reasons = require("logic.solver")._backwards_reasons
+    local columns = {{recipe_name = "c1"}, {recipe_name = "c2"}, {recipe_name = "c3"}}
+    --line c is column c's equation; index 4 is the demand
+    local matrix = {
+        {[1] = 1, [2] = 1e3, [4] = 0},
+        {[2] = 1, [4] = 1},
+        {[3] = 1, [4] = 1e15},
+    }
+    local found = reasons(matrix, columns, {-1e-12, 1, 1e15})
+    H.equal(found.c1, nil, "-1e-12 against terms of 1e3 is rounding")
+    H.equal(next(found), nil, "no other column is at fault")
+
+    matrix[1] = {[1] = 1, [2] = 1, [4] = 0}
+    found = reasons(matrix, columns, {-1e-3, 1, 1e15})
+    H.equal(found.c1, "recipe_runs_backwards", "-1e-3 against terms of 1 runs backwards, although c3 runs at 1e15")
+    H.equal(found.c3, nil, "the huge rate itself is fine")
+
+    found = reasons(matrix, columns, {0 / 0, 1, 1e15})
+    H.equal(found.c1, "rate_not_finite", "nan")
+end)
+
 --Every locale key the code names exists in every language, reasons included
 H.test("R4 locale has every key the code names, in every language", function()
     local keys = {}
     for _, file in ipairs({"gui/report.lua", "gui/sheet.lua", "gui/modulegui.lua", "gui/input_container.lua", "gui/calculator.lua", "logic/solver.lua"}) do
         local source = io.open(file):read("*a")
         for key in source:gmatch('"hxrrc%.([%w_]+)"') do keys[key] = true end
-        for key in source:gmatch('reasons_by_column%[[%w_.]+%] = "([%w_]+)"') do keys[key] = true end
+        for key in source:gmatch('reasons_by_column%[[^\n]-%] = "([%w_]+)"') do keys[key] = true end
         for key in source:gmatch('reason or "([%w_]+)"') do keys[key] = true end
         for key in source:gmatch('%] or "([%w_]+)"%)') do keys[key] = true end
     end
@@ -109,6 +132,37 @@ for _, shape in ipairs(H.shapes()) do
         H.near(report.rows["item/plate"].rate, -1, "smelt's rate still shown")
         H.near(report.rows["item/target"].machines, 1, "craft row keeps its count")
         H.near(report.rows["item/scrap"].machines, 1, "recycle row keeps its count")
+    end)
+
+    H.test(shape .. " R4-3b a backwards producer stays a fault next to an unrelated column of any scale", function()
+        for _, trace_yield in ipairs({1e-12, 1e-6, 1}) do
+            local world = H.new_world(shape)
+            for _, item in ipairs({"target", "scrap", "plate", "ore", "trace", "trace-ore"}) do world.add_item(item) end
+            world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1, energy_kw = 100})
+            world.add_recipe({name = "craft", category = "crafting", ingredients = {{name = "plate", amount = 1}, {name = "trace", amount = 1}},
+                products = {{name = "target", amount = 1}, {name = "scrap", amount = 1}}})
+            world.add_recipe({name = "recycle", category = "crafting", ingredients = {{name = "scrap", amount = 1}}, products = {{name = "plate", amount = 2}}})
+            world.add_recipe({name = "smelt", category = "crafting", ingredients = {{name = "ore", amount = 1}}, products = {{name = "plate", amount = 1}}})
+            world.add_recipe({name = "trace-make", category = "crafting", ingredients = {{name = "trace-ore", amount = 1}},
+                products = {{name = "trace", amount = 1, p = trace_yield}}})
+            world.add_player(1)
+            world.init()
+            world.bind("item/target", "craft")
+            world.bind("item/plate", "smelt")
+            world.bind_consumer("item/scrap", "recycle")
+            local power_calls = 0
+            package.loaded["logic.compute_power_and_pollution"] = function() power_calls = power_calls + 1 return 0, 0 end
+            local what = "trace yield " .. trace_yield
+            local result = require("logic.solver").solve_for({["item/target"] = 1}, 1)
+            H.near_relative(result.recipe_rates["trace-make"], 1 / trace_yield, what .. ": trace rate")
+            H.near(result.recipe_rates.smelt, -1, what .. ": smelt rate")
+            H.equal(result.status, "infeasible", what .. ": status")
+            H.equal(result.reasons_by_column.smelt, "recipe_runs_backwards", what .. ": smelt runs backwards")
+            H.equal(result.reasons_by_column["trace-make"], nil, what .. ": trace-make is fine")
+            local report = H.run_sheet({{item = "target", rate = 1, unit = "/s"}})
+            H.equal(report.energy_caption, "hxrrc.totals_unavailable", what .. ": no totals")
+            H.equal(power_calls, 0, what .. ": power never computed")
+        end
     end)
 
     H.test(shape .. " R4-3 rounding noise below zero on a rate is not a fault", function()
