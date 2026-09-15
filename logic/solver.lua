@@ -137,8 +137,10 @@ local function loop_column(player_index, key, parts, product_parts)
         end
     end
 
-    local result = QualityLoop.balance({next_probabilities = next_probabilities, unlocked = unlocked, target = target, item = parts.name,
-        craft = craft_spec, recycle = recycle_spec})
+    local craft_tiers = {}
+    for tier = 1, target do craft_tiers[tier] = craft_spec end
+    local result = QualityLoop.balance({next_probabilities = next_probabilities, unlocked = unlocked, start = 1, target = target, item = parts.name,
+        craft = {tiers = craft_tiers}, recycle = recycle_spec})
     if result.reason then
         loop_info.reason = result.reason
         return column

@@ -91,9 +91,15 @@ function QualityLoop._tier_step(t)
     if t.first then
         seeded = t.own > 0
     else
-        local all_supplied = #t.items > 0
+        --only the ingredients this tier's craft takes have to be supplied
+        local all_supplied = false
         for _, name in ipairs(t.items) do
-            if not (t.supply[name] > 0) then all_supplied = false end
+            if t.amounts[name] > 0 then
+                all_supplied = true
+            end
+        end
+        for _, name in ipairs(t.items) do
+            if t.amounts[name] > 0 and not (t.supply[name] > 0) then all_supplied = false end
         end
         seeded = t.feed > 0 or (all_supplied and t.own > 0)
     end
@@ -150,24 +156,35 @@ local function is_finite(x)
 end
 
 --The loop's flows per 1 target item per second.
---spec: {next_probabilities, unlocked (by chain index), target (chain index), item (target name),
---  craft = {quality_effect, output (n: net target per craft), ingredients = {{name, amount}} (items), fluid_ingredients = {{name, amount}},
---    byproducts = {{name, amount}} (items other than the target), fluid_products = {{name, amount}}},
+--spec: {next_probabilities, unlocked (by chain index), start (chain index of the ingredients' quality), target (chain index), item (target name),
+--  craft = {tiers = {[tier] = {quality_effect, output (n: net target per craft), ingredients = {{name, amount}} (items), fluid_ingredients = {{name, amount}},
+--    byproducts = {{name, amount}} (items other than the target), fluid_products = {{name, amount}}}}} with tier 1 = start … target - start + 1,
 --  recycle = nil | {quality_effect, consumed (k), yields = {[item] = amount per craft}, fluid_ingredients, fluid_products}}
---Returns {reason} or {tiers = {{crafts, recycle_crafts, x, craft_chances, recycle_chances}}, items = {[name] = {[chain index] = net}}, fluids = {[name] = net}}.
+--Returns {reason} or {offset, tiers = {{crafts, recycle_crafts, x, craft_chances, recycle_chances}}, items = {[name] = {[tier] = net}}, fluids = {[name] = net}};
+--tier indexes count from the start tier, so chain index = tier + offset.
 function QualityLoop.balance(spec)
-    local T = spec.target
+    local start = spec.start or 1
+    if not (spec.target and start >= 1 and start <= spec.target) then --a configuration nobody sanitized
+        return {reason = "quality_loop_start_invalid"}
+    end
+    local offset = start - 1
+    local next_probabilities, unlocked = {}, {}
+    for index = start, #spec.next_probabilities do
+        next_probabilities[index - offset] = spec.next_probabilities[index]
+        unlocked[index - offset] = spec.unlocked[index]
+    end
+    local T = spec.target - offset
     local craft, recycle = spec.craft, spec.recycle
     local craft_chances, recycle_chances = {}, {}
     for u = 1, T do
-        craft_chances[u] = QualityLoop.distribution(spec.next_probabilities, spec.unlocked, u, craft.quality_effect)
+        craft_chances[u] = QualityLoop.distribution(next_probabilities, unlocked, u, craft.tiers[u].quality_effect)
         if recycle and u < T then
-            recycle_chances[u] = QualityLoop.distribution(spec.next_probabilities, spec.unlocked, u, recycle.quality_effect)
+            recycle_chances[u] = QualityLoop.distribution(next_probabilities, unlocked, u, recycle.quality_effect)
         end
     end
 
-    --structural reachability: some chain of positive chances leads from normal to the target, before any division
-    if not spec.unlocked[T] then
+    --structural reachability: some chain of positive chances leads from the start tier to the target, before any division
+    if not unlocked[T] then
         return {reason = "quality_target_unreachable"}
     end
     local reached = {[1] = true}
@@ -184,10 +201,21 @@ function QualityLoop.balance(spec)
         return {reason = "quality_target_unreachable"}
     end
 
-    local item_names, amounts = {}, {}
-    for _, ingredient in ipairs(craft.ingredients) do
-        item_names[#item_names + 1] = ingredient.name
-        amounts[ingredient.name] = ingredient.amount
+    --every item any tier takes, in a fixed order; each tier's amounts, 0 where that tier's craft nets none of it
+    local item_names, seen, amounts_by_tier = {}, {}, {}
+    for u = 1, T do
+        amounts_by_tier[u] = {}
+        for _, ingredient in ipairs(craft.tiers[u].ingredients) do
+            if not seen[ingredient.name] then
+                seen[ingredient.name] = true
+                item_names[#item_names + 1] = ingredient.name
+            end
+            amounts_by_tier[u][ingredient.name] = ingredient.amount
+        end
+    end
+    table.sort(item_names)
+    for u = 1, T do
+        for _, name in ipairs(item_names) do amounts_by_tier[u][name] = amounts_by_tier[u][name] or 0 end
     end
     local x_yield = recycle and (recycle.yields[spec.item] or 0) / recycle.consumed or 0
 
@@ -208,14 +236,15 @@ function QualityLoop.balance(spec)
         local step_supply = {}
         for _, name in ipairs(item_names) do step_supply[name] = supply[name][u] end
         local step = QualityLoop._tier_step({
-            first = u == 1, recycling = recycling, items = item_names, amounts = amounts, supply = step_supply,
-            feed = (x_from_crafts[u] or 0) + (x_returns[u] or 0), own = craft.output * (craft_chances[u][u] or 0),
+            first = u == 1, recycling = recycling, items = item_names, amounts = amounts_by_tier[u], supply = step_supply,
+            feed = (x_from_crafts[u] or 0) + (x_returns[u] or 0), own = craft.tiers[u].output * (craft_chances[u][u] or 0),
             returns = returns, self_return = recycling and x_yield * (recycle_chances[u][u] or 0) or 0,
         })
         if step.reason then
             return {reason = step.reason}
         end
         local crafts, x = step.crafts, step.x
+        local tier_craft = craft.tiers[u]
 
         --ingredients: what is left at this tier (at normal, negative is what the loop takes from outside)
         for _, name in ipairs(item_names) do
@@ -223,20 +252,20 @@ function QualityLoop.balance(spec)
         end
         --crafts send the target and their byproducts up the chain
         for tier, share in pairs(craft_chances[u]) do
-            local made = crafts * craft.output * share
+            local made = crafts * tier_craft.output * share
             if tier > u and tier <= T then
                 x_from_crafts[tier] = (x_from_crafts[tier] or 0) + made
             elseif tier > T then
                 add(items, spec.item, tier, made)
             end
-            for _, byproduct in ipairs(craft.byproducts) do
+            for _, byproduct in ipairs(tier_craft.byproducts) do
                 add(items, byproduct.name, tier, crafts * byproduct.amount * share)
             end
         end
-        for _, fluid in ipairs(craft.fluid_ingredients) do
+        for _, fluid in ipairs(tier_craft.fluid_ingredients) do
             fluids[fluid.name] = (fluids[fluid.name] or 0) - crafts * fluid.amount
         end
-        for _, fluid in ipairs(craft.fluid_products) do
+        for _, fluid in ipairs(tier_craft.fluid_products) do
             fluids[fluid.name] = (fluids[fluid.name] or 0) + crafts * fluid.amount
         end
 
@@ -310,7 +339,7 @@ function QualityLoop.balance(spec)
         if not fluids[name] then return {reason = "quality_loop_numeric_limit"} end
     end
 
-    return {tiers = tiers, items = items, fluids = fluids}
+    return {offset = offset, tiers = tiers, items = items, fluids = fluids}
 end
 
 return QualityLoop
