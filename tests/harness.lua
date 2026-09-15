@@ -48,8 +48,9 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "get_crafting_speed", "get_max_energy_usage", "electric_energy_source_prototype", "burner_prototype", "heat_energy_source_prototype",
     "fluid_energy_source_prototype", "void_energy_source_prototype", "module_inventory_size", "get_inventory_size", "allowed_module_categories",
     "quality_affects_module_slots", "module_slots_quality_bonus", "distribution_effectivity", "distribution_effectivity_bonus_per_quality_level",
-    "profile", "beacon_counter"}
-local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category"}
+    "profile", "beacon_counter", "get_max_power_output"}
+local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
+    "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier"}
 local QUALITY_MEMBERS = {"name", "valid", "level", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus", "beacon_power_usage_multiplier"}
 
 local function gate(types)
@@ -59,6 +60,7 @@ local function gate(types)
 end
 local CRAFTING_MACHINE_TYPES = {"assembling-machine", "furnace", "rocket-silo"}
 local ENTITY_GATES = {
+    get_max_power_output = gate({"burner-generator", "generator"}),
     crafting_categories = gate(CRAFTING_MACHINE_TYPES),
     get_crafting_speed = gate(CRAFTING_MACHINE_TYPES),
     quality_affects_module_slots = gate({"beacon", "assembling-machine", "furnace", "rocket-silo", "mining-drill", "lab"}),
@@ -85,8 +87,20 @@ local function module_slots_at(base, affected, own_bonus_by_quality, quality_bon
     if own ~= nil then return base + own end
     return base + quality_prototype[quality_bonus_member]
 end
-local FLUID_MEMBERS = {"name", "valid", "localised_name"}
+--2.1 fluids carry a spent fluid specification; 2.0 fluids do not have the member
+local FLUID_MEMBERS = {["2.0"] = {"name", "valid", "localised_name", "fuel_value", "emissions_multiplier"},
+    ["2.1"] = {"name", "valid", "localised_name", "fuel_value", "emissions_multiplier", "spent_fluid"}}
+FLUID_MEMBERS.hybrid = FLUID_MEMBERS["2.0"]
 local ENERGY_SOURCE_MEMBERS = {"emissions_per_joule"}
+local BURNER_MEMBERS = {"valid", "emissions_per_joule", "effectivity", "fuel_inventory_size", "burnt_inventory_size", "fuel_categories"}
+--LuaFluidEnergySourcePrototype per 2.0.77 and 2.1.17: output_fluid_box and spent_fluid are new in 2.1
+local FLUID_ENERGY_SOURCE_MEMBERS = {
+    ["2.0"] = {"valid", "emissions_per_joule", "effectivity", "burns_fluid", "scale_fluid_usage", "fluid_usage_per_tick", "maximum_temperature", "fluid_box"},
+    ["2.1"] = {"valid", "emissions_per_joule", "effectivity", "burns_fluid", "scale_fluid_usage", "fluid_usage_per_tick", "maximum_temperature", "fluid_box",
+        "output_fluid_box", "spent_fluid"},
+}
+FLUID_ENERGY_SOURCE_MEMBERS.hybrid = FLUID_ENERGY_SOURCE_MEMBERS["2.0"]
+local FLUID_BOX_MEMBERS = {"valid", "filter"}
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
 local FORCE_MEMBERS = {"name", "valid", "recipes", "players"}
 local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text"}
@@ -359,6 +373,15 @@ function H.new_world(shape)
         get_entity_filtered = function(filters)
             local filter = filters[1]
             if filter.filter == "crafting-machine" then return machines end
+            if filter.filter == "type" and filter.type ~= "beacon" then
+                --a type filter takes one type or a list of them and matches every entity of those types
+                local types = set_of(type(filter.type) == "table" and filter.type or {filter.type})
+                local found = {}
+                for name, entity in pairs(prototypes.entity) do
+                    if types[rawget(entity, "type")] then found[name] = entity end
+                end
+                return found
+            end
             if filter.filter == "type" and filter.type == "beacon" then return beacons end
             error("harness does not support entity filter " .. tostring(filter.filter))
         end,
@@ -370,8 +393,16 @@ function H.new_world(shape)
     }
     _G.game = {players = {}, get_player = function(index) return game.players[index] end}
 
-    function world.add_item(name)
-        prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name}}, ITEM_MEMBERS, ITEM_GATES)
+    --fuel (optional): {value (J), category, emissions_multiplier (default 1)}; items without it have fuel value 0 and no fuel category
+    function world.add_item(name, fuel)
+        prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name},
+            fuel_value = fuel and fuel.value or 0, fuel_category = fuel and fuel.category, fuel_emissions_multiplier = fuel and fuel.emissions_multiplier or 1},
+            ITEM_MEMBERS, ITEM_GATES)
+    end
+
+    --The item left after burning an item, e.g. a spent fuel cell; set separately so two items may name each other
+    function world.set_burnt_result(name, result_name)
+        prototypes.item[name].burnt_result = result_name and prototypes.item[result_name]
     end
 
     --effects_by_quality: {[quality name] = effects} for qualities whose effects differ; the engine's scaling is not modelled, fixtures give values
@@ -412,8 +443,50 @@ function H.new_world(shape)
         for key, value in pairs(fields) do prototypes.quality[name][key] = value end
     end
 
-    function world.add_fluid(name)
-        prototypes.fluid[name] = H.lua_object("LuaFluidPrototype", {name = name, valid = true, localised_name = {"fluid-name." .. name}}, FLUID_MEMBERS)
+    --fuel (optional): {value (J per unit), emissions_multiplier (default 1), spent_fluid (2.1 shape only)}
+    function world.add_fluid(name, fuel)
+        local fields = {name = name, valid = true, localised_name = {"fluid-name." .. name},
+            fuel_value = fuel and fuel.value or 0, emissions_multiplier = fuel and fuel.emissions_multiplier or 1}
+        if fuel and fuel.spent_fluid then fields.spent_fluid = fuel.spent_fluid end
+        prototypes.fluid[name] = H.lua_object("LuaFluidPrototype", fields, FLUID_MEMBERS[shape])
+    end
+
+    --spec: {name, type ("reactor", "boiler", "burner-generator", or any other type for entities that must not be offered), energy_kw (full-load usage),
+    --  energy_kw_by_quality, max_power_kw (burner generators), emissions_per_joule (table, default {pollution = 0}), and one energy source:
+    --  burner = {fuel_categories (list), effectivity (default 1), burnt_inventory_size (default 0)} or
+    --  fluid = {burns_fluid (default true), filter (fluid name), scale_fluid_usage (default false), fluid_usage_per_tick (default 0), effectivity (default 1),
+    --    output_fluid_box (2.1: true), spent_fluid (2.1)}}
+    function world.add_burner(spec)
+        local emissions = spec.emissions_per_joule or {pollution = 0}
+        local function usage(kw_by_quality, kw, quality)
+            if quality ~= nil and not prototypes.quality[quality] then error("Unknown quality " .. tostring(quality), 3) end
+            return ((kw_by_quality or {})[quality or "normal"] or kw) * 1000 / 60 --joules per tick
+        end
+        local fields = {name = spec.name, type = spec.type, valid = true, localised_name = {"entity-name." .. spec.name},
+            energy_usage = (spec.energy_kw or 0) * 1000 / 60,
+            get_max_energy_usage = function(quality) return usage(spec.energy_kw_by_quality, spec.energy_kw or 0, quality) end}
+        if spec.max_power_kw then
+            fields.get_max_power_output = function(quality) return usage(nil, spec.max_power_kw, quality) end
+        end
+        if spec.burner then
+            fields.burner_prototype = H.lua_object("LuaBurnerPrototype", {valid = true, emissions_per_joule = emissions,
+                effectivity = spec.burner.effectivity or 1, fuel_inventory_size = 1, burnt_inventory_size = spec.burner.burnt_inventory_size or 0,
+                fuel_categories = set_of(spec.burner.fuel_categories)}, BURNER_MEMBERS)
+        elseif spec.fluid then
+            local fluid = spec.fluid
+            local source = {valid = true, emissions_per_joule = emissions, effectivity = fluid.effectivity or 1,
+                burns_fluid = fluid.burns_fluid ~= false, scale_fluid_usage = fluid.scale_fluid_usage == true,
+                fluid_usage_per_tick = fluid.fluid_usage_per_tick or 0, maximum_temperature = 0,
+                fluid_box = H.lua_object("LuaFluidBoxPrototype", {valid = true, filter = fluid.filter and prototypes.fluid[fluid.filter]}, FLUID_BOX_MEMBERS)}
+            if shape == "2.1" then
+                source.output_fluid_box = fluid.output_fluid_box and H.lua_object("LuaFluidBoxPrototype", {valid = true}, FLUID_BOX_MEMBERS) or nil
+                source.spent_fluid = fluid.spent_fluid
+            elseif fluid.output_fluid_box or fluid.spent_fluid then
+                error("fixture gives a 2.0 fluid energy source 2.1-only members", 2)
+            end
+            fields.fluid_energy_source_prototype = H.lua_object("LuaFluidEnergySourcePrototype", source, FLUID_ENERGY_SOURCE_MEMBERS[shape])
+        end
+        prototypes.entity[spec.name] = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
     end
 
     --spec: {name, type (default assembling-machine), categories, speed, energy_kw, pollution_per_minute, base_productivity, no_effect_receiver, speeds_by_quality,

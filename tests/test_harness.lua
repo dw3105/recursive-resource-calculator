@@ -161,4 +161,37 @@ H.test("H4 recipe buttons accept documented ingredient and product filters and r
     end, "has-ingredient-item filter needs nested elem_filters", "missing nested filters")
 end)
 
+H.test("H5 burner and fluid energy source mocks follow their version's members, and type filters take lists", function()
+    for _, shape in ipairs({"2.0", "2.1"}) do
+        local world = H.new_world(shape)
+        world.add_item("fuel", {value = 12e6, category = "chemical"})
+        world.add_item("rock")
+        world.add_fluid("gas", {value = 1e6})
+        world.add_burner({name = "tower", type = "reactor", energy_kw = 40000, burner = {fuel_categories = {"chemical"}, effectivity = 2.5}})
+        world.add_burner({name = "flare", type = "boiler", energy_kw = 1000, fluid = {scale_fluid_usage = true}})
+        world.add_burner({name = "engine", type = "burner-generator", max_power_kw = 900, burner = {fuel_categories = {"chemical"}}})
+        world.add_burner({name = "train", type = "locomotive", energy_kw = 600, burner = {fuel_categories = {"chemical"}}})
+        H.equal(prototypes.item.rock.fuel_value, 0, shape .. ": plain item has no fuel value")
+        H.equal(prototypes.item.rock.fuel_category, nil, shape .. ": plain item has no fuel category")
+        H.equal(prototypes.item.fuel.fuel_emissions_multiplier, 1, shape .. ": default emissions multiplier")
+        local tower = prototypes.entity.tower
+        H.equal(tower.burner_prototype.fuel_categories.chemical, true, shape .. ": fuel categories as a set")
+        H.near(tower.get_max_energy_usage() * 60, 40e6, shape .. ": usage in joules per tick")
+        H.errors(function() return tower.burner_prototype.fuel_category end, "LuaBurnerPrototype doesn't contain key fuel_category", shape .. ": burner strict")
+        H.errors(function() return tower.get_max_power_output end, "can only be used if this is burner-generator or generator", shape .. ": power output gated")
+        H.near(prototypes.entity.engine.get_max_power_output() * 60, 900e3, shape .. ": burner generator output")
+        local source = prototypes.entity.flare.fluid_energy_source_prototype
+        H.equal(source.fluid_usage_per_tick, 0, shape .. ": usage per tick is always a number")
+        if shape == "2.0" then
+            H.errors(function() return source.output_fluid_box end, "doesn't contain key output_fluid_box", "2.0 has no output fluid box")
+            H.errors(function() return prototypes.fluid.gas.spent_fluid end, "doesn't contain key spent_fluid", "2.0 fluids have no spent fluid")
+        else
+            H.equal(source.output_fluid_box, nil, "2.1 output fluid box reads nil when absent")
+        end
+        local found = prototypes.get_entity_filtered({{filter = "type", type = {"reactor", "boiler", "burner-generator"}}})
+        H.equal(found.tower ~= nil and found.flare ~= nil and found.engine ~= nil, true, shape .. ": listed types found")
+        H.equal(found.train, nil, shape .. ": other types left out")
+    end
+end)
+
 H.done("test_harness")
