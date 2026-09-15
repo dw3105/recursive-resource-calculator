@@ -122,6 +122,7 @@ for _, shape in ipairs({"2.0"}) do
     H.test(shape .. " Q-9 Q-8 an unreachable loop shows its editors without totals; modules added there make it solve", function()
         loop_world(shape)
         local key = configure("X", "uncommon", {}, {})
+        storage[1].module_setups_by_recipe_name.X.modules = {{name = "q"}, {name = "q"}} --the recipe's own setup, which the loop does not use
         local sheet_flow = handler_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
         local report = H.parse_report(sheet_flow.output_flow)
         local loop = report.loops[key]
@@ -131,10 +132,13 @@ for _, shape in ipairs({"2.0"}) do
         H.equal(loop.tiers[1].craft.machines, nil, "no count")
         local craft_slots = find_all(loop.module_flows.craft, "hxrrc_choose_module_button")
         H.equal(#craft_slots, 4, "craft module editor shown")
+        for index, slot in ipairs(craft_slots) do
+            H.equal(slot.elem_value, nil, "loop craft slot " .. index .. " shows the loop's empty setup")
+        end
         craft_slots[1].elem_value = {name = "q"}
         fire(craft_slots[1])
         H.equal(#storage[1].quality_loops_by_key[key].craft.setup.modules, 1, "module stored in the loop")
-        H.equal(#storage[1].module_setups_by_recipe_name.X.modules, 0, "the recipe's own setup untouched")
+        H.equal(#storage[1].module_setups_by_recipe_name.X.modules, 2, "the recipe's own setup untouched")
         report = recompute(sheet_flow)
         loop = report.loops[key]
         H.equal(loop.reason, nil, "solved")
@@ -191,6 +195,8 @@ for _, shape in ipairs({"2.0"}) do
                 world.add_recipe({name = "X-melting", category = "recycling", ingredients = {{name = "X", amount = 1}, {name = "A", amount = 1}},
                     products = {{name = "A", amount = 2}}})
                 world.add_machine({name = "big-assembler", categories = {"crafting"}, speed = 2})
+                world.add_item("gold")
+                world.add_recipe({name = "X-sorting", category = "recycling", ingredients = {{name = "X", amount = 1}}, products = {{name = "gold", amount = 1}}})
             end})
             storage[1].recipes_by_product_full_name["item/X"] = prototypes.recipe.X
             storage[1].product_full_names_by_recipe_name.X = "item/X"
@@ -223,7 +229,7 @@ for _, shape in ipairs({"2.0"}) do
             other.recycle_button.elem_value = nil
             fire(other.recycle_button)
             H.equal(loop.recycle_recipe_name, nil, "cleared from the other sheet")
-            recycle_button.elem_value = "X-recycling"
+            recycle_button.elem_value = "X-sorting"
             fire(recycle_button)
             H.equal(loop.recycle_recipe_name, nil, "stale recycle button refused")
             H.equal(recycle_button.elem_value, "X-recycling", "stale recycle button shows its snapshot")
