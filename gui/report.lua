@@ -210,16 +210,17 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
 end
 
 --A row of a column the system uses. Rates are nil on a diagnostic row: its editors are all there, its numbers are not.
-local function add_row_for_solved_product(report, column, product_rate, recipe_rate, round_up_machines, reason)
+--parts: those of the row's identity when a producer was solved for an item above normal quality (M3); its controls act on the item's binding
+local function add_row_for_solved_product(report, column, product_rate, recipe_rate, round_up_machines, reason, parts)
     if column.burner then
         add_row_for_burner(report, column, product_rate, recipe_rate, round_up_machines, reason)
         return
     end
-    local product_full_name = column.product_full_name
+    local product_full_name = column.binding_full_name or column.product_full_name
     local pi = report.player_index
     local recipe = storage[pi].recipes_by_product_full_name[product_full_name]
 
-    add_item_cell(report, product_full_name, product_rate)
+    add_item_cell(report, column.product_full_name, product_rate, parts)
 
     --Crafting machine and module cells:
     local crafting_machine_identifier = storage[pi].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
@@ -455,7 +456,16 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         item_cell.style.horizontally_stretchable = true
         item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = tier.quality ~= "normal" and tier.quality or nil,
             tooltip = item_prototype.localised_name, tags = {loop_key = info.key, tier = tier.quality}}
-        item_cell.add{type = "label", caption = solved and (format_by_precision(tier.x * recipe_rate, pi) .. " /s") or ""}
+        local rate_label = item_cell.add{type = "label", caption = solved and (format_by_precision(tier.x * recipe_rate, pi) .. " /s") or ""}
+        if solved and info.feed and info.feed[tier.quality] then
+            local tooltip = {"", {"hxrrc.quality_loop_external_tooltip"}}
+            for _, taken in ipairs(info.feed[tier.quality]) do
+                if #tooltip < 20 then
+                    tooltip[#tooltip + 1] = {"", "\n", prototypes.item[taken.item].localised_name, ": ", format_by_precision(taken.amount * recipe_rate, pi), " /s"}
+                end
+            end
+            rate_label.tooltip = tooltip
+        end
 
         local machine_cell = report.add{type = "flow", direction = "vertical"}
         machine_cell.style.horizontally_stretchable = true
@@ -573,9 +583,9 @@ function Report.new(parent, result, energy_consumption, pollution, round_up_mach
                 add_rows_for_quality_loop(report, column, result.recipe_rates[column.recipe_name], round_up_machines,
                     result.reasons_by_column[column.recipe_name])
             end
-        elseif prototype_of(product_full_name) then
+        elseif prototype_of(product_full_name, column.binding_full_name and result.product_parts[product_full_name]) then
             add_row_for_solved_product(report, column, result.solved_rates[product_full_name], result.recipe_rates[column.recipe_name],
-                round_up_machines, result.reasons_by_column[column.recipe_name])
+                round_up_machines, result.reasons_by_column[column.recipe_name], column.binding_full_name and result.product_parts[product_full_name])
         end
     end
 
@@ -599,9 +609,10 @@ function Report.new_diagnostic(parent, result)
             if prototypes.item[column.quality_loop.item] then
                 add_rows_for_quality_loop(report, column, nil, false, result.reasons_by_column[column.recipe_name] or "no_rate")
             end
-        elseif prototype_of(column.product_full_name) then
+        elseif prototype_of(column.product_full_name, column.binding_full_name and result.product_parts[column.product_full_name]) then
             --a row without a reason still shows a blank label where its count would be
-            add_row_for_solved_product(report, column, nil, nil, false, result.reasons_by_column[column.recipe_name] or "no_rate")
+            add_row_for_solved_product(report, column, nil, nil, false, result.reasons_by_column[column.recipe_name] or "no_rate",
+                column.binding_full_name and result.product_parts[column.product_full_name])
         end
     end
 end

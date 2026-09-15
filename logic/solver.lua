@@ -133,6 +133,40 @@ local function craft_tier_spec(stage, item_name, player_index)
     return spec
 end
 
+--Adds a balance result's flows per target to net amounts: items by identity (parts of those above normal recorded), fluids plain
+local function add_balance_nets(net_amounts, result, chain, product_parts, weight)
+    weight = weight or 1
+    for name, amounts_by_tier in pairs(result.items) do
+        for tier, amount in pairs(amounts_by_tier) do
+            local quality_name = chain[tier + result.offset].name
+            local full_name = "item/" .. name
+            if quality_name ~= "normal" then
+                full_name = QualityId.encode(name, quality_name)
+                product_parts[full_name] = {type = "item", name = name, quality = quality_name}
+            end
+            net_amounts[full_name] = (net_amounts[full_name] or 0) + weight * amount
+        end
+    end
+    for name, amount in pairs(result.fluids) do
+        net_amounts["fluid/" .. name] = (net_amounts["fluid/" .. name] or 0) + weight * amount
+    end
+end
+
+--A balance result's tiers with their quality names, chances keyed by chain position like loop_info.chain
+local function balance_tiers(result, chain)
+    for index, tier in ipairs(result.tiers) do
+        tier.quality = chain[index + result.offset].name
+        for _, field in ipairs({"craft_chances", "recycle_chances", "assist_chances"}) do
+            if tier[field] then
+                local shifted = {}
+                for slice_index, share in pairs(tier[field]) do shifted[slice_index + result.offset] = share end
+                tier[field] = shifted
+            end
+        end
+    end
+    return result.tiers
+end
+
 --The column of the quality loop making the target key (parts: its item and quality), built from the loop's normalized configuration, which the
 --column keeps for power, pollution, the report and storing. Its net amounts are per target item; items it takes or leaves above normal quality get
 --their parts added to product_parts. column.quality_loop: {key, item, quality, config, chain, craft_recipe_name, recycle_recipe_name,
@@ -245,104 +279,225 @@ local function loop_column(player_index, key, parts, product_parts, config, opti
         end
     end
 
+    --what fed parts need to be built from another start tier (see candidate_parts)
+    loop_info.part_spec = {next_probabilities = next_probabilities, unlocked = unlocked, start = start, target = target, craft_tiers = craft_tiers,
+        recycle_spec = recycle_spec, chain = chain}
     local result = QualityLoop.balance({next_probabilities = next_probabilities, unlocked = unlocked, start = start, target = target, item = parts.name,
         craft = {tiers = craft_tiers}, recycle = recycle_spec, assist = assist_spec, ingredient_recycles = ingredient_recycles})
     if result.reason then
         loop_info.reason = result.reason
         return column
     end
-
-    local offset = result.offset
-    for name, amounts_by_tier in pairs(result.items) do
-        for tier, amount in pairs(amounts_by_tier) do
-            local quality_name = chain[tier + offset].name
-            local full_name = "item/" .. name
-            if quality_name ~= "normal" then
-                full_name = QualityId.encode(name, quality_name)
-                product_parts[full_name] = {type = "item", name = name, quality = quality_name}
-            end
-            column.net_amounts[full_name] = (column.net_amounts[full_name] or 0) + amount
-        end
-    end
-    for name, amount in pairs(result.fluids) do
-        column.net_amounts["fluid/" .. name] = (column.net_amounts["fluid/" .. name] or 0) + amount
-    end
-    for index, tier in ipairs(result.tiers) do
-        tier.quality = chain[index + offset].name
-        --chances keyed by chain position, like loop_info.chain
-        for _, field in ipairs({"craft_chances", "recycle_chances"}) do
-            if tier[field] then
-                local shifted = {}
-                for slice_index, share in pairs(tier[field]) do shifted[slice_index + offset] = share end
-                tier[field] = shifted
-            end
-        end
-    end
-    loop_info.tiers = result.tiers
+    add_balance_nets(column.net_amounts, result, chain, product_parts)
+    loop_info.tiers = balance_tiers(result, chain)
     return column
 end
 
+--Candidate fed parts of a loop column (Amendment M3): for each tier q above the start whose recipe takes items, the loop crafted from q with the same
+--settings, which makes the target from items at q made elsewhere on the sheet. Each: {index (chain position of q), quality, nets per target,
+--tiers, feed (the identities at q it takes, sorted)}. None for a loop refused before its balance, or refused by it for any reason but reachability.
+local function candidate_parts(column, product_parts)
+    local info = column.quality_loop
+    local spec = info.part_spec
+    local found = {}
+    if not spec or (info.reason and info.reason ~= "quality_target_unreachable") then
+        return found
+    end
+    for q = spec.start + 1, spec.target do
+        local tier_spec = spec.craft_tiers[q - spec.start + 1]
+        if not tier_spec.none and #tier_spec.ingredients > 0 then
+            local craft_tiers = {}
+            for index = q, spec.target do craft_tiers[index - q + 1] = spec.craft_tiers[index - spec.start + 1] end
+            local result = QualityLoop.balance({next_probabilities = spec.next_probabilities, unlocked = spec.unlocked, start = q, target = spec.target,
+                item = info.item, craft = {tiers = craft_tiers}, recycle = spec.recycle_spec})
+            if not result.reason then
+                local nets = {[info.key] = 1}
+                add_balance_nets(nets, result, spec.chain, product_parts)
+                local quality_name = spec.chain[q].name
+                local feed, feed_items = {}, {}
+                for _, ingredient in ipairs(tier_spec.ingredients) do
+                    local identity = QualityId.encode(ingredient.name, quality_name)
+                    product_parts[identity] = {type = "item", name = ingredient.name, quality = quality_name}
+                    feed[#feed + 1] = identity
+                    feed_items[identity] = ingredient.name
+                end
+                table.sort(feed)
+                found[#found + 1] = {index = q, quality = quality_name, nets = nets, tiers = balance_tiers(result, spec.chain), feed = feed, feed_items = feed_items}
+            end
+        end
+    end
+    return found
+end
+
+--Tests only: walk the queue last in, first out, to show the columns found do not depend on visiting order
+Solver._reverse_visit_order = false
+
 --The columns the targets need, found breadth first over every column kind; a key is visited once, so cyclic bindings terminate.
 --Each column: {recipe_name (the column key: a recipe name, Burners.COLUMN_PREFIX .. product, or Solver.LOOP_PREFIX .. identity), product_full_name,
---consumer, burner, quality_loop, net_amounts}
+--consumer, burner, quality_loop, net_amounts}. A loop column's quality_loop.parts lists its eligible fed parts (M3).
+--Discovery runs to a closure: candidate forced loops (unreachable alone) pull in the producers of the items their upper tiers take; fed parts become
+--eligible when every identity they take is made by some column or eligible part and is no column's bound product (a least fixpoint computed afresh
+--each pass, so the visiting order and self-feeding cycles cannot change it); each eligible part pulls in the producers and consumers of its normal
+--items and fluids. It ends when a pass finds nothing new.
 local function collect_columns(production_rates_by_product_full_name, player_index, product_parts, options)
     local player_storage = storage[player_index]
     local columns, queue, visited = {}, {}, {}
+    local pending = 0
     local function enqueue(key, product_full_name)
         if key and not visited[key] then
             visited[key] = true
             queue[#queue + 1] = {key = key, product_full_name = product_full_name}
+            pending = pending + 1
         end
     end
-    for product_full_name, _ in pairs(production_rates_by_product_full_name) do
+    local target_names = {}
+    for product_full_name, _ in pairs(production_rates_by_product_full_name) do target_names[#target_names + 1] = product_full_name end
+    table.sort(target_names)
+    for _, product_full_name in ipairs(target_names) do
         enqueue(followed_binding(product_full_name, false, player_storage, product_parts, player_index), product_full_name)
     end
 
+    local parts_by_column = {}
     local head = 1
-    while queue[head] do
-        local entry = queue[head]
-        head = head + 1
-        local burner = player_storage.burners_by_product_full_name[entry.product_full_name]
-        local column, inputs, outputs
-        if entry.key == Solver.LOOP_PREFIX .. entry.product_full_name then
-            column = loop_column(player_index, entry.product_full_name, product_parts[entry.product_full_name], product_parts, nil, options)
-            inputs, outputs = {}, {}
-            for product_full_name, net_amount in pairs(column.net_amounts) do
-                if product_full_name ~= entry.product_full_name then
-                    table.insert(net_amount < 0 and inputs or outputs, product_full_name)
+    local function walk()
+        while pending > 0 do
+            local entry
+            if Solver._reverse_visit_order then
+                for index = #queue, 1, -1 do
+                    if queue[index] then entry = queue[index]; queue[index] = false; break end
+                end
+            else
+                while not queue[head] do head = head + 1 end
+                entry = queue[head]
+                queue[head] = false
+                head = head + 1
+            end
+            pending = pending - 1
+            local burner = player_storage.burners_by_product_full_name[entry.product_full_name]
+            local column, inputs, outputs
+            if entry.key == Solver.LOOP_PREFIX .. entry.product_full_name then
+                column = loop_column(player_index, entry.product_full_name, product_parts[entry.product_full_name], product_parts, nil, options)
+                inputs, outputs = {}, {}
+                for product_full_name, net_amount in pairs(column.net_amounts) do
+                    if product_full_name ~= entry.product_full_name then
+                        table.insert(net_amount < 0 and inputs or outputs, product_full_name)
+                    end
+                end
+                parts_by_column[column] = candidate_parts(column, product_parts)
+            elseif burner and entry.key == Burners.COLUMN_PREFIX .. entry.product_full_name then
+                column = {recipe_name = entry.key, product_full_name = entry.product_full_name, consumer = false, burner = burner,
+                    net_amounts = Burners.net_amounts(entry.product_full_name, burner)}
+                inputs = {entry.product_full_name}
+                outputs = {}
+                for product_full_name, net_amount in pairs(column.net_amounts) do
+                    if net_amount > 0 then outputs[#outputs + 1] = product_full_name end
+                end
+            else
+                local recipe = prototypes.recipe[entry.key]
+                local product_full_name = player_storage.product_full_names_by_recipe_name[entry.key]
+                column = {recipe_name = entry.key, product_full_name = product_full_name,
+                    consumer = player_storage.consumer_product_full_names[product_full_name] == true,
+                    net_amounts = column_net_amounts(recipe, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[entry.key],
+                        player_storage.module_setups_by_recipe_name[entry.key], player_index, product_parts)}
+                inputs, outputs = {}, {}
+                for _, ingredient in ipairs(recipe.ingredients) do
+                    inputs[#inputs + 1] = ingredient.type .. "/" .. ingredient.name
+                end
+                for _, product in ipairs(recipe.products) do
+                    if product.type ~= "research-progress" then
+                        outputs[#outputs + 1] = product.type .. "/" .. product.name
+                    end
                 end
             end
-        elseif burner and entry.key == Burners.COLUMN_PREFIX .. entry.product_full_name then
-            column = {recipe_name = entry.key, product_full_name = entry.product_full_name, consumer = false, burner = burner,
-                net_amounts = Burners.net_amounts(entry.product_full_name, burner)}
-            inputs = {entry.product_full_name}
-            outputs = {}
-            for product_full_name, net_amount in pairs(column.net_amounts) do
-                if net_amount > 0 then outputs[#outputs + 1] = product_full_name end
+            columns[#columns + 1] = column
+            for _, product_full_name in ipairs(inputs) do
+                enqueue(followed_binding(product_full_name, false, player_storage, product_parts, player_index), product_full_name)
             end
-        else
-            local recipe = prototypes.recipe[entry.key]
-            local product_full_name = player_storage.product_full_names_by_recipe_name[entry.key]
-            column = {recipe_name = entry.key, product_full_name = product_full_name,
-                consumer = player_storage.consumer_product_full_names[product_full_name] == true,
-                net_amounts = column_net_amounts(recipe, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[entry.key],
-                    player_storage.module_setups_by_recipe_name[entry.key], player_index, product_parts)}
-            inputs, outputs = {}, {}
-            for _, ingredient in ipairs(recipe.ingredients) do
-                inputs[#inputs + 1] = ingredient.type .. "/" .. ingredient.name
+            for _, product_full_name in ipairs(outputs) do
+                enqueue(followed_binding(product_full_name, true, player_storage, product_parts, player_index), product_full_name)
             end
-            for _, product in ipairs(recipe.products) do
-                if product.type ~= "research-progress" then
-                    outputs[#outputs + 1] = product.type .. "/" .. product.name
+        end
+    end
+
+    local seeded, expanded = {}, {}
+    local eligible
+    walk()
+    while true do
+        --candidate forced loops: the producers of what their upper tiers take
+        for _, column in ipairs(columns) do
+            local info = column.quality_loop
+            if info and info.reason == "quality_target_unreachable" and info.part_spec and not seeded[column] then
+                seeded[column] = true
+                local spec = info.part_spec
+                for q = spec.start + 1, spec.target do
+                    for _, ingredient in ipairs(spec.craft_tiers[q - spec.start + 1].ingredients) do
+                        local full_name = "item/" .. ingredient.name
+                        enqueue(followed_binding(full_name, false, player_storage, product_parts, player_index), full_name)
+                    end
                 end
             end
         end
-        columns[#columns + 1] = column
-        for _, product_full_name in ipairs(inputs) do
-            enqueue(followed_binding(product_full_name, false, player_storage, product_parts, player_index), product_full_name)
+        walk()
+
+        --eligible parts: the least fixpoint over the columns found so far
+        local bound, sources = {}, {}
+        for _, column in ipairs(columns) do
+            if column.product_full_name then bound[column.product_full_name] = true end
+            for full_name, net_amount in pairs(column.net_amounts) do
+                if net_amount > 0 then sources[full_name] = true end
+            end
         end
-        for _, product_full_name in ipairs(outputs) do
-            enqueue(followed_binding(product_full_name, true, player_storage, product_parts, player_index), product_full_name)
+        eligible = {}
+        local grew = true
+        while grew do
+            grew = false
+            for _, column in ipairs(columns) do
+                for _, part in ipairs(parts_by_column[column] or {}) do
+                    if not eligible[part] then
+                        local fits = true
+                        for _, identity in ipairs(part.feed) do
+                            if not sources[identity] or bound[identity] then fits = false end
+                        end
+                        if fits then
+                            eligible[part] = true
+                            grew = true
+                            for full_name, net_amount in pairs(part.nets) do
+                                if net_amount > 0 then sources[full_name] = true end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        --what eligible parts take and leave at normal quality, and their fluids, follow the bindings as any column's do; qualities above normal never
+        for _, column in ipairs(columns) do
+            for _, part in ipairs(parts_by_column[column] or {}) do
+                if eligible[part] and not expanded[part] then
+                    expanded[part] = true
+                    local names = {}
+                    for full_name, _ in pairs(part.nets) do names[#names + 1] = full_name end
+                    table.sort(names)
+                    for _, full_name in ipairs(names) do
+                        if not product_parts[full_name] and full_name ~= column.product_full_name then
+                            enqueue(followed_binding(full_name, part.nets[full_name] > 0, player_storage, product_parts, player_index), full_name)
+                        end
+                    end
+                end
+            end
+        end
+        if pending == 0 then
+            break
+        end
+    end
+
+    for _, column in ipairs(columns) do
+        local parts_found = {}
+        for _, part in ipairs(parts_by_column[column] or {}) do
+            if eligible[part] then parts_found[#parts_found + 1] = part end
+        end
+        if column.quality_loop and #parts_found > 0 then
+            column.quality_loop.parts = parts_found
         end
     end
     return columns
@@ -621,12 +776,29 @@ end
 --  recipe_rates and reasons_by_column are keyed by column key: a recipe name, or Burners.COLUMN_PREFIX .. product for a burner.
 --  product_parts: {[full name] = {type, name, quality}} for every item above normal quality the result names (see QualityId); others are "type/name".
 --product_parts: the parts of the targets above normal quality
+--  feed_rounds: rounds of the share search when loops use higher-quality items made elsewhere (M3), else nil.
 --options: {start_leftovers = "byproduct" (default) | "craft" | "recycle"}, the sheet's choice for items loops return at their start quality
 function Solver.solve_for(production_rates_by_product_full_name, player_index, product_parts, options)
     local parts = {} --the targets' parts, joined by those of the items loops leave above normal quality
     for full_name, target_parts in pairs(product_parts or {}) do parts[full_name] = target_parts end
     product_parts = parts
     local columns = collect_columns(production_rates_by_product_full_name, player_index, product_parts, options)
+
+    --loops with fed parts: a loop unreachable alone is forced to make its target from them; any other keeps its own crafts to mix with them
+    local mixed = {}
+    for _, column in ipairs(columns) do
+        local info = column.quality_loop
+        if info and info.parts then
+            if info.reason == "quality_target_unreachable" then
+                info.reason, info.forced = nil, true
+            end
+            if not info.reason then
+                column.base_nets, column.base_tiers = column.net_amounts, info.tiers
+                mixed[#mixed + 1] = column
+            end
+        end
+    end
+
     local reasons_by_column = {}
     for _, column in ipairs(columns) do
         --checked before solving: a consumer netting zero leaves its product's equation empty, and the solve would fail without saying why
@@ -643,29 +815,306 @@ function Solver.solve_for(production_rates_by_product_full_name, player_index, p
         return {status = "infeasible", columns = columns, reasons_by_column = reasons_by_column, product_parts = product_parts}
     end
 
-    local matrix = prepare_matrix(columns, production_rates_by_product_full_name)
-    local original_matrix = copy_matrix(matrix) --gauss_solve eliminates in place
-    local solutions_by_column_index = gauss_solve(matrix)
-    if not solutions_by_column_index then
-        return {status = "unsolvable", columns = columns, reasons_by_column = reasons_by_column, product_parts = product_parts}
+    local function finish(matrix_solution, original_matrix, extra)
+        local recipe_rates_by_recipe_name = {}
+        for column_index, column in ipairs(columns) do
+            recipe_rates_by_recipe_name[column.recipe_name] = matrix_solution[column_index]
+        end
+        local reasons = backwards_reasons(original_matrix, columns, matrix_solution)
+        local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(columns, matrix_solution, production_rates_by_product_full_name)
+        local result = {
+            status = next(reasons) and "infeasible" or "ok",
+            columns = columns,
+            recipe_rates = recipe_rates_by_recipe_name,
+            solved_rates = solved_rates_by_product_full_name,
+            unsolved_rates = unsolved_rates_by_product_full_name,
+            reasons_by_column = reasons,
+            product_parts = product_parts,
+        }
+        for key, value in pairs(extra or {}) do result[key] = value end
+        return result
     end
 
-    local recipe_rates_by_recipe_name = {}
-    for column_index, column in ipairs(columns) do
-        recipe_rates_by_recipe_name[column.recipe_name] = solutions_by_column_index[column_index]
+    local function solve_once()
+        local matrix = prepare_matrix(columns, production_rates_by_product_full_name)
+        local original_matrix = copy_matrix(matrix) --gauss_solve eliminates in place
+        return gauss_solve(matrix), original_matrix
     end
-    reasons_by_column = backwards_reasons(original_matrix, columns, solutions_by_column_index)
 
-    local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(columns, solutions_by_column_index, production_rates_by_product_full_name)
-    return {
-        status = next(reasons_by_column) and "infeasible" or "ok",
-        columns = columns,
-        recipe_rates = recipe_rates_by_recipe_name,
-        solved_rates = solved_rates_by_product_full_name,
-        unsolved_rates = unsolved_rates_by_product_full_name,
-        reasons_by_column = reasons_by_column,
-        product_parts = product_parts,
-    }
+    if #mixed == 0 then
+        local solution, original_matrix = solve_once()
+        if not solution then
+            return {status = "unsolvable", columns = columns, reasons_by_column = reasons_by_column, product_parts = product_parts}
+        end
+        return finish(solution, original_matrix)
+    end
+    return Solver._solve_with_feed(columns, mixed, production_rates_by_product_full_name, product_parts, solve_once, finish)
+end
+
+--Round limit of the share search (M3); tests lower it
+Solver.FEED_ROUND_LIMIT = 50
+--A shortage counts once above this share of the identity's largest flow plus an absolute floor (items per second): a loop reusing its own
+--leftovers nets an identity to almost nothing, so a relative tolerance alone would judge rounding as shortage
+local FEED_TOLERANCE, FEED_FLOOR = 1e-12, 1e-12
+
+--Sets a mixed loop column's nets and tiers for share levels theta (by feed identity): parts filled from the top tier down, each up to the lowest level
+--of the identities it takes and to what higher parts left; a forced loop's remainder goes to its lowest part; the rest from its own crafts.
+local function mix(column, theta)
+    local info = column.quality_loop
+    local parts = info.parts
+    local used = 0
+    for index = #parts, 1, -1 do
+        local part = parts[index]
+        local level = 1
+        for _, identity in ipairs(part.feed) do level = math.min(level, theta[identity]) end
+        part.share = math.max(0, math.min(level, 1 - used))
+        used = used + part.share
+    end
+    if info.forced then
+        parts[1].share = parts[1].share + (1 - used)
+        used = 1
+    end
+    local own = 1 - used
+    local nets = {}
+    if own > 0 then
+        for full_name, amount in pairs(column.base_nets) do nets[full_name] = own * amount end
+    end
+    for _, part in ipairs(parts) do
+        if part.share > 0 then
+            for full_name, amount in pairs(part.nets) do nets[full_name] = (nets[full_name] or 0) + part.share * amount end
+        end
+    end
+    nets[column.product_full_name] = 1
+    column.net_amounts = nets
+
+    --tiers from the start to the target, each the same mix of own crafts and parts
+    local spec = info.part_spec
+    local tiers, by_quality = {}, {}
+    for index = spec.start, spec.target do
+        local tier = {quality = spec.chain[index].name, crafts = 0, recycle_crafts = 0, x = 0}
+        tiers[#tiers + 1] = tier
+        by_quality[tier.quality] = tier
+    end
+    local function add_tiers(source_tiers, weight)
+        for _, source in ipairs(source_tiers or {}) do
+            local tier = by_quality[source.quality]
+            tier.crafts = tier.crafts + weight * source.crafts
+            tier.recycle_crafts = tier.recycle_crafts + weight * source.recycle_crafts
+            tier.x = tier.x + weight * source.x
+            tier.craft_chances = tier.craft_chances or source.craft_chances
+            tier.recycle_chances = tier.recycle_chances or source.recycle_chances
+            if source.assist_crafts then
+                tier.assist_crafts = (tier.assist_crafts or 0) + weight * source.assist_crafts
+                tier.assist_chances = source.assist_chances
+            end
+            for name, crafts in pairs(source.ingredient_recycles or {}) do
+                tier.ingredient_recycles = tier.ingredient_recycles or {}
+                tier.ingredient_recycles[name] = (tier.ingredient_recycles[name] or 0) + weight * crafts
+            end
+        end
+    end
+    if own > 0 then add_tiers(column.base_tiers, own) end
+    for _, part in ipairs(parts) do
+        if part.share > 0 then add_tiers(part.tiers, part.share) end
+    end
+    for _, tier in ipairs(tiers) do
+        tier.craft_chances = tier.craft_chances or {}
+    end
+    info.tiers = tiers
+    --what the loop takes from the rest of the sheet at each tier, per target: {[quality] = {{identity, item, amount}}}, own leftovers it reuses not listed
+    info.feed = {}
+    for _, part in ipairs(parts) do
+        for _, identity in ipairs(part.feed) do
+            local taken = -(nets[identity] or 0)
+            if taken > FEED_TOLERANCE * part.share * math.abs(part.nets[identity] or 0) + FEED_FLOOR then --rounding of reused leftovers is not a take
+                info.feed[part.quality] = info.feed[part.quality] or {}
+                table.insert(info.feed[part.quality], {identity = identity, item = part.feed_items[identity], amount = taken})
+            end
+        end
+    end
+end
+
+--The sheet solve when loops mix fed parts (M3): one share level per feed identity, found per identity by a bracketed root search (Illinois regula falsi)
+--of its shortage, identity by identity in sorted order, until no level moves. A forced loop short of an identity only other forced loops take may
+--rebind that item's producer to the identity once. Calculator limits give quality_feed_solve_limit; a real shortage quality_loop_outside_supply_short.
+function Solver._solve_with_feed(columns, mixed, rates, product_parts, solve_once, finish)
+    local identities, seen = {}, {}
+    for _, column in ipairs(mixed) do
+        for _, part in ipairs(column.quality_loop.parts) do
+            for _, identity in ipairs(part.feed) do
+                if not seen[identity] then
+                    seen[identity] = true
+                    identities[#identities + 1] = identity
+                end
+            end
+        end
+    end
+    table.sort(identities)
+
+    local function stop(reason, selected)
+        local reasons = {}
+        for _, column in ipairs(selected or mixed) do reasons[column.recipe_name] = reason end
+        for _, column in ipairs(mixed) do column.net_amounts = column.base_nets or {[column.product_full_name] = 1} end
+        return {status = "infeasible", columns = columns, reasons_by_column = reasons, product_parts = product_parts}
+    end
+
+    local theta = {}
+    for _, identity in ipairs(identities) do theta[identity] = 1 end
+    --shortage of an identity at the current levels (positive: the sheet takes more than it makes) and the size of its largest flow
+    local last_solution, last_matrix
+    local function shortage(identity)
+        for _, column in ipairs(mixed) do mix(column, theta) end
+        local solution, original_matrix = solve_once()
+        if not solution then
+            return nil
+        end
+        last_solution, last_matrix = solution, original_matrix
+        local h, scale = rates[identity] or 0, math.abs(rates[identity] or 0)
+        for index, column in ipairs(columns) do
+            local flow = solution[index] * (column.net_amounts[identity] or 0)
+            h = h - flow
+            scale = math.max(scale, math.abs(flow))
+        end
+        return h, scale
+    end
+
+    local short = {}
+    local rounds = 0
+    local function search()
+        short = {}
+        rounds = 0
+        for _, identity in ipairs(identities) do theta[identity] = 1 end
+        local moved = true
+        while moved do
+            rounds = rounds + 1
+            if rounds > Solver.FEED_ROUND_LIMIT then
+                return false
+            end
+            moved = false
+            for _, identity in ipairs(identities) do
+                local before = theta[identity]
+                theta[identity] = 1
+                local high, high_scale = shortage(identity)
+                if not high then return false end
+                local level = 1
+                if high > FEED_TOLERANCE * high_scale + FEED_FLOOR then
+                    theta[identity] = 0
+                    local low, low_scale = shortage(identity)
+                    if not low then return false end
+                    if low > FEED_TOLERANCE * low_scale + FEED_FLOOR then
+                        short[identity] = true --only forced loops take it, and even alone they take more than the sheet makes
+                        level = 0
+                    else
+                        --a bracket [a, b] with shortage(a) <= 0 < shortage(b) kept at every step, so the search cannot alternate
+                        local a, fa, b, fb, side = 0, low, 1, high, 0
+                        local found
+                        for _ = 1, 100 do
+                            local t = (a * fb - b * fa) / (fb - fa)
+                            theta[identity] = t
+                            local ft, scale = shortage(identity)
+                            if not ft then return false end
+                            if math.abs(ft) <= FEED_TOLERANCE * scale + FEED_FLOOR or b - a <= 1e-15 then
+                                found = t
+                                break
+                            end
+                            if ft > 0 then
+                                b, fb = t, ft
+                                if side == 1 then fa = fa / 2 end
+                                side = 1
+                            else
+                                a, fa = t, ft
+                                if side == -1 then fb = fb / 2 end
+                                side = -1
+                            end
+                        end
+                        if not found then return false end
+                        level = found
+                    end
+                end
+                theta[identity] = level
+                if math.abs(level - before) > 1e-12 then moved = true end
+            end
+        end
+        return true
+    end
+
+    local function forced_takers(identity)
+        local takers, all_forced = {}, true
+        for index, column in ipairs(columns) do
+            if (column.net_amounts[identity] or 0) < 0 and last_solution[index] > 0 then
+                takers[#takers + 1] = column
+                if not (column.quality_loop and column.quality_loop.forced) then all_forced = false end
+            end
+        end
+        return takers, all_forced
+    end
+
+    if not search() then
+        return stop("quality_feed_solve_limit")
+    end
+    local rebound = {}
+    if next(short) then
+        --rebinding once: the producer of the item whose identity forced loops lack is solved for that identity instead
+        for identity, _ in pairs(short) do
+            local _, all_forced = forced_takers(identity)
+            local item_full_name = "item/" .. product_parts[identity].name
+            local producers = {}
+            for _, column in ipairs(columns) do
+                if column.product_full_name == item_full_name and (column.net_amounts[identity] or 0) > 0 then producers[#producers + 1] = column end
+            end
+            if all_forced and #producers == 1 then
+                producers[1].binding_full_name = item_full_name --its recipe, machine and modules stay those of the item's binding
+                producers[1].product_full_name = identity
+                rebound[#rebound + 1] = {column = producers[1], item = item_full_name}
+            end
+        end
+        if #rebound > 0 and not search() then
+            return stop("quality_feed_solve_limit")
+        end
+    end
+    for _, column in ipairs(mixed) do mix(column, theta) end
+    local solution, original_matrix = solve_once()
+    if not solution then
+        return stop("quality_feed_solve_limit")
+    end
+    last_solution = solution
+
+    --final check: no feed identity short, and none left over while a loop could still take more of it
+    local lacking = {}
+    for _, identity in ipairs(identities) do
+        local h, scale = rates[identity] or 0, 0
+        for index, column in ipairs(columns) do
+            local flow = solution[index] * (column.net_amounts[identity] or 0)
+            h = h - flow
+            scale = math.max(scale, math.abs(flow))
+        end
+        if h > 1e-9 * scale + FEED_FLOOR then
+            lacking[identity] = true
+        elseif h < -(1e-9 * scale + FEED_FLOOR) and theta[identity] < 1 then
+            return stop("quality_feed_solve_limit")
+        end
+    end
+    for _, entry in ipairs(rebound) do
+        local h, scale = rates[entry.item] or 0, 0
+        for index, column in ipairs(columns) do
+            local flow = solution[index] * (column.net_amounts[entry.item] or 0)
+            h = h - flow
+            scale = math.max(scale, math.abs(flow))
+        end
+        if h > 1e-9 * scale + FEED_FLOOR then
+            for identity, _ in pairs(short) do lacking[identity] = true end
+        end
+    end
+    if next(lacking) then
+        local forced = {}
+        for identity, _ in pairs(lacking) do
+            for _, column in ipairs((forced_takers(identity))) do
+                if column.quality_loop and column.quality_loop.forced then forced[#forced + 1] = column end
+            end
+        end
+        return stop("quality_loop_outside_supply_short", #forced > 0 and forced or nil)
+    end
+    return finish(solution, original_matrix, {feed_rounds = rounds})
 end
 
 Solver.productivity_bonus = productivity_bonus

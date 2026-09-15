@@ -848,7 +848,7 @@ function H.parse_report(output_flow)
         elseif icon.type == "sprite-button" and icon.tags.loop_key then
             local loop = loop_of(icon.tags.loop_key)
             local tier = parse_loop_lines(machine_cell)
-            tier.quality, tier.rate, tier.module_flow = quality or "normal", rate, module_cell
+            tier.quality, tier.rate, tier.module_flow, tier.rate_tooltip = quality or "normal", rate, module_cell, item_cell.children[2].tooltip
             loop.tiers[#loop.tiers + 1] = tier
             loop.tiers_by_quality[tier.quality] = tier
             if #loop.tiers == 1 then

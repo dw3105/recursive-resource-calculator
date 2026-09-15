@@ -431,8 +431,11 @@ H.test("2.0 QL-3 (b) a stored ingredient loop is repaired before solving when it
     H.equal(#L(a_key).crafts.normal.setup.modules, 0, "modules the machine refuses removed")
     --X loop takes (1 - 0.2025) / 0.1225 A at uncommon per target; A's loop has no recycler, and a craft ends at uncommon with 0.2 × 0.9 = 0.18
     --(the rest of its upgrades go on to rare), so 1/0.18 ore each; the stale smelter's 10% would need 1/0.09, twice as much
+    --since M3 the rare A that A's loop leaves over (0.02 / 0.18 = 1/9 per uncommon A) is crafted into rare X: a share phi of the target is made
+    --from it, where phi = (1 - phi) * a_demand / 9; the stale smelter leaves the same 1/9 over, so it would still need twice the ore
     local a_demand = (1 - 0.2025) / 0.1225
-    H.near(report.rows["item/ore"].rate, a_demand / 0.18, "ore for the repaired loop")
+    local phi = (a_demand / 9) / (1 + a_demand / 9)
+    H.near(report.rows["item/ore"].rate, (1 - phi) * a_demand / 0.18, "ore for the repaired loop")
     local result = solve({[x_key] = 1}, {[x_key] = {type = "item", name = "X", quality = "rare"}})
     for _, column in ipairs(result.columns) do
         if column.quality_loop and column.quality_loop.key == a_key then H.deep_equal(L(a_key), column.quality_loop.config, "stored equals solved") end
