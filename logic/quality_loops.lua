@@ -90,6 +90,21 @@ local function default_recycle_recipe_name(item_name, craft_recipe)
     return found
 end
 
+--Primary categories of the recipes that can recycle an item (QualityLoop.recycler_refusal), sorted, each once; found through the ingredient index.
+--A recipe picker filtered by the item and these categories lists those recipes (recipe filters have no name filter).
+function QualityLoops.recycle_recipe_categories(item_name)
+    local seen, categories = {}, {}
+    for _, recipe in ipairs(storage.recipe_lists_by_ingredient_full_name["item/" .. item_name] or {}) do
+        local category = Utils.recipe_categories(recipe)[1]
+        if category and not seen[category] and not QualityLoop.recycler_refusal(recipe, item_name) then
+            seen[category] = true
+            categories[#categories + 1] = category
+        end
+    end
+    table.sort(categories)
+    return categories
+end
+
 --A copy of a machine identifier kept only while that machine can craft the recipe; a removed quality falls back to normal
 local function kept_machine(identifier, recipe)
     if identifier and Utils.can_craft(identifier.name, recipe) then

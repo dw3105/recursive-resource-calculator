@@ -327,6 +327,28 @@ local function add_loop_recipe_cell(report, info)
     }
 end
 
+--A loop's recycle recipe control. It lists the recipes taking the item in the categories of the recipes that can recycle it: in vanilla exactly its
+--recycling recipe; anything else listed is refused on pick. Disabled, with a hint, when no recipe can recycle the item and none is set.
+local function add_recycle_recipe_button(parent, loop_key, item, recycle_recipe_name, tooltip)
+    local takes_item = {filter = "has-ingredient-item", elem_filters = {{filter = "name", name = item}}}
+    local filters = {}
+    for _, category in ipairs(QualityLoops.recycle_recipe_categories(item)) do
+        filters[#filters + 1] = takes_item
+        filters[#filters + 1] = {filter = "category", category = category, mode = "and"}
+    end
+    local enabled = #filters > 0 or recycle_recipe_name ~= nil
+    return parent.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_recycle_recipe_button",
+        tooltip = enabled and tooltip or {"hxrrc.no_recycle_recipe_tooltip"},
+        elem_type = "recipe",
+        recipe = recycle_recipe_name,
+        elem_filters = #filters > 0 and filters or {takes_item},
+        enabled = enabled,
+        tags = {loop_key = loop_key, recipe_name = recycle_recipe_name},
+    }
+end
+
 --The rows of a quality loop: one per tier from the recipe's quality to the target, each with its crafting machines, their count and upgrade chances,
 --its own module editor, and the recyclers running at that tier; then the recycler pool with the total, the recycler editors and the recycle recipe.
 --A loop with a reason, or without rates, shows the same rows with every editor and no counts, the reason in the first craft line.
@@ -431,15 +453,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
     end
     add_loop_module_cell(report, info, "recycle", recycle)
     local recipe_cell = report.add{type = "flow"}
-    recipe_cell.add{
-        type = "choose-elem-button",
-        name = "hxrrc_choose_recycle_recipe_button",
-        tooltip = {"hxrrc.choose_recycle_recipe_tooltip"},
-        elem_type = "recipe",
-        recipe = config.recycle_recipe_name,
-        elem_filters = {{filter = "has-ingredient-item", elem_filters = {{filter = "name", name = info.item}}}},
-        tags = {loop_key = info.key, recipe_name = config.recycle_recipe_name},
-    }
+    add_recycle_recipe_button(recipe_cell, info.key, info.item, config.recycle_recipe_name, {"hxrrc.choose_recycle_recipe_tooltip"})
 end
 
 local function new_table(parent)
