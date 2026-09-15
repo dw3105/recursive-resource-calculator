@@ -171,6 +171,49 @@ for _, shape in ipairs(H.shapes()) do
         H.near(report.rows["item/raw"].rate, 1, "raw row back")
     end)
 
+    H.test(shape .. " R4-12 a machine button acts on the recipe in its tags, and refuses once its row is bound elsewhere", function()
+        local world = H.new_world(shape)
+        require "gui.calculator" --registers the event handlers the test fires
+        world.add_item("raw")
+        world.add_item("gear")
+        world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+        world.add_machine({name = "fast-assembler", categories = {"crafting"}, speed = 2})
+        world.add_recipe({name = "a", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}}})
+        world.add_recipe({name = "b", category = "crafting", ingredients = {{name = "raw", amount = 2}}, products = {{name = "gear", amount = 1}}})
+        world.add_player(1)
+        world.init()
+        local chosen = storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name
+        chosen.a, chosen.b = {name = "assembler"}, {name = "assembler"}
+        world.bind("item/gear", "a")
+        local report, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+
+        local button = report.rows["item/gear"].machine_button
+        H.equal(button.tags.recipe_name, "a", "button tagged with its recipe")
+        button.elem_value = {name = "fast-assembler"}
+        fire_elem_changed(button)
+        H.equal(chosen.a.name, "fast-assembler", "change applies to a")
+        H.equal(button.tags.recipe_name, "a", "tags keep the row after a change")
+        H.equal(button.tags.name, "fast-assembler", "snapshot follows the change")
+
+        pick_recipe(report, "item/gear", "b")
+        storage.computation_stack = {}
+        button.elem_value = {name = "assembler"}
+        fire_elem_changed(button)
+        H.equal(chosen.a.name, "fast-assembler", "a unchanged by the stale button")
+        H.equal(chosen.b.name, "assembler", "b unchanged: the neighbour recipe button already shows b")
+        H.equal(button.elem_value.name, "fast-assembler", "stale button restored")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+
+        report = recompute(sheet_pane)
+        local untagged = report.rows["item/gear"].machine_button
+        untagged.tags = {name = "assembler"} --a button built before rows were tagged
+        untagged.elem_value = {name = "fast-assembler"}
+        fire_elem_changed(untagged)
+        H.equal(chosen.b.name, "assembler", "untagged button refused")
+        H.equal(untagged.elem_value.name, "assembler", "untagged button restored")
+    end)
+
     H.test(shape .. " R4-7 configuration change keeps a consumer binding while its recipe consumes the product", function()
         local world = consumer_world(shape)
         world.bind_consumer("item/x", "burn")

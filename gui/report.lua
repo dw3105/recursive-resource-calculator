@@ -116,7 +116,7 @@ local function crafting_category_filters(recipe)
 end
 
 --reason: locale key shown in place of the machine count, for a row whose count cannot be trusted or does not exist
-local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines, reason)
+local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines, reason, product_full_name)
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
     machine_cell.style.horizontally_stretchable = true
@@ -126,7 +126,8 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
         name = "hxrrc_choose_crafting_machine_button",
         elem_type = "entity-with-quality",
         ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
-        tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality}, --snapshot for refused changes on a stale report
+        --snapshot for refused changes on a stale report, and the row the button belongs to
+        tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality, recipe_name = recipe.name, product_full_name = product_full_name},
         elem_filters = crafting_category_filters(recipe),
         enabled = #Utils.crafting_machines_for(recipe) > 1,
     }
@@ -160,7 +161,7 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
         report.add{type = "empty-widget"}
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
-        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines, reason)
+        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines, reason, product_full_name)
         ModuleGUI.new(report, recipe, crafting_machine, crafting_machine_identifier, product_full_name)
     end
 
@@ -221,11 +222,16 @@ function Report.new_diagnostic(parent, result)
     end
 end
 
-local function get_recipe_name_associated_to(choose_crafting_machine_button)
-    local machine_cell = choose_crafting_machine_button.parent
-    local report = machine_cell.parent
-    local recipe_cell = report.children[machine_cell.get_index_in_parent() + 2]
-    return recipe_cell.hxrrc_choose_recipe_button.elem_value
+--The recipe a machine button acts on, from its tags, while its row's product is still bound to that recipe; nil for a stale button or one built before rows were tagged
+local function current_recipe_name_of(choose_crafting_machine_button)
+    local tags = choose_crafting_machine_button.tags
+    if not (tags.recipe_name and tags.product_full_name) then
+        return nil
+    end
+    local bound_recipe = storage[choose_crafting_machine_button.player_index].recipes_by_product_full_name[tags.product_full_name]
+    if bound_recipe and bound_recipe.valid and bound_recipe.name == tags.recipe_name then
+        return tags.recipe_name
+    end
 end
 
 --The machine a refused change puts back: the button's snapshot, unless that machine no longer exists; a removed quality falls back to normal
@@ -255,9 +261,9 @@ function Report.handle_crafting_machine_change(event)
         return false
     end
 
-    local recipe_name = get_recipe_name_associated_to(choose_crafting_machine_button)
+    local recipe_name = current_recipe_name_of(choose_crafting_machine_button)
     local old_machine_identifier = recipe_name and storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
-    if not old_machine_identifier then --stale report: the recipe was removed by a mod
+    if not old_machine_identifier then --stale report: the row's recipe changed or was removed by a mod
         if restore_target then
             choose_crafting_machine_button.elem_value = restore_target
         end
@@ -274,7 +280,9 @@ function Report.handle_crafting_machine_change(event)
 
     storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name] = new_machine_identifier
     ModuleSetup.sanitize(player_index, recipe_name) --the new machine may have fewer slots or refuse some modules
-    choose_crafting_machine_button.tags = {name = new_machine_identifier.name, quality = new_machine_identifier.quality}
+    local tags = choose_crafting_machine_button.tags
+    choose_crafting_machine_button.tags = {name = new_machine_identifier.name, quality = new_machine_identifier.quality,
+        recipe_name = tags.recipe_name, product_full_name = tags.product_full_name}
 
     return true
 end
