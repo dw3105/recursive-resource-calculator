@@ -235,7 +235,10 @@ local function add_row_for_solved_product(report, column, product_rate, recipe_r
     add_recipe_cell(report, product_full_name, recipe, storage[pi].consumer_product_full_names[product_full_name])
 end
 
-local function add_row_for_unsolved_product(report, unsolved_product_full_name, unsolved_product_rate, parts)
+local add_recycle_recipe_button
+
+--loops: the loop infos crafting this row's item, when it is a normal item a loop leaves over (see Report.new)
+local function add_row_for_unsolved_product(report, unsolved_product_full_name, unsolved_product_rate, parts, loops)
     add_item_cell(report, unsolved_product_full_name, unsolved_product_rate, parts)
 
     if parts then
@@ -248,6 +251,17 @@ local function add_row_for_unsolved_product(report, unsolved_product_full_name, 
             report.add{type = "label", caption = {"hxrrc.unselected_recipe"}}
             report.add{type = "empty-widget"}
             add_recipe_cell(report, "item/" .. parts.name)
+        end
+    elseif unsolved_product_rate < 0 and loops then
+        --a consumer or burner would replace the item's producer binding and break its loops: its excess is recycled by a loop instead
+        report.add{type = "label", caption = {"hxrrc.byproduct"}}
+        report.add{type = "empty-widget"}
+        local recipe_cell = report.add{type = "flow", direction = "vertical"}
+        recipe_cell.style.horizontally_stretchable = true
+        for _, info in ipairs(loops) do
+            local quality = prototypes.quality[info.quality]
+            add_recycle_recipe_button(recipe_cell.add{type = "flow"}, info.key, info.item, info.config.recycle_recipe_name,
+                {"", {"hxrrc.choose_recycle_recipe_tooltip"}, "\n", quality and quality.localised_name or info.quality})
         end
     elseif unsolved_product_rate < 0 then
         add_byproduct_widgets(report, unsolved_product_full_name)
@@ -329,7 +343,7 @@ end
 
 --A loop's recycle recipe control. It lists the recipes taking the item in the categories of the recipes that can recycle it: in vanilla exactly its
 --recycling recipe; anything else listed is refused on pick. Disabled, with a hint, when no recipe can recycle the item and none is set.
-local function add_recycle_recipe_button(parent, loop_key, item, recycle_recipe_name, tooltip)
+function add_recycle_recipe_button(parent, loop_key, item, recycle_recipe_name, tooltip)
     local takes_item = {filter = "has-ingredient-item", elem_filters = {{filter = "name", name = item}}}
     local filters = {}
     for _, category in ipairs(QualityLoops.recycle_recipe_categories(item)) do
@@ -467,6 +481,17 @@ function Report.new(parent, result, energy_consumption, pollution, round_up_mach
 
     setup_headers(report, energy_consumption, pollution)
 
+    --the loops crafting each item, in column order; a 2.1 loop recycles nothing, so its item's excess keeps the ordinary controls
+    local loops_by_item_full_name = {}
+    for _, column in ipairs(result.columns) do
+        local info = column.quality_loop
+        if info and info.reason ~= "quality_loop_unavailable" and info.config and prototypes.item[info.item] then
+            local full_name = "item/" .. info.item
+            loops_by_item_full_name[full_name] = loops_by_item_full_name[full_name] or {}
+            table.insert(loops_by_item_full_name[full_name], info)
+        end
+    end
+
     --Rows whose item or fluid was removed by a mod are left out: their sprites and filters would refer to missing prototypes
     for _, column in ipairs(result.columns) do
         local product_full_name = column.product_full_name
@@ -485,7 +510,7 @@ function Report.new(parent, result, energy_consumption, pollution, round_up_mach
     for product_full_name, product_rate in pairs(result.unsolved_rates) do
         local parts = result.product_parts and result.product_parts[product_full_name]
         if prototype_of(product_full_name, parts) then
-            add_row_for_unsolved_product(report, product_full_name, product_rate, parts)
+            add_row_for_unsolved_product(report, product_full_name, product_rate, parts, not parts and loops_by_item_full_name[product_full_name] or nil)
         end
     end
 end
