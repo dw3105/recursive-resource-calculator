@@ -95,17 +95,14 @@ local function kept_modules(modules, entities, recipe, capacity)
     return kept
 end
 
---Makes a recipe's stored setup valid for its chosen machine; callers make sure the recipe and machine are current
-function ModuleSetup.sanitize(player_index, recipe_name)
-    local setups = storage[player_index].module_setups_by_recipe_name
-    local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
-    if not identifier then --hand-crafted recipe
-        setups[recipe_name] = ModuleSetup.new_setup()
+--Makes a setup valid for the machine crafting the recipe with it, in place; identifier nil is hand crafting, which takes no modules or beacons.
+--Callers make sure the recipe and machine exist and fit each other.
+function ModuleSetup.sanitize_setup(setup, identifier, recipe)
+    if not identifier then
+        setup.modules, setup.beacons = {}, {}
         return
     end
-    local setup = setups[recipe_name]
     local machine = prototypes.entity[identifier.name]
-    local recipe = prototypes.recipe[recipe_name]
     setup.modules = kept_modules(setup.modules, {machine}, recipe, ModuleSetup.machine_capacity(machine, identifier.quality))
 
     local kept_groups = {}
@@ -128,6 +125,17 @@ function ModuleSetup.sanitize(player_index, recipe_name)
         end
     end
     setup.beacons = kept_groups
+end
+
+--Makes a recipe's stored setup valid for its chosen machine; callers make sure the recipe and machine are current
+function ModuleSetup.sanitize(player_index, recipe_name)
+    local setups = storage[player_index].module_setups_by_recipe_name
+    local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
+    if not identifier then --hand-crafted recipe
+        setups[recipe_name] = ModuleSetup.new_setup()
+        return
+    end
+    ModuleSetup.sanitize_setup(setups[recipe_name], identifier, prototypes.recipe[recipe_name])
 end
 
 --After a configuration change, once chosen machines are valid: a setup for every recipe and none for removed ones, each made valid

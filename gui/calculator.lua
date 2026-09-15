@@ -110,6 +110,48 @@ event_handlers.on_gui_elem_changed["hxrrc_choose_recipe_button"] = function(even
     end
 end
 
+event_handlers.on_gui_elem_changed["hxrrc_choose_burner_button"] = function(event)
+    if Report.handle_burner_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_burner_entity_button"] = function(event)
+    if Report.handle_burner_entity_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_loop_machine_button"] = function(event)
+    if Report.handle_loop_machine_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_assist_recipe_button"] = function(event)
+    if Report.handle_assist_recipe_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_tier_recipe_button"] = function(event)
+    if Report.handle_tier_recipe_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_loop_recipe_button"] = function(event)
+    if Report.handle_loop_recipe_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_recycle_recipe_button"] = function(event)
+    if Report.handle_recycle_recipe_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
 event_handlers.on_gui_elem_changed["hxrrc_choose_crafting_machine_button"] = function(event)
     if Report.handle_crafting_machine_change(event) then
         Calculator.recompute_everything(event.player_index)

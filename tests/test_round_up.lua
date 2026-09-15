@@ -28,7 +28,7 @@ local function type_gear_target(sheet_pane, sheet_index, rate)
     local row = sheet_pane.tabs[sheet_index].content.input_container.children[1]
     row.rate_textfield.text = rate
     row.time_unit_dropdown.selected_index = 2
-    row.hxrrc_desired_item_button.elem_value = "gear"
+    row.hxrrc_desired_item_button.elem_value = {name = "gear"}
     event_handlers.on_gui_elem_changed["hxrrc_desired_item_button"]({element = row.hxrrc_desired_item_button, player_index = 1})
 end
 

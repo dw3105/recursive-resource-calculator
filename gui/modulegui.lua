@@ -1,15 +1,23 @@
 local Utils = require "logic.utils"
 local ModuleSetup = require "logic.module_setup"
+local QualityLoops = require "logic.quality_loops"
 
 local ModuleGUI = {}
 
-local function add_effects_label(cell, recipe_name)
+local function add_effects_label(cell, setup)
     local label_flow = cell.add{type = "flow", direction = "vertical"}
-    local effects = Utils.recipe_effects(cell.player_index, recipe_name)
+    local effects = Utils.setup_effects(setup)
     for _, effect in ipairs(Utils.module_effect_names) do
         local effect_value = effects[effect]
         if math.abs(effect_value) >= 0.01 then
-            label_flow.add{type = "label", caption = {"", {"hxrrc." .. effect}, ": ", string.format("%+.0f", (effect_value > -0.8 and effect_value or -0.8) * 100) .. "%"}}
+            local text
+            if effect == "quality" and not Utils.IS_2_1 then
+                --in 2.0 a quality effect is the chance of a first upgrade from normal once multiplied by normal's next_probability; 2.1 is unverified
+                text = string.format("%+.2f", math.max(0, effect_value) * prototypes.quality.normal.next_probability * 100)
+            else
+                text = string.format("%+.0f", (effect_value > -0.8 and effect_value or -0.8) * 100)
+            end
+            label_flow.add{type = "label", caption = {"", {"hxrrc." .. effect}, ": ", text .. "%"}}
         end
     end
 end
@@ -76,11 +84,25 @@ local function add_count_field(row, name, tooltip, group_index, value)
     field.style.width = 40
 end
 
---Builds the cell's controls from the stored setup; the cell's tags remember the row's product, the recipe and the setup it shows.
---A rebuild passes no product and keeps the one already tagged.
-local function fill(cell, recipe, machine, identifier, product_full_name)
-    local setup = storage[cell.player_index].module_setups_by_recipe_name[recipe.name]
-    cell.tags = {recipe_name = recipe.name, product_full_name = product_full_name or cell.tags.product_full_name, signature = ModuleSetup.signature(setup, identifier)}
+--The setup a cell edits: a quality loop stage's (owner {loop_key, stage, tier}; tier names the craft tier, nil for the recycler pool) or the recipe's own
+local function owned_setup(player_index, recipe_name, owner)
+    if owner and owner.loop_key then
+        local loop = storage[player_index].quality_loops_by_key[owner.loop_key]
+        local settings = loop and (owner.stage == "craft" and loop.crafts[owner.tier] or owner.stage == "recycle" and loop.recycle
+            or owner.stage == "assist" and loop.assist)
+        return settings and settings.setup
+    end
+    return storage[player_index].module_setups_by_recipe_name[recipe_name]
+end
+
+--Builds the cell's controls from the stored setup; the cell's tags remember the row's product, the recipe, the setup's owner and the setup it shows.
+--A rebuild passes no product or owner and keeps the ones already tagged.
+local function fill(cell, recipe, machine, identifier, product_full_name, owner)
+    local old_tags = cell.tags
+    owner = owner or {loop_key = old_tags.loop_key, stage = old_tags.stage, tier = old_tags.tier}
+    local setup = owned_setup(cell.player_index, recipe.name, owner)
+    cell.tags = {recipe_name = recipe.name, product_full_name = product_full_name or old_tags.product_full_name, signature = ModuleSetup.signature(setup, identifier),
+        loop_key = owner.loop_key, stage = owner.stage, tier = owner.tier}
 
     local capacity = ModuleSetup.machine_capacity(machine, identifier.quality)
     local allowed = ModuleSetup.allowed_module_names({machine}, recipe)
@@ -107,16 +129,17 @@ local function fill(cell, recipe, machine, identifier, product_full_name)
         add_beacon_button(add_row, nil, #setup.beacons + 1, beacon_filter)
     end
 
-    add_effects_label(cell, recipe.name)
+    add_effects_label(cell, setup)
 end
 
-function ModuleGUI.new(parent, recipe, machine, identifier, product_full_name)
+--owner: {loop_key, stage} for a quality loop stage's setup; nil for the recipe's own
+function ModuleGUI.new(parent, recipe, machine, identifier, product_full_name, owner)
     if ModuleSetup.machine_capacity(machine, identifier.quality) == 0 and not receives_beacons(machine) then
         parent.add{type = "empty-widget"}
         return
     end
     local cell = parent.add{type = "flow", direction = "vertical"}
-    fill(cell, recipe, machine, identifier, product_full_name)
+    fill(cell, recipe, machine, identifier, product_full_name, owner or {})
 end
 
 --The stored setup a control of a cell acts on, or nil when the cell is stale:
@@ -131,6 +154,16 @@ local function current_setup(element)
     end
     local recipe_name = cell.tags.recipe_name
     local player_index = element.player_index
+    if cell.tags.loop_key then
+        --a loop stage's cell: stale once the loop, its stage recipe, its machine or its setup changed
+        local loop = storage[player_index].quality_loops_by_key[cell.tags.loop_key]
+        local stage = loop and (cell.tags.stage ~= "craft" or QualityLoops.crafts_at(loop, cell.tags.tier))
+            and QualityLoops.stage(player_index, loop, cell.tags.stage, cell.tags.tier)
+        if not (stage and stage.machine and stage.recipe.name == recipe_name) or ModuleSetup.signature(stage.setup, stage.machine) ~= cell.tags.signature then
+            return nil
+        end
+        return stage.setup, cell, recipe_name, stage.machine
+    end
     local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
     local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
     if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
@@ -145,7 +178,11 @@ end
 
 --Makes the stored setup valid again and rebuilds the cell from it, with a fresh signature
 local function apply(cell, recipe_name, identifier)
-    ModuleSetup.sanitize(cell.player_index, recipe_name)
+    if cell.tags.loop_key then
+        ModuleSetup.sanitize_setup(owned_setup(cell.player_index, recipe_name, cell.tags), identifier, prototypes.recipe[recipe_name])
+    else
+        ModuleSetup.sanitize(cell.player_index, recipe_name)
+    end
     cell.clear()
     fill(cell, prototypes.recipe[recipe_name], prototypes.entity[identifier.name], identifier)
 end

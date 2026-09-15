@@ -297,7 +297,8 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " F2l the report leaves out a row whose item was removed", function()
         stale_world(shape)
         local output_flow = H.gui_root({type = "flow", name = "output_flow"})
-        require("gui.report").new(output_flow, {}, {}, {["item/gone"] = 5, ["item/raw"] = 1}, 0, 0)
+        require("gui.report").new(output_flow, {status = "ok", columns = {}, recipe_rates = {}, solved_rates = {}, reasons_by_column = {},
+            unsolved_rates = {["item/gone"] = 5, ["item/raw"] = 1}}, 0, 0)
         local report = H.parse_report(output_flow)
         H.equal(report.rows["item/gone"], nil, "row of missing item")
         H.near(report.rows["item/raw"].rate, 1, "raw row")
@@ -361,23 +362,33 @@ for _, shape in ipairs(H.shapes()) do
         local _, pane_b = H.run_sheet({{item = "gear", rate = 2, unit = "/s"}})
         storage[1].sheet_section = {sheet_pane = pane_a}
 
+        local function first(pane, name)
+            return find_all(pane, function(element) return element.name == name end)[1]
+        end
+        --controls of sheet A as they were before its recomputation cleared them, and sheet B's, which is never rebuilt
+        local controls = {}
+        for _, pane in ipairs({pane_a, pane_b}) do
+            controls[pane] = {}
+            for _, name in ipairs({"hxrrc_choose_module_button", "hxrrc_beacon_count_textfield", "hxrrc_beacon_sharing_textfield",
+                    "hxrrc_choose_beacon_module_button", "hxrrc_choose_beacon_button"}) do
+                controls[pane][name] = first(pane, name)
+            end
+        end
+
         local recipe_button = find_all(pane_a, function(element) return element.name == "hxrrc_choose_recipe_button" end)[1]
         recipe_button.elem_value = "b"
         fire_elem_changed(recipe_button)
         recompute(pane_a)
-        H.equal(#world.flying_texts, 1, "recipe b fails to solve and the old report stays")
+        H.equal(#world.flying_texts, 1, "recipe b fails to solve")
         H.equal(storage[1].recipes_by_product_full_name["item/gear"].name, "b", "gear is now bound to b")
         storage.computation_stack = {}
-
-        local function first(pane, name)
-            return find_all(pane, function(element) return element.name == name end)[1]
-        end
         local function confirm(field, text)
             field.text = text
             event_handlers.on_gui_confirmed[field.name]({element = field, player_index = 1})
         end
         for _, pane in ipairs({pane_a, pane_b}) do
             local what = pane == pane_a and "sheet with the failed recomputation" or "sibling sheet"
+            local function first(_, name) return controls[pane][name] end
             local slot = first(pane, "hxrrc_choose_module_button")
             slot.elem_value = {name = "productivity-module"}
             fire_elem_changed(slot)

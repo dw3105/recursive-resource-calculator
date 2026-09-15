@@ -22,10 +22,9 @@ function Utils.product_probability(product)
     return product.probability or 1
 end
 
---Summed effects of a recipe's stored modules and beacons, each module at its quality; stored setups are kept valid, so every module and beacon still exists
-function Utils.recipe_effects(player_index, recipe_name)
+--Summed effects of a setup's modules and beacons, each module at its quality; stored setups are kept valid, so every module and beacon still exists
+function Utils.setup_effects(setup)
     local totals = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}
-    local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
     for _, module in ipairs(setup.modules) do
         local effects = prototypes.item[module.name].get_module_effects(module.quality) or {} --2.1 marks module effects optional
         for _, effect in ipairs(Utils.module_effect_names) do
@@ -58,14 +57,20 @@ function Utils.recipe_effects(player_index, recipe_name)
     return totals
 end
 
-function Utils.module_effect_multiplier(player_index, recipe_name, effect)
-    local multiplier = Utils.recipe_effects(player_index, recipe_name)[effect] + 1
+--Summed effects of the setup stored for a recipe
+function Utils.recipe_effects(player_index, recipe_name)
+    return Utils.setup_effects(storage[player_index].module_setups_by_recipe_name[recipe_name])
+end
+
+--Multiplier of an effect with the engine's lower bound of 20%
+function Utils.effect_multiplier(effects, effect)
+    local multiplier = effects[effect] + 1
     return multiplier > 0.2 and multiplier or 0.2
 end
 
---quality is the chosen machine's quality name, nil meaning normal
-function Utils.machine_amount(recipe, recipe_rate, crafting_machine, player_index, quality)
-    local speed_multiplier = Utils.module_effect_multiplier(player_index, recipe.name, "speed")
+--quality is the machine's quality name, nil meaning normal; setup is the module setup the machine runs with
+function Utils.machine_amount(recipe, recipe_rate, crafting_machine, quality, setup)
+    local speed_multiplier = Utils.effect_multiplier(Utils.setup_effects(setup), "speed")
     local crafting_speed = crafting_machine.get_crafting_speed(quality) * speed_multiplier
     return recipe_rate * recipe.energy / crafting_speed
 end

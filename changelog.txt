@@ -1,4 +1,119 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.24
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.23, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality is not calculated in Factorio 2.1 yet: none of the 1.1.23 quality changes apply there.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.23
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.24).
+    - A recipe that takes no items (e.g. casting from molten metal) crafts only normal quality, so it can start
+      a loop but not craft its higher tiers.
+    - When higher-quality items are shared by several loops, each loop may cover the same share of its target
+      from them; a loop held back by another missing item leaves its part to the others. If the calculator
+      cannot settle the shares it says so; the sheet may still be possible.
+    - Sheets with several loops using the same higher-quality items take longer to compute.
+  Features:
+    - Each tier of a quality loop above its start quality has its own recipe: casting gears from molten iron at
+      normal quality and assembling higher-quality gears from recycled plates now works. The recipe is picked
+      automatically and can be changed on each tier row.
+    - Loops use higher-quality items made elsewhere on the sheet, e.g. uncommon plates from a foundry with
+      quality modules go into the uncommon gear tier instead of showing as byproducts. The tier row's tooltip
+      shows what it takes from other rows. A loop that needs such items to reach its target at all uses them.
+    - Each sheet chooses what happens to items a loop gets back at its start quality when its start recipe
+      takes no items: left over, crafted into the item by another recipe (an extra row after the start tier),
+      or recycled into themselves in the recycler pool until gone or upgraded.
+  Bugfixes:
+    - The recycle recipe control lists only recipes that can recycle the item, instead of every recipe using
+      it (such as the recycler building). It is disabled when no recipe can.
+    - The byproduct row of a loop's own item offers that loop's recycle recipe instead of a consumer or burner,
+      which replaced the item's recipe and broke the loop.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.22
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.21, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality is not calculated in Factorio 2.1 yet: quality targets say so on their row, and quality modules
+      do not change rates.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.21
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.22).
+    - Loops saved by 1.1.19 get their crafting modules copied to every tier, including the target tier; remove
+      the quality modules there if that tier should craft without them.
+  Features:
+    - The recipe button of a quality loop also picks the recipe's quality: the loop crafts from that quality up
+      to the target (legendary from legendary parts is one tier), and its ingredients are asked for at that
+      quality. An ingredient above normal quality is made by its own loop when its item has a recipe.
+    - Every tier of a quality loop has its own machine and modules, so the tiers below the target can use
+      quality modules and the target tier something else.
+    - Recyclers of a loop are one pool: a total row holds their machine, modules and recycle recipe, and each
+      tier row shows the recyclers running at that quality.
+  Changes:
+    - Quality modules now change the rates of every recipe row: a row's normal output shrinks by the share
+      that comes out at higher quality, and those items show as byproducts. Modules count at their own quality.
+    - A quality loop that cannot be solved shows all its tiers and the recycler pool with their editors.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.20
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.19, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality targets are not calculated in Factorio 2.1 yet, as its quality mechanics are not verified:
+      a target above normal quality says so on its row.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.19
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.20).
+    - Quality loops assume each tier crafts as many sets as its returned ingredients allow and recycles
+      everything below the target. Chances after a first upgrade use the reached quality's next_probability
+      (10% in the base game); modded quality chains are not verified in game. Items the loop leaves above
+      normal quality show as byproducts without a consumer or burner control.
+  Features:
+    - Targets can have a quality. A target above normal quality is made by a quality loop: crafting with
+      quality modules, and recycling what misses the target quality back into its ingredients. The report
+      shows a row per quality tier with the crafting machines and recyclers running there, their counts
+      and upgrade chances, and the loop's module and recycle recipe controls. The recycle recipe is
+      picked automatically when only one recipe fits; without one, nothing is recycled.
+    - Loop settings are kept per item and quality and shared by every sheet.
+  Changes:
+    - The module effects label shows a quality effect as the chance to upgrade from normal quality
+      (Factorio 2.0), instead of the raw effect.
+    - A recipe with a single possible machine can still pick that machine's quality.
+    - Sheets saved by older versions keep their targets; their item buttons now also pick a quality.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.18
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.17, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.17
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.18).
+    - Burner counts assume full load. Boilers and generators burn fuel only while their output is used.
+      In Factorio 2.1, fluid energy sources with an output fluid box are not offered.
+  Features:
+    - Excess products can be reprocessed: byproduct rows have a recipe button listing recipes that
+      consume the product (cracking, recycling, venting, modded recipes). The chosen recipe takes all
+      of the excess, and its own outputs join the sheet, where they can be consumed in turn.
+    - Excess fuel can be burnt: byproduct rows offer the reactors (such as the heating tower), boilers
+      and burner generators that accept it. The row shows how many burn it at their maximum draw and
+      their pollution; burnt results such as spent fuel join the sheet. Fluids with a fuel value can be
+      burnt by fluid-burning energy sources.
+  Changes:
+    - A sheet whose bindings would need a recipe or burner to run backwards, or a consumer that no
+      longer consumes its product (for example after productivity research), no longer shows wrong
+      totals. The rows at fault say why, energy and pollution show as unavailable, and every machine,
+      module, recipe and burner control stays usable to fix it.
+    - A sheet that cannot be solved no longer keeps the previous report on screen: it lists the recipes
+      it uses so a binding can be undone.
+    - Machine buttons remember their own row, so a report left from before a recipe change refuses edits
+      instead of changing another recipe's machine.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.16
 Date: 2026.09.13
   Info:
