@@ -2,17 +2,29 @@ local Utils = require "logic.utils"
 
 local Solver = {}
 
+--Follows every ingredient to its bound recipe, and every product only into a recipe the player picked to consume it,
+--so byproducts bound to a producer stay out of the system as before
 local function determine_used_recipes(recipe, used_recipe_name_set, player_index)
     if not recipe or used_recipe_name_set[recipe.name] then
         return
     end
 
     used_recipe_name_set[recipe.name] = true
+    local player_storage = storage[player_index]
 
     for _, ingredient in ipairs(recipe.ingredients) do
         local ingridient_full_name = ingredient.type .. "/" .. ingredient.name
-        local ingridient_recipe = storage[player_index].recipes_by_product_full_name[ingridient_full_name]
+        local ingridient_recipe = player_storage.recipes_by_product_full_name[ingridient_full_name]
         determine_used_recipes(ingridient_recipe, used_recipe_name_set, player_index)
+    end
+
+    for _, product in ipairs(recipe.products) do
+        if product.type ~= "research-progress" then
+            local product_full_name = product.type .. "/" .. product.name
+            if player_storage.consumer_product_full_names[product_full_name] then
+                determine_used_recipes(player_storage.recipes_by_product_full_name[product_full_name], used_recipe_name_set, player_index)
+            end
+        end
     end
 end
 
@@ -254,33 +266,80 @@ local function compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by
     return solved_rates, unsolved_rates
 end
 
---Returns recipe rates, the rates of solved products and the rates of all other products involved
+--Net amount per craft of a product in a recipe at the productivity the solver uses now; nil when the recipe nets none of it
+function Solver.net_amount_of(recipe, product_full_name, player_index)
+    return Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))[product_full_name]
+end
+
+local function is_finite(x)
+    return x == x and x ~= math.huge and x ~= -math.huge
+end
+
+--Solves the sheet's targets. Returns {status, columns, recipe_rates, solved_rates, unsolved_rates, reasons_by_column}:
+--  status "ok": every rate is usable; "infeasible": reasons_by_column names the columns at fault, with rates only when the system was solved;
+--  "unsolvable": the equations have no single answer, no rates.
+--  columns: the used recipes in matrix order, known before solving, each {recipe_name, product_full_name, consumer}.
+--  reasons_by_column: [recipe name] = locale key under hxrrc.
 function Solver.solve_for(production_rates_by_product_full_name, player_index)
+    local player_storage = storage[player_index]
     local used_recipe_name_set = {}
     for product_full_name, _ in pairs(production_rates_by_product_full_name) do
-        determine_used_recipes(storage[player_index].recipes_by_product_full_name[product_full_name], used_recipe_name_set, player_index)
+        determine_used_recipes(player_storage.recipes_by_product_full_name[product_full_name], used_recipe_name_set, player_index)
     end
 
     local used_recipe_name_list = {}
+    local columns = {}
+    local reasons_by_column = {}
     local net_amounts_by_recipe_name = {}
     for recipe_name, _ in pairs(used_recipe_name_set) do
         table.insert(used_recipe_name_list, recipe_name)
         local recipe = prototypes.recipe[recipe_name]
+        local product_full_name = player_storage.product_full_names_by_recipe_name[recipe_name]
+        local consumer = player_storage.consumer_product_full_names[product_full_name] == true
+        columns[#columns + 1] = {recipe_name = recipe_name, product_full_name = product_full_name, consumer = consumer}
         net_amounts_by_recipe_name[recipe_name] = Utils.net_amounts_by_full_name(recipe, get_productivity_bonus_for_recipe(recipe, player_index))
+        --checked before solving: a consumer netting zero leaves its product's equation empty, and the solve would fail without saying why
+        local net_amount = net_amounts_by_recipe_name[recipe_name][product_full_name]
+        if consumer and not (net_amount and net_amount < 0) then
+            reasons_by_column[recipe_name] = "consumer_no_longer_consumes"
+        end
+    end
+    if next(reasons_by_column) then
+        return {status = "infeasible", columns = columns, reasons_by_column = reasons_by_column}
     end
 
     local solutions_by_recipe_index = gauss_solve(prepare_matrix(used_recipe_name_list, production_rates_by_product_full_name, net_amounts_by_recipe_name, player_index))
     if not solutions_by_recipe_index then
-        return
+        return {status = "unsolvable", columns = columns, reasons_by_column = reasons_by_column}
     end
 
     local recipe_rates_by_recipe_name = {}
+    local largest_rate = 1
     for recipe_index, recipe_name in ipairs(used_recipe_name_list) do
-        recipe_rates_by_recipe_name[recipe_name] = solutions_by_recipe_index[recipe_index]
+        local rate = solutions_by_recipe_index[recipe_index]
+        recipe_rates_by_recipe_name[recipe_name] = rate
+        if is_finite(rate) then
+            largest_rate = math.max(largest_rate, math.abs(rate))
+        end
+    end
+    --A recipe cannot run backwards: a negative rate beyond rounding of the system's largest rate means the bindings ask for the impossible
+    for recipe_name, rate in pairs(recipe_rates_by_recipe_name) do
+        if not is_finite(rate) then
+            reasons_by_column[recipe_name] = "rate_not_finite"
+        elseif rate < -1e-9 * largest_rate then
+            reasons_by_column[recipe_name] = "recipe_runs_backwards"
+        end
     end
 
     local solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = compute_product_rates(recipe_rates_by_recipe_name, net_amounts_by_recipe_name, production_rates_by_product_full_name, player_index)
-    return recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name
+    return {
+        status = next(reasons_by_column) and "infeasible" or "ok",
+        columns = columns,
+        recipe_rates = recipe_rates_by_recipe_name,
+        solved_rates = solved_rates_by_product_full_name,
+        unsolved_rates = unsolved_rates_by_product_full_name,
+        reasons_by_column = reasons_by_column,
+    }
 end
 
 --Exposed for offline tests only

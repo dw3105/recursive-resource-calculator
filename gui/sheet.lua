@@ -88,19 +88,27 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
         return
     end
 
-    local recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index)
-    if not recipe_rates_by_recipe_name then
-        --Matrix unsolved
+    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index)
+
+    --the previous report goes in every case, so no totals or controls of an earlier state stay on screen
+    local output_flow = sheet_flow.output_flow
+    output_flow.clear()
+
+    if result.status == "unsolvable" then
         game.get_player(sheet_flow.player_index).create_local_flying_text{text = {"hxrrc.system_with_no_solution_error"}, create_at_cursor = true}
+    end
+
+    if not result.recipe_rates then
+        Report.new_diagnostic(output_flow, result)
         return
     end
 
-    local energy_consumption, pollution = compute_power_and_pollution(sheet_flow.player_index, recipe_rates_by_recipe_name)
-    
-    local output_flow = sheet_flow.output_flow
-    output_flow.clear()
-    Report.new(output_flow, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution,
-        sheet_flow.hxrrc_round_up_machines_checkbox.state)
+    --totals only for a result whose every rate is usable
+    local energy_consumption, pollution
+    if result.status == "ok" then
+        energy_consumption, pollution = compute_power_and_pollution(sheet_flow.player_index, result.recipe_rates)
+    end
+    Report.new(output_flow, result, energy_consumption, pollution, sheet_flow.hxrrc_round_up_machines_checkbox.state)
 end
 
 --Adds controls that sheets saved by older versions lack; finds them by name (the engine returns nil for a missing child), so it is safe on every configuration change

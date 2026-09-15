@@ -84,7 +84,12 @@ for _, shape in ipairs(H.shapes()) do
         world.bind("item/p", "low")
         world.bind("item/q", "high")
         local report = H.run_sheet({{item = "p", rate = 1, unit = "/s"}, {item = "q", rate = 3, unit = "/s"}})
-        H.equal(report, nil, "report")
+        --a diagnostic report without numbers, listing the bindings so one can be undone
+        H.equal(report.energy_caption, "hxrrc.system_with_no_solution_error", "no totals, reason in their place")
+        H.equal(report.energy_mw, nil, "no energy total")
+        H.equal(report.rows["item/p"].rate, nil, "no rate for p")
+        H.equal(report.rows["item/q"].machines, nil, "no machine count for q")
+        H.equal(report.rows["item/p"].recipe_button.elem_value, "low", "p's binding editable")
         H.equal(world.flying_texts[1] and world.flying_texts[1][1], "hxrrc.system_with_no_solution_error", "flying text")
     end)
 

@@ -27,14 +27,23 @@ local function add_header(report, caption, tooltip)
     label.style.right_padding = 4
 end
 
-local function setup_headers(report, energy_consumption, pollution)
+--energy_consumption and pollution nil: totals of a result that cannot be trusted are not shown; unsolvable says why in place of the energy
+local function setup_headers(report, energy_consumption, pollution, unsolvable)
     add_header(report, {"", {"hxrrc.consumption"}, ":"}, {"hxrrc.consumption_header_tooltip"})
-    report.add{type = "label", caption = format_by_precision(energy_consumption / 1000000, report.player_index) .. " MW"}
+    if energy_consumption then
+        report.add{type = "label", caption = format_by_precision(energy_consumption / 1000000, report.player_index) .. " MW"}
+    else
+        report.add{type = "label", caption = unsolvable and {"hxrrc.system_with_no_solution_error"} or {"hxrrc.totals_unavailable"}}
+    end
 
     add_header(report, {"", {"hxrrc.pollution"}, ":"}, {"hxrrc.pollution_header_tooltip"})
     report.add{type = "flow", name = "pollution_flow"}
 
-    report.pollution_flow.add{type = "label", caption = format_by_precision(pollution * 60, report.player_index) .. " /m"}
+    if pollution then
+        report.pollution_flow.add{type = "label", caption = format_by_precision(pollution * 60, report.player_index) .. " /m"}
+    else
+        report.pollution_flow.add{type = "label", caption = {"hxrrc.totals_unavailable"}}
+    end
 
     for _, caption in ipairs({
         {"hxrrc.production_rates_table_header"},
@@ -59,6 +68,7 @@ local function prototype_of(product_full_name)
     return prototypes.fluid[short_name]
 end
 
+--production_rate nil: a row of a result without rates
 local function add_item_cell(report, product_full_name, production_rate)
     local item_cell = report.add{type = "flow"}
     item_cell.style.horizontally_stretchable = true
@@ -66,7 +76,7 @@ local function add_item_cell(report, product_full_name, production_rate)
     local prototype = prototype_of(product_full_name)
     item_cell.add{type = "sprite", sprite = product_full_name, tooltip = prototype.localised_name}
 
-    item_cell.add{type = "label", caption = format_by_precision(production_rate, report.player_index) .. " /s"}
+    item_cell.add{type = "label", caption = production_rate and (format_by_precision(production_rate, report.player_index) .. " /s") or ""}
 end
 
 local function add_byproduct_widgets(report)
@@ -105,7 +115,8 @@ local function crafting_category_filters(recipe)
     return filters
 end
 
-local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines)
+--reason: locale key shown in place of the machine count, for a row whose count cannot be trusted or does not exist
+local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines, reason)
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
     machine_cell.style.horizontally_stretchable = true
@@ -121,8 +132,12 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
     }
 
     --the machine amount:
-    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi, crafting_machine_identifier.quality)
     local label = machine_cell.add{type = "label", name = "label"}
+    if reason then
+        label.caption = {"hxrrc." .. reason}
+        return
+    end
+    local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, pi, crafting_machine_identifier.quality)
     if round_up_machines then --labels only: rates, energy and pollution stay exact
         label.caption = " x " .. rounded_up_count_text(machine_amount)
         label.tooltip = format_by_precision(machine_amount, pi)
@@ -131,7 +146,8 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
     end
 end
 
-local function add_row_for_solved_product(report, product_full_name, product_rate, recipe_rate, round_up_machines)
+--A row of a recipe the system uses. Rates are nil on a diagnostic row: its editors are all there, its numbers are not.
+local function add_row_for_solved_product(report, product_full_name, product_rate, recipe_rate, round_up_machines, reason)
     local pi = report.player_index
     local recipe = storage[pi].recipes_by_product_full_name[product_full_name]
 
@@ -140,11 +156,11 @@ local function add_row_for_solved_product(report, product_full_name, product_rat
     --Crafting machine and module cells:
     local crafting_machine_identifier = storage[pi].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
     if not crafting_machine_identifier then --the recipe only supports manual crafting:
-        report.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+        report.add{type = "label", caption = {"hxrrc." .. (reason or "not_automatically_craftable")}}
         report.add{type = "empty-widget"}
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
-        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines)
+        add_machine_cell(report, crafting_machine, recipe, recipe_rate, crafting_machine_identifier, round_up_machines, reason)
         ModuleGUI.new(report, recipe, crafting_machine, crafting_machine_identifier, product_full_name)
     end
 
@@ -163,25 +179,44 @@ local function add_row_for_unsolved_product(report, unsolved_product_full_name, 
     end
 end
 
+local function new_table(parent)
+    return parent.add{type = "table", name = "report", column_count = 4, draw_horizontal_lines = true, draw_vertical_lines = true}
+end
+
+--A solved result (see Solver.solve_for). energy_consumption and pollution are nil when the result is infeasible, and the header then shows no totals.
 --round_up_machines: show machine counts as whole machines (nil or false keeps exact counts)
-function Report.new(parent, recipe_rates_by_recipe_name, solved_rates_by_product_full_name, unsolved_rates_by_product_full_name, energy_consumption, pollution, round_up_machines)
-    local report = parent.add{type = "table", name = "report", column_count = 4, draw_horizontal_lines = true, draw_vertical_lines = true}
-    local pi = report.player_index
+function Report.new(parent, result, energy_consumption, pollution, round_up_machines)
+    local report = new_table(parent)
 
     setup_headers(report, energy_consumption, pollution)
 
     --Rows whose item or fluid was removed by a mod are left out: their sprites and filters would refer to missing prototypes
-    for recipe_name, recipe_rate in pairs(recipe_rates_by_recipe_name) do
-        local product_full_name = storage[pi].product_full_names_by_recipe_name[recipe_name]
+    for _, column in ipairs(result.columns) do
+        local product_full_name = column.product_full_name
         if prototype_of(product_full_name) then
-            add_row_for_solved_product(report, product_full_name, solved_rates_by_product_full_name[product_full_name], recipe_rate, round_up_machines)
+            add_row_for_solved_product(report, product_full_name, result.solved_rates[product_full_name], result.recipe_rates[column.recipe_name],
+                round_up_machines, result.reasons_by_column[column.recipe_name])
         end
     end
 
     --Holds exactly the products without a solved row, including byproducts whose bound recipe is not used here
-    for product_full_name, product_rate in pairs(unsolved_rates_by_product_full_name) do
+    for product_full_name, product_rate in pairs(result.unsolved_rates) do
         if prototype_of(product_full_name) then
             add_row_for_unsolved_product(report, product_full_name, product_rate)
+        end
+    end
+end
+
+--A result without rates: one row per used recipe with its reason and every editor it has in a solved report, so the cause can be fixed from here
+function Report.new_diagnostic(parent, result)
+    local report = new_table(parent)
+
+    setup_headers(report, nil, nil, result.status == "unsolvable")
+
+    for _, column in ipairs(result.columns) do
+        if prototype_of(column.product_full_name) then
+            --a row without a reason still shows a blank label where its count would be
+            add_row_for_solved_product(report, column.product_full_name, nil, nil, false, result.reasons_by_column[column.recipe_name] or "no_rate")
         end
     end
 end
