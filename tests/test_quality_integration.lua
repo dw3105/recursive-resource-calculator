@@ -193,6 +193,7 @@ for _, shape in ipairs({"2.0"}) do
             world.add_recipe({name = "W", category = "special", ingredients = {{name = "A", amount = 1}}, products = {{name = "W", amount = 1}},
                 allowed_effects = {"speed", "productivity"}})
             world.add_item("W")
+            world.add_recipe({name = "W-recycling", category = "recycling", ingredients = {{name = "W", amount = 1}}, products = {{name = "A", amount = 1, p = 0.25}}})
         end})
         local key = S.QualityId.encode("Z", "uncommon")
         local parts = {[key] = {type = "item", name = "Z", quality = "uncommon"}}
@@ -212,8 +213,18 @@ for _, shape in ipairs({"2.0"}) do
         local w_key = S.QualityId.encode("W", "uncommon")
         local w_parts = {[w_key] = {type = "item", name = "W", quality = "uncommon"}}
         S.QualityLoops.ensure(1, w_key, w_parts[w_key])
+        local w_loop = storage[1].quality_loops_by_key[w_key]
+        w_loop.recycle_recipe_name, w_loop.recycle.machine = nil, nil
         H.equal(solve({[w_key] = 1}, w_parts).reasons_by_column["quality-loop:" .. w_key], "quality_target_unreachable",
             "the machine's own quality effect does not apply to a recipe forbidding quality")
+        --Q-3b: such a recipe is still a loop; a recycler with quality modules reaches the target
+        w_loop.recycle_recipe_name = "W-recycling"
+        w_loop.recycle.machine = {name = "recycler"}
+        w_loop.recycle.setup.modules = four_q()
+        result = solve({[w_key] = 1}, w_parts)
+        H.equal(result.status, "ok", "a recipe forbidding quality reaches the target through the recycler")
+        --normal: 1 craft, all recycled into 0.225 normal A and 0.025 uncommon A; uncommon: 0.025 crafts, output 0.025
+        H.near(result.unsolved_rates["item/A"], (1 - 0.225) / 0.025, "normal A per target")
     end)
 
     H.test(shape .. " Q-19 configuration changes keep loops valid", function()

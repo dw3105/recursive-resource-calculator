@@ -286,11 +286,13 @@ for _, shape in ipairs({"2.0"}) do
         H.equal(loop.module_flows.recycle.children[1].type, "flow", "recycle module cell")
         H.equal(loop.recycle_button.elem_value, "X-recycling", "recycle button")
 
-        --no recycle recipe
-        loop_world(shape)
-        key = configure("X", "uncommon", {}, {})
-        storage[1].quality_loops_by_key[key].recycle_recipe_name = nil
-        loop = H.run_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}}).loops[key]
+        --no recycle recipe from the start (Q-22 (a)): two recipes could recycle X, so none is picked for the new loop
+        loop_world(shape, {extra = function(world)
+            world.add_recipe({name = "X-shredding", category = "recycling", ingredients = {{name = "X", amount = 1}}, products = {{name = "A", amount = 1, p = 0.5}}})
+        end})
+        loop = H.run_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}}).loops[M.QualityId.encode("X", "uncommon")]
+        key = M.QualityId.encode("X", "uncommon")
+        H.equal(storage[1].quality_loops_by_key[key].recycle_recipe_name, nil, "created without a recycle recipe")
         H.equal(count_machine_buttons(loop.tiers[1]), 1, "one machine button")
         H.equal(loop.tiers[1].recycle, nil, "no recycle line")
         H.equal(loop.module_flows.recycle.children[1].type, "empty-widget", "no recycle module editor")
@@ -350,6 +352,17 @@ for _, shape in ipairs({"2.0"}) do
         H.near(report.loops[b_key].tiers[1].craft.machines, 2, "B crafts 2 per second for 1 per second of its own")
         H.equal(power_calls, 1, "totals computed once solved")
         H.near(report.rows["item/C"].rate, 2, "C for B's crafts")
+
+        --without a B target, the uncommon B the X loop leaves is a byproduct row, even though B's loop is configured
+        row.rate_textfield.text = "0"
+        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        report = H.parse_report(sheet_flow.output_flow)
+        H.equal(report.loops[b_key], nil, "B's loop not used")
+        local leftover = report.rows[b_key]
+        assert(leftover, "no uncommon B row")
+        H.equal(leftover.kind, "hxrrc.byproduct", "a byproduct")
+        H.near(leftover.rate, -1, "one uncommon B per uncommon X")
+        H.equal(leftover.recipe_button, nil, "no consumer control")
     end)
 
     H.test(shape .. " Q-22 (a) (b) (c) (e) (h) a loop without a recycle recipe, through the sheet and the handlers", function()
