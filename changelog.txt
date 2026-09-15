@@ -1,4 +1,30 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.22
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.21, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality is not calculated in Factorio 2.1 yet: quality targets say so on their row, and quality modules
+      do not change rates.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.21
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.22).
+    - Loops saved by 1.1.19 get their crafting modules copied to every tier, including the target tier; remove
+      the quality modules there if that tier should craft without them.
+  Features:
+    - The recipe button of a quality loop also picks the recipe's quality: the loop crafts from that quality up
+      to the target (legendary from legendary parts is one tier), and its ingredients are asked for at that
+      quality. An ingredient above normal quality is made by its own loop when its item has a recipe.
+    - Every tier of a quality loop has its own machine and modules, so the tiers below the target can use
+      quality modules and the target tier something else.
+    - Recyclers of a loop are one pool: a total row holds their machine, modules and recycle recipe, and each
+      tier row shows the recyclers running at that quality.
+  Changes:
+    - Quality modules now change the rates of every recipe row: a row's normal output shrinks by the share
+      that comes out at higher quality, and those items show as byproducts. Modules count at their own quality.
+    - A quality loop that cannot be solved shows all its tiers and the recycler pool with their editors.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.20
 Date: 2026.09.15
   Info:

@@ -5,7 +5,7 @@ The mod leverages the game's API (https://lua-api.factorio.com/latest/) to:
 + build a directed graph of recipe dependencies that is used in the decomposition of products;
 + perform precise calculations of the number and type of machines needed, energy consumption and pollution emissions for each product;
 + reprocess excess products with a recipe that consumes them (cracking, recycling, venting), or burn excess fuel in reactors, boilers and burner generators;
-+ calculate quality targets as loops of quality-module crafting and recycling, tier by tier;
++ calculate quality: quality modules on every recipe, and quality targets as loops of crafting and recycling with a setup per tier;
 + compile the results of the computations into neatly built reports;
 + and finally, build the GUI that puts it all together.
 
