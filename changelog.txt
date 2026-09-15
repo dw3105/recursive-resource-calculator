@@ -1,4 +1,33 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.18
+Date: 2026.09.15
+  Info:
+    - Same code as 1.1.17, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.17
+Date: 2026.09.15
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.18).
+    - Burner counts assume full load. Boilers and generators burn fuel only while their output is used.
+      In Factorio 2.1, fluid energy sources with an output fluid box are not offered.
+  Features:
+    - Excess products can be reprocessed: byproduct rows have a recipe button listing recipes that
+      consume the product (cracking, recycling, venting, modded recipes). The chosen recipe takes all
+      of the excess, and its own outputs join the sheet, where they can be consumed in turn.
+    - Excess fuel can be burnt: byproduct rows offer the reactors (such as the heating tower), boilers
+      and burner generators that accept it. The row shows how many burn it at their maximum draw and
+      their pollution; burnt results such as spent fuel join the sheet. Fluids with a fuel value can be
+      burnt by fluid-burning energy sources.
+  Changes:
+    - A sheet whose bindings would need a recipe or burner to run backwards, or a consumer that no
+      longer consumes its product (for example after productivity research), no longer shows wrong
+      totals. The rows at fault say why, energy and pollution show as unavailable, and every machine,
+      module, recipe and burner control stays usable to fix it.
+    - A sheet that cannot be solved no longer keeps the previous report on screen: it lists the recipes
+      it uses so a binding can be undone.
+    - Machine buttons remember their own row, so a report left from before a recipe change refuses edits
+      instead of changing another recipe's machine.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.16
 Date: 2026.09.13
   Info:
