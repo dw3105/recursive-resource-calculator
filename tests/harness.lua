@@ -164,6 +164,16 @@ local function check_elem_filters(params)
         if not allowed[filter.filter] then
             error("Unknown " .. params.elem_type .. " filter " .. tostring(filter.filter), 3)
         end
+        --mode and invert are common to every prototype filter (2.0.77 RecipePrototypeFilter page)
+        if filter.mode ~= nil and filter.mode ~= "or" and filter.mode ~= "and" then
+            error("Unknown filter mode " .. tostring(filter.mode), 3)
+        end
+        if filter.invert ~= nil and type(filter.invert) ~= "boolean" then
+            error("filter invert must be a boolean", 3)
+        end
+        if filter.filter == "category" and not prototypes.recipe_category[filter.category] then
+            error("category filter names unknown recipe category " .. tostring(filter.category), 3)
+        end
         local nested = NESTED_FILTER_ELEM_TYPE[filter.filter]
         if nested then
             if type(filter.elem_filters) ~= "table" or #filter.elem_filters == 0 then
@@ -417,7 +427,7 @@ function H.new_world(shape)
         {name = "legendary", level = 5}})
 
     _G.prototypes = {
-        recipe = {}, item = {}, fluid = {}, entity = {},
+        recipe = {}, item = {}, fluid = {}, entity = {}, recipe_category = {},
         quality = qualities,
         get_entity_filtered = function(filters)
             local filter = filters[1]
@@ -565,7 +575,10 @@ function H.new_world(shape)
         local energy_usage = (spec.energy_kw or 210) * 1000 / 60 --joules per tick
         local pollution_per_second = (spec.pollution_per_minute or 4) / 60
         local categories = {}
-        for _, category in ipairs(spec.categories) do categories[category] = true end
+        for _, category in ipairs(spec.categories) do
+            categories[category] = true
+            prototypes.recipe_category[category] = prototypes.recipe_category[category] or {name = category, valid = true}
+        end
         local module_slots = spec.module_slots or 4
         local fields = {
             name = spec.name, type = spec.type or "assembling-machine", valid = true, localised_name = {"entity-name." .. spec.name},
@@ -655,6 +668,9 @@ function H.new_world(shape)
         local fields = {name = spec.name, valid = true, object_name = "LuaRecipePrototype", products = products, ingredients = ingredients,
             energy = spec.energy or 1, maximum_productivity = spec.maximum_productivity or 3, hidden = spec.hidden == true,
             allowed_effects = effect_dictionary(spec.allowed_effects), allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories)}
+        for _, category in ipairs({spec.category, table.unpack(spec.additional_categories or {})}) do
+            prototypes.recipe_category[category] = prototypes.recipe_category[category] or {name = category, valid = true}
+        end
         if shape == "2.1" then
             fields.categories = {spec.category, table.unpack(spec.additional_categories or {})}
         else
@@ -862,6 +878,7 @@ function H.parse_report(output_flow)
                     row.reason = row.kind
                 end
             end
+            row.recipe_cell = recipe_cell
             row.recipe_button = recipe_cell.type == "flow" and recipe_cell.children[1] or nil
             row.burner_button = recipe_cell.type == "flow" and recipe_cell.children[2] or nil
             assert(not parsed.rows[product_full_name], "report has two rows for " .. product_full_name)
@@ -870,6 +887,47 @@ function H.parse_report(output_flow)
         end
     end
     return parsed
+end
+
+--Names of the recipes a choose-elem-button of elem_type recipe lists with these filters, sorted. Documented 2.0.77 rules: a filter joins the one
+--before it with its mode ("or" by default), "and" binds tighter than "or", invert negates one filter. Supports the filters the mod uses.
+function H.recipes_matching(elem_filters)
+    local function matches(recipe, filter)
+        local result
+        if filter.filter == "category" then
+            result = (rawget(recipe, "category") or (rawget(recipe, "categories") or {})[1]) == filter.category
+        elseif filter.filter == "hidden" then
+            result = recipe.hidden == true
+        else
+            local list_name, kind = filter.filter:match("^has%-(%a+)%-(%a+)$")
+            local list = list_name == "ingredient" and recipe.ingredients or recipe.products
+            local names = {}
+            for _, inner in ipairs(filter.elem_filters) do names[inner.name] = true end
+            result = false
+            for _, entry in ipairs(list) do
+                if entry.type == kind and names[entry.name] then result = true end
+            end
+        end
+        if filter.invert then result = not result end
+        return result
+    end
+    local found = {}
+    for name, recipe in pairs(prototypes.recipe) do
+        local any, run = false, nil
+        for index, filter in ipairs(elem_filters) do
+            local value = matches(recipe, filter)
+            if index > 1 and filter.mode == "and" then
+                run = run and value
+            else
+                if run then any = true end
+                run = value
+            end
+        end
+        if run then any = true end
+        if any then found[#found + 1] = name end
+    end
+    table.sort(found)
+    return found
 end
 
 local results = {passed = 0, failed = 0, names = {}}

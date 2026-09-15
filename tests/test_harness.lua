@@ -238,4 +238,29 @@ H.test("H6 GUI mock: elem_type is read-only, only sprite-buttons show a quality,
     H.equal(locked.locked, true, "locked member")
 end)
 
+H.test("H7 recipe filters: category and mode are checked, and matching follows and-before-or with invert", function()
+    local world = H.new_world("2.0")
+    world.add_item("X")
+    world.add_item("Y")
+    world.add_recipe({name = "x-rec", category = "recycling", ingredients = {{name = "X", amount = 1}}, products = {{name = "Y", amount = 1}}})
+    world.add_recipe({name = "x-craft", category = "crafting", ingredients = {{name = "X", amount = 1}, {name = "Y", amount = 1}}, products = {{name = "Y", amount = 1}}})
+    world.add_recipe({name = "y-rec", category = "recycling", ingredients = {{name = "Y", amount = 1}}, products = {{name = "X", amount = 1}}})
+    local root = H.gui_root({type = "flow"})
+    local function takes(item) return {filter = "has-ingredient-item", elem_filters = {{filter = "name", name = item}}} end
+    H.errors(function() root.add{type = "choose-elem-button", elem_type = "recipe", elem_filters = {{filter = "category", category = "smelting"}}} end,
+        "unknown recipe category smelting", "unknown category")
+    H.errors(function() root.add{type = "choose-elem-button", elem_type = "recipe", elem_filters = {takes("X"), {filter = "category", category = "recycling", mode = "xor"}}} end,
+        "Unknown filter mode xor", "unknown mode")
+    H.errors(function() root.add{type = "choose-elem-button", elem_type = "recipe", elem_filters = {{filter = "hidden", invert = 1}}} end,
+        "invert must be a boolean", "invert type")
+    H.deep_equal(H.recipes_matching({takes("X")}), {"x-craft", "x-rec"}, "one filter")
+    H.deep_equal(H.recipes_matching({takes("X"), {filter = "category", category = "recycling", mode = "and"}}), {"x-rec"}, "and")
+    H.deep_equal(H.recipes_matching({takes("X"), {filter = "category", category = "recycling"}}), {"x-craft", "x-rec", "y-rec"}, "or by default")
+    --(X and crafting) or (Y and recycling): and binds tighter
+    H.deep_equal(H.recipes_matching({takes("X"), {filter = "category", category = "crafting", mode = "and"}, takes("Y"), {filter = "category", category = "recycling", mode = "and"}}),
+        {"x-craft", "y-rec"}, "and before or")
+    H.deep_equal(H.recipes_matching({takes("X"), {filter = "category", category = "recycling", mode = "and", invert = true}}), {"x-craft"}, "invert")
+    H.equal(prototypes.recipe_category.recycling.name, "recycling", "categories indexed")
+end)
+
 H.done("test_harness")
