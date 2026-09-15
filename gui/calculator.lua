@@ -122,6 +122,18 @@ event_handlers.on_gui_elem_changed["hxrrc_choose_burner_entity_button"] = functi
     end
 end
 
+event_handlers.on_gui_elem_changed["hxrrc_choose_loop_machine_button"] = function(event)
+    if Report.handle_loop_machine_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
+event_handlers.on_gui_elem_changed["hxrrc_choose_recycle_recipe_button"] = function(event)
+    if Report.handle_recycle_recipe_change(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end
+
 event_handlers.on_gui_elem_changed["hxrrc_choose_crafting_machine_button"] = function(event)
     if Report.handle_crafting_machine_change(event) then
         Calculator.recompute_everything(event.player_index)
