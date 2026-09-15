@@ -6,6 +6,8 @@
 --
 --The loop policy (see the plan's Round 5 section): each tier crafts as many sets as its ingredients allow, every item below the target tier is
 --recycled when a recycle recipe is set (otherwise it is a byproduct), and nothing is crafted above the target tier. Normal crafts are the scale.
+local Utils = require "logic.utils"
+
 local QualityLoop = {}
 
 --Largest normalized flow the loop supports; beyond it the result is refused rather than shown
@@ -62,6 +64,30 @@ function QualityLoop.recipe_refusal(recipe, item_name)
     end
 end
 
+--Reason a recipe cannot craft the target at a tier (chain_index: its position from normal), or nil. A fluid has no quality, so a recipe taking no
+--items only crafts at normal. One rule for the tier recipe control, QualityLoops.normalized and the solver.
+function QualityLoop.tier_recipe_refusal(recipe, item_name, chain_index)
+    local has_item_ingredient = false
+    for _, ingredient in ipairs(recipe.ingredients) do
+        if ingredient.type == "item" then
+            if ingredient.name == item_name then
+                return "quality_loop_recipe_consumes_target"
+            end
+            has_item_ingredient = true
+        end
+    end
+    if not has_item_ingredient and chain_index > 1 then
+        return "quality_loop_recipe_without_item_ingredient"
+    end
+    local made = 0
+    for _, product in ipairs(recipe.products) do
+        if product.type == "item" and product.name == item_name then made = made + Utils.product_amount(product, 0) end
+    end
+    if not (made > 0) then
+        return "quality_loop_tier_recipe_no_target"
+    end
+end
+
 --Reason a recipe cannot recycle the target, or nil; recipe nil means its prototype is gone. Used when picking it, when sanitizing, and before
 --the loop divides by the amount it consumes. Returns the consumed amount as second value when eligible.
 function QualityLoop.recycler_refusal(recipe, item_name)
@@ -87,6 +113,11 @@ end
 --  returns = {[name] = g_i}, self_return = y_X·D_r(u,u)}.
 --Returns {crafts, x, leftovers = {[name] = net amount at this tier}} or {reason}.
 function QualityLoop._tier_step(t)
+    if t.none then --a tier without a recipe crafts nothing; what reaches it stays
+        local leftovers = {}
+        for _, name in ipairs(t.items) do leftovers[name] = t.supply[name] end
+        return {crafts = 0, x = t.feed, leftovers = leftovers, recycled = false}
+    end
     local seeded
     if t.first then
         seeded = t.own > 0
@@ -236,7 +267,7 @@ function QualityLoop.balance(spec)
         local step_supply = {}
         for _, name in ipairs(item_names) do step_supply[name] = supply[name][u] end
         local step = QualityLoop._tier_step({
-            first = u == 1, recycling = recycling, items = item_names, amounts = amounts_by_tier[u], supply = step_supply,
+            first = u == 1, none = craft.tiers[u].none, recycling = recycling, items = item_names, amounts = amounts_by_tier[u], supply = step_supply,
             feed = (x_from_crafts[u] or 0) + (x_returns[u] or 0), own = craft.tiers[u].output * (craft_chances[u][u] or 0),
             returns = returns, self_return = recycling and x_yield * (recycle_chances[u][u] or 0) or 0,
         })

@@ -363,6 +363,23 @@ function add_recycle_recipe_button(parent, loop_key, item, recycle_recipe_name, 
     }
 end
 
+--A tier's recipe control above the loop's start quality: the recipe the tier crafts with (QualityLoops.tier_recipe); emptied, it is chosen automatically
+local function add_tier_recipe_cell(report, info, tier_quality)
+    local recipe_cell = report.add{type = "flow"}
+    recipe_cell.style.horizontally_stretchable = true
+    local recipe = QualityLoops.tier_recipe(report.player_index, info.config, tier_quality)
+    local shown = recipe and recipe.name
+    recipe_cell.add{
+        type = "choose-elem-button",
+        name = "hxrrc_choose_tier_recipe_button",
+        tooltip = {"hxrrc.choose_tier_recipe_tooltip"},
+        elem_type = "recipe",
+        recipe = shown,
+        elem_filters = {{filter = "has-product-item", elem_filters = {{filter = "name", name = info.item}}}},
+        tags = {loop_key = info.key, tier = tier_quality, shown = shown}, --the recipe shown, for Report.handle_tier_recipe_change
+    }
+end
+
 --The rows of a quality loop: one per tier from the recipe's quality to the target, each with its crafting machines, their count and upgrade chances,
 --its own module editor, and the recyclers running at that tier; then the recycler pool with the total, the recycler editors and the recycle recipe.
 --A loop with a reason, or without rates, shows the same rows with every editor and no counts, the reason in the first craft line.
@@ -442,7 +459,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         if index == 1 then
             add_loop_recipe_cell(report, info)
         else
-            report.add{type = "empty-widget"}
+            add_tier_recipe_cell(report, info, tier.quality)
         end
     end
 
@@ -823,11 +840,73 @@ function Report.handle_loop_recipe_change(event)
         end
     end
 
+    if picked.quality then
+        local index
+        for chain_index, quality in ipairs(QualityLoop.chain()) do
+            if quality.name == picked.quality then index = chain_index end
+        end
+        if QualityLoop.tier_recipe_refusal(prototypes.recipe[picked.name], loop.item, index) == "quality_loop_recipe_without_item_ingredient" then
+            return refuse("start_quality_needs_item_recipe_error")
+        end
+    end
+
     if picked.name ~= shown.name then
         Report.apply_binding(pi, tags.product_full_name, picked.name, false)
     end
     loop.start_quality = picked.quality
     button.tags = {product_full_name = tags.product_full_name, loop_key = tags.loop_key, shown = {name = picked.name, quality = picked.quality}}
+    return true
+end
+
+--Returns true when the recipe a loop tier crafts with changed. The button keeps the recipe it showed: it is stale unless the loop still crafts at that
+--tier, above its start quality, with that recipe. A pick that cannot craft the tier is refused; emptying goes back to the automatic choice. The tier's
+--machine and modules are fitted to the recipe it now uses.
+function Report.handle_tier_recipe_change(event)
+    local pi = event.player_index
+    local button = event.element
+    local tags = button.tags
+    local picked = button.elem_value
+    if picked == tags.shown then
+        return false
+    end
+    local function restore()
+        button.elem_value = tags.shown and prototypes.recipe[tags.shown] and tags.shown or nil
+        return false
+    end
+    local loop = storage[pi].quality_loops_by_key[tags.loop_key]
+    if not (loop and QualityLoops.crafts_at(loop, tags.tier) and tags.tier ~= (loop.start_quality or "normal")) then
+        return restore()
+    end
+    local current = QualityLoops.tier_recipe(pi, loop, tags.tier)
+    if (current and current.name) ~= tags.shown then
+        return restore()
+    end
+    if picked then
+        local index
+        for chain_index, quality in ipairs(QualityLoop.chain()) do
+            if quality.name == tags.tier then index = chain_index end
+        end
+        if QualityLoop.tier_recipe_refusal(prototypes.recipe[picked], loop.item, index) then
+            game.get_player(pi).create_local_flying_text{text = {"hxrrc.tier_recipe_refused_error"}, create_at_cursor = true}
+            return restore()
+        end
+    end
+    loop.crafts[tags.tier] = loop.crafts[tags.tier] or {setup = ModuleSetup.new_setup()}
+    local settings = loop.crafts[tags.tier]
+    settings.recipe_name = picked
+    local recipe = QualityLoops.tier_recipe(pi, loop, tags.tier)
+    if recipe then
+        if not (settings.machine and Utils.can_craft(settings.machine.name, recipe)) then
+            local chosen = storage[pi].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
+            settings.machine = chosen and Utils.can_craft(chosen.name, recipe) and {name = chosen.name, quality = chosen.quality} or nil
+        end
+        if settings.machine then
+            ModuleSetup.sanitize_setup(settings.setup, settings.machine, recipe)
+        else
+            settings.setup = ModuleSetup.new_setup()
+        end
+    end
+    button.tags = {loop_key = tags.loop_key, tier = tags.tier, shown = recipe and recipe.name}
     return true
 end
 

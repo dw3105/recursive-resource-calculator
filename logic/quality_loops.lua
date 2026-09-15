@@ -1,6 +1,7 @@
 --Stored quality loop configurations, one per target item and quality, shared by every sheet of a player:
 --storage[pi].quality_loops_by_key[identity] = {item, quality, start_quality?, recycle_recipe_name?, crafts = {[quality name] = {machine?, setup}},
---  recycle = {machine?, setup}}.
+--  recycle = {machine?, setup}}; a tier's settings may also name recipe_name, the recipe it crafts with above the start quality (nil: chosen
+--  automatically, see QualityLoops.tier_recipe).
 --A loop crafts the recipe its item is bound to at every quality from start_quality (normal when nil) to its target, each with its own machine and
 --setup, and recycles what misses the target with recycle_recipe_name in one shared pool; without a recycle recipe nothing is recycled.
 --Nothing reads a stored configuration directly for a solve: QualityLoops.normalized gives a fresh copy that is valid now.
@@ -47,12 +48,46 @@ function QualityLoops.crafts_at(loop, tier)
     return false
 end
 
+--The only recipe making the item that can craft it at a chain position, found through the product index; nil when none or several
+local function auto_tier_recipe(item_name, chain_index)
+    local found
+    for _, recipe in ipairs(storage.recipe_lists_by_product_full_name["item/" .. item_name] or {}) do
+        if recipe.valid and not QualityLoop.tier_recipe_refusal(recipe, item_name, chain_index) then
+            if found then
+                return nil
+            end
+            found = recipe
+        end
+    end
+    return found
+end
+
+--The recipe a loop crafts at a tier: the item's producer at the start quality; above it the tier's chosen recipe while it can craft there, else the
+--producer while it can, else the only recipe making the item that can; nil when there is none. Pure: storage is only read.
+function QualityLoops.tier_recipe(player_index, loop, tier)
+    local producer = QualityLoops.producer_of(player_index, loop.item)
+    local indexes = chain_indexes()
+    local index = indexes[tier]
+    if not index or index <= (indexes[loop.start_quality or "normal"] or 1) then
+        return producer
+    end
+    local chosen_name = loop.crafts[tier] and loop.crafts[tier].recipe_name
+    local chosen = chosen_name and prototypes.recipe[chosen_name]
+    if chosen and not QualityLoop.tier_recipe_refusal(chosen, loop.item, index) then
+        return chosen
+    end
+    if producer and not QualityLoop.tier_recipe_refusal(producer, loop.item, index) then
+        return producer
+    end
+    return auto_tier_recipe(loop.item, index)
+end
+
 --The recipe a stage runs, its machine (nil when hand-crafted), that machine's prototype and the stage's setup; nil for a recycle stage without a
---recipe, or a craft stage without a producer or without settings for that tier
+--recipe, or a craft stage without a recipe (see QualityLoops.tier_recipe) or without settings for that tier
 function QualityLoops.stage(player_index, loop, stage_name, tier)
     local recipe, settings
     if stage_name == "craft" then
-        recipe = QualityLoops.producer_of(player_index, loop.item)
+        recipe = QualityLoops.tier_recipe(player_index, loop, tier)
         settings = loop.crafts[tier]
     else
         recipe = loop.recycle_recipe_name and prototypes.recipe[loop.recycle_recipe_name]
@@ -64,12 +99,14 @@ function QualityLoops.stage(player_index, loop, stage_name, tier)
     return {recipe = recipe, machine = settings.machine, prototype = settings.machine and prototypes.entity[settings.machine.name], setup = settings.setup}
 end
 
---The recycle recipe a new loop starts with: the only recipe whose ingredients are all the item, and whose item products are among the craft
---recipe's item ingredients or the item itself. Found through the ingredient index, never by name.
-local function default_recycle_recipe_name(item_name, craft_recipe)
+--The recycle recipe a new loop starts with: the only recipe whose ingredients are all the item, and whose item products are among the item
+--ingredients of the recipes the loop crafts with, or the item itself. Found through the ingredient index, never by name.
+local function default_recycle_recipe_name(item_name, craft_recipes)
     local allowed = {[item_name] = true}
-    for _, ingredient in ipairs(craft_recipe.ingredients) do
-        if ingredient.type == "item" then allowed[ingredient.name] = true end
+    for _, craft_recipe in ipairs(craft_recipes) do
+        for _, ingredient in ipairs(craft_recipe.ingredients) do
+            if ingredient.type == "item" then allowed[ingredient.name] = true end
+        end
     end
     local found
     for _, recipe in ipairs(storage.recipe_lists_by_ingredient_full_name["item/" .. item_name] or {}) do
@@ -163,11 +200,48 @@ function QualityLoops.normalized(player_index, key, parts)
     end
     config.start_quality = start
 
+    --the settings of 1.1.19, one craft stage for the whole loop, become every tier's up to the target
+    local stored_crafts = stored and stored.crafts
+    if stored and not stored_crafts and stored.craft then
+        stored_crafts = {}
+        for index = 1, target or 0 do stored_crafts[chain[index].name] = stored.craft end
+    end
+    --each tier's chosen recipe first, kept while it can craft that tier, so the tier recipes below can be resolved
+    config.crafts = {}
+    for tier, settings in pairs(stored_crafts or {}) do
+        if prototypes.quality[tier] then
+            local recipe_name = settings.recipe_name
+            local recipe = recipe_name and prototypes.recipe[recipe_name]
+            if not (recipe and not QualityLoop.tier_recipe_refusal(recipe, item, indexes[tier] or 1)) then recipe_name = nil end
+            config.crafts[tier] = {recipe_name = recipe_name, machine = settings.machine, setup = settings.setup}
+        end
+    end
+    if craft_recipe and target then
+        for index = indexes[start or "normal"], target do
+            local tier = chain[index].name
+            config.crafts[tier] = config.crafts[tier] or {}
+        end
+    end
+    local tier_recipes = {}
+    if craft_recipe then
+        for tier, _ in pairs(config.crafts) do
+            tier_recipes[tier] = QualityLoops.tier_recipe(player_index, config, tier)
+        end
+    end
+
     local recycle_recipe_name
     if stored then
         recycle_recipe_name = stored.recycle_recipe_name
     else
-        recycle_recipe_name = default_recycle_recipe_name(item, craft_recipe)
+        local recipes, seen = {}, {}
+        for _, recipe in pairs(tier_recipes) do
+            if not seen[recipe.name] then
+                seen[recipe.name] = true
+                recipes[#recipes + 1] = recipe
+            end
+        end
+        table.sort(recipes, function(a, b) return a.name < b.name end)
+        recycle_recipe_name = default_recycle_recipe_name(item, recipes)
     end
     if recycle_recipe_name and QualityLoop.recycler_refusal(prototypes.recipe[recycle_recipe_name], item) then
         recycle_recipe_name = nil
@@ -182,28 +256,17 @@ function QualityLoops.normalized(player_index, key, parts)
         config.recycle = {setup = ModuleSetup.new_setup()}
     end
 
-    --the settings of 1.1.19, one craft stage for the whole loop, become every tier's up to the target
-    local stored_crafts = stored and stored.crafts
-    if stored and not stored_crafts and stored.craft then
-        stored_crafts = {}
-        for index = 1, target or 0 do stored_crafts[chain[index].name] = stored.craft end
-    end
-    config.crafts = {}
-    local chosen = craft_recipe and player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[craft_recipe.name]
-    for tier, settings in pairs(stored_crafts or {}) do
-        if prototypes.quality[tier] then
-            if craft_recipe then
-                local machine = kept_machine(settings.machine, craft_recipe) or kept_machine(chosen, craft_recipe)
-                config.crafts[tier] = {machine = machine, setup = valid_setup_copy(settings.setup, machine, craft_recipe)}
-            else --not used until the item is bound again, and nothing here depends on a recipe
-                config.crafts[tier] = deep_copy(settings)
-            end
-        end
-    end
-    if craft_recipe and target then
-        for index = indexes[start or "normal"], target do
-            local tier = chain[index].name
-            config.crafts[tier] = config.crafts[tier] or {machine = copy_identifier(kept_machine(chosen, craft_recipe)), setup = ModuleSetup.new_setup()}
+    --machines and setups fitted to each tier's recipe; a tier without a recipe keeps its settings as they are until it has one
+    local chosen_machines = player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name
+    for tier, settings in pairs(config.crafts) do
+        local recipe = tier_recipes[tier]
+        if recipe then
+            local machine = kept_machine(settings.machine, recipe) or kept_machine(chosen_machines[recipe.name], recipe)
+            config.crafts[tier] = {recipe_name = settings.recipe_name, machine = machine,
+                setup = settings.setup and valid_setup_copy(settings.setup, machine, recipe) or ModuleSetup.new_setup()}
+        else
+            config.crafts[tier] = deep_copy(settings)
+            config.crafts[tier].setup = config.crafts[tier].setup or ModuleSetup.new_setup()
         end
     end
     return config

@@ -152,7 +152,8 @@ local function loop_column(player_index, key, parts, product_parts, config)
     loop_info.craft_recipe_name = craft_recipe.name
     loop_info.recycle_recipe_name = config.recycle_recipe_name
 
-    local reason, consumed = QualityLoop.recipe_refusal(craft_recipe, parts.name)
+    local chain, next_probabilities, unlocked, indexes = chain_data(player_index)
+    local reason, consumed = QualityLoop.tier_recipe_refusal(craft_recipe, parts.name, indexes[config.start_quality or "normal"] or 1)
     if not reason and config.recycle_recipe_name then
         reason, consumed = QualityLoop.recycler_refusal(prototypes.recipe[config.recycle_recipe_name], parts.name)
     end
@@ -161,7 +162,6 @@ local function loop_column(player_index, key, parts, product_parts, config)
         return column
     end
 
-    local chain, next_probabilities, unlocked, indexes = chain_data(player_index)
     loop_info.chain = chain
     local target = indexes[parts.quality]
     if not target then
@@ -170,10 +170,18 @@ local function loop_column(player_index, key, parts, product_parts, config)
     end
     local start = indexes[config.start_quality or "normal"]
 
+    --a tier above the start without a recipe crafts nothing: fine for a pure quality roll, but recycling would return items nothing uses
     local craft_tiers = {}
     for index = start or 1, target do
         local stage = QualityLoops.stage(player_index, config, "craft", chain[index].name)
-        craft_tiers[index - (start or 1) + 1] = craft_tier_spec(stage, parts.name, player_index)
+        if stage then
+            craft_tiers[index - (start or 1) + 1] = craft_tier_spec(stage, parts.name, player_index)
+        elseif config.recycle_recipe_name then
+            loop_info.reason = "quality_loop_tier_recipe_missing"
+            return column
+        else
+            craft_tiers[index - (start or 1) + 1] = {none = true, quality_effect = 0, output = 0, ingredients = {}, fluid_ingredients = {}, byproducts = {}, fluid_products = {}}
+        end
     end
 
     local recycle_spec
