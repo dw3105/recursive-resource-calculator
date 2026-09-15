@@ -20,6 +20,20 @@ local function index_recipes()
         end
     end
     storage.recipe_lists_by_product_full_name = recipes
+
+    --every recipe once per item or fluid it takes, hidden ones included, so a recycle recipe is found without knowing its name
+    local recipes_by_ingredient = {}
+    for _, recipe_prototype in pairs(prototypes.recipe) do
+        local seen = {}
+        for _, ingredient in ipairs(recipe_prototype.ingredients) do
+            local full_name = ingredient.type .. "/" .. ingredient.name
+            if not seen[full_name] then
+                seen[full_name] = true
+                insert_multimap(recipes_by_ingredient, full_name, recipe_prototype)
+            end
+        end
+    end
+    storage.recipe_lists_by_ingredient_full_name = recipes_by_ingredient
 end
 
 local function compute_pollution(entity_prototype)

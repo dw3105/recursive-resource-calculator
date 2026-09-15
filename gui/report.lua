@@ -272,7 +272,9 @@ function Report.new(parent, result, energy_consumption, pollution, round_up_mach
     --Rows whose item or fluid was removed by a mod are left out: their sprites and filters would refer to missing prototypes
     for _, column in ipairs(result.columns) do
         local product_full_name = column.product_full_name
-        if prototype_of(product_full_name) then
+        if column.quality_loop then
+            --tier rows follow in the next commit
+        elseif prototype_of(product_full_name) then
             add_row_for_solved_product(report, column, result.solved_rates[product_full_name], result.recipe_rates[column.recipe_name],
                 round_up_machines, result.reasons_by_column[column.recipe_name])
         end
@@ -294,7 +296,9 @@ function Report.new_diagnostic(parent, result)
     setup_headers(report, nil, nil, result.status == "unsolvable")
 
     for _, column in ipairs(result.columns) do
-        if prototype_of(column.product_full_name) then
+        if column.quality_loop then
+            --tier rows follow in the next commit
+        elseif prototype_of(column.product_full_name) then
             --a row without a reason still shows a blank label where its count would be
             add_row_for_solved_product(report, column, nil, nil, false, result.reasons_by_column[column.recipe_name] or "no_rate")
         end

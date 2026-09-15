@@ -69,7 +69,8 @@ end)
 
 script.on_event(defines.events.on_research_finished, function(event)
     for _, effect in ipairs(event.research.prototype.effects) do
-        if effect.type == "change-recipe-productivity" then
+        --productivity changes recipe outputs; an unlocked quality changes how far quality loops reach
+        if effect.type == "change-recipe-productivity" or effect.type == "unlock-quality" then
             for _, player in pairs(event.research.force.players) do
                 Calculator.recompute_everything(player.index)
             end

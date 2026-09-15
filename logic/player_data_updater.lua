@@ -1,6 +1,7 @@
 local Utils = require "logic.utils"
 local ModuleSetup = require "logic.module_setup"
 local Burners = require "logic.burners"
+local QualityLoops = require "logic.quality_loops"
 
 local PlayerDataUpdater = {}
 
@@ -88,6 +89,7 @@ function PlayerDataUpdater.reinitialize(player_index)
     Burners.reinitialize(player_index)
     ModuleSetup.migrate(player_index)
     ModuleSetup.reinitialize(player_index)
+    QualityLoops.reinitialize(player_index)
 end
 
 return PlayerDataUpdater
