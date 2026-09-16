@@ -274,4 +274,98 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+--N11: a module in the hand pastes into the slot under the cursor
+
+local function gear_modules() return stored(storage[1].module_setups_by_recipe_name.gear.modules) end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N11a N11b N11h a module ghost pastes into the slot under the cursor, fills an empty row, and queues a recompute", function()
+        local world = pipette_world(shape)
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "speed-module", "uncommon")
+        press(world, slots(sheet_flow, "gear")[2])
+        H.equal(gear_modules(), "speed-module@uncommon,speed-module@uncommon,speed-module@uncommon,speed-module@uncommon", "empty row filled")
+        assert(#storage.computation_stack > 0, "recompute queued")
+        H.deep_equal(hand(), {name = "speed-module", quality = "uncommon", ghost = true}, "the ghost stays in the hand for the next paste")
+        sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "efficiency-module")
+        press(world, slots(sheet_flow, "gear")[3])
+        H.equal(gear_modules(), "speed-module@uncommon,speed-module@uncommon,efficiency-module,speed-module@uncommon", "a filled slot is replaced")
+    end)
+
+    H.test(shape .. " N11c N11d a module the slot refuses is refused with a flying text; a beacon slot checks the beacon and the machine", function()
+        local world = pipette_world(shape)
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "fast-assembler"}
+        storage[1].module_setups_by_recipe_name.gear.beacons = {{name = "beacon", count = 1, sharing = 1, modules = {}}}
+        local sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "productivity-module")
+        press(world, slots(sheet_flow, "gear")[1])
+        H.equal(gear_modules(), "", "the fast assembler refuses productivity")
+        H.equal(world.flying_texts[#world.flying_texts][1], "hxrrc.module_does_not_fit_error", "says why")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+        local texts = #world.flying_texts
+        world.hold_ghost(1, "raw")
+        press(world, slots(sheet_flow, "gear")[1])
+        H.equal(#world.flying_texts, texts, "a held item that is not a module is ignored, without a refusal text")
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler"} --takes quality modules
+        sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "q")
+        texts = #world.flying_texts
+        storage.computation_stack = {}
+        press(world, beacon_slots(sheet_flow, "gear", 1)[1])
+        H.equal(#storage[1].module_setups_by_recipe_name.gear.beacons[1].modules, 0, "the beacon refuses quality modules though the machine takes them")
+        H.equal(#world.flying_texts, texts + 1, "refused with a text, not dropped silently by sanitizing")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler"}
+        storage[1].module_setups_by_recipe_name.gear.beacons = {{name = "beacon", count = 1, sharing = 1, modules = {}}}
+        world.add_beacon({name = "open-beacon", module_slots = 2})
+        require("logic.indexer").run()
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "fast-assembler"}
+        storage[1].module_setups_by_recipe_name.gear = {modules = {}, beacons = {{name = "open-beacon", count = 1, sharing = 1, modules = {}}}}
+        sheet_flow = sheet({{item = "gear"}})
+        local before = #world.flying_texts
+        world.hold_ghost(1, "productivity-module")
+        press(world, beacon_slots(sheet_flow, "gear", 1)[1])
+        H.equal(#storage[1].module_setups_by_recipe_name.gear.beacons[1].modules, 0, "a beacon that takes productivity still checks the machine")
+        H.equal(#world.flying_texts, before + 1, "and says why")
+    end)
+
+    H.test(shape .. " N11e N11f a stale cell changes nothing; a quality a mod removed pastes as normal", function()
+        local world = pipette_world(shape)
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        local slot = slots(sheet_flow, "gear")[1]
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "efficiency-module"}}
+        world.hold_ghost(1, "speed-module")
+        press(world, slot)
+        H.equal(gear_modules(), "efficiency-module", "stale cell unchanged")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+        storage[1].module_setups_by_recipe_name.gear.modules = {}
+        sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "speed-module", "rare")
+        world.remove_quality("rare")
+        press(world, slots(sheet_flow, "gear")[1])
+        H.equal(gear_modules(), "speed-module,speed-module,speed-module,speed-module", "pasted at normal")
+    end)
+
+    H.test(shape .. " N11g N11i a real rare or legendary module stack pastes with its quality and effects, and wins over a leftover ghost", function()
+        local world = pipette_world(shape)
+        world.set_quality_chain({{name = "normal", level = 0}, {name = "rare", level = 2}, {name = "legendary", level = 5}})
+        world.add_module("speed-module", "speed", {speed = 0.2}, {rare = {speed = 0.32}, legendary = {speed = 0.5}})
+        require("logic.indexer").run()
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler"}
+        for _, case in ipairs({{"rare", 0.32}, {"legendary", 0.5}}) do
+            storage[1].module_setups_by_recipe_name.gear.modules = {}
+            local sheet_flow = sheet({{item = "gear"}})
+            world.empty_hand(1)
+            world.hold_ghost(1, "efficiency-module")
+            world.hold_item(1, "speed-module", case[1], 10)
+            press(world, slots(sheet_flow, "gear")[1])
+            H.equal(gear_modules(), ("speed-module@" .. case[1] .. ","):rep(4):sub(1, -2), case[1] .. " stack pasted with its quality over the ghost")
+            H.near(M.Utils.recipe_effects(1, "gear").speed, 4 * case[2], case[1] .. " effects")
+        end
+    end)
+end
+
 H.done("test_pipette")

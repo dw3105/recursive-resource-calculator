@@ -2,6 +2,7 @@
 --Factorio 2.0.77 gives the custom input event the GUI element under the cursor; anything that is not one of the calculator's controls is left to
 --the vanilla pipette, which runs on the same press.
 local ModuleGUI = require "gui.modulegui"
+local ModuleSetup = require "logic.module_setup"
 local Report = require "gui.report"
 local QualityLoops = require "logic.quality_loops"
 
@@ -73,6 +74,28 @@ local function stored_module(button)
     return modules and modules[button.tags.index]
 end
 
+--Pastes the module in the hand (real or ghost) into the slot under the cursor, through the path every pick takes (so an empty row fills).
+--A module the slot's entities or recipe refuse is refused with a flying text, as a manual pick could not choose it. Returns true when stored.
+local function paste_module(player, button, held)
+    if not storage.module_names[held.name] then
+        return false
+    end
+    local setup, _, recipe_name, identifier = ModuleGUI.context(button)
+    if not setup then
+        return false
+    end
+    local modules, entities = ModuleGUI.slot_target(button, setup, identifier)
+    if not modules then
+        return false
+    end
+    if not ModuleSetup.fits(held.name, entities, prototypes.recipe[recipe_name]) then
+        player.create_local_flying_text{text = {"hxrrc.module_does_not_fit_error"}, create_at_cursor = true}
+        return false
+    end
+    local quality = held.quality and prototypes.quality[held.quality] and held.quality or nil --a quality a mod removed falls back to normal
+    return ModuleGUI.pick_into(button, {name = held.name, quality = quality})
+end
+
 --Returns true when stored sheet state changed (so the caller recomputes)
 function Pipette.on_pipette(event)
     local element = event.element
@@ -81,11 +104,13 @@ function Pipette.on_pipette(event)
     end
     local player = game.get_player(event.player_index)
     if MODULE_SLOTS[element.name] then
-        if Pipette.held(player) == nil then
-            local module = stored_module(element)
-            if module then
-                player.cursor_ghost = {name = module.name, quality = module.quality}
-            end
+        local held = Pipette.held(player)
+        if held then
+            return paste_module(player, element, held)
+        end
+        local module = stored_module(element)
+        if module then
+            player.cursor_ghost = {name = module.name, quality = module.quality}
         end
         return false
     end
