@@ -1,6 +1,7 @@
 local Report = require "gui.report"
 local Sheet = require "gui.sheet"
 local ModuleGUI = require "gui.modulegui"
+local ModulePicker = require "gui.module_picker"
 local Calculator = {}
 
 function Calculator.build(player)
@@ -57,12 +58,15 @@ event_handlers.on_gui_click["hxrrc_delete_sheet_button"] = function(event)
 end
 
 function Calculator.toggle(player)
+    ModulePicker.close(player.index, false)
     local calculator = player.gui.screen.hxrrc_calculator
     calculator.visible = not calculator.visible
     player.opened = calculator.visible and calculator or nil
 end
 
 function Calculator.recompute_everything(player_index)
+    --every report is rebuilt, so a picker for one of their slots goes now
+    ModulePicker.close(player_index, true)
     local sheet_pane = storage[player_index].sheet_section.sheet_pane
 
     for sheet_index, _ in ipairs(sheet_pane.tabs) do
@@ -77,6 +81,20 @@ end
 event_handlers.on_gui_elem_changed["hxrrc_choose_module_button"] = function(event)
     if ModuleGUI.on_module_button_changed(event) then
         Calculator.recompute_everything(event.player_index)
+    end
+end
+
+--The module picker window's buttons
+for name, handler in pairs({
+    hxrrc_picker_module_button = ModulePicker.on_module_click,
+    hxrrc_picker_quality_button = ModulePicker.on_quality_click,
+    hxrrc_picker_confirm_button = function(event) return ModulePicker.confirm(event.player_index) end,
+    hxrrc_picker_clear_button = function(event) return ModulePicker.clear(event.player_index) end,
+}) do
+    event_handlers.on_gui_click[name] = function(event)
+        if handler(event) then
+            Calculator.recompute_everything(event.player_index)
+        end
     end
 end
 

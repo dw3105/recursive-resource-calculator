@@ -65,7 +65,7 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
 local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
     "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter"}
 local QUALITY_MEMBERS = {"name", "valid", "localised_name", "level", "next", "next_probability", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus",
-    "beacon_power_usage_multiplier"}
+    "beacon_power_usage_multiplier", "hidden"}
 
 local function gate(types)
     local set = set_of(types)
@@ -460,7 +460,7 @@ function H.new_world(shape)
             local next_probability = spec.next_probability or (index < #specs and 0.1 or 0)
             local quality = H.lua_object("LuaQualityPrototype", {name = spec.name, valid = true, localised_name = {"quality-name." .. spec.name},
                 level = spec.level, next_probability = next_probability, crafting_machine_module_slots_bonus = spec.level,
-                beacon_module_slots_bonus = spec.level, beacon_power_usage_multiplier = 1}, QUALITY_MEMBERS)
+                beacon_module_slots_bonus = spec.level, beacon_power_usage_multiplier = 1, hidden = spec.hidden == true}, QUALITY_MEMBERS)
             qualities[spec.name] = quality
             if previous then previous.next = quality end
             previous = quality
@@ -560,7 +560,7 @@ function H.new_world(shape)
     function world.add_unlinked_quality(name, level)
         prototypes.quality[name] = H.lua_object("LuaQualityPrototype", {name = name, valid = true, localised_name = {"quality-name." .. name},
             level = level, next_probability = 0.1, crafting_machine_module_slots_bonus = level, beacon_module_slots_bonus = level,
-            beacon_power_usage_multiplier = 1}, QUALITY_MEMBERS)
+            beacon_power_usage_multiplier = 1, hidden = false}, QUALITY_MEMBERS)
     end
 
     function world.lock_quality(name) world.locked_qualities[name] = true end

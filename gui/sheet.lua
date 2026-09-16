@@ -4,6 +4,7 @@ local InputContainer = require "gui.input_container"
 local compute_power_and_pollution = require "logic.compute_power_and_pollution"
 local QualityLoops = require "logic.quality_loops"
 local Utils = require "logic.utils"
+local ModulePicker = require "gui.module_picker"
 
 local Sheet = {}
 
@@ -96,6 +97,7 @@ end
 
 function Sheet.delete_selected_sheet(sheet_pane)
     if #sheet_pane.tabs > 1 then
+        ModulePicker.close(sheet_pane.player_index, true) --its slot may be on the sheet going away
         local tab_and_sheet = sheet_pane.tabs[sheet_pane.selected_tab_index]
         sheet_pane.remove_tab(tab_and_sheet.tab)
         tab_and_sheet.tab.destroy()
@@ -121,6 +123,8 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
         sheet_flow = sheet_and_flow.content
     end
 
+    --the sheet's report is cleared below, on every path, so a picker for one of its slots goes first
+    ModulePicker.close(sheet_flow.player_index, true)
     update_sheet_title(sheet_pane, sheet_index)
 
     local production_rates_by_product_full_name, product_parts = InputContainer.get_desired_production_rates_by_full_item_name(sheet_flow.input_container)

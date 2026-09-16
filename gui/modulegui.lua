@@ -208,47 +208,59 @@ local function restored_value(button)
     return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
 end
 
---Returns true when the stored setup changed
-function ModuleGUI.on_module_button_changed(event)
-    local button = event.element
-    local restored = restored_value(button)
-    --a refused change restores the button, which may raise this event again: the restored value is then a no-op
-    if same_value(button.elem_value, restored) then
-        return false
+--The stored setup, cell, recipe name and machine identifier a module slot acts on, or nil when its cell is stale
+function ModuleGUI.context(element)
+    return current_setup(element)
+end
+
+--The module list a slot button stores into, with the entities its modules must fit and that list's slot count; nil when the slot's group is gone
+function ModuleGUI.slot_target(button, setup, identifier)
+    local machine = prototypes.entity[identifier.name]
+    if button.name == "hxrrc_choose_beacon_module_button" then
+        local group = setup.beacons[button.tags.group]
+        if not group then
+            return nil
+        end
+        local beacon = prototypes.entity[group.name]
+        return group.modules, {beacon, machine}, ModuleSetup.beacon_capacity(beacon, group.quality)
     end
+    return setup.modules, {machine}, ModuleSetup.machine_capacity(machine, identifier.quality)
+end
+
+--Stores a value into the slot a button owns the way every pick does: a stale cell refuses it, the module list takes it through
+--ModuleSetup.store_pick (so an empty row fills), then the setup is sanitized and the cell rebuilt. picked: {name, quality} or nil to empty the slot.
+--Returns true when the stored setup changed. Shared by the chooser, the module picker window and pipette pastes.
+function ModuleGUI.pick_into(button, picked)
     local setup, cell, recipe_name, identifier = current_setup(button)
     if not setup then
-        button.elem_value = restored
         return false
     end
-    if not ModuleSetup.store_pick(setup.modules, button.tags.index, button.elem_value,
-        ModuleSetup.machine_capacity(prototypes.entity[identifier.name], identifier.quality)) then
+    local modules, _, capacity = ModuleGUI.slot_target(button, setup, identifier)
+    if not modules or not ModuleSetup.store_pick(modules, button.tags.index, picked, capacity) then
         return false
     end
     apply(cell, recipe_name, identifier)
     return true
 end
 
+--A chooser slot (Factorio's own picker, kept for reports built before the module picker window): refused changes restore the button's snapshot.
 --Returns true when the stored setup changed
-function ModuleGUI.on_beacon_module_button_changed(event)
-    local module_button = event.element
-    local restored = restored_value(module_button)
-    if same_value(module_button.elem_value, restored) then
+local function on_slot_value_changed(event)
+    local button = event.element
+    local restored = restored_value(button)
+    --a refused change restores the button, which may raise this event again: the restored value is then a no-op
+    if same_value(button.elem_value, restored) then
         return false
     end
-    local setup, cell, recipe_name, identifier = current_setup(module_button)
-    if not setup then
-        module_button.elem_value = restored
+    if not current_setup(button) then
+        button.elem_value = restored
         return false
     end
-    local group = setup.beacons[module_button.tags.group]
-    if not ModuleSetup.store_pick(group.modules, module_button.tags.index, module_button.elem_value,
-        ModuleSetup.beacon_capacity(prototypes.entity[group.name], group.quality)) then
-        return false
-    end
-    apply(cell, recipe_name, identifier)
-    return true
+    return ModuleGUI.pick_into(button, button.elem_value)
 end
+
+ModuleGUI.on_module_button_changed = on_slot_value_changed
+ModuleGUI.on_beacon_module_button_changed = on_slot_value_changed
 
 local function restored_beacon(beacon_button)
     local value = beacon_button.tags.value

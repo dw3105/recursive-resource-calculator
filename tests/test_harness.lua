@@ -214,7 +214,8 @@ H.test("H6 quality prototypes chain through next, and forces answer is_quality_u
     H.equal(prototypes.quality.normal.next.name, "c", "modded chain")
     H.equal(prototypes.quality.c.next_probability, 0.05, "modded next_probability")
     H.equal(prototypes.quality.uncommon, nil, "vanilla qualities replaced")
-    H.errors(function() return normal.hidden end, "LuaQualityPrototype doesn't contain key hidden", "quality mock stays strict")
+    H.errors(function() return normal.color end, "LuaQualityPrototype doesn't contain key color", "quality mock stays strict")
+    H.equal(prototypes.quality.normal.hidden, false, "hidden is a LuaPrototypeBase member, false unless a fixture hides the quality")
 end)
 
 H.test("H6 GUI mock: elem_type is read-only, only sprite-buttons show a quality, and a destroyed child's name can be reused", function()
