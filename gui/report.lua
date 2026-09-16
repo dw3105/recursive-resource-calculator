@@ -193,7 +193,7 @@ local function add_row_for_burner(report, column, product_rate, rate, round_up_m
 end
 
 local function machine_button_tooltip(machine_name)
-    return {"", prototypes.entity[machine_name].localised_name, "\n", {"hxrrc.choose_machine_button_tooltip"}}
+    return {"", prototypes.entity[machine_name].localised_name, "\n", {"hxrrc.choose_machine_button_tooltip_2"}}
 end
 
 --reason: locale key shown in place of the machine count, for a row whose count cannot be trusted or does not exist

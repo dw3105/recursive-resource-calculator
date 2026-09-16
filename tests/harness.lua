@@ -128,7 +128,7 @@ local FLUID_BOX_MEMBERS = {"valid", "filter"}
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
 local FORCE_MEMBERS = {"name", "valid", "recipes", "players", "is_quality_unlocked"}
 local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text", "cursor_ghost", "cursor_stack", "clear_cursor",
-    "is_cursor_empty"}
+    "is_cursor_empty", "cursor_record"}
 --LuaItemStack per 2.0.77, the members the cursor stack mock serves; quality reads as LuaQualityPrototype
 local ITEM_STACK_MEMBERS = {"valid", "valid_for_read", "name", "quality", "count", "prototype"}
 local HELPERS_MEMBERS = {"compare_versions", "is_valid_sprite_path"}
@@ -837,6 +837,11 @@ function H.new_world(shape)
         world.cursors[index] = {}
         queue_cursor_event(index)
     end
+    --A blueprint picked from the blueprint library: 2.0.77 LuaControl::cursor_record, held with no cursor stack item and no ghost
+    function world.hold_record(index)
+        cursor_of(index).record = H.lua_object("LuaRecord", {valid = true}, {"valid"})
+        queue_cursor_event(index)
+    end
     --Another GUI (inventory, map, another mod) takes player.opened
     function world.open_other_gui(index)
         game.players[index].opened = H.gui_root({type = "frame", name = "other_gui"}, index)
@@ -913,6 +918,7 @@ function H.new_world(shape)
                 end,
             },
             cursor_stack = {read = function() return cursor_stack end},
+            cursor_record = {read = function() return cursor_of(index).record end},
             --reads nil once the opened element is gone; assigning another value first raises on_gui_closed for the open GUI (order is an in-game check)
             opened = {
                 read = function()

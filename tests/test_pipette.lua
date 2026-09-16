@@ -399,7 +399,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(stored(storage[1].module_setups_by_recipe_name.gear.modules), "efficiency-module@rare,speed-module,speed-module", "P3f: right click clears, no paste")
     end)
 
-    H.test(shape .. " P3c P3d P3e a refused module says why and opens nothing; a non-module in the hand or an empty hand opens the picker", function()
+    H.test(shape .. " P3c P3d P3e a refused module says why and opens nothing; a non-module in the hand opens nothing; an empty hand opens the picker", function()
         local world = pipette_world(shape)
         storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "fast-assembler"}
         local sheet_flow = sheet({{item = "gear"}})
@@ -412,8 +412,8 @@ for _, shape in ipairs(H.shapes()) do
         world.empty_hand(1)
         world.hold_ghost(1, "assembler")
         slot_click(slots(sheet_flow, "gear")[1])
-        assert(storage[1].module_picker, "P3d: a machine ghost opens the picker")
-        M.ModulePicker.close(1, false)
+        H.equal(storage[1].module_picker, nil, "P3d: a machine ghost opens no picker")
+        H.equal(stored(storage[1].module_setups_by_recipe_name.gear.modules), "", "P3d: nothing stored")
         world.empty_hand(1)
         slot_click(slots(sheet_flow, "gear")[1])
         assert(storage[1].module_picker, "P3e: an empty hand opens the picker")
@@ -966,7 +966,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(button.quality.name, "rare", "P5a: machine quality")
         H.equal(button.tags.name, "assembler", "P5a: tags name")
         assert(button.tags.signature, "P5a: tags signature")
-        H.equal(button.tooltip[4][1], "hxrrc.choose_machine_button_tooltip", "P5a: tooltip says what a click does")
+        H.equal(button.tooltip[4][1], "hxrrc.choose_machine_button_tooltip_2", "P5a: tooltip says what a click does")
         left_click(button)
         H.equal(picker().kind, "machine", "P5b: machine picker")
         H.equal(picker().frame.caption[1], "hxrrc.machine_picker_title", "P5b: title")
@@ -1128,7 +1128,7 @@ for _, shape in ipairs(H.shapes()) do
         local group_button = beacon_buttons(sheet_flow, "gear")[1]
         H.equal(group_button.sprite, "entity/beacon", "P6a: group button shows its beacon")
         H.equal(group_button.quality.name, "uncommon", "P6a: and its quality")
-        H.equal(group_button.tooltip[4][1], "hxrrc.choose_beacon_button_tooltip", "P6a: group button tooltip")
+        H.equal(group_button.tooltip[4][1], "hxrrc.choose_beacon_button_tooltip_2", "P6a: group button tooltip")
         H.pick_choice(group_button, {name = "wide-beacon", quality = "rare"})
         H.equal(groups("gear"), "wide-beacon@rare x4 /2 [speed-module]", "P6c: beacon replaced; numbers kept; refused module dropped")
     end)
@@ -1192,6 +1192,161 @@ for _, shape in ipairs(H.shapes()) do
         local sheet_flow = sheet({{item = "gear"}})
         left_click(beacon_buttons(sheet_flow, "gear")[1])
         H.equal(offered_choices(), "beacon", "P6k: hidden beacon left out")
+    end)
+end
+
+--Q2: a left click with something in the hand never opens a picker: the copied ghost pastes as the pipette key does, anything else does nothing
+
+local function right_click(button)
+    event_handlers.on_gui_click[button.name]({element = button, player_index = 1, tick = 0, button = defines.mouse_button_type.right})
+end
+
+local function sheet_state()
+    return M.QualityLoops._deep_copy({chosen = chosen(), setups = setups(), loops = storage[1].quality_loops_by_key})
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " Q2a a click with the copied machine's ghost on another row's machine button opens no picker and pastes one tick later", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world, "uncommon")
+        left_click(machine_button(sheet_flow, "cog"), world.tick)
+        H.equal(picker(), nil, "no picker")
+        H.deep_equal(chosen().cog, {name = "press"}, "nothing written in the click's own tick")
+        world.advance_tick()
+        drain(world)
+        H.deep_equal(chosen().cog, {name = "assembler", quality = "uncommon"}, "machine and quality pasted")
+        H.equal(stored(setups().cog.modules), "speed-module,efficiency-module", "modules pasted")
+        H.equal(#setups().cog.beacons, 1, "beacon group pasted")
+        assert(clipboard(), "clipboard kept")
+    end)
+
+    H.test(shape .. " Q2b a click with the copied machine's ghost on a loop stage's machine button pastes onto that stage", function()
+        if shape ~= "2.0" then return end --quality loops are calculated on Factorio 2.0 only
+        local world = pipette_world(shape)
+        local key = M.QualityId.encode("X", "uncommon")
+        copied_assembler(world, "rare", {{name = "q"}})
+        local loop_flow = sheet({{item = "X", quality = "uncommon"}})
+        left_click(H.parse_report(loop_flow.output_flow).loops[key].tiers[1].craft.machine_button, world.tick)
+        H.equal(picker(), nil, "no picker")
+        world.advance_tick()
+        drain(world)
+        local normal = storage[1].quality_loops_by_key[key].crafts.normal
+        H.deep_equal(normal.machine, {name = "assembler", quality = "rare"}, "stage machine")
+        H.equal(stored(normal.setup.modules), "q", "stage modules")
+    end)
+
+    H.test(shape .. " Q2c a click with the copied group's ghost adds a group at the add button and replaces a group at a group button, opening no picker", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_beacon_group(world)
+        left_click(beacon_buttons(sheet_flow, "X")[1], world.tick)
+        H.equal(picker(), nil, "add button: no picker")
+        H.equal(#setups().X.beacons, 0, "nothing written in the click's own tick")
+        world.advance_tick()
+        drain(world)
+        H.equal(#setups().X.beacons, 1, "a group added")
+        H.equal(setups().X.beacons[1].count, 3, "with its count")
+        left_click(beacon_buttons(sheet_flow, "cog")[1], world.tick)
+        H.equal(picker(), nil, "group button: no picker")
+        world.advance_tick()
+        drain(world)
+        H.deep_equal(setups().cog.beacons, {clipboard().group}, "cog's group replaced")
+    end)
+
+    H.test(shape .. " Q2d a click with another machine's ghost opens no picker, records nothing, and drops the clipboard as the pipette key does", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        world.hold_ghost(1, "press") --not flushed: the click itself must drop the clipboard
+        left_click(machine_button(sheet_flow, "cog"), world.tick)
+        H.equal(picker(), nil, "no picker")
+        H.equal(storage[1].pipette_requests, nil, "no request")
+        H.equal(clipboard(), nil, "clipboard dropped")
+    end)
+
+    H.test(shape .. " Q2e a real item in the hand, clicked on a machine or beacon button, drops a machine or a beacon clipboard and opens no picker", function()
+        for _, clipboard_kind in ipairs({"machine", "beacon"}) do
+            for _, button_kind in ipairs({"machine", "beacon"}) do
+                local world = pipette_world(shape)
+                local sheet_flow = clipboard_kind == "machine" and copied_assembler(world) or copied_beacon_group(world)
+                assert(clipboard(), "copied")
+                world.hold_item(1, "raw", nil, 5) --not flushed: the click itself must drop the clipboard
+                local button = button_kind == "machine" and machine_button(sheet_flow, "cog") or beacon_buttons(sheet_flow, "cog")[1]
+                local label = clipboard_kind .. " clipboard, " .. button_kind .. " button: "
+                left_click(button, world.tick)
+                H.equal(picker(), nil, label .. "no picker")
+                H.equal(storage[1].pipette_requests, nil, label .. "no request")
+                H.equal(clipboard(), nil, label .. "clipboard dropped")
+            end
+        end
+    end)
+
+    H.test(shape .. " Q2f a module ghost on a beacon button, or a machine ghost with nothing copied on a machine button, opens no picker and stores nothing", function()
+        local world = pipette_world(shape)
+        chosen().gear = {name = "assembler"}
+        setups().gear = {modules = {}, beacons = {}}
+        local sheet_flow = sheet({{item = "gear"}})
+        local before = sheet_state()
+        world.hold_ghost(1, "speed-module")
+        left_click(beacon_buttons(sheet_flow, "gear")[1], world.tick)
+        H.equal(picker(), nil, "module ghost on the add button: no picker")
+        world.empty_hand(1)
+        world.hold_ghost(1, "fast-assembler")
+        left_click(machine_button(sheet_flow, "gear"), world.tick)
+        H.equal(picker(), nil, "machine ghost, nothing copied: no picker")
+        H.equal(storage[1].pipette_requests, nil, "no request")
+        world.advance_tick()
+        drain(world)
+        H.deep_equal(sheet_state(), before, "nothing stored")
+    end)
+
+    H.test(shape .. " Q2h a right click still removes a beacon group with a ghost in the hand, and still clears a slot with a library blueprint in the hand", function()
+        local world = pipette_world(shape)
+        chosen().gear = {name = "assembler"}
+        setups().gear = {modules = {{name = "speed-module"}}, beacons = {{name = "beacon", count = 1, sharing = 1, modules = {}}}}
+        local sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "speed-module")
+        right_click(beacon_buttons(sheet_flow, "gear")[1])
+        H.equal(#setups().gear.beacons, 0, "group removed")
+        world.empty_hand(1)
+        world.hold_record(1)
+        sheet_flow = sheet({{item = "gear"}})
+        right_click(slots(sheet_flow, "gear")[1])
+        H.equal(stored(setups().gear.modules), "", "slot cleared")
+    end)
+
+    H.test(shape .. " Q2i Q2j a library blueprint in the hand: no click on a slot, machine, loop machine, beacon group or add button opens a picker or stores; an empty hand opens each", function()
+        local world = pipette_world(shape)
+        chosen().gear = {name = "assembler"}
+        setups().gear = {modules = {{name = "speed-module"}}, beacons = {{name = "beacon", count = 1, sharing = 1, modules = {}}}}
+        local key = M.QualityId.encode("X", "uncommon")
+        local buttons = {
+            slot = function() return slots(sheet({{item = "gear"}}), "gear")[1] end,
+            machine = function() return machine_button(sheet({{item = "gear"}}), "gear") end,
+            group = function() return beacon_buttons(sheet({{item = "gear"}}), "gear")[1] end,
+            add = function() return beacon_buttons(sheet({{item = "gear"}}), "gear")[2] end,
+        }
+        local names = {"slot", "machine", "group", "add"}
+        if shape == "2.0" then --quality loops are calculated on Factorio 2.0 only
+            buttons.loop_machine = function()
+                return H.parse_report(sheet({{item = "X", quality = "uncommon"}}).output_flow).loops[key].tiers[1].craft.machine_button
+            end
+            names[#names + 1] = "loop_machine"
+        end
+        for _, name in ipairs(names) do
+            world.empty_hand(1)
+            local button = buttons[name]()
+            storage.computation_stack = {}
+            local before = sheet_state()
+            world.hold_record(1)
+            left_click(button, world.tick)
+            H.equal(picker(), nil, "Q2i " .. name .. ": no picker")
+            H.equal(storage[1].pipette_requests, nil, "Q2i " .. name .. ": no request")
+            H.equal(#storage.computation_stack, 0, "Q2i " .. name .. ": no recompute")
+            H.deep_equal(sheet_state(), before, "Q2i " .. name .. ": nothing stored")
+            world.empty_hand(1)
+            left_click(button, world.tick)
+            assert(picker(), "Q2j " .. name .. ": an empty hand opens the picker")
+            M.ModulePicker.close(1, false)
+        end
     end)
 end
 

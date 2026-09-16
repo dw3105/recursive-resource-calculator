@@ -175,7 +175,7 @@ end
 --lets every notification for a change made up to this press drop the clipboard first. The target is kept as a tags snapshot, so a report
 --rebuilt meanwhile does not lose the request.
 --kind: "machine" or "beacon"; a clipboard of the other kind never pastes here
-local function request_paste(player, button, held, tick, kind)
+function Pipette.request_paste(player, button, held, tick, kind)
     local clipboard = storage[player.index].pipette
     if not (clipboard and clipboard.kind == kind) then
         return
@@ -307,14 +307,24 @@ function Pipette.on_cursor_changed(event)
     end
 end
 
+--Before anything else a press or a click does, whatever it is over: a clipboard whose ghost has left the hand is gone, even if no notification came yet
+function Pipette.drop_unheld_clipboard(player)
+    local clipboard = storage[player.index].pipette
+    if clipboard and not Pipette.still_held(player, clipboard) then
+        storage[player.index].pipette = nil
+    end
+end
+
+--Nothing in the hand: no cursor stack item, no ghost, and no blueprint picked from the blueprint library. LuaControl::is_cursor_empty is not
+--used: its 2.0.77 description ("Returns whether the player is holding something in the cursor") contradicts its name.
+function Pipette.hand_empty(player)
+    return Pipette.held(player) == nil and player.cursor_record == nil
+end
+
 --Returns true when stored sheet state changed (so the caller recomputes)
 function Pipette.on_pipette(event)
     local player = game.get_player(event.player_index)
-    --before anything else, whatever the cursor is over: a clipboard whose ghost has left the hand is gone, even if no notification came yet
-    local clipboard = storage[event.player_index].pipette
-    if clipboard and not Pipette.still_held(player, clipboard) then
-        storage[event.player_index].pipette = nil
-    end
+    Pipette.drop_unheld_clipboard(player)
     local element = event.element
     if not (element and element.valid) then
         return false
@@ -335,7 +345,7 @@ function Pipette.on_pipette(event)
         if held == nil then
             copy_machine(player, element, event.tick)
         else
-            request_paste(player, element, held, event.tick, "machine")
+            Pipette.request_paste(player, element, held, event.tick, "machine")
         end
         return false
     end
@@ -344,7 +354,7 @@ function Pipette.on_pipette(event)
         if held == nil then
             copy_beacon(player, element, event.tick)
         else
-            request_paste(player, element, held, event.tick, "beacon")
+            Pipette.request_paste(player, element, held, event.tick, "beacon")
         end
         return false
     end

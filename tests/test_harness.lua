@@ -504,4 +504,17 @@ H.test("Q0a Q0b engine objects read as userdata, as in Factorio 2.0; plain table
     H.equal(type(game.players[1].cursor_stack), "userdata", "Q0b: the cursor stack")
 end)
 
+H.test("Q0c a library blueprint reads as cursor_record apart from stack and ghost; clearing the cursor clears it; is_cursor_empty still refuses", function()
+    local world = cursor_world()
+    local player = game.players[1]
+    H.equal(player.cursor_record, nil, "empty hand")
+    world.hold_record(1)
+    H.equal(type(player.cursor_record), "userdata", "record held")
+    H.equal(player.cursor_ghost, nil, "no ghost")
+    H.equal(player.cursor_stack.valid_for_read, false, "no stack item")
+    player.clear_cursor()
+    H.equal(player.cursor_record, nil, "cleared")
+    H.errors(function() return player.is_cursor_empty() end, "is_cursor_empty is not modelled", "still refused")
+end)
+
 H.done("test_harness")

@@ -69,7 +69,7 @@ local function add_beacon_button(row, group, group_index)
         style = "slot_button",
         sprite = group and ("entity/" .. group.name) or nil,
         quality = group and group.quality or nil,
-        tooltip = group and {"", prototypes.entity[group.name].localised_name, "\n", {"hxrrc.choose_beacon_button_tooltip"}}
+        tooltip = group and {"", prototypes.entity[group.name].localised_name, "\n", {"hxrrc.choose_beacon_button_tooltip_2"}}
             or {"hxrrc.add_beacon_button_tooltip"},
         tags = {group = group_index, value = value}, --the group shown, checked before a pick or a pipette copy
     }

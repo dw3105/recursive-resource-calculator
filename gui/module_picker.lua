@@ -304,8 +304,8 @@ local function on_choice_click(event, kind)
     return false
 end
 
---A module slot button: a left click with a module in the hand (real or ghost) pastes it, as the pipette key does; any other left click opens the
---picker on it; a right click empties it. Chooser slots of reports built before 1.1.25 keep Factorio's own chooser and are left to their
+--A module slot button: a left click with a module in the hand (real or ghost) pastes it, as the pipette key does; with an empty hand it opens the
+--picker; with anything else in the hand it does nothing. A right click empties it, whatever the hand holds. Chooser slots of reports built before 1.1.25 keep Factorio's own chooser and are left to their
 --elem-changed handler. Returns true when the stored setup changed.
 function ModulePicker.on_slot_click(event)
     local slot_button = event.element
@@ -316,26 +316,38 @@ function ModulePicker.on_slot_click(event)
         return ModuleGUI.pick_into(slot_button, nil)
     end
     local player = game.get_player(event.player_index)
+    Pipette.drop_unheld_clipboard(player)
     local held = Pipette.held(player)
     if held and storage.module_names[held.name] then
         return Pipette.paste_module(player, slot_button, held)
     end
-    ModulePicker.open(slot_button)
+    if Pipette.hand_empty(player) then
+        ModulePicker.open(slot_button)
+    end
     return false
 end
 
---A machine button of a row or loop stage: a left click opens the machine picker; a right click does nothing, as a row always has a machine.
+--A machine button of a row or loop stage: a left click with the copied machine's ghost in the hand records a paste, as the pipette key does; with
+--an empty hand it opens the machine picker; with anything else in the hand it does nothing. A right click does nothing, as a row always has a machine.
 --Choose-elem-buttons of reports built before 1.1.27 are left to their elem-changed handler. Never changes stored state itself.
 function ModulePicker.on_machine_click(event)
     local button = event.element
     if button.type ~= "sprite-button" or event.button ~= defines.mouse_button_type.left then
         return false
     end
-    ModulePicker.open(button)
+    local player = game.get_player(event.player_index)
+    Pipette.drop_unheld_clipboard(player)
+    local held = Pipette.held(player)
+    if held then
+        Pipette.request_paste(player, button, held, event.tick, "machine")
+    elseif Pipette.hand_empty(player) then
+        ModulePicker.open(button)
+    end
     return false
 end
 
---A beacon button: a left click opens the beacon picker; a right click removes a group (the add button: nothing). Choose-elem-buttons of reports
+--A beacon button: a left click with the copied group's ghost in the hand records a paste, as the pipette key does; with an empty hand it opens
+--the beacon picker; with anything else in the hand it does nothing. A right click removes a group (the add button: nothing), whatever the hand holds. Choose-elem-buttons of reports
 --built before 1.1.27 are left to their elem-changed handler. Returns true when the stored setup changed.
 function ModulePicker.on_beacon_click(event)
     local button = event.element
@@ -345,7 +357,14 @@ function ModulePicker.on_beacon_click(event)
     if event.button == defines.mouse_button_type.right then
         return button.tags.value ~= nil and ModuleGUI.pick_beacon(button, nil)
     end
-    ModulePicker.open(button)
+    local player = game.get_player(event.player_index)
+    Pipette.drop_unheld_clipboard(player)
+    local held = Pipette.held(player)
+    if held then
+        Pipette.request_paste(player, button, held, event.tick, "beacon")
+    elseif Pipette.hand_empty(player) then
+        ModulePicker.open(button)
+    end
     return false
 end
 
