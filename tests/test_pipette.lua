@@ -19,7 +19,8 @@ local function pipette_world(shape)
     world.add_machine({name = "recycler", type = "furnace", categories = {"recycling"}, speed = 1, module_slots = 4})
     world.add_beacon({name = "beacon", module_slots = 2, allowed_module_categories = {"speed", "efficiency"}})
     world.add_recipe({name = "gear", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}}})
-    world.add_recipe({name = "cog", category = "pressing", ingredients = {{name = "raw", amount = 1}}, products = {{name = "cog", amount = 1}}})
+    world.add_recipe({name = "cog", category = "pressing", ingredients = {{name = "raw", amount = 1}}, products = {{name = "cog", amount = 1}},
+        allowed_effects = {"consumption", "speed", "pollution"}}) --refuses productivity
     world.add_recipe({name = "X", category = "crafting", ingredients = {{name = "A", amount = 1}}, products = {{name = "X", amount = 1}}})
     world.add_recipe({name = "X-recycling", category = "recycling", energy = 0.5, hidden = true, ingredients = {{name = "X", amount = 1}},
         products = {{name = "A", amount = 1, p = 0.25}}})
@@ -365,6 +366,218 @@ for _, shape in ipairs(H.shapes()) do
             H.equal(gear_modules(), ("speed-module@" .. case[1] .. ","):rep(4):sub(1, -2), case[1] .. " stack pasted with its quality over the ghost")
             H.near(M.Utils.recipe_effects(1, "gear").speed, 4 * case[2], case[1] .. " effects")
         end
+    end)
+end
+
+--N12: a machine ghost pastes the remembered setup, written one tick after the press
+
+--Q over a button at the current tick, then on_tick at the next tick: the drain runs every request recorded before it
+local function paste(world, button)
+    press(world, button)
+    world.advance_tick()
+    world.handlers.events[defines.events.on_tick]({tick = world.tick})
+end
+
+local function chosen() return storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name end
+local function setups() return storage[1].module_setups_by_recipe_name end
+
+--A clipboard of an assembler at the quality with modules and a beacon group, copied from the gear row; returns the sheet flow of gear, cog and X
+local function copied_assembler(world, quality, modules)
+    chosen().gear = {name = "assembler", quality = quality}
+    setups().gear = {modules = modules or {{name = "speed-module"}, {name = "efficiency-module"}},
+        beacons = {{name = "beacon", count = 2, sharing = 1, modules = {{name = "speed-module"}}}}}
+    chosen().cog = {name = "press"}
+    chosen().X = {name = "fast-assembler"}
+    local sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+    press(world, machine_button(sheet_flow, "gear"))
+    world.flush_cursor_events()
+    world.advance_tick()
+    assert(clipboard(), "copied")
+    return sheet_flow
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N12a N12c N12h a machine ghost pastes the machine at its quality and the setup onto another row, again onto a third", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world, "uncommon")
+        paste(world, machine_button(sheet_flow, "cog"))
+        H.deep_equal(chosen().cog, {name = "assembler", quality = "uncommon"}, "machine and quality pasted")
+        H.equal(stored(setups().cog.modules), "speed-module,efficiency-module", "modules pasted")
+        H.equal(#setups().cog.beacons, 1, "beacon group pasted")
+        assert(#storage.computation_stack > 0, "recompute queued")
+        paste(world, machine_button(sheet_flow, "X"))
+        H.deep_equal(chosen().X, {name = "assembler", quality = "uncommon"}, "second paste")
+        assert(clipboard(), "clipboard kept for more pastes")
+    end)
+
+    H.test(shape .. " N12b modules the target recipe refuses are left out, with a flying text", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world, nil, {{name = "productivity-module"}, {name = "speed-module"}})
+        paste(world, machine_button(sheet_flow, "cog"))
+        H.equal(stored(setups().cog.modules), "speed-module", "productivity left out")
+        H.equal(world.flying_texts[#world.flying_texts][1], "hxrrc.pasted_setup_partly_refused", "says so")
+    end)
+
+    H.test(shape .. " N12d a machine that cannot craft the target recipe is refused with a flying text", function()
+        local world = pipette_world(shape)
+        chosen().cog = {name = "press"}
+        chosen().gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}, {item = "cog"}})
+        press(world, machine_button(sheet_flow, "cog"))
+        world.advance_tick()
+        paste(world, machine_button(sheet_flow, "gear"))
+        H.deep_equal(chosen().gear, {name = "assembler"}, "gear keeps its machine")
+        H.equal(world.flying_texts[#world.flying_texts][1], "hxrrc.machine_cannot_craft_error", "says why")
+    end)
+
+    H.test(shape .. " N12e N12f a paste onto a loop stage sets that stage's machine and setup; a stale stage changes nothing", function()
+        if shape ~= "2.0" then return end --quality loops are calculated on Factorio 2.0 only
+        local world = pipette_world(shape)
+        local key = M.QualityId.encode("X", "uncommon")
+        local sheet_flow = copied_assembler(world, "rare", {{name = "q"}})
+        local loop_flow = sheet({{item = "X", quality = "uncommon"}})
+        local rows = H.parse_report(loop_flow.output_flow).loops[key]
+        paste(world, rows.tiers[1].craft.machine_button)
+        local normal = storage[1].quality_loops_by_key[key].crafts.normal
+        H.deep_equal(normal.machine, {name = "assembler", quality = "rare"}, "stage machine")
+        H.equal(stored(normal.setup.modules), "q", "stage modules")
+        local _ = sheet_flow
+        loop_flow = sheet({{item = "X", quality = "uncommon"}})
+        rows = H.parse_report(loop_flow.output_flow).loops[key]
+        local button = rows.tiers[2].craft.machine_button
+        local before = M.QualityLoops._deep_copy(storage[1].quality_loops_by_key[key].crafts.uncommon)
+        storage[1].quality_loops_by_key[key].crafts.uncommon.setup.modules = {{name = "speed-module"}}
+        before.setup.modules = {{name = "speed-module"}}
+        paste(world, button)
+        H.deep_equal(storage[1].quality_loops_by_key[key].crafts.uncommon, before, "stale stage unchanged")
+    end)
+
+    H.test(shape .. " N12g pasted setups share no table with the clipboard or with each other", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world, nil, {{name = "speed-module"}})
+        paste(world, machine_button(sheet_flow, "cog"))
+        paste(world, machine_button(sheet_flow, "X"))
+        local tables = {clipboard = clipboard(), cog = {machine = chosen().cog, setup = setups().cog}, X = {machine = chosen().X, setup = setups().X}}
+        local seen = {}
+        for owner, entry in pairs(tables) do
+            local parts = {entry.machine, entry.setup, entry.setup.modules, entry.setup.beacons}
+            for _, module in ipairs(entry.setup.modules) do parts[#parts + 1] = module end
+            for _, group in ipairs(entry.setup.beacons) do
+                parts[#parts + 1] = group
+                parts[#parts + 1] = group.modules
+                for _, module in ipairs(group.modules) do parts[#parts + 1] = module end
+            end
+            for _, part in ipairs(parts) do
+                assert(not seen[part], owner .. " shares a table with " .. tostring(seen[part]))
+                seen[part] = owner
+            end
+        end
+        setups().cog.modules[1].name = "efficiency-module"
+        H.equal(stored(clipboard().setup.modules), "speed-module", "clipboard unchanged by editing a pasted row")
+        H.equal(stored(setups().X.modules), "speed-module", "other row unchanged")
+    end)
+
+    H.test(shape .. " N12i N12j a paste onto another sheet works; the drain writes no button, and the rebuilt report shows the pasted machine", function()
+        local world = pipette_world(shape)
+        copied_assembler(world, "uncommon")
+        local sheet_pane = storage[1].sheet_section.sheet_pane
+        M.Sheet.new(sheet_pane)
+        local second = sheet_pane.tabs[2].content
+        local row = second.input_container.children[1]
+        row.rate_textfield.text = "1"
+        row.hxrrc_desired_item_button.elem_value = {name = "cog"}
+        event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
+        M.Sheet.calculate(second.hxrrc_compute_button)
+        storage.computation_stack = {}
+        local button = machine_button(second, "cog")
+        local tags_before, value_before = button.tags, button.elem_value
+        paste(world, button)
+        H.deep_equal(chosen().cog, {name = "assembler", quality = "uncommon"}, "pasted from the first sheet's copy")
+        H.deep_equal(button.tags, tags_before, "button tags untouched by the drain")
+        H.deep_equal(button.elem_value, value_before, "button value untouched by the drain")
+        M.Sheet.calculate(second.hxrrc_compute_button)
+        H.deep_equal(machine_button(second, "cog").elem_value, {name = "assembler", quality = "uncommon"}, "rebuilt report shows it")
+    end)
+
+    H.test(shape .. " N12k N12l a real item held with the ghost refuses and drops the clipboard; a row whose machine changed underneath keeps its storage", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        local cog_button = machine_button(sheet_flow, "cog")
+        chosen().cog = {name = "assembler", quality = "rare"} --changed since the button was built
+        paste(world, cog_button)
+        H.deep_equal(chosen().cog, {name = "assembler", quality = "rare"}, "stale row keeps the newer machine")
+        world.hold_item(1, "raw")
+        paste(world, machine_button(sheet_flow, "X"))
+        H.deep_equal(chosen().X, {name = "fast-assembler"}, "nothing pasted with a real item held")
+        H.equal(clipboard(), nil, "clipboard dropped")
+    end)
+
+    H.test(shape .. " N12n N12o N12p N12q N12r nothing is written in the pressing tick; a target gone stale meanwhile is skipped; a rebuilt report is not; pastes in consecutive ticks all land; a newer copy voids an older request", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        press(world, machine_button(sheet_flow, "cog"))
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        H.deep_equal(chosen().cog, {name = "press"}, "N12n: not in the pressing tick")
+        world.advance_tick()
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        H.equal(chosen().cog.name, "assembler", "N12n: the next tick writes")
+
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        press(world, machine_button(sheet_flow, "X"))
+        chosen().X = {name = "assembler", quality = "rare"}
+        world.advance_tick()
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        H.deep_equal(chosen().X, {name = "assembler", quality = "rare"}, "N12o: stale target skipped")
+
+        chosen().X = {name = "fast-assembler"}
+        setups().X = {modules = {}, beacons = {}}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        press(world, machine_button(sheet_flow, "X"))
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}}) --the report is rebuilt: the pressed button is gone
+        world.advance_tick()
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        H.equal(chosen().X.name, "assembler", "N12p: written from the tags snapshot")
+
+        chosen().cog, chosen().X = {name = "press"}, {name = "fast-assembler"}
+        setups().cog, setups().X = {modules = {}, beacons = {}}, {modules = {}, beacons = {}}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        local written = 0
+        for _, recipe_name in ipairs({"cog", "X"}) do
+            local button = machine_button(sheet_flow, recipe_name)
+            press(world, button)
+            world.advance_tick()
+            world.handlers.events[defines.events.on_tick]({tick = world.tick})
+            if chosen()[recipe_name].name == "assembler" then written = written + 1 end
+        end
+        H.equal(written, 2, "N12q: consecutive pastes all land")
+        H.equal(storage[1].pipette_requests, nil, "N12q: drained requests are not kept")
+        assert(clipboard(), "N12q: clipboard kept")
+
+        chosen().X = {name = "fast-assembler"}
+        setups().X = {modules = {}, beacons = {}}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        press(world, machine_button(sheet_flow, "X"))
+        game.players[1].clear_cursor()
+        chosen().gear = {name = "assembler"}
+        press(world, machine_button(sheet_flow, "gear")) --empty hand: a new copy, new id
+        world.advance_tick()
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        H.deep_equal(chosen().X, {name = "fast-assembler"}, "N12r: the older request's clipboard is gone")
+    end)
+
+    H.test(shape .. " N12s (defensive) a request whose clipboard is still there but whose hand no longer matches writes nothing", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        world.advance_tick()
+        local snapshot = {machine = M.QualityLoops._deep_copy(chosen().cog), setup = M.QualityLoops._deep_copy(setups().cog)}
+        press(world, machine_button(sheet_flow, "cog"))
+        world.suppress_next_cursor_event(1)
+        world.empty_hand(1)
+        assert(clipboard(), "clipboard still there")
+        world.advance_tick()
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        H.deep_equal({machine = chosen().cog, setup = setups().cog}, snapshot, "nothing written")
     end)
 end
 

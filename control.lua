@@ -41,6 +41,7 @@ script.on_configuration_changed(function(configuration_changed_data)
     storage.computation_stack = {}
     storage.opened_restores = nil --the GUIs are rebuilt and recomputed below; pending focus restores are dropped
     for _, player in pairs(game.players) do
+        storage[player.index].pipette_requests = nil --targets and machines may be gone
         storage[player.index].backlogged_computation_count = 0 --the stack was just emptied; older versions never decremented this count
         PlayerDataUpdater.reinitialize(player.index)
         Sheet.add_missing_controls(storage[player.index].sheet_section.sheet_pane)
@@ -119,7 +120,11 @@ for _, event_type in ipairs({
 end
 
 --Do each sheet calculation in its own tick, oldest request first (computation_stack is used as a queue; the name is kept for existing saves)
-script.on_event(defines.events.on_tick, function()
+script.on_event(defines.events.on_tick, function(event)
+    --pastes recorded in earlier ticks, before the queued computations, so a paste's recompute follows it
+    for _, player_index in ipairs(Pipette.run_requests(event.tick)) do
+        Calculator.recompute_everything(player_index)
+    end
     if storage.computation_stack[1] then
         local async_call_data = table.remove(storage.computation_stack, 1)
         local player_index = async_call_data.player_index

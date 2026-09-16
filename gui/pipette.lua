@@ -5,6 +5,7 @@ local ModuleGUI = require "gui.modulegui"
 local ModuleSetup = require "logic.module_setup"
 local Report = require "gui.report"
 local QualityLoops = require "logic.quality_loops"
+local Utils = require "logic.utils"
 
 local Pipette = {}
 
@@ -96,6 +97,92 @@ local function paste_module(player, button, held)
     return ModuleGUI.pick_into(button, {name = held.name, quality = quality})
 end
 
+--Whether the hand still holds the clipboard's own ghost: a ghost (no real item) of the same item at the same quality
+function Pipette.still_held(player, clipboard)
+    local held = Pipette.held(player)
+    return held ~= nil and held.ghost == true and held.name == clipboard.item.name and held.quality == clipboard.item.quality
+end
+
+--A machine paste is only recorded here and written by Pipette.run_requests in a later tick. Factorio 2.0.77 raises cursor notifications
+--"in the same tick that the change happens, but not instantly" and promises nothing about their order against this input, so waiting a tick
+--lets every notification for a change made up to this press drop the clipboard first. The target is kept as a tags snapshot, so a report
+--rebuilt meanwhile does not lose the request.
+local function request_machine_paste(player, button, held, tick)
+    local clipboard = storage[player.index].pipette
+    if not (clipboard and clipboard.kind == "machine") then
+        return
+    end
+    if held.real then --a real item in the hand is not the copied machine's ghost
+        storage[player.index].pipette = nil
+        return
+    end
+    if not (held.name == clipboard.item.name and held.quality == clipboard.item.quality) then
+        return
+    end
+    local target = Report.machine_target(button)
+    if not Report.machine_context_of(player.index, target) then
+        return
+    end
+    local requests = storage[player.index].pipette_requests or {}
+    storage[player.index].pipette_requests = requests
+    requests[#requests + 1] = {clipboard_id = clipboard.id, tick = tick, target = target}
+end
+
+local function module_count(setup)
+    local count = #setup.modules
+    for _, group in ipairs(setup.beacons) do count = count + 1 + #group.modules end
+    return count
+end
+
+--Writes one request if the same clipboard is still in the hand and the target is still fresh. Returns true when stored state changed.
+local function run_request(player, request)
+    local clipboard = storage[player.index].pipette
+    if not (clipboard and clipboard.id == request.clipboard_id and Pipette.still_held(player, clipboard)) then
+        return false
+    end
+    local context = Report.machine_context_of(player.index, request.target)
+    if not context then
+        return false
+    end
+    if not Utils.can_craft(clipboard.machine.name, context.recipe) then
+        player.create_local_flying_text{text = {"hxrrc.machine_cannot_craft_error"}, create_at_cursor = true}
+        return false
+    end
+    local machine = {name = clipboard.machine.name, quality = clipboard.machine.quality}
+    --what the new machine or recipe refuses is dropped, as picking that machine by hand does; saying so, since a paste should not lose silently
+    local setup = QualityLoops.fitted_setup_copy(clipboard.setup, machine, context.recipe)
+    if module_count(setup) < module_count(clipboard.setup) then
+        player.create_local_flying_text{text = {"hxrrc.pasted_setup_partly_refused"}, create_at_cursor = true}
+    end
+    context.write(machine, setup)
+    return true
+end
+
+--Runs from on_tick before the computation queue: every request recorded before this tick, in order. Returns the indexes of the players whose
+--sheets changed, for the caller to recompute.
+function Pipette.run_requests(tick)
+    local changed = {}
+    for _, player in pairs(game.players) do
+        local player_storage = storage[player.index]
+        local requests = player_storage and player_storage.pipette_requests
+        if requests then
+            local kept, wrote = {}, false
+            for _, request in ipairs(requests) do
+                if request.tick < tick then
+                    wrote = run_request(player, request) or wrote
+                else
+                    kept[#kept + 1] = request
+                end
+            end
+            player_storage.pipette_requests = #kept > 0 and kept or nil
+            if wrote then
+                changed[#changed + 1] = player.index
+            end
+        end
+    end
+    return changed
+end
+
 --Returns true when stored sheet state changed (so the caller recomputes)
 function Pipette.on_pipette(event)
     local element = event.element
@@ -115,8 +202,11 @@ function Pipette.on_pipette(event)
         return false
     end
     if MACHINE_BUTTONS[element.name] then
-        if Pipette.held(player) == nil then
+        local held = Pipette.held(player)
+        if held == nil then
             copy_machine(player, element, event.tick)
+        else
+            request_machine_paste(player, element, held, event.tick)
         end
         return false
     end
