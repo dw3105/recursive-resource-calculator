@@ -488,4 +488,20 @@ H.test("P0b entity prototypes expose hidden, false by default, settable by fixtu
     H.equal(prototypes.entity.assembler.hidden, true, "hidden flag")
 end)
 
+H.test("Q0a Q0b engine objects read as userdata, as in Factorio 2.0; plain tables stay tables; a ghost's name is a prototype holding a string name", function()
+    local world = cursor_world()
+    H.equal(type(prototypes.item["speed-module"]), "userdata", "Q0a: item prototype")
+    H.equal(type(prototypes.quality.normal), "userdata", "Q0a: quality prototype")
+    H.equal(type(game.players[1]), "userdata", "Q0a: player")
+    H.equal(type(game.players[1].gui.screen), "userdata", "Q0a: GUI element")
+    H.equal(type({}), "table", "Q0a: plain table")
+    H.equal(type("speed-module"), "string", "Q0a: string")
+    world.hold_ghost(1, "speed-module")
+    local ghost = game.players[1].cursor_ghost
+    H.equal(type(ghost), "table", "Q0b: the ghost pair is a concept table")
+    H.equal(type(ghost.name), "userdata", "Q0b: its name is a prototype")
+    H.equal(type(ghost.name.name), "string", "Q0b: the prototype's name is a string")
+    H.equal(type(game.players[1].cursor_stack), "userdata", "Q0b: the cursor stack")
+end)
+
 H.done("test_harness")

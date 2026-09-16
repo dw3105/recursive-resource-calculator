@@ -113,7 +113,7 @@ end
 
 --A quality given as a prototype or a name, as a name; nil for normal
 local function quality_name(quality)
-    local name = type(quality) == "table" and quality.name or quality
+    local name = Utils.id_name(quality)
     return name ~= "normal" and name or nil
 end
 
@@ -126,7 +126,7 @@ function Pipette.held(player)
     end
     local ghost = player.cursor_ghost
     if ghost then
-        local name = type(ghost.name) == "table" and ghost.name.name or ghost.name
+        local name = Utils.id_name(ghost.name)
         return {name = name, quality = quality_name(ghost.quality), ghost = true}
     end
 end

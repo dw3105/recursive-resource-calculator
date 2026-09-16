@@ -957,7 +957,7 @@ local function recipe_value(value)
     if not value then
         return nil
     end
-    local quality = type(value.quality) == "table" and value.quality.name or value.quality
+    local quality = Utils.id_name(value.quality)
     return {name = value.name, quality = quality ~= "normal" and quality or nil}
 end
 

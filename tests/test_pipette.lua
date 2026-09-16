@@ -418,6 +418,22 @@ for _, shape in ipairs(H.shapes()) do
         slot_click(slots(sheet_flow, "gear")[1])
         assert(storage[1].module_picker, "P3e: an empty hand opens the picker")
     end)
+
+    H.test(shape .. " Q1a the hand reads as names: a normal ghost gives a string name and no quality; a rare real stack gives its quality name", function()
+        local world = pipette_world(shape)
+        world.hold_ghost(1, "speed-module")
+        local held = M.Pipette.held(game.players[1])
+        H.deep_equal(held, {name = "speed-module", ghost = true}, "Q1a: normal ghost")
+        H.equal(type(held.name), "string", "Q1a: ghost name is a string")
+        world.empty_hand(1)
+        world.hold_item(1, "efficiency-module", "rare", 3)
+        held = M.Pipette.held(game.players[1])
+        H.deep_equal(held, {name = "efficiency-module", quality = "rare", real = true}, "Q1a: rare stack")
+        H.equal(type(held.quality), "string", "Q1a: stack quality is a string")
+        world.empty_hand(1)
+        world.hold_item(1, "efficiency-module", nil, 3)
+        H.equal(M.Pipette.held(game.players[1]).quality, nil, "Q1a: normal stack quality is nil")
+    end)
 end
 
 --N12: a machine ghost pastes the remembered setup, written one tick after the press

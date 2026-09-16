@@ -1,5 +1,14 @@
 local Utils = {}
 
+--The name of an ID the engine gives as a name or as a prototype; nil stays nil. Factorio 2.0 prototypes are userdata, never tables, so an ID is
+--told apart by being a string, not by being a table.
+function Utils.id_name(id)
+    if type(id) == "string" or id == nil then
+        return id
+    end
+    return id.name
+end
+
 Utils.module_effect_names = {"consumption", "speed", "productivity", "pollution", "quality"}
 
 --Factorio 2.1 renamed recipe and product members, and LuaObjects throw on unknown members, so the API shape is chosen by game version instead of probing

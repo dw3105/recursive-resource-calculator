@@ -12,6 +12,15 @@ local function set_of(list)
     return set
 end
 
+--Factorio 2.0 LuaObjects (prototypes, players, GUI elements) are userdata, not tables, so type() reports "userdata" for every mocked one.
+--The harness itself looks inside its mocks with raw_type.
+local raw_type = type
+local lua_objects = setmetatable({}, {__mode = "k"})
+_G.type = function(value)
+    if lua_objects[value] then return "userdata" end
+    return raw_type(value)
+end
+
 --LuaObject: reading or writing a key outside its member list errors like the engine does.
 --gates: member -> set of prototype types it can be used on; reading it unset on another type errors (conservative assumption, not established for every member)
 --accessors: member -> {read = function(object), write = function(object, value)}; such members never live in the table, so every read and write reaches them
@@ -21,6 +30,7 @@ function H.lua_object(class, fields, members, gates, accessors)
         if not allowed[key] then error("fixture sets non-member " .. class .. "." .. key, 2) end
         if accessors and accessors[key] then error("fixture sets accessor member " .. class .. "." .. key .. " directly", 2) end
     end
+    lua_objects[fields] = true
     return setmetatable(fields, {
         __index = function(object, key)
             local accessor = accessors and accessors[key]
@@ -274,6 +284,7 @@ local function new_gui_element(params, parent, player_index)
     element._values.quality = params.quality
     element.parent = parent
     element.player_index = parent and parent.player_index or player_index
+    lua_objects[element] = true
     return setmetatable(element, {
         __index = function(self, key)
             --2.0.77: elem_value "can only be used if this is choose-elem-button"
@@ -806,7 +817,7 @@ function H.new_world(shape)
         end
     end
     local function item_name_of(value)
-        return type(value) == "table" and value.name or value
+        return raw_type(value) == "table" and value.name or value
     end
     local function check_cursor_item(name, quality)
         if type(name) ~= "string" or not prototypes.item[name] then error("Unknown item " .. tostring(name), 4) end
@@ -836,7 +847,7 @@ function H.new_world(shape)
         local force = H.lua_object("LuaForce", {name = "player", valid = true, recipes = {}, players = {},
             --takes a quality name or prototype, as QualityID does
             is_quality_unlocked = function(quality)
-                local quality_name = type(quality) == "table" and quality.name or quality
+                local quality_name = raw_type(quality) == "table" and quality.name or quality
                 if not prototypes.quality[quality_name] then error("Unknown quality " .. tostring(quality_name), 2) end
                 return not world.locked_qualities[quality_name]
             end}, FORCE_MEMBERS)
@@ -887,9 +898,9 @@ function H.new_world(shape)
                         local name, quality
                         if type(value) == "string" then
                             name = value
-                        elseif type(value) == "table" and getmetatable(value) ~= nil then --an item prototype given as ItemID
+                        elseif raw_type(value) == "table" and getmetatable(value) ~= nil then --an item prototype given as ItemID
                             name = value.name
-                        elseif type(value) == "table" then --{name, quality} with names or prototypes
+                        elseif raw_type(value) == "table" then --{name, quality} with names or prototypes
                             name, quality = item_name_of(value.name), item_name_of(value.quality)
                         else
                             error("cursor_ghost must be an ItemWithQualityID", 2)
@@ -905,7 +916,7 @@ function H.new_world(shape)
             --reads nil once the opened element is gone; assigning another value first raises on_gui_closed for the open GUI (order is an in-game check)
             opened = {
                 read = function()
-                    if type(opened) == "table" and opened.valid == false then return nil end
+                    if raw_type(opened) == "table" and opened.valid == false then return nil end
                     return opened
                 end,
                 write = function(_, value)
@@ -914,7 +925,7 @@ function H.new_world(shape)
                         error("a GUI was opened during on_gui_closed; Factorio force closes it", 2)
                     end
                     local previous = opened
-                    if previous ~= nil and previous ~= value and not (type(previous) == "table" and previous.valid == false) then
+                    if previous ~= nil and previous ~= value and not (raw_type(previous) == "table" and previous.valid == false) then
                         local handler = world.handlers.events[defines.events.on_gui_closed]
                         if handler then
                             closing = true
