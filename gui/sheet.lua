@@ -32,15 +32,37 @@ end
 --The sheet's choice for items quality loops return at their start quality when the start recipe takes no items (Factorio 2.0 only)
 local START_LEFTOVER_MODES = {"byproduct", "craft", "recycle"}
 
-local function add_start_leftovers_dropdown(sheet_flow, index)
-    sheet_flow.add{
+--A row of label, spacer and drop-down, hidden until the sheet targets an item above normal quality (only then can a loop use the choice)
+local function add_start_leftovers_row(sheet_flow, index)
+    local row = sheet_flow.add{type = "flow", name = "hxrrc_start_leftovers_row", direction = "horizontal", index = index, visible = false}
+    row.style.horizontally_stretchable = true
+    row.style.vertical_align = "center"
+    row.add{type = "label", caption = {"hxrrc.start_leftovers_caption"}, tooltip = {"hxrrc.start_leftovers_tooltip"}}
+    local spacer = row.add{type = "empty-widget"}
+    spacer.style.horizontally_stretchable = true
+    row.add{
         type = "drop-down",
         name = "hxrrc_start_leftovers_dropdown",
         tooltip = {"hxrrc.start_leftovers_tooltip"},
         items = {{"hxrrc.start_leftovers_byproduct"}, {"hxrrc.start_leftovers_craft"}, {"hxrrc.start_leftovers_recycle"}},
         selected_index = 1,
-        index = index,
     }
+    return row
+end
+
+--The row found by name among the children: 2.1 sheets have none, and a sheet saved by 1.1.23 has a flat drop-down until repaired
+local function start_leftovers_row_of(sheet_flow)
+    for _, child in ipairs(sheet_flow.children) do
+        if child.name == "hxrrc_start_leftovers_row" then return child end
+    end
+end
+
+--Shows the row only while the sheet has a target above normal quality; the hidden row keeps its choice
+function Sheet.update_start_leftovers_visibility(sheet_flow)
+    local row = start_leftovers_row_of(sheet_flow)
+    if row then
+        row.visible = InputContainer.has_quality_target(sheet_flow.input_container)
+    end
 end
 
 local function add_compute_button(sheet_flow)
@@ -62,7 +84,7 @@ function Sheet.new(sheet_pane)
     InputContainer.build_and_add_to(sheet_flow)
     add_round_up_checkbox(sheet_flow)
     if not Utils.IS_2_1 then
-        add_start_leftovers_dropdown(sheet_flow)
+        add_start_leftovers_row(sheet_flow)
     end
     add_compute_button(sheet_flow)
 
@@ -109,8 +131,12 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     end
 
     local mode = "byproduct"
-    for _, child in ipairs(sheet_flow.children) do --found by name among the children: absent on 2.1 sheets
-        if child.name == "hxrrc_start_leftovers_dropdown" then mode = START_LEFTOVER_MODES[child.selected_index] or mode end
+    for _, child in ipairs(sheet_flow.children) do --found by name among the children: absent on 2.1 sheets; read whether the row is shown or not
+        if child.name == "hxrrc_start_leftovers_dropdown" then
+            mode = START_LEFTOVER_MODES[child.selected_index] or mode
+        elseif child.name == "hxrrc_start_leftovers_row" then
+            mode = START_LEFTOVER_MODES[child.hxrrc_start_leftovers_dropdown.selected_index] or mode
+        end
     end
     local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index, product_parts, {start_leftovers = mode})
 
@@ -148,19 +174,29 @@ function Sheet.add_missing_controls(sheet_pane)
         local sheet_flow = tab_and_content.content
         InputContainer.repair_rows(sheet_flow.input_container)
 
-        local compute_button_index, has_round_up_checkbox, has_start_leftovers_dropdown
+        local compute_button_index, has_round_up_checkbox, flat_dropdown, has_row
         for index, child in ipairs(sheet_flow.children) do
             if child.name == "hxrrc_compute_button" then compute_button_index = index end
             if child.name == "hxrrc_round_up_machines_checkbox" then has_round_up_checkbox = true end
-            if child.name == "hxrrc_start_leftovers_dropdown" then has_start_leftovers_dropdown = true end
+            if child.name == "hxrrc_start_leftovers_dropdown" then flat_dropdown = child end
+            if child.name == "hxrrc_start_leftovers_row" then has_row = true end
         end
         if compute_button_index and not has_round_up_checkbox then
             add_round_up_checkbox(sheet_flow, compute_button_index)
             compute_button_index = compute_button_index + 1
         end
-        if compute_button_index and not has_start_leftovers_dropdown and not Utils.IS_2_1 then
-            add_start_leftovers_dropdown(sheet_flow, compute_button_index)
+        if not Utils.IS_2_1 then
+            if flat_dropdown then
+                --1.1.23 kept the drop-down itself in the sheet: the row takes its place and its choice
+                local selected_index = flat_dropdown.selected_index
+                local index = flat_dropdown.get_index_in_parent()
+                flat_dropdown.destroy()
+                add_start_leftovers_row(sheet_flow, index).hxrrc_start_leftovers_dropdown.selected_index = selected_index
+            elseif compute_button_index and not has_row then
+                add_start_leftovers_row(sheet_flow, compute_button_index)
+            end
         end
+        Sheet.update_start_leftovers_visibility(sheet_flow)
     end
 end
 
@@ -197,7 +233,9 @@ end
 
 --Recomputes only the sheet owning the drop-down; nothing here writes the selection, so the event cannot loop
 event_handlers.on_gui_selection_state_changed["hxrrc_start_leftovers_dropdown"] = function(event)
-    Sheet.calculate(event.element.parent.hxrrc_compute_button)
+    local parent = event.element.parent
+    local sheet_flow = parent.name == "hxrrc_start_leftovers_row" and parent.parent or parent --an unrepaired 1.1.23 drop-down sits in the sheet itself
+    Sheet.calculate(sheet_flow.hxrrc_compute_button)
     storage[event.player_index].calculator.force_auto_center()
 end
 
@@ -206,5 +244,8 @@ event_handlers.on_gui_checked_state_changed["hxrrc_round_up_machines_checkbox"] 
     Sheet.calculate(event.element.parent.hxrrc_compute_button)
     storage[event.player_index].calculator.force_auto_center()
 end
+
+--input_container must not require the sheet back, so the sheet hands it the update to run when a target changes
+InputContainer.on_target_changed = Sheet.update_start_leftovers_visibility
 
 return Sheet
