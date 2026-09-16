@@ -1,15 +1,18 @@
 ---------------------------------------------------------------------------------------------------
-Version: 1.1.26
+Version: 1.1.28
 Date: 2026.09.16
   Info:
-    - Same code as 1.1.25, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
-    - Quality is not calculated in Factorio 2.1 yet, so the base-quality row stays hidden there; the module
-      picker and the pipette key work as in 1.1.25.
+    - Same code as 1.1.27, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality is not calculated in Factorio 2.1 yet, so the base-quality row stays hidden there; the pickers
+      and the pipette key work as in 1.1.27.
 ---------------------------------------------------------------------------------------------------
-Version: 1.1.25
+Version: 1.1.27
 Date: 2026.09.16
   Info:
-    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.26).
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.28). 1.1.25 and 1.1.26 were
+      test builds only; their changes are listed here.
+    - Reports are rebuilt when the save loads, so machine and beacon buttons of older reports become picker
+      buttons.
     - The pipette key follows the player's own binding (Q by default) and still pipettes in the world as before.
     - The recycle icon needs the quality mod (Factorio 2.0) or the recycler mod (Factorio 2.1); without it the
       two rows show their text as before.
@@ -28,17 +31,21 @@ Date: 2026.09.16
       with a message.
     - The pipette key over a beacon button copies the whole beacon group; over another group it replaces it,
       over the add button it adds it.
+    - Machine buttons open a machine picker and beacon buttons a beacon picker, the same window as the module
+      picker. A right click on a beacon group removes it; the picker's trash button does too.
+    - A left click on a module slot while holding a module (or its ghost) puts that module in the slot.
   Changes:
-    - The base-quality choice (left over, crafted by another recipe, recycled) is a labelled row that shows
-      only when the sheet targets an item above normal quality. Sheets saved with the old drop-down keep their
-      choice.
+    - The base-quality choice (left over, crafted by another recipe, recycled) is a labelled row, label and
+      drop-down side by side, that shows only when the sheet targets an item above normal quality. Sheets saved
+      with the old drop-down keep their choice.
+    - The pickers show qualities as icons; "No module" shows the empty module slot icon.
     - Long messages in the report wrap instead of widening their column.
     - The recycler pool and returned-items rows show the recycling icon, with their old text as its tooltip.
     - Module lists leave out hidden and parameter modules; a hidden module already set keeps its slot and can
       be removed.
   Locale:
-    - New texts for the base-quality label, the module picker, the pipette and its messages (English in all
-      three languages).
+    - New texts for the base-quality label, the module, machine and beacon pickers, the pipette and its
+      messages (English in all three languages).
 ---------------------------------------------------------------------------------------------------
 Version: 1.1.24
 Date: 2026.09.15
