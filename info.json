@@ -1,8 +1,14 @@
 {
     "name": "RRC-Fork",
-    "version": "1.1.32",
+    "version": "1.1.34",
     "title": "Recursive Resource Calculator (Fork)",
     "author": "Herddex, dw3105",
-    "description": "Fork of Recursive Resource Calculator by Herddex. An in-game calculator, opened with ALT + X by default, which can be used to automatically compute the information you need to build a final product at a given rate of production: precise number of machines for each intermediate product, required production rates for all said intermediate products, approximate pollution and energy costs, with options for specifying module configurations, as well as machine types.",
-    "factorio_version": "2.1"
+    "description": "Fork of Recursive Resource Calculator by Herddex. Pick what to build and how fast: the calculator breaks it down to raw resources and shows machines, rates, energy and pollution per step. Adds quality loops with recyclers, modules and beacons with quality, reprocessing and burning of excess, picker windows and Q copy/paste of machine setups. Open with ALT + X.",
+    "factorio_version": "2.1",
+    "dependencies": [
+        "base",
+        "? quality",
+        "? recycler",
+        "! RecursiveResourceCalculator"
+    ]
 }
