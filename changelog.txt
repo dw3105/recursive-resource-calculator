@@ -1,4 +1,24 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.36
+Date: 2026.09.16
+  Info:
+    - Same code as 1.1.35, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality is not calculated in Factorio 2.1 yet, so quality ore stays a raw input there.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.35
+Date: 2026.09.16
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.36).
+  Features:
+    - Items no recipe makes, such as ores, can be targets at a higher quality: normal items are taken from
+      outside and recycled into themselves until they reach the quality. Their rows show what is taken, the
+      recyclers at each quality and the recycler pool. No recipe needs to be picked for them.
+    - A quality loop that needs quality ore gets that ore from such a loop.
+  Changes:
+    - Normal ore bound to its own recycling recipe is a raw input again instead of a recipe that could only
+      run backwards.
+    - The recipe button of such a loop always shows normal: picking a quality there is refused.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.34
 Date: 2026.09.16
   Info:

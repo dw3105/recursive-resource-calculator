@@ -109,15 +109,58 @@ function QualityLoop.recycler_refusal(recipe, item_name)
     return nil, consumed
 end
 
+--Reason a recipe cannot run a recycle-only loop of the item (one that recycles the item into itself, see QualityLoops.recycle_only), or nil: it must
+--recycle the item (QualityLoop.recycler_refusal) and make at least one item, every one of them the item itself. The one rule for activation, the
+--default and picked pool recipe and the solver.
+function QualityLoop.self_recycle_refusal(recipe, item_name)
+    local reason = QualityLoop.recycler_refusal(recipe, item_name)
+    if reason then
+        return reason
+    end
+    local makes_it = false
+    for _, product in ipairs(recipe.products) do
+        if product.type == "item" then
+            if product.name ~= item_name then
+                return "quality_loop_recycle_only_needs_self_recycle"
+            end
+            makes_it = true
+        end
+    end
+    if not makes_it then
+        return "quality_loop_recycle_only_needs_self_recycle"
+    end
+end
+
+--Whether a recipe can only lose the item: what it makes of it at its maximum productivity is no more than what it takes
+function QualityLoop.never_nets_item(recipe, item_name)
+    local net = 0
+    for _, product in ipairs(recipe.products) do
+        if product.type == "item" and product.name == item_name then net = net + Utils.product_amount(product, recipe.maximum_productivity) end
+    end
+    for _, ingredient in ipairs(recipe.ingredients) do
+        if ingredient.type == "item" and ingredient.name == item_name then net = net - ingredient.amount end
+    end
+    return net <= 0
+end
+
 --One tier of the balance. t: {first, recycling, items = {names}, amounts = {[name] = a_i}, supply = {[name] = A_i(u)}, feed = F_u, own = m_u,
 --  returns = {[name] = g_i}, self_return = y_X·D_r(u,u)}.
 --Returns {crafts, x, leftovers = {[name] = net amount at this tier}, missing?} or {reason}. missing: for a tier above the first that crafts nothing,
 --the sorted item ingredients whose bound made it nothing (no supply of them reaches this tier), for the report to say why.
 function QualityLoop._tier_step(t)
-    if t.none then --a tier without a recipe crafts nothing; what reaches it stays
+    if t.none then --a tier without a recipe crafts nothing; what reaches it stays, or is recycled until gone or better when the tier recycles
+        local recycling = t.recycling and t.feed > 0
+        local x = t.feed
+        if recycling then
+            local denominator = 1 - t.self_return
+            if denominator <= 0 then
+                return {reason = "quality_loop_nonconvergent"}
+            end
+            x = t.feed / denominator
+        end
         local leftovers = {}
-        for _, name in ipairs(t.items) do leftovers[name] = t.supply[name] end
-        return {crafts = 0, x = t.feed, leftovers = leftovers, recycled = false}
+        for _, name in ipairs(t.items) do leftovers[name] = t.supply[name] + (recycling and t.returns[name] or 0) * x end
+        return {crafts = 0, x = x, leftovers = leftovers, recycled = recycling}
     end
     local seeded
     if t.first then
@@ -201,7 +244,8 @@ end
 --The loop's flows per 1 target item per second.
 --spec: {next_probabilities, unlocked (by chain index), start (chain index of the ingredients' quality), target (chain index), item (target name),
 --  craft = {tiers = {[tier] = {quality_effect, output (n: net target per craft), ingredients = {{name, amount}} (items), fluid_ingredients = {{name, amount}},
---    byproducts = {{name, amount}} (items other than the target), fluid_products = {{name, amount}}}}} with tier 1 = start … target - start + 1,
+--    byproducts = {{name, amount}} (items other than the target), fluid_products = {{name, amount}}}}} with tier 1 = start … target - start + 1;
+--    a tier with none = true crafts nothing; tier 1 with input = true (a recycle-only loop) takes its output of the target from outside per craft,
 --  recycle = nil | {quality_effect, consumed (k), yields = {[item] = amount per craft}, fluid_ingredients, fluid_products},
 --  assist = nil | a craft tier spec run at the start tier on the items returned there (only for a start recipe taking no items),
 --  ingredient_recycles = nil | {[item] = {quality_effect, consumed, yield}}: items returned at the start tier recycled into themselves until gone or better}
@@ -221,6 +265,9 @@ function QualityLoop.balance(spec)
     end
     local T = spec.target - offset
     local craft, recycle, assist = spec.craft, spec.recycle, spec.assist
+    if craft.tiers[1] and craft.tiers[1].input and T < 2 then --the item taken would be the item made: the column would net nothing
+        return {reason = "quality_loop_start_invalid"}
+    end
     local craft_chances, recycle_chances = {}, {}
     local assist_chances = assist and QualityLoop.distribution(next_probabilities, unlocked, 1, assist.quality_effect)
     for u = 1, T do
@@ -349,6 +396,9 @@ function QualityLoop.balance(spec)
         --ingredients: what is left at this tier (at normal, negative is what the loop takes from outside)
         for _, name in ipairs(item_names) do
             add(items, name, u, step.leftovers[name])
+        end
+        if tier_craft.input then --a recycle-only loop's items from outside
+            add(items, spec.item, u, -crafts * tier_craft.output)
         end
         --crafts send the target and their byproducts up the chain
         for tier, share in pairs(craft_chances[u]) do

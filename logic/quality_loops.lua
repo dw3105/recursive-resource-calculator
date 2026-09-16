@@ -93,25 +93,50 @@ function QualityLoops.assist_recipe(player_index, loop)
     return auto_tier_recipe(loop.item, 2) --index 2: the rule for a recipe that must take items
 end
 
---The only recipe recycling an item into itself: it takes only that item and makes no other item; nil when none or several. Found through the index.
-function QualityLoops.self_recycle_recipe(item_name)
-    local found
+--The recipes recycling an item into itself (QualityLoop.self_recycle_refusal), found through the ingredient index
+local function self_recycle_recipes(item_name)
+    local found = {}
     for _, recipe in ipairs(storage.recipe_lists_by_ingredient_full_name["item/" .. item_name] or {}) do
-        local fits = recipe.valid and not QualityLoop.recycler_refusal(recipe, item_name)
-        local makes_it = false
-        for _, product in ipairs(recipe.products) do
-            if product.type == "item" then
-                if product.name ~= item_name then fits = false else makes_it = true end
-            end
-        end
-        if fits and makes_it then
-            if found then
-                return nil
-            end
-            found = recipe
+        if recipe.valid and not QualityLoop.self_recycle_refusal(recipe, item_name) then
+            found[#found + 1] = recipe
         end
     end
     return found
+end
+
+--The only recipe recycling an item into itself: it takes only that item and makes no other item; nil when none or several. Found through the index.
+function QualityLoops.self_recycle_recipe(item_name)
+    local found = self_recycle_recipes(item_name)
+    return #found == 1 and found[1] or nil
+end
+
+--Whether the loop of an item at a quality (key: its identity) is recycle-only: nothing crafts the item, so normal items taken from outside are
+--recycled into themselves until they reach the target. Never on Factorio 2.1 (quality mechanics not verified). True when the item is bound to a
+--recipe that recycles it into itself and can only lose it, or when it is unbound, some recipe recycles it into itself, and the stored loop is
+--marked recycle-only, or names such a recipe, or exactly one such recipe exists. Pure: storage is only read.
+function QualityLoops.recycle_only(player_index, item_name, key)
+    if Utils.IS_2_1 then
+        return false
+    end
+    local player_storage = storage[player_index]
+    local full_name = "item/" .. item_name
+    local bound = player_storage.recipes_by_product_full_name[full_name]
+    if bound and bound.valid and not player_storage.consumer_product_full_names[full_name] then
+        return not QualityLoop.self_recycle_refusal(bound, item_name) and QualityLoop.never_nets_item(bound, item_name)
+    end
+    local eligible = self_recycle_recipes(item_name)
+    if #eligible == 0 then
+        return false
+    end
+    local stored = key and player_storage.quality_loops_by_key[key]
+    if stored and stored.recycle_only == true then
+        return true
+    end
+    local chosen = stored and stored.recycle_recipe_name and prototypes.recipe[stored.recycle_recipe_name]
+    if chosen and not QualityLoop.self_recycle_refusal(chosen, item_name) then
+        return true
+    end
+    return #eligible == 1
 end
 
 --The recipe a stage runs, its machine (nil when hand-crafted), that machine's prototype and the stage's setup; nil for a recycle stage without a
@@ -223,12 +248,17 @@ function QualityLoops.normalized(player_index, key, parts)
         return nil
     end
     local craft_recipe = QualityLoops.producer_of(player_index, item)
-    if not (stored or craft_recipe) then
+    local recycle_only = QualityLoops.recycle_only(player_index, item, key)
+    if not (stored or craft_recipe or recycle_only) then
         return nil
     end
     local indexes, chain = chain_indexes()
     local target = indexes[quality]
     local config = {item = item, quality = quality}
+    --the recycle-only marker, once set, is kept whatever the item is bound to (see QualityLoops.recycle_only)
+    if recycle_only or (stored and stored.recycle_only == true) then
+        config.recycle_only = true
+    end
 
     local start = stored and stored.start_quality
     if start == "normal" or not (start and prototypes.quality[start] and indexes[start] and target and indexes[start] <= target) then
@@ -259,7 +289,7 @@ function QualityLoops.normalized(player_index, key, parts)
         end
     end
     local tier_recipes = {}
-    if craft_recipe then
+    if craft_recipe and not recycle_only then
         for tier, _ in pairs(config.crafts) do
             tier_recipes[tier] = QualityLoops.tier_recipe(player_index, config, tier)
         end
@@ -268,6 +298,9 @@ function QualityLoops.normalized(player_index, key, parts)
     local recycle_recipe_name
     if stored then
         recycle_recipe_name = stored.recycle_recipe_name
+    elseif recycle_only then
+        local recipe = QualityLoops.self_recycle_recipe(item)
+        recycle_recipe_name = recipe and recipe.name
     else
         local recipes, seen = {}, {}
         for _, recipe in pairs(tier_recipes) do
@@ -280,6 +313,9 @@ function QualityLoops.normalized(player_index, key, parts)
         recycle_recipe_name = default_recycle_recipe_name(item, recipes)
     end
     if recycle_recipe_name and QualityLoop.recycler_refusal(prototypes.recipe[recycle_recipe_name], item) then
+        recycle_recipe_name = nil
+    end
+    if recycle_recipe_name and recycle_only and QualityLoop.self_recycle_refusal(prototypes.recipe[recycle_recipe_name], item) then
         recycle_recipe_name = nil
     end
     config.recycle_recipe_name = recycle_recipe_name

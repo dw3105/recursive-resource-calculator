@@ -389,11 +389,16 @@ local function add_loop_module_cell(report, info, stage_name, stage, tier)
     end
 end
 
---The loop's recipe control: the recipe its item is bound to and the quality its ingredients come at
+--The loop's recipe control: the recipe its item is bound to and the quality its ingredients come at. A recycle-only loop always starts at normal: its
+--button shows normal and keeps the stored start quality apart (stored_start) for the stale check.
 local function add_loop_recipe_cell(report, info)
     local pi = report.player_index
     local recipe = QualityLoops.producer_of(pi, info.item)
-    local shown = {name = recipe and recipe.name, quality = info.config.start_quality}
+    local shown = {name = recipe and recipe.name, quality = not info.recycle_only and info.config.start_quality or nil}
+    local tags = {product_full_name = "item/" .. info.item, loop_key = info.key, shown = shown} --the whole value shown, for Report.handle_loop_recipe_change
+    if info.recycle_only then
+        tags.recycle_only, tags.stored_start = true, info.config.start_quality
+    end
     local recipe_cell = report.add{type = "flow"}
     recipe_cell.style.horizontally_stretchable = true
     recipe_cell.add{
@@ -404,7 +409,7 @@ local function add_loop_recipe_cell(report, info)
         elem_type = "recipe-with-quality",
         ["recipe-with-quality"] = shown.name and {name = shown.name, quality = shown.quality},
         elem_filters = {{filter = "has-product-item", elem_filters = {{filter = "name", name = info.item}}}},
-        tags = {product_full_name = "item/" .. info.item, loop_key = info.key, shown = shown}, --the whole value shown, for Report.handle_loop_recipe_change
+        tags = tags,
     }
 end
 
@@ -519,7 +524,8 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
     local recycler_counts, recycler_total = {}, 0
 
     for index, tier in ipairs(tiers) do
-        local stage = QualityLoops.stage(pi, config, "craft", tier.quality)
+        --a recycle-only loop crafts nothing: its first row says what it takes from outside, the others only recycle
+        local stage = not info.recycle_only and QualityLoops.stage(pi, config, "craft", tier.quality) or nil
         local item_cell = report.add{type = "flow"}
         item_cell.style.horizontally_stretchable = true
         item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = tier.quality ~= "normal" and tier.quality or nil,
@@ -537,14 +543,21 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
 
         local machine_cell = report.add{type = "flow", direction = "vertical"}
         machine_cell.style.horizontally_stretchable = true
-        local craft_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "craft"}}
+        local craft_line = (index == 1 or not info.recycle_only) and machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "craft"}}
         if stage and stage.machine then
             add_loop_machine_button(craft_line, info, "craft", stage, tier.quality)
         end
-        local craft_label = craft_line.add{type = "label", caption = ""}
-        if index == 1 and reason then
+        local craft_label = craft_line and craft_line.add{type = "label", caption = ""}
+        if not craft_label then
+            --a recycle-only tier above the first: no craft line
+        elseif index == 1 and reason then
             craft_label.caption = {"hxrrc." .. reason}
             wrap(craft_label)
+        elseif info.recycle_only then
+            if solved then
+                craft_label.caption = {"hxrrc.quality_loop_recycle_only_input", format_by_precision(info.input * recipe_rate, pi)}
+                wrap(craft_label)
+            end
         elseif not (stage and stage.machine) then
             craft_label.caption = {"hxrrc.not_automatically_craftable"}
             wrap(craft_label)
@@ -582,6 +595,8 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         add_loop_module_cell(report, info, "craft", stage, tier.quality)
         if index == 1 then
             add_loop_recipe_cell(report, info)
+        elseif info.recycle_only then
+            report.add{type = "empty-widget"}
         else
             add_tier_recipe_cell(report, info, tier.quality)
         end
@@ -1038,14 +1053,26 @@ function Report.handle_loop_recipe_change(event)
     end
     local loop = storage[pi].quality_loops_by_key[tags.loop_key]
     local bound = loop and QualityLoops.producer_of(pi, loop.item)
-    if not loop or (bound and bound.name) ~= shown.name or loop.start_quality ~= shown.quality then
+    local stored_start = shown.quality
+    if tags.recycle_only then
+        stored_start = tags.stored_start
+    end
+    if not loop or (bound and bound.name) ~= shown.name or loop.start_quality ~= stored_start then
         return restore()
     end
 
     if not picked then
         Report.apply_binding(pi, tags.product_full_name, nil, false)
-        button.tags = {product_full_name = tags.product_full_name, loop_key = tags.loop_key, shown = {quality = shown.quality}}
+        button.tags = {product_full_name = tags.product_full_name, loop_key = tags.loop_key, shown = {quality = shown.quality},
+            recycle_only = tags.recycle_only, stored_start = tags.stored_start}
         return true
+    end
+    --a recipe recycling the item into itself makes the loop recycle-only (QualityLoops.recycle_only), which always starts at normal
+    local picked_recipe = prototypes.recipe[picked.name]
+    local makes_recycle_only = not Utils.IS_2_1 and picked_recipe ~= nil and not QualityLoop.self_recycle_refusal(picked_recipe, loop.item)
+        and QualityLoop.never_nets_item(picked_recipe, loop.item)
+    if makes_recycle_only and picked.quality then
+        return refuse("start_quality_recycle_only_error")
     end
     if picked.name ~= shown.name then
         local error_key = Report.validate_binding(pi, tags.product_full_name, picked.name, false)
@@ -1073,6 +1100,11 @@ function Report.handle_loop_recipe_change(event)
 
     if picked.name ~= shown.name then
         Report.apply_binding(pi, tags.product_full_name, picked.name, false)
+    end
+    if makes_recycle_only then --the stored start quality stays for a later ordinary recipe
+        button.tags = {product_full_name = tags.product_full_name, loop_key = tags.loop_key, shown = {name = picked.name},
+            recycle_only = true, stored_start = loop.start_quality}
+        return true
     end
     loop.start_quality = picked.quality
     button.tags = {product_full_name = tags.product_full_name, loop_key = tags.loop_key, shown = {name = picked.name, quality = picked.quality}}
@@ -1198,6 +1230,10 @@ function Report.handle_recycle_recipe_change(event)
         local recipe = prototypes.recipe[picked]
         if QualityLoop.recycler_refusal(recipe, loop.item) then
             game.get_player(pi).create_local_flying_text{text = {"hxrrc.recycle_recipe_refused_error"}, create_at_cursor = true}
+            return restore()
+        end
+        if QualityLoops.recycle_only(pi, loop.item, tags.loop_key) and QualityLoop.self_recycle_refusal(recipe, loop.item) then
+            game.get_player(pi).create_local_flying_text{text = {"hxrrc.recycle_only_recipe_refused_error"}, create_at_cursor = true}
             return restore()
         end
         loop.recycle_recipe_name = picked
