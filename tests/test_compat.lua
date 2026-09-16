@@ -59,14 +59,15 @@ for _, shape in ipairs(H.shapes()) do
         local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
         local button = find_named(sheet_pane, "hxrrc_choose_crafting_machine_button")
         assert(button, "no machine button")
-        local filtered_categories = {}
-        for _, filter in ipairs(button.elem_filters) do
-            H.equal(filter.filter, "crafting-category", "filter kind")
-            filtered_categories[filter.crafting_category] = true
+        H.equal(require("gui.module_picker").open(button), true, "machine picker opened")
+        local offered = {}
+        local function scan(element)
+            if element.name == "hxrrc_picker_choice_button" then offered[element.tags.choice] = true end
+            for _, child in ipairs(element.children) do scan(child) end
         end
-        H.equal(filtered_categories.crafting, true, "primary category offered")
-        H.equal(filtered_categories.metallurgy, true, "additional category offered")
-        H.equal(button.enabled, true, "button enabled with two machines")
+        scan(storage[1].module_picker.frame)
+        H.equal(offered.assembler, true, "primary category's machine offered")
+        H.equal(offered.foundry, true, "additional category's machine offered")
     end)
 
     H.test(shape .. " init, sheet and configuration change run on the strict shape", function()

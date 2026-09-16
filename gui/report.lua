@@ -192,13 +192,8 @@ local function add_row_for_burner(report, column, product_rate, rate, round_up_m
     add_recipe_cell(report, product_full_name, nil, true)
 end
 
---One filter per category the recipe can be crafted through; filters in a list combine with "or"
-local function crafting_category_filters(recipe)
-    local filters = {}
-    for _, category in ipairs(Utils.recipe_categories(recipe)) do
-        filters[#filters + 1] = {filter = "crafting-category", crafting_category = category}
-    end
-    return filters
+local function machine_button_tooltip(machine_name)
+    return {"", prototypes.entity[machine_name].localised_name, "\n", {"hxrrc.choose_machine_button_tooltip"}}
 end
 
 --reason: locale key shown in place of the machine count, for a row whose count cannot be trusted or does not exist
@@ -206,16 +201,18 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
     machine_cell.style.horizontally_stretchable = true
-    --the machine:
+    --the machine: a left click opens the machine picker (see ModulePicker.on_machine_click); a sprite-button, since Factorio keeps the pipette key
+    --over a choose-elem-button for itself
     machine_cell.add{
-        type = "choose-elem-button",
+        type = "sprite-button",
         name = "hxrrc_choose_crafting_machine_button",
-        elem_type = "entity-with-quality",
-        ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
-        --snapshot for refused changes on a stale report, and the row the button belongs to
+        style = "slot_button",
+        sprite = "entity/" .. crafting_machine.name,
+        quality = crafting_machine_identifier.quality,
+        tooltip = machine_button_tooltip(crafting_machine.name),
+        --the machine shown and the row the button belongs to, checked before a pick or a pipette copy
         tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality, recipe_name = recipe.name, product_full_name = product_full_name,
             signature = ModuleSetup.signature(storage[pi].module_setups_by_recipe_name[recipe.name], crafting_machine_identifier)},
-        elem_filters = crafting_category_filters(recipe), --always enabled: with one machine, its quality can still be picked
     }
 
     --the machine amount:
@@ -325,12 +322,13 @@ end
 --A loop's machine button: tier nil for the recycler pool
 local function add_loop_machine_button(line, info, stage_name, stage, tier)
     line.add{
-        type = "choose-elem-button",
+        type = "sprite-button",
         name = "hxrrc_choose_loop_machine_button",
-        elem_type = "entity-with-quality",
-        ["entity-with-quality"] = {name = stage.machine.name, quality = stage.machine.quality},
-        elem_filters = crafting_category_filters(stage.recipe), --always enabled: with one machine, its quality can still be picked
-        --snapshot for refused changes on a stale report, and the loop stage the button edits
+        style = "slot_button",
+        sprite = "entity/" .. stage.machine.name,
+        quality = stage.machine.quality,
+        tooltip = machine_button_tooltip(stage.machine.name),
+        --the machine shown and the loop stage the button edits, checked before a pick or a pipette copy
         tags = {name = stage.machine.name, quality = stage.machine.quality, loop_key = info.key, stage = stage_name, tier = tier, recipe_name = stage.recipe.name,
             signature = ModuleSetup.signature(stage.setup, stage.machine)},
     }
@@ -835,6 +833,25 @@ end
 
 function Report.machine_context(button)
     return Report.machine_context_of(button.player_index, Report.machine_target(button))
+end
+
+--Stores a machine picked for a row or loop stage through its sprite-button (the machine picker). The button must still show what is stored; the
+--machine must craft the recipe; the setup is fitted to the new machine, dropping what it refuses. Returns true when stored state changed.
+--Reports built before 1.1.27 keep choose-elem-buttons, handled by handle_crafting_machine_change and handle_loop_machine_change.
+function Report.pick_machine(button, picked)
+    local machine = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
+    local context = Report.machine_context(button)
+    if not context then
+        return false
+    end
+    if same_entity(machine, context.machine) then
+        return false
+    end
+    if not Utils.can_craft(machine.name, context.recipe) then
+        return false
+    end
+    context.write(machine, QualityLoops.fitted_setup_copy(context.setup, machine, context.recipe))
+    return true
 end
 
 --Returns true when the product's burner binding changed. Picking an entity replaces any recipe binding of the product; emptying removes the burner.

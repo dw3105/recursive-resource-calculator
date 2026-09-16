@@ -155,8 +155,7 @@ for _, shape in ipairs(H.shapes()) do
         storage[1].module_setups_by_recipe_name.gear.modules = {{name = "productivity-module"}, {name = "speed-module"}, {name = "productivity-module"}, {name = "speed-module", quality = "rare"}}
         local _, sheet_pane = gear_sheet()
         local machine_button = find_all(sheet_pane, "hxrrc_choose_crafting_machine_button")[1]
-        machine_button.elem_value = {name = "limited"}
-        fire(machine_button)
+        H.pick_choice(machine_button, {name = "limited"})
         H.equal(stored(), "speed-module,speed-module@rare", "kept modules")
     end)
 

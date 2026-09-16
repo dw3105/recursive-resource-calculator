@@ -133,8 +133,7 @@ for _, shape in ipairs(H.shapes()) do
         set_setup({}, {group("beacon", 2, {"speed-module"})})
         local _, sheet_pane = gear_report()
         local machine_button = find_all(sheet_pane, "hxrrc_choose_crafting_machine_button")[1]
-        machine_button.elem_value = {name = "no-beacons"}
-        event_handlers.on_gui_elem_changed[machine_button.name]({element = machine_button, player_index = 1})
+        H.pick_choice(machine_button, {name = "no-beacons"})
         H.equal(stored_groups(), "", "groups after the machine change")
     end)
 

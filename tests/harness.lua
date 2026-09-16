@@ -1087,6 +1087,15 @@ local function caption_key(caption)
     return type(caption) == "table" and caption[1] or caption
 end
 
+--The entity a machine or beacon button shows: a sprite-button keeps it in its tags, a choose-elem-button (burners, reports built before 1.1.27)
+--in its value
+local function shown_entity(button)
+    if button.type == "sprite-button" then
+        return button.tags.name and {name = button.tags.name, quality = button.tags.quality}
+    end
+    return button.elem_value
+end
+
 --The machine cell's lines of a quality loop row: {[stage] = {machine_button, machine, machine_sprite, machines, reason, caption, tooltip}}
 local function parse_loop_lines(machine_cell)
     local lines = {}
@@ -1094,8 +1103,11 @@ local function parse_loop_lines(machine_cell)
         local entry = {}
         local label = line.children[#line.children]
         for _, child in ipairs(line.children) do
-            if child.name == "hxrrc_choose_loop_machine_button" then entry.machine_button, entry.machine = child, child.elem_value end
-            if child.type == "sprite-button" then entry.machine_sprite = child end
+            if child.name == "hxrrc_choose_loop_machine_button" then
+                entry.machine_button, entry.machine = child, shown_entity(child)
+            elseif child.type == "sprite-button" then
+                entry.machine_sprite = child
+            end
         end
         if type(label.caption) == "table" then
             entry.reason = label.caption[1]
@@ -1188,7 +1200,7 @@ function H.parse_report(output_flow)
                 end
                 row.machine_caption = label.caption
                 row.machine_tooltip = label.tooltip
-                row.machine = machine_cell.children[1].elem_value
+                row.machine = shown_entity(machine_cell.children[1])
                 row.machine_button = machine_cell.children[1]
                 row.module_cell = module_cell
             else

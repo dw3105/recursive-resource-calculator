@@ -209,14 +209,12 @@ H.test("2.0 QL-17 a recipe returning what it takes consumes only through its upg
     H.near(report.rows[M.QualityId.encode("X", "uncommon")].rate, -0.9, "uncommon X made")
 
     local machine_button = report.rows["item/X"].machine_button
-    machine_button.elem_value = {name = "plain-machine"}
-    fire(machine_button)
+    H.pick_choice(machine_button, {name = "plain-machine"})
     report = recompute(sheet_flow)
     H.equal(report.rows["item/X"].reason, "hxrrc.consumer_no_longer_consumes", "no quality effect: no longer consumes")
     machine_button = report.rows["item/X"].machine_button
     assert(machine_button, "machine editor on the diagnostic row")
-    machine_button.elem_value = {name = "quality-machine"}
-    fire(machine_button)
+    H.pick_choice(machine_button, {name = "quality-machine"})
     report = recompute(sheet_flow)
     H.near(report.rows["item/X"].rate, -1, "consumes again")
 end)

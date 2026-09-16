@@ -88,6 +88,8 @@ end
 for name, handler in pairs({
     hxrrc_choose_module_button = ModulePicker.on_slot_click,
     hxrrc_choose_beacon_module_button = ModulePicker.on_slot_click,
+    hxrrc_choose_crafting_machine_button = ModulePicker.on_machine_click,
+    hxrrc_choose_loop_machine_button = ModulePicker.on_machine_click,
     hxrrc_picker_choice_button = ModulePicker.on_choice_click,
     hxrrc_picker_quality_button = ModulePicker.on_quality_click,
     hxrrc_picker_confirm_button = function(event) return ModulePicker.confirm(event.player_index) end,

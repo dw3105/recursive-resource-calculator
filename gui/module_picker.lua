@@ -5,6 +5,8 @@
 local ModuleSetup = require "logic.module_setup"
 local ModuleGUI = require "gui.modulegui"
 local Pipette = require "gui.pipette"
+local Report = require "gui.report"
+local Utils = require "logic.utils"
 
 local ModulePicker = {}
 
@@ -39,11 +41,35 @@ local KINDS = {
         store = function(button, picked) return ModuleGUI.pick_into(button, picked) end,
         clear = function(button) return ModuleGUI.pick_into(button, nil) end,
     },
+    --a row or loop stage always has a machine: no clear
+    machine = {
+        title = {"hxrrc.machine_picker_title"},
+        confirm_tooltip = {"hxrrc.machine_picker_confirm_tooltip"},
+        sprite_prefix = "entity/",
+        prototypes = function() return prototypes.entity end,
+        describe = function(button)
+            local context = Report.machine_context(button)
+            if not context then
+                return nil
+            end
+            local choices = {}
+            for _, machine in ipairs(Utils.crafting_machines_for(context.recipe)) do
+                local prototype = prototypes.entity[machine.name]
+                if prototype and not prototype.hidden then
+                    choices[#choices + 1] = machine.name
+                end
+            end
+            return {choices = choices, stored = context.machine}
+        end,
+        store = function(button, picked) return Report.pick_machine(button, picked) end,
+    },
 }
 
 ModulePicker.KIND_OF_BUTTON = {
     hxrrc_choose_module_button = "module",
     hxrrc_choose_beacon_module_button = "module",
+    hxrrc_choose_crafting_machine_button = "machine",
+    hxrrc_choose_loop_machine_button = "machine",
 }
 --Unlocked qualities by level, then name; qualities the engine hides are left out
 local function offered_qualities(force)
@@ -266,6 +292,17 @@ function ModulePicker.on_slot_click(event)
         return Pipette.paste_module(player, slot_button, held)
     end
     ModulePicker.open(slot_button)
+    return false
+end
+
+--A machine button of a row or loop stage: a left click opens the machine picker; a right click does nothing, as a row always has a machine.
+--Choose-elem-buttons of reports built before 1.1.27 are left to their elem-changed handler. Never changes stored state itself.
+function ModulePicker.on_machine_click(event)
+    local button = event.element
+    if button.type ~= "sprite-button" or event.button ~= defines.mouse_button_type.left then
+        return false
+    end
+    ModulePicker.open(button)
     return false
 end
 

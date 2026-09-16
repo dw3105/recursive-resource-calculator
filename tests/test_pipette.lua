@@ -37,6 +37,7 @@ local function pipette_world(shape)
     M.Sheet = require "gui.sheet"
     M.Pipette = require "gui.pipette"
     M.ModulePicker = require "gui.module_picker"
+    M.Report = require "gui.report"
     M.QualityId = require "logic.quality_id"
     M.QualityLoops = require "logic.quality_loops"
     M.Utils = require "logic.utils"
@@ -539,13 +540,15 @@ for _, shape in ipairs(H.shapes()) do
         M.Sheet.calculate(second.hxrrc_compute_button)
         storage.computation_stack = {}
         local button = machine_button(second, "cog")
-        local tags_before, value_before = button.tags, button.elem_value
+        local tags_before, sprite_before = button.tags, button.sprite
         paste(world, button)
         H.deep_equal(chosen().cog, {name = "assembler", quality = "uncommon"}, "pasted from the first sheet's copy")
         H.deep_equal(button.tags, tags_before, "button tags untouched by the drain")
-        H.deep_equal(button.elem_value, value_before, "button value untouched by the drain")
+        H.equal(button.sprite, sprite_before, "button sprite untouched by the drain")
         M.Sheet.calculate(second.hxrrc_compute_button)
-        H.deep_equal(machine_button(second, "cog").elem_value, {name = "assembler", quality = "uncommon"}, "rebuilt report shows it")
+        local rebuilt = machine_button(second, "cog")
+        H.equal(rebuilt.sprite, "entity/assembler", "rebuilt report shows it")
+        H.equal(rebuilt.tags.quality, "uncommon", "rebuilt report shows its quality")
     end)
 
     H.test(shape .. " N12k N12l a real item held with the ghost refuses and drops the clipboard; a row whose machine changed underneath keeps its storage", function()
@@ -917,6 +920,151 @@ for _, shape in ipairs(H.shapes()) do
         drain(world)
         H.deep_equal(setups().cog.beacons, snapshot, "destination unchanged")
         H.equal(clipboard(), nil, "clipboard gone")
+    end)
+end
+
+--P5: machine buttons are sprite-buttons that open the machine picker, so the pipette key reaches the mod over them
+
+local function left_click(button, tick)
+    event_handlers.on_gui_click[button.name]({element = button, player_index = 1, tick = tick or 0, button = defines.mouse_button_type.left})
+end
+
+local function picker() return storage[1].module_picker end
+
+local function offered_choices()
+    local names = {}
+    for _, flow in ipairs(picker().frame.picker_scroll.picker_grid.children) do names[#names + 1] = flow.children[1].tags.choice end
+    table.sort(names)
+    return table.concat(names, ",")
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " P5a P5b a row's machine is a sprite-button; a left click opens the machine picker offering the machines that craft the recipe, preselected", function()
+        pipette_world(shape)
+        chosen().gear = {name = "assembler", quality = "rare"}
+        local sheet_flow = sheet({{item = "gear"}})
+        local button = machine_button(sheet_flow, "gear")
+        H.equal(button.type, "sprite-button", "P5a: sprite-button")
+        H.equal(button.sprite, "entity/assembler", "P5a: machine sprite")
+        H.equal(button.quality.name, "rare", "P5a: machine quality")
+        H.equal(button.tags.name, "assembler", "P5a: tags name")
+        assert(button.tags.signature, "P5a: tags signature")
+        H.equal(button.tooltip[4][1], "hxrrc.choose_machine_button_tooltip", "P5a: tooltip says what a click does")
+        left_click(button)
+        H.equal(picker().kind, "machine", "P5b: machine picker")
+        H.equal(picker().frame.caption[1], "hxrrc.machine_picker_title", "P5b: title")
+        H.equal(offered_choices(), "assembler,fast-assembler", "P5b: only machines crafting gear")
+        H.equal(picker().selected_choice, "assembler", "P5b: stored machine preselected")
+        H.equal(picker().selected_quality, "rare", "P5b: stored quality preselected")
+        H.equal(#find_all(picker().frame, function(element) return element.name == "hxrrc_picker_clear_button" end), 0, "P5b: a machine cannot be emptied")
+    end)
+
+    H.test(shape .. " P5c P5d a picked machine is stored with its setup fitted; a machine that cannot craft is never offered nor stored", function()
+        pipette_world(shape)
+        chosen().gear = {name = "assembler"}
+        setups().gear = {modules = {{name = "productivity-module"}, {name = "speed-module"}, {name = "speed-module"}}, beacons = {}}
+        local sheet_flow = sheet({{item = "gear"}})
+        H.pick_choice(machine_button(sheet_flow, "gear"), {name = "fast-assembler", quality = "rare"})
+        H.deep_equal(chosen().gear, {name = "fast-assembler", quality = "rare"}, "P5c: machine and quality stored")
+        H.equal(stored(setups().gear.modules), "speed-module,speed-module", "P5c: refused productivity dropped")
+        assert(#storage.computation_stack > 0, "P5c: recompute queued")
+        sheet_flow = sheet({{item = "gear"}})
+        H.equal(M.Report.pick_machine(machine_button(sheet_flow, "gear"), {name = "press"}), false, "P5d: press cannot craft gear")
+        H.equal(chosen().gear.name, "fast-assembler", "P5d: nothing stored")
+    end)
+
+    H.test(shape .. " P5e a loop stage's machine button picks that stage's machine", function()
+        if shape ~= "2.0" then return end --quality loops are calculated on Factorio 2.0 only
+        pipette_world(shape)
+        local key = M.QualityId.encode("X", "uncommon")
+        local sheet_flow = sheet({{item = "X", quality = "uncommon"}})
+        local rows = H.parse_report(sheet_flow.output_flow).loops[key]
+        local button = rows.tiers[1].craft.machine_button
+        H.equal(button.type, "sprite-button", "stage button is a sprite-button")
+        H.pick_choice(button, {name = "assembler", quality = "uncommon"})
+        H.deep_equal(storage[1].quality_loops_by_key[key].crafts.normal.machine, {name = "assembler", quality = "uncommon"}, "stage machine stored")
+    end)
+
+    H.test(shape .. " P5f P5g P5h a stale row opens no picker and a picker gone stale stores nothing; double click and Enter apply; a right click does nothing", function()
+        local world = pipette_world(shape)
+        chosen().gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        local button = machine_button(sheet_flow, "gear")
+        left_click(button)
+        chosen().gear = {name = "assembler", quality = "uncommon"} --changed while the picker is open
+        event_handlers.on_gui_click.hxrrc_picker_confirm_button({element = picker().frame.picker_footer.hxrrc_picker_confirm_button, player_index = 1, tick = 0})
+        H.deep_equal(chosen().gear, {name = "assembler", quality = "uncommon"}, "P5f: a picker gone stale stores nothing")
+        left_click(button)
+        H.equal(picker(), nil, "P5f: a stale button opens no picker")
+
+        sheet_flow = sheet({{item = "gear"}})
+        button = machine_button(sheet_flow, "gear")
+        event_handlers.on_gui_click[button.name]({element = button, player_index = 1, tick = 0, button = defines.mouse_button_type.right})
+        H.equal(picker(), nil, "P5h: right click opens nothing")
+        H.deep_equal(chosen().gear, {name = "assembler", quality = "uncommon"}, "P5h: right click stores nothing")
+        left_click(button)
+        local choice = function(name)
+            for _, flow in ipairs(picker().frame.picker_scroll.picker_grid.children) do
+                if flow.children[1].tags.choice == name then return flow.children[1] end
+            end
+        end
+        left_click(choice("fast-assembler"), 1000)
+        left_click(choice("fast-assembler"), 1010)
+        H.equal(chosen().gear.name, "fast-assembler", "P5g: double click applies")
+        H.equal(picker(), nil, "P5g: and closes")
+
+        sheet_flow = sheet({{item = "gear"}})
+        left_click(machine_button(sheet_flow, "gear"))
+        left_click(choice("assembler"), 2000)
+        H.press(world, "hxrrc_confirm_module_picker", {})
+        H.equal(chosen().gear.name, "assembler", "P5g: Enter applies")
+    end)
+
+    H.test(shape .. " P5j P5k Q copies a machine through its sprite-button; a machine picked at normal is stored as none and its copy survives to paste", function()
+        local world = pipette_world(shape)
+        chosen().gear = {name = "assembler", quality = "rare"}
+        chosen().cog = {name = "press"}
+        local sheet_flow = sheet({{item = "gear"}, {item = "cog"}})
+        H.pick_choice(machine_button(sheet_flow, "gear"), {name = "assembler", quality = "normal"})
+        H.deep_equal(chosen().gear, {name = "assembler"}, "P5k: normal stored as none")
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}})
+        press(world, machine_button(sheet_flow, "gear"))
+        world.flush_cursor_events()
+        assert(clipboard(), "P5j: Q over the sprite-button copies; P5k: the copy survives its own notification")
+        world.advance_tick()
+        paste(world, machine_button(sheet_flow, "cog"))
+        world.flush_cursor_events()
+        H.deep_equal(chosen().cog, {name = "assembler"}, "P5k: pasted")
+        assert(clipboard(), "P5k: clipboard kept")
+    end)
+
+    H.test(shape .. " P5l a loop stage machine picked at normal after rare is stored as none, and its Q copy pastes", function()
+        if shape ~= "2.0" then return end --quality loops are calculated on Factorio 2.0 only
+        local world = pipette_world(shape)
+        local key = M.QualityId.encode("X", "uncommon")
+        chosen().gear = {name = "fast-assembler"}
+        local sheet_flow = sheet({{item = "X", quality = "uncommon"}, {item = "gear"}})
+        storage[1].quality_loops_by_key[key].crafts.normal.machine = {name = "assembler", quality = "rare"}
+        sheet_flow = sheet({{item = "X", quality = "uncommon"}, {item = "gear"}})
+        H.pick_choice(H.parse_report(sheet_flow.output_flow).loops[key].tiers[1].craft.machine_button, {name = "assembler"})
+        H.deep_equal(storage[1].quality_loops_by_key[key].crafts.normal.machine, {name = "assembler"}, "normal stored as none")
+        sheet_flow = sheet({{item = "X", quality = "uncommon"}, {item = "gear"}})
+        press(world, H.parse_report(sheet_flow.output_flow).loops[key].tiers[1].craft.machine_button)
+        world.flush_cursor_events()
+        assert(clipboard(), "copy survives its own notification")
+        world.advance_tick()
+        paste(world, machine_button(sheet_flow, "gear"))
+        H.equal(chosen().gear.name, "assembler", "pasted onto the row")
+        H.equal(chosen().gear.quality, nil, "at normal")
+    end)
+
+    H.test(shape .. " P5m a hidden crafting machine is not offered", function()
+        local world = pipette_world(shape)
+        world.set_entity_flags("fast-assembler", {hidden = true})
+        chosen().gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        left_click(machine_button(sheet_flow, "gear"))
+        H.equal(offered_choices(), "assembler", "hidden machine left out")
     end)
 end
 

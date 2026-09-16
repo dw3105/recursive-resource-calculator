@@ -62,6 +62,16 @@ local function machine_button(sheet_pane, product_full_name)
     return found[1]
 end
 
+--A report built before 1.1.27 shows a row's machine on a choose-elem-button whose tags have no setup signature; swaps a current button for one
+local function as_legacy_machine_button(button)
+    local tags = button.tags
+    local cell = button.parent
+    button.destroy()
+    return cell.add{type = "choose-elem-button", name = "hxrrc_choose_crafting_machine_button", elem_type = "entity-with-quality", index = 1,
+        ["entity-with-quality"] = {name = tags.name, quality = tags.quality},
+        tags = {name = tags.name, quality = tags.quality, recipe_name = tags.recipe_name, product_full_name = tags.product_full_name}}
+end
+
 local function fire_elem_changed(element)
     event_handlers.on_gui_elem_changed[element.name]({element = element, player_index = 1})
 end
@@ -202,8 +212,28 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(H.slot_value(button_b).name, "speed-module", "slot still shows what it showed")
     end)
 
+    H.test(shape .. " P5i a machine button of a report built before 1.1.27 (no signature in its tags) still changes the machine", function()
+        local world = stale_world(shape)
+        world.add_machine({name = "fast-assembler", categories = {"crafting"}, speed = 2})
+        reconfigure()
+        local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        local button = as_legacy_machine_button(machine_button(sheet_pane, "item/gear"))
+        H.equal(button.tags.signature, nil, "legacy tag shape")
+        local shown = button.elem_value.name
+        local other = shown == "fast-assembler" and "assembler" or "fast-assembler"
+        button.elem_value = {name = other}
+        fire_elem_changed(button)
+        H.equal(storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear.name, other, "valid legacy edit stored")
+        assert(#storage.computation_stack > 0, "recompute queued")
+    end)
+
     H.test(shape .. " F2e a stale machine button of a removed recipe refuses changes", function()
-        local _, _, button = removed_recipe_machine_state(shape)
+        local _, _, sprite_button = removed_recipe_machine_state(shape)
+        local sprite_shown = sprite_button.tags.name
+        H.equal(H.pick_choice(sprite_button, {name = sprite_shown == "fast-assembler" and "assembler" or "fast-assembler"}), false, "no picker on a stale button")
+        H.equal(#storage.computation_stack, 0, "nothing queued by the stale button")
+        local button = as_legacy_machine_button(sprite_button)
         local shown = button.elem_value.name
         button.elem_value = {name = shown == "fast-assembler" and "assembler" or "fast-assembler"}
         fire_elem_changed(button)
@@ -259,6 +289,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(stored_names("grow"), "", "stored modules")
 
         local _, _, button = removed_recipe_machine_state(shape)
+        button = as_legacy_machine_button(button)
         H.refire_on_script_set = true
         local shown = button.elem_value.name
         button.elem_value = {name = shown == "fast-assembler" and "assembler" or "fast-assembler"}
@@ -311,7 +342,7 @@ for _, shape in ipairs(H.shapes()) do
         storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler", quality = "legendary"}
         local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
         storage[1].sheet_section = {sheet_pane = sheet_pane}
-        local button = machine_button(sheet_pane, "item/gear")
+        local button = as_legacy_machine_button(machine_button(sheet_pane, "item/gear"))
         H.equal(button.elem_value.quality, "legendary", "button shows the chosen quality")
         world.remove_recipe("gear")
         world.remove_quality("legendary")
@@ -427,8 +458,7 @@ for _, shape in ipairs(H.shapes()) do
         storage[1].sheet_section = {sheet_pane = pane_a}
 
         local button = machine_button(pane_a, "item/gear")
-        button.elem_value = {name = button.elem_value.name == "fast-assembler" and "assembler" or "fast-assembler"}
-        fire_elem_changed(button)
+        H.pick_choice(button, {name = button.tags.name == "fast-assembler" and "assembler" or "fast-assembler"})
         local queued = #storage.computation_stack
 
         local slot_b = module_buttons(pane_b, "gear")[1]
