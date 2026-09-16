@@ -263,13 +263,32 @@ local function refire(element, key)
     if not ok then error(err, 0) end
 end
 
+--LuaStyle of an element: a plain writable table, except column_alignments (2.0.77: tables only; read-only property, its entries writable by index)
+local function new_style(element_type, fields)
+    local data = fields or {}
+    local alignments = {}
+    return setmetatable({}, {
+        __index = function(_, key)
+            if key == "column_alignments" then
+                if element_type ~= "table" then error("LuaStyle::column_alignments can only be used if this is table", 2) end
+                return alignments
+            end
+            return data[key]
+        end,
+        __newindex = function(_, key, value)
+            if key == "column_alignments" then error("LuaStyle::column_alignments is read-only", 2) end
+            data[key] = value
+        end,
+    })
+end
+
 local function new_gui_element(params, parent, player_index)
-    local element = {children = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}, _values = {style = {}}}
+    local element = {children = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}, _values = {style = new_style(params.type)}}
     for key, value in pairs(params) do
         if key ~= "index" and key ~= "quality" and key ~= "elem_type" and key ~= "style" and GUI_MEMBERS[key] and not VALUE_KEYS[key] then element[key] = value end
     end
     --a style given by name (add{style = "slot_button"}) reads back as a style table carrying that name, so style.width = ... still works
-    if type(params.style) == "string" then element._values.style = {name = params.style} end
+    if type(params.style) == "string" then element._values.style = new_style(params.type, {name = params.style}) end
     if params.enabled == false then element.enabled = false end
     if params.visible == false then element.visible = false end
     --elem_type is read-only, so it is kept where only reads reach it
@@ -329,7 +348,7 @@ local function new_gui_element(params, parent, player_index)
             if key == "elem_type" then error("LuaGuiElement::elem_type is read-only", 2) end
             if not GUI_MEMBERS[key] then error("LuaGuiElement doesn't contain key " .. tostring(key), 2) end
             if key == "style" then
-                rawget(self, "_values").style = type(value) == "string" and {name = value} or value
+                rawget(self, "_values").style = type(value) == "string" and new_style(rawget(self, "type"), {name = value}) or value
                 return
             end
             rawset(self, key, value)

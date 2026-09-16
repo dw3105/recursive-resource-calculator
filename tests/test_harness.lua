@@ -517,4 +517,15 @@ H.test("Q0c a library blueprint reads as cursor_record apart from stack and ghos
     H.errors(function() return player.is_cursor_empty() end, "is_cursor_empty is not modelled", "still refused")
 end)
 
+H.test("S0a a table's style column_alignments is writable by index but not replaceable; other elements refuse it", function()
+    cursor_world()
+    local screen = game.players[1].gui.screen
+    local grid = screen.add{type = "table", name = "grid", column_count = 2}
+    grid.style.column_alignments[1] = "middle-right"
+    H.equal(grid.style.column_alignments[1], "middle-right", "index write reads back")
+    H.errors(function() grid.style.column_alignments = {"middle-left"} end, "read-only", "whole assignment refused")
+    local flow = screen.add{type = "flow", name = "flow"}
+    H.errors(function() return flow.style.column_alignments end, "can only be used if this is table", "flow refuses")
+end)
+
 H.done("test_harness")
