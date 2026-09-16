@@ -14,13 +14,20 @@ end
 
 --LuaObject: reading or writing a key outside its member list errors like the engine does.
 --gates: member -> set of prototype types it can be used on; reading it unset on another type errors (conservative assumption, not established for every member)
-function H.lua_object(class, fields, members, gates)
+--accessors: member -> {read = function(object), write = function(object, value)}; such members never live in the table, so every read and write reaches them
+function H.lua_object(class, fields, members, gates, accessors)
     local allowed = set_of(members)
     for key, _ in pairs(fields) do
         if not allowed[key] then error("fixture sets non-member " .. class .. "." .. key, 2) end
+        if accessors and accessors[key] then error("fixture sets accessor member " .. class .. "." .. key .. " directly", 2) end
     end
     return setmetatable(fields, {
         __index = function(object, key)
+            local accessor = accessors and accessors[key]
+            if accessor and allowed[key] then
+                if not accessor.read then error(class .. "::" .. key .. " is write-only", 2) end
+                return accessor.read(object)
+            end
             if allowed[key] then
                 local types = gates and gates[key]
                 if types and not types[rawget(object, "type")] then
@@ -32,6 +39,12 @@ function H.lua_object(class, fields, members, gates)
         end,
         __newindex = function(object, key, value)
             if not allowed[key] then error(class .. " doesn't contain key " .. tostring(key), 2) end
+            local accessor = accessors and accessors[key]
+            if accessor then
+                if not accessor.write then error(class .. "::" .. key .. " is read-only", 2) end
+                accessor.write(object, value)
+                return
+            end
             rawset(object, key, value)
         end,
     })
@@ -48,9 +61,9 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "get_crafting_speed", "get_max_energy_usage", "electric_energy_source_prototype", "burner_prototype", "heat_energy_source_prototype",
     "fluid_energy_source_prototype", "void_energy_source_prototype", "module_inventory_size", "get_inventory_size", "allowed_module_categories",
     "quality_affects_module_slots", "module_slots_quality_bonus", "distribution_effectivity", "distribution_effectivity_bonus_per_quality_level",
-    "profile", "beacon_counter", "get_max_power_output"}
+    "profile", "beacon_counter", "get_max_power_output", "items_to_place_this"}
 local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
-    "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier"}
+    "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter"}
 local QUALITY_MEMBERS = {"name", "valid", "localised_name", "level", "next", "next_probability", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus",
     "beacon_power_usage_multiplier"}
 
@@ -104,14 +117,17 @@ FLUID_ENERGY_SOURCE_MEMBERS.hybrid = FLUID_ENERGY_SOURCE_MEMBERS["2.0"]
 local FLUID_BOX_MEMBERS = {"valid", "filter"}
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
 local FORCE_MEMBERS = {"name", "valid", "recipes", "players", "is_quality_unlocked"}
-local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text"}
-local HELPERS_MEMBERS = {"compare_versions"}
+local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text", "cursor_ghost", "cursor_stack", "clear_cursor",
+    "is_cursor_empty"}
+--LuaItemStack per 2.0.77, the members the cursor stack mock serves; quality reads as LuaQualityPrototype
+local ITEM_STACK_MEMBERS = {"valid", "valid_for_read", "name", "quality", "count", "prototype"}
+local HELPERS_MEMBERS = {"compare_versions", "is_valid_sprite_path"}
 local SCRIPT_MEMBERS = {"active_mods", "mod_name", "on_init", "on_load", "on_configuration_changed", "on_event", "on_nth_tick"}
 
 local GUI_MEMBERS = set_of({"type", "name", "caption", "tooltip", "children", "parent", "style", "tags", "player_index", "enabled", "visible",
     "text", "elem_value", "elem_type", "elem_filters", "elem_tooltip", "selected_index", "items", "tabs", "selected_tab_index", "numeric",
     "allow_decimal", "allow_negative", "lose_focus_on_confirm", "direction", "column_count", "draw_horizontal_lines", "draw_vertical_lines",
-    "sprite", "valid", "auto_center", "state", "quality", "locked"})
+    "sprite", "valid", "auto_center", "state", "quality", "locked", "toggled"})
 
 local gui_methods = {}
 
@@ -224,10 +240,12 @@ local function refire(element, key)
 end
 
 local function new_gui_element(params, parent, player_index)
-    local element = {children = {}, style = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}, _values = {}}
+    local element = {children = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}, _values = {style = {}}}
     for key, value in pairs(params) do
-        if key ~= "index" and key ~= "quality" and key ~= "elem_type" and GUI_MEMBERS[key] and not VALUE_KEYS[key] then element[key] = value end
+        if key ~= "index" and key ~= "quality" and key ~= "elem_type" and key ~= "style" and GUI_MEMBERS[key] and not VALUE_KEYS[key] then element[key] = value end
     end
+    --a style given by name (add{style = "slot_button"}) reads back as a style table carrying that name, so style.width = ... still works
+    if type(params.style) == "string" then element._values.style = {name = params.style} end
     if params.enabled == false then element.enabled = false end
     if params.visible == false then element.visible = false end
     --elem_type is read-only, so it is kept where only reads reach it
@@ -244,7 +262,7 @@ local function new_gui_element(params, parent, player_index)
     element.player_index = parent and parent.player_index or player_index
     return setmetatable(element, {
         __index = function(self, key)
-            if VALUE_KEYS[key] or key == "elem_type" then return rawget(self, "_values")[key] end
+            if VALUE_KEYS[key] or key == "elem_type" or key == "style" then return rawget(self, "_values")[key] end
             --a sprite-button's quality is written as a name and read as the quality prototype
             if key == "quality" then
                 local quality_name = rawget(self, "_values").quality
@@ -278,6 +296,10 @@ local function new_gui_element(params, parent, player_index)
             end
             if key == "elem_type" then error("LuaGuiElement::elem_type is read-only", 2) end
             if not GUI_MEMBERS[key] then error("LuaGuiElement doesn't contain key " .. tostring(key), 2) end
+            if key == "style" then
+                rawget(self, "_values").style = type(value) == "string" and {name = value} or value
+                return
+            end
             rawset(self, key, value)
         end,
     })
@@ -314,12 +336,19 @@ function gui_methods.get_index_in_parent(self)
     end
 end
 
+--The engine invalidates a removed element together with everything under it
+local function invalidate_subtree(element)
+    rawset(element, "valid", false)
+    for _, child in ipairs(rawget(element, "children")) do invalidate_subtree(child) end
+end
+
 function gui_methods.destroy(self)
     if self.parent then table.remove(self.parent.children, self:get_index_in_parent()) end
-    self.valid = false
+    invalidate_subtree(self)
 end
 
 function gui_methods.clear(self)
+    for _, child in ipairs(self.children) do invalidate_subtree(child) end
     self.children = {}
 end
 
@@ -390,9 +419,22 @@ function H.new_world(shape)
         on_research_finished = "on_research_finished", on_gui_click = "on_gui_click", on_gui_elem_changed = "on_gui_elem_changed",
         on_gui_confirmed = "on_gui_confirmed", on_gui_checked_state_changed = "on_gui_checked_state_changed",
         on_gui_selection_state_changed = "on_gui_selection_state_changed", on_tick = "on_tick",
-        on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed"},
-        inventory = {beacon_modules = 1, crafter_modules = 4}}
-    _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions}, HELPERS_MEMBERS)
+        on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed", on_player_cursor_stack_changed = "on_player_cursor_stack_changed"},
+        inventory = {beacon_modules = 1, crafter_modules = 4},
+        --distinct values only: the mod compares against this table and never relies on the engine's numbers
+        mouse_button_type = {none = 1, left = 2, right = 4, middle = 3}}
+    --named sprite prototypes the data stage defined; item, fluid and entity paths are checked against their prototypes
+    world.sprite_prototypes = {hxrrc_recycling = true}
+    function world.remove_sprite(name) world.sprite_prototypes[name] = nil end
+    local function is_valid_sprite_path(path)
+        local sprite_type, sprite_name = tostring(path):match("^(%a+)/(.+)$")
+        if sprite_type == "item" then return prototypes.item[sprite_name] ~= nil end
+        if sprite_type == "fluid" then return prototypes.fluid[sprite_name] ~= nil end
+        if sprite_type == "entity" then return prototypes.entity[sprite_name] ~= nil end
+        if sprite_type == "utility" then return true end
+        return world.sprite_prototypes[path] == true
+    end
+    _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions, is_valid_sprite_path = is_valid_sprite_path}, HELPERS_MEMBERS)
     _G.script = H.lua_object("LuaBootstrap", {
         active_mods = {base = base_version, ["RRC-Fork"] = "1.1.10"},
         mod_name = "RRC-Fork",
@@ -456,8 +498,14 @@ function H.new_world(shape)
     --fuel (optional): {value (J), category, emissions_multiplier (default 1)}; items without it have fuel value 0 and no fuel category
     function world.add_item(name, fuel)
         prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name},
-            fuel_value = fuel and fuel.value or 0, fuel_category = fuel and fuel.category, fuel_emissions_multiplier = fuel and fuel.emissions_multiplier or 1},
+            fuel_value = fuel and fuel.value or 0, fuel_category = fuel and fuel.category, fuel_emissions_multiplier = fuel and fuel.emissions_multiplier or 1,
+            hidden = false, parameter = false},
             ITEM_MEMBERS, ITEM_GATES)
+    end
+
+    --flags: {hidden = boolean, parameter = boolean}, as LuaPrototypeBase reads them
+    function world.set_item_flags(name, flags)
+        for key, value in pairs(flags) do prototypes.item[name][key] = value end
     end
 
     --The item left after burning an item, e.g. a spent fuel cell; set separately so two items may name each other
@@ -468,7 +516,7 @@ function H.new_world(shape)
     --effects_by_quality: {[quality name] = effects} for qualities whose effects differ; the engine's scaling is not modelled, fixtures give values
     function world.add_module(name, category, module_effects, effects_by_quality)
         local module = H.lua_object("LuaItemPrototype", {name = name, type = "module", valid = true, localised_name = {"item-name." .. name},
-            category = category, module_effects = module_effects,
+            category = category, module_effects = module_effects, hidden = false, parameter = false,
             get_module_effects = function(quality)
                 if quality ~= nil and not prototypes.quality[quality] then error("Unknown quality " .. tostring(quality), 2) end
                 return (effects_by_quality and effects_by_quality[quality or "normal"]) or module_effects
@@ -603,6 +651,7 @@ function H.new_world(shape)
             fields.effect_receiver = {base_effect = {productivity = spec.base_productivity, quality = spec.base_quality}, uses_module_effects = spec.uses_module_effects ~= false,
                 uses_beacon_effects = spec.uses_beacon_effects ~= false, uses_surface_effects = true}
         end
+        fields.items_to_place_this = {{name = spec.name, count = 1}}
         local machine = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
         prototypes.entity[spec.name] = machine
         machines[spec.name] = machine
@@ -613,6 +662,11 @@ function H.new_world(shape)
         machines[name] = nil
         prototypes.entity[name] = H.lua_object("LuaEntityPrototype",
             {name = name, type = entity_type, valid = true, localised_name = {"entity-name." .. name}}, ENTITY_MEMBERS, ENTITY_GATES)
+    end
+
+    --list: array of {name, count} (items_to_place_this is optional in 2.0.77), an empty list, or nil
+    function world.set_placing_items(entity_name, list)
+        prototypes.entity[entity_name].items_to_place_this = list
     end
 
     function world.remove_machine(name)
@@ -640,6 +694,7 @@ function H.new_world(shape)
             beacon_counter = spec.beacon_counter or "same_type",
             allowed_effects = effect_dictionary(spec.allowed_effects or {"consumption", "speed", "pollution"}),
             allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories),
+            items_to_place_this = {{name = spec.name, count = 1}},
         }, ENTITY_MEMBERS, ENTITY_GATES)
         prototypes.entity[spec.name] = beacon
         beacons[spec.name] = beacon
@@ -682,6 +737,74 @@ function H.new_world(shape)
         prototypes.recipe[spec.name] = H.lua_object("LuaRecipePrototype", fields, RECIPE_MEMBERS[shape])
     end
 
+    --The tick stamped on cursor notifications and passed to H.press
+    world.tick = 0
+    function world.advance_tick(n) world.tick = world.tick + (n or 1) end
+
+    --Cursor per player: ghost {name, quality} and stack {name, quality, count}, names only; quality nil is normal
+    world.cursors = {}
+    world.cursor_events = {}
+    world.suppressed_cursor_events = {}
+    world.merge_cursor_events = false
+    world.cursor_ghost_needs_empty_cursor = false
+    local function cursor_of(index)
+        world.cursors[index] = world.cursors[index] or {}
+        return world.cursors[index]
+    end
+    --2.0.77: on_player_cursor_stack_changed is raised in the tick of the change, not instantly; tests deliver with world.flush_cursor_events
+    local function queue_cursor_event(index)
+        if (world.suppressed_cursor_events[index] or 0) > 0 then
+            world.suppressed_cursor_events[index] = world.suppressed_cursor_events[index] - 1
+            return
+        end
+        table.insert(world.cursor_events, {player_index = index, tick = world.tick})
+    end
+    --Negative capability: the next cursor write of this player raises no notification
+    function world.suppress_next_cursor_event(index)
+        world.suppressed_cursor_events[index] = (world.suppressed_cursor_events[index] or 0) + 1
+    end
+    --Delivers queued notifications in order, each with its own tick; merge mode delivers one per player per tick. Nothing records what the cursor held.
+    function world.flush_cursor_events()
+        local queued = world.cursor_events
+        world.cursor_events = {}
+        local handler = world.handlers.events[defines.events.on_player_cursor_stack_changed]
+        local seen = {}
+        for _, notification in ipairs(queued) do
+            local key = notification.player_index .. "@" .. notification.tick
+            if not (world.merge_cursor_events and seen[key]) then
+                seen[key] = true
+                if handler then
+                    handler({name = defines.events.on_player_cursor_stack_changed, player_index = notification.player_index, tick = notification.tick})
+                end
+            end
+        end
+    end
+    local function item_name_of(value)
+        return type(value) == "table" and value.name or value
+    end
+    local function check_cursor_item(name, quality)
+        if type(name) ~= "string" or not prototypes.item[name] then error("Unknown item " .. tostring(name), 4) end
+        if quality ~= nil and (type(quality) ~= "string" or not prototypes.quality[quality]) then error("Unknown quality " .. tostring(quality), 4) end
+    end
+    function world.hold_ghost(index, name, quality)
+        check_cursor_item(name, quality)
+        cursor_of(index).ghost = {name = name, quality = quality ~= "normal" and quality or nil}
+        queue_cursor_event(index)
+    end
+    function world.hold_item(index, name, quality, count)
+        check_cursor_item(name, quality)
+        cursor_of(index).stack = {name = name, quality = quality ~= "normal" and quality or nil, count = count or 1}
+        queue_cursor_event(index)
+    end
+    function world.empty_hand(index)
+        world.cursors[index] = {}
+        queue_cursor_event(index)
+    end
+    --Another GUI (inventory, map, another mod) takes player.opened
+    function world.open_other_gui(index)
+        game.players[index].opened = H.gui_root({type = "frame", name = "other_gui"}, index)
+    end
+
     function world.add_player(index, research_bonus_by_recipe_name)
         world.research_bonus_by_recipe_name = research_bonus_by_recipe_name or {}
         local force = H.lua_object("LuaForce", {name = "player", valid = true, recipes = {}, players = {},
@@ -691,11 +814,83 @@ function H.new_world(shape)
                 if not prototypes.quality[quality_name] then error("Unknown quality " .. tostring(quality_name), 2) end
                 return not world.locked_qualities[quality_name]
             end}, FORCE_MEMBERS)
+        local opened
+        local cursor_stack = H.lua_object("LuaItemStack", {valid = true}, ITEM_STACK_MEMBERS, nil, {
+            valid_for_read = {read = function() return cursor_of(index).stack ~= nil end},
+            name = {read = function()
+                local stack = cursor_of(index).stack
+                if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                return stack.name
+            end},
+            quality = {read = function()
+                local stack = cursor_of(index).stack
+                if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                return prototypes.quality[stack.quality or "normal"]
+            end},
+            count = {read = function() local stack = cursor_of(index).stack return stack and stack.count or 0 end},
+            prototype = {read = function()
+                local stack = cursor_of(index).stack
+                if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                return prototypes.item[stack.name]
+            end},
+        })
         local player = H.lua_object("LuaPlayer", {
             index = index, name = "player" .. index, valid = true, force = force,
             gui = {screen = H.gui_root({type = "empty-widget", name = "screen"}, index)},
             create_local_flying_text = function(params) table.insert(world.flying_texts, params.text) end,
-        }, PLAYER_MEMBERS)
+            clear_cursor = function()
+                world.cursors[index] = {}
+                queue_cursor_event(index)
+                return true
+            end,
+            --its 2.0.77 description contradicts its name, so the harness refuses to pick a meaning
+            is_cursor_empty = function() error("is_cursor_empty is not modelled: its documented description contradicts its name", 2) end,
+        }, PLAYER_MEMBERS, nil, {
+            --2.0.77: reads give ItemIDAndQualityIDPair with prototypes; writes take ItemWithQualityID with names or prototypes
+            cursor_ghost = {
+                read = function()
+                    local ghost = cursor_of(index).ghost
+                    return ghost and {name = prototypes.item[ghost.name], quality = prototypes.quality[ghost.quality or "normal"]}
+                end,
+                write = function(_, value)
+                    local cursor = cursor_of(index)
+                    if value == nil then
+                        cursor.ghost = nil
+                    else
+                        local name, quality
+                        if type(value) == "string" then
+                            name = value
+                        elseif type(value) == "table" and getmetatable(value) ~= nil then --an item prototype given as ItemID
+                            name = value.name
+                        elseif type(value) == "table" then --{name, quality} with names or prototypes
+                            name, quality = item_name_of(value.name), item_name_of(value.quality)
+                        else
+                            error("cursor_ghost must be an ItemWithQualityID", 2)
+                        end
+                        check_cursor_item(name, quality)
+                        if world.cursor_ghost_needs_empty_cursor and cursor.stack then error("cursor is not empty", 2) end
+                        cursor.ghost = {name = name, quality = quality ~= "normal" and quality or nil}
+                    end
+                    queue_cursor_event(index)
+                end,
+            },
+            cursor_stack = {read = function() return cursor_stack end},
+            --reads nil once the opened element is gone; assigning another value first raises on_gui_closed for the open GUI (order is an in-game check)
+            opened = {
+                read = function()
+                    if type(opened) == "table" and opened.valid == false then return nil end
+                    return opened
+                end,
+                write = function(_, value)
+                    local previous = opened
+                    if previous ~= nil and previous ~= value and not (type(previous) == "table" and previous.valid == false) then
+                        local handler = world.handlers.events[defines.events.on_gui_closed]
+                        if handler then handler({name = defines.events.on_gui_closed, player_index = index, tick = world.tick, element = previous}) end
+                    end
+                    opened = value
+                end,
+            },
+        })
         table.insert(force.players, player)
         game.players[index] = player
         return player
@@ -734,6 +929,30 @@ function H.new_world(shape)
     end
 
     return world
+end
+
+--Raises a custom input as the engine would: a plain CustomInputEvent. params: {player_index (default 1), element, in_gui, selected_prototype}.
+--Never invents what the cursor hovers and never runs the vanilla action linked to the same key.
+function H.press(world, input_name, params)
+    params = params or {}
+    local handler = world.handlers.events[input_name]
+    if not handler then error("no handler registered for custom input " .. tostring(input_name), 2) end
+    local player_index = params.player_index or 1
+    local element = params.element
+    local in_gui = params.in_gui
+    if in_gui == nil then in_gui = element ~= nil end
+    if element ~= nil then
+        if in_gui == false then error("a custom input over a GUI element has in_gui true", 2) end
+        if element.valid ~= true then error("custom input element is not valid", 2) end
+        if element.player_index ~= player_index then error("custom input element belongs to another player", 2) end
+    end
+    local selected = params.selected_prototype
+    if selected ~= nil and not (type(selected) == "table" and type(selected.base_type) == "string" and type(selected.derived_type) == "string"
+        and type(selected.name) == "string") then
+        error("selected_prototype must be {base_type, derived_type, name}", 2)
+    end
+    return handler({name = input_name, tick = world.tick, player_index = player_index, input_name = input_name,
+        cursor_position = {x = 0, y = 0}, cursor_display_location = {x = 0, y = 0}, element = element, in_gui = in_gui, selected_prototype = selected})
 end
 
 --Builds a sheet and types the targets into it without computing. targets: {{item | fluid, quality (items only), rate, unit = "/s" | "/m"}}
