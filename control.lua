@@ -6,6 +6,7 @@ event_handlers.on_gui_checked_state_changed = {}
 event_handlers.on_gui_selection_state_changed = {}
 
 local Calculator = require "gui.calculator"
+local ModulePicker = require "gui.module_picker"
 local Sheet = require "gui.sheet"
 local Indexer = require "logic.indexer"
 local PlayerData = require "logic.player_data"
@@ -22,6 +23,7 @@ end
 script.on_init(function()
     Indexer.run()
     storage.computation_stack = {}
+    storage.opened_restores = nil
     for _, player in pairs(game.players) do
         set_up_new_player(player)
     end
@@ -36,6 +38,7 @@ script.on_configuration_changed(function(configuration_changed_data)
     end
 
     storage.computation_stack = {}
+    storage.opened_restores = nil --the GUIs are rebuilt and recomputed below; pending focus restores are dropped
     for _, player in pairs(game.players) do
         storage[player.index].backlogged_computation_count = 0 --the stack was just emptied; older versions never decremented this count
         PlayerDataUpdater.reinitialize(player.index)
@@ -50,6 +53,7 @@ end)
 
 script.on_event(defines.events.on_player_removed, function(event)
     storage[event.player_index] = nil
+    ModulePicker.forget_player(event.player_index)
     --queued computations of the removed player would reach its destroyed GUI
     for index = #storage.computation_stack, 1, -1 do
         if storage.computation_stack[index].player_index == event.player_index then
@@ -62,8 +66,21 @@ script.on_event("hxrrc_toggle_calculator", function(event)
     Calculator.toggle(game.get_player(event.player_index))
 end)
 
+script.on_event("hxrrc_confirm_module_picker", function(event)
+    if ModulePicker.confirm(event.player_index) then
+        Calculator.recompute_everything(event.player_index)
+    end
+end)
+
 script.on_event(defines.events.on_gui_closed, function(event)
-    if event.element and event.element.name == "hxrrc_calculator" and event.element.visible then
+    local element = event.element
+    if not element then
+        return
+    end
+    if element.name == "hxrrc_module_picker" then
+        ModulePicker.on_engine_closed(event.player_index)
+    elseif element.name == "hxrrc_calculator" and element.visible and not (storage[event.player_index] and storage[event.player_index].module_picker) then
+        --a picker taking the focus from the calculator must not close it
         Calculator.toggle(game.get_player(event.player_index))
     end
 end)
@@ -106,6 +123,7 @@ script.on_event(defines.events.on_tick, function()
             game.get_player(player_index).gui.screen.hxrrc_calculator.enabled = storage[player_index].backlogged_computation_count == 0
         end
     end
+    ModulePicker.run_restores()
 end)
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)

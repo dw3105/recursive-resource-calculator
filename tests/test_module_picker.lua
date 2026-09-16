@@ -4,7 +4,8 @@ local H = require "tests.harness"
 local M = {}
 
 --Gear on a 4-slot assembler; a 2-slot beacon taking speed and efficiency; a hidden speed module; an unlinked modded quality, legendary locked
-local function picker_world(shape)
+--with_control: control.lua is loaded (and initialized) before any GUI module, since it creates the event handler tables they register into
+local function picker_world(shape, with_control)
     local world = H.new_world(shape)
     world.add_item("raw")
     world.add_item("gear")
@@ -20,6 +21,10 @@ local function picker_world(shape)
     world.add_recipe({name = "gear", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}}})
     world.add_player(1)
     world.init()
+    if with_control then
+        require "control"
+        world.handlers.on_init()
+    end
     M.Calculator = require "gui.calculator"
     M.ModulePicker = require "gui.module_picker"
     M.Sheet = require "gui.sheet"
@@ -376,6 +381,130 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(old_slot.elem_value, nil, "restored")
         H.equal(gear_modules(), "", "nothing stored")
         H.equal(#storage.computation_stack, 0, "nothing queued")
+    end)
+end
+
+--N8: Enter confirms, Esc and E close, and the calculator's focus comes back without opening a GUI inside on_gui_closed. Driven through control.lua.
+
+--The picker world with control.lua loaded and initialized, the calculator shown, and a gear sheet computed in it
+local function control_picker_world(shape)
+    local world = picker_world(shape, true)
+    local player = game.players[1]
+    M.Calculator.toggle(player)
+    local sheet_flow = storage[1].sheet_section.sheet_pane.tabs[1].content
+    local row = sheet_flow.input_container.children[1]
+    row.rate_textfield.text = "1"
+    row.hxrrc_desired_item_button.elem_value = {name = "gear"}
+    event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
+    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    storage.computation_stack = {}
+    return world, player, player.gui.screen.hxrrc_calculator, sheet_flow
+end
+
+local function tick(world, at)
+    world.handlers.events[defines.events.on_tick]({tick = at or 1})
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N8a N8b N8c Enter confirms a selection; with no picker, or nothing selected, it does nothing", function()
+        local world, player, calculator, sheet_flow = control_picker_world(shape)
+        H.press(world, "hxrrc_confirm_module_picker", {})
+        H.equal(#storage.computation_stack, 0, "no picker: nothing queued")
+        click(machine_slots(sheet_flow)[1])
+        H.press(world, "hxrrc_confirm_module_picker", {})
+        assert(state(), "nothing selected: window kept")
+        H.equal(#storage.computation_stack, 0, "nothing selected: nothing queued")
+        click_module("speed-module")
+        H.press(world, "hxrrc_confirm_module_picker", {})
+        H.equal(gear_modules(), "speed-module,speed-module,speed-module,speed-module", "Enter stored the selection")
+        H.equal(state(), nil, "closed")
+        assert(#storage.computation_stack > 0, "recomputes")
+        H.equal(player.opened, calculator, "focus back on the calculator")
+    end)
+
+    H.test(shape .. " N8d N8f opening the picker takes the focus and keeps the calculator open; the tick gives the focus back at once", function()
+        local _, player, calculator, sheet_flow = control_picker_world(shape)
+        click(machine_slots(sheet_flow)[1])
+        H.equal(player.opened, state().frame, "picker has the focus")
+        H.equal(calculator.visible, true, "calculator still shown")
+        click_module("efficiency-module")
+        click(confirm_button())
+        H.equal(player.opened, calculator, "focus restored by the tick")
+        H.equal(calculator.visible, true, "calculator shown")
+    end)
+
+    H.test(shape .. " N8e N8l Esc closes only the picker; the queue is created then; focus returns on the next tick, not inside on_gui_closed", function()
+        local world, player, calculator, sheet_flow = control_picker_world(shape)
+        H.equal(storage.opened_restores, nil, "no queue before any close")
+        click(machine_slots(sheet_flow)[1])
+        player.opened = nil --Esc: the engine closes the opened GUI and raises on_gui_closed for it
+        H.equal(state(), nil, "picker state gone")
+        H.equal(#frames(), 0, "picker window gone")
+        H.equal(player.opened, nil, "nothing opened inside on_gui_closed")
+        H.equal(calculator.visible, true, "calculator still shown")
+        H.equal(#storage.opened_restores, 1, "one restore queued")
+        tick(world)
+        H.equal(player.opened, calculator, "focus restored on the next tick")
+        H.equal(storage.opened_restores, nil, "queue emptied")
+    end)
+
+    H.test(shape .. " N8g N8i replacing one picker with another keeps one window and the calculator; toggling the calculator closes both", function()
+        local _, player, calculator, sheet_flow = control_picker_world(shape)
+        local slots = machine_slots(sheet_flow)
+        click(slots[1])
+        click(slots[2])
+        H.equal(#frames(), 1, "one window")
+        H.equal(player.opened, state().frame, "the new picker has the focus")
+        H.equal(calculator.visible, true, "calculator shown")
+        M.Calculator.toggle(player)
+        H.equal(state(), nil, "picker closed with the calculator")
+        H.equal(#frames(), 0, "no window")
+        H.equal(calculator.visible, false, "calculator hidden")
+        H.equal(player.opened, nil, "nothing opened")
+    end)
+
+    H.test(shape .. " N8h another GUI opened over the picker keeps its focus; the calculator is hidden on the next tick", function()
+        local world, player, calculator, sheet_flow = control_picker_world(shape)
+        click(machine_slots(sheet_flow)[1])
+        world.open_other_gui(1)
+        H.equal(state(), nil, "picker closed")
+        H.equal(player.opened.name, "other_gui", "other GUI opened")
+        tick(world)
+        H.equal(player.opened.name, "other_gui", "other GUI keeps the focus")
+        H.equal(calculator.visible, false, "calculator hidden like a replaced calculator")
+    end)
+
+    H.test(shape .. " N8j a close that raises on_gui_closed again while destroying finds no picker state and ends", function()
+        local _, _, _, sheet_flow = control_picker_world(shape)
+        click(machine_slots(sheet_flow)[1])
+        local frame = state().frame
+        local destroy = frame.destroy
+        rawset(frame, "destroy", function()
+            require("gui.module_picker").on_engine_closed(1) --the engine announcing the close of the element being destroyed
+            destroy()
+        end)
+        click_module("speed-module")
+        click(confirm_button())
+        H.equal(state(), nil, "closed")
+        H.equal(#frames(), 0, "no window")
+        H.equal(gear_modules(), "speed-module,speed-module,speed-module,speed-module", "stored once")
+    end)
+
+    H.test(shape .. " N8k N8m N8n restores: a tick before any picker is harmless; a configuration change drops pending ones; a removed player's are dropped", function()
+        local world, player, _, sheet_flow = control_picker_world(shape)
+        tick(world)
+        H.equal(storage.opened_restores, nil, "tick before any picker")
+        click(machine_slots(sheet_flow)[1])
+        player.opened = nil
+        H.equal(#storage.opened_restores, 1, "pending")
+        world.handlers.on_configuration_changed({mod_changes = {}})
+        H.equal(storage.opened_restores, nil, "dropped by the configuration change")
+        tick(world)
+        storage.opened_restores = {1, 2}
+        world.handlers.events[defines.events.on_player_removed]({player_index = 1})
+        H.deep_equal(storage.opened_restores, {2}, "removed player's entry dropped")
+        tick(world)
+        H.equal(storage.opened_restores, nil, "draining skips a player without storage")
     end)
 end
 

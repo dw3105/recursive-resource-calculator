@@ -404,6 +404,24 @@ H.test("N0f assigning player.opened raises on_gui_closed for the open element; a
     H.equal(player.opened.name, "other_gui", "the other GUI is opened")
 end)
 
+H.test("N0i opening a GUI inside on_gui_closed is refused, as Factorio force closes it; clearing the focus there is allowed", function()
+    local world = cursor_world()
+    local player = game.players[1]
+    local first = player.gui.screen.add{type = "frame", name = "first"}
+    local second = player.gui.screen.add{type = "frame", name = "second"}
+    world.handlers.events[defines.events.on_gui_closed] = function() player.opened = second end
+    player.opened = first
+    H.errors(function() player.opened = nil end, "opened during on_gui_closed", "reopening inside the close")
+    local cleared = false
+    world.handlers.events[defines.events.on_gui_closed] = function()
+        if not cleared then cleared = true player.opened = nil end
+    end
+    player.opened = first
+    player.opened = nil
+    H.equal(cleared, true, "the close handler ran")
+    H.equal(player.opened, nil, "clearing inside the close is fine")
+end)
+
 H.test("N0g destroy and clear invalidate the whole removed subtree", function()
     cursor_world()
     local screen = game.players[1].gui.screen

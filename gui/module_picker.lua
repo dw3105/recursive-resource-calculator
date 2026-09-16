@@ -42,8 +42,18 @@ local function repaint(state)
     end
 end
 
+--Gives the player's focus back to the calculator when it is shown and nothing else holds the focus
+local function restore_focus(player_index)
+    local player = game.get_player(player_index)
+    local calculator = storage[player_index] and storage[player_index].calculator
+    if player and calculator and calculator.valid and calculator.visible and player.opened == nil then
+        player.opened = calculator
+    end
+end
+
 --Closes the player's picker without storing anything. The state goes first, so a close that raises another event finds nothing to act on.
---restore: whether the calculator gets the player's focus back afterwards; false when the calculator itself is closing
+--restore: whether the calculator gets the player's focus back afterwards; false when the calculator itself is closing, or when the engine is
+--closing the picker (never open a GUI inside on_gui_closed: see ModulePicker.on_engine_closed)
 function ModulePicker.close(player_index, restore)
     local state = state_of(player_index)
     if not state then
@@ -52,6 +62,51 @@ function ModulePicker.close(player_index, restore)
     storage[player_index].module_picker = nil
     if state.frame.valid then
         state.frame.destroy()
+    end
+    if restore then
+        restore_focus(player_index)
+    end
+end
+
+--on_gui_closed for the picker (Esc, E, or another GUI replacing it). Factorio 2.0.77 force-closes a GUI opened during this event, so nothing is
+--opened here: the calculator's focus is restored on the next tick, and only if the player has not opened something else by then.
+function ModulePicker.on_engine_closed(player_index)
+    ModulePicker.close(player_index, false)
+    storage.opened_restores = storage.opened_restores or {}
+    table.insert(storage.opened_restores, player_index)
+end
+
+--Runs from on_tick: each queued player whose picker closed gets the calculator's focus back, or, when another GUI took the focus, the calculator
+--is hidden the way a replaced calculator is
+function ModulePicker.run_restores()
+    local queue = storage.opened_restores
+    if not queue then
+        return
+    end
+    storage.opened_restores = nil --taken first, so a restore raising another close queues into a fresh list
+    for _, player_index in ipairs(queue) do
+        local player = game.get_player(player_index)
+        local calculator = storage[player_index] and storage[player_index].calculator
+        if player and player.valid and calculator and calculator.valid and calculator.visible and not state_of(player_index) then
+            if player.opened == nil then
+                player.opened = calculator
+            elseif player.opened ~= calculator then
+                calculator.visible = false
+            end
+        end
+    end
+end
+
+--Drops a removed player's queued restores
+function ModulePicker.forget_player(player_index)
+    local queue = storage.opened_restores
+    if not queue then
+        return
+    end
+    for index = #queue, 1, -1 do
+        if queue[index] == player_index then
+            table.remove(queue, index)
+        end
     end
 end
 
@@ -106,6 +161,8 @@ function ModulePicker.open(slot_button)
     }
     storage[player_index].module_picker = state
     repaint(state)
+    --the picker takes the focus, so Esc and E close it; the calculator's close handler leaves the calculator open while a picker exists
+    player.opened = frame
     return true
 end
 

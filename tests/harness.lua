@@ -822,6 +822,7 @@ function H.new_world(shape)
                 return not world.locked_qualities[quality_name]
             end}, FORCE_MEMBERS)
         local opened
+        local closing = false --inside the on_gui_closed an opened assignment raised
         local cursor_stack = H.lua_object("LuaItemStack", {valid = true}, ITEM_STACK_MEMBERS, nil, {
             valid_for_read = {read = function() return cursor_of(index).stack ~= nil end},
             name = {read = function()
@@ -889,10 +890,19 @@ function H.new_world(shape)
                     return opened
                 end,
                 write = function(_, value)
+                    --2.0.77 on_gui_closed: a GUI opened during the event is force closed without notice, so the harness refuses it outright
+                    if closing and value ~= nil then
+                        error("a GUI was opened during on_gui_closed; Factorio force closes it", 2)
+                    end
                     local previous = opened
                     if previous ~= nil and previous ~= value and not (type(previous) == "table" and previous.valid == false) then
                         local handler = world.handlers.events[defines.events.on_gui_closed]
-                        if handler then handler({name = defines.events.on_gui_closed, player_index = index, tick = world.tick, element = previous}) end
+                        if handler then
+                            closing = true
+                            local ok, err = pcall(handler, {name = defines.events.on_gui_closed, player_index = index, tick = world.tick, element = previous})
+                            closing = false
+                            if not ok then error(err, 0) end
+                        end
                     end
                     opened = value
                 end,

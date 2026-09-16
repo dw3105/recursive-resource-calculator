@@ -5,6 +5,15 @@ data:extend({
         localised_name = {"hxrrc.toggle_calculator"},
         key_sequence = "ALT + X",
     },
+    {
+        --Enter, whatever the player bound it to: confirms the module picker when it is open with a module selected; Enter keeps its own job everywhere
+        type = "custom-input",
+        name = "hxrrc_confirm_module_picker",
+        localised_name = {"hxrrc.confirm_module_picker"},
+        key_sequence = "",
+        linked_game_control = "confirm-gui",
+        consuming = "none",
+    },
 })
 
 --Factorio 2.0 ships the recycling arrows in the quality mod; 2.1 moved them to the recycler mod. Neither present: no sprite, and the report shows text.
