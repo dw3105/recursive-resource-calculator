@@ -1,15 +1,15 @@
 ---------------------------------------------------------------------------------------------------
-Version: 1.1.28
+Version: 1.1.30
 Date: 2026.09.16
   Info:
-    - Same code as 1.1.27, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Same code as 1.1.29, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
     - Quality is not calculated in Factorio 2.1 yet, so the base-quality row stays hidden there; the pickers
-      and the pipette key work as in 1.1.27.
+      and the pipette key work as in 1.1.29.
 ---------------------------------------------------------------------------------------------------
-Version: 1.1.27
+Version: 1.1.29
 Date: 2026.09.16
   Info:
-    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.28). 1.1.25 and 1.1.26 were
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.30). 1.1.25 to 1.1.28 were
       test builds only; their changes are listed here.
     - Reports are rebuilt when the save loads, so machine and beacon buttons of older reports become picker
       buttons.
@@ -33,12 +33,15 @@ Date: 2026.09.16
       over the add button it adds it.
     - Machine buttons open a machine picker and beacon buttons a beacon picker, the same window as the module
       picker. A right click on a beacon group removes it; the picker's trash button does too.
-    - A left click on a module slot while holding a module (or its ghost) puts that module in the slot.
+    - A left click on a module slot while holding a module (or its ghost) puts that module in the slot. A left
+      click on a machine or beacon button while holding the copied machine or beacon pastes, as the pipette key
+      does. With anything else in the hand, a left click opens no picker.
   Changes:
     - The base-quality choice (left over, crafted by another recipe, recycled) is a labelled row, label and
       drop-down side by side, that shows only when the sheet targets an item above normal quality. Sheets saved
       with the old drop-down keep their choice.
-    - The pickers show qualities as icons; "No module" shows the empty module slot icon.
+    - The pickers show qualities as icons; "No module" shows the empty module slot icon. The picker's buttons
+      are all the same size.
     - Long messages in the report wrap instead of widening their column.
     - The recycler pool and returned-items rows show the recycling icon, with their old text as its tooltip.
     - Module lists leave out hidden and parameter modules; a hidden module already set keeps its slot and can
