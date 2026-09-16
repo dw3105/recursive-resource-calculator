@@ -8,6 +8,14 @@ local QualityLoops = require "logic.quality_loops"
 
 local Report = {}
 
+--Reasons and errors can run past 150 characters; such a label wraps inside this width instead of widening its table column. Numbers never wrap.
+local REASON_WIDTH = 320
+local function wrap(label)
+    label.style.single_line = false
+    label.style.maximal_width = REASON_WIDTH
+    return label
+end
+
 local function format_by_precision(float, player_index)
     local precision = settings.get_player_settings(player_index)["hxrrc-displayed-floating-point-precision"].value
 
@@ -37,7 +45,7 @@ local function setup_headers(report, energy_consumption, pollution, unsolvable)
     if energy_consumption then
         report.add{type = "label", caption = format_by_precision(energy_consumption / 1000000, report.player_index) .. " MW"}
     else
-        report.add{type = "label", caption = unsolvable and {"hxrrc.system_with_no_solution_error"} or {"hxrrc.totals_unavailable"}}
+        wrap(report.add{type = "label", caption = unsolvable and {"hxrrc.system_with_no_solution_error"} or {"hxrrc.totals_unavailable"}})
     end
 
     add_header(report, {"", {"hxrrc.pollution"}, ":"}, {"hxrrc.pollution_header_tooltip"})
@@ -46,7 +54,7 @@ local function setup_headers(report, energy_consumption, pollution, unsolvable)
     if pollution then
         report.pollution_flow.add{type = "label", caption = format_by_precision(pollution * 60, report.player_index) .. " /m"}
     else
-        report.pollution_flow.add{type = "label", caption = {"hxrrc.totals_unavailable"}}
+        wrap(report.pollution_flow.add{type = "label", caption = {"hxrrc.totals_unavailable"}})
     end
 
     for _, caption in ipairs({
@@ -153,6 +161,7 @@ local function add_row_for_burner(report, column, product_rate, rate, round_up_m
     local label = machine_cell.add{type = "label", name = "label"}
     if reason then
         label.caption = {"hxrrc." .. reason}
+        wrap(label)
     else
         local units_per_entity = Burners.draw(product_full_name, burner)
         local count = rate / units_per_entity
@@ -197,6 +206,7 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
     local label = machine_cell.add{type = "label", name = "label"}
     if reason then
         label.caption = {"hxrrc." .. reason}
+        wrap(label)
         return
     end
     local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, crafting_machine_identifier.quality,
@@ -225,7 +235,7 @@ local function add_row_for_solved_product(report, column, product_rate, recipe_r
     --Crafting machine and module cells:
     local crafting_machine_identifier = storage[pi].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
     if not crafting_machine_identifier then --the recipe only supports manual crafting:
-        report.add{type = "label", caption = {"hxrrc." .. (reason or "not_automatically_craftable")}}
+        wrap(report.add{type = "label", caption = {"hxrrc." .. (reason or "not_automatically_craftable")}})
         report.add{type = "empty-widget"}
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
@@ -401,7 +411,7 @@ local function add_assist_row(report, info, first_tier, recipe_rate, round_up_ma
             label.tooltip = chances_tooltip(info.chain, first_tier.assist_chances or {})
         end
     elseif stage then
-        line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+        wrap(line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
     else
         line.add{type = "label", caption = ""}
     end
@@ -434,7 +444,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
             tags = {loop_key = info.key, tier = info.quality}}
         item_cell.add{type = "label", caption = ""}
         local machine_cell = report.add{type = "flow", direction = "vertical"}
-        machine_cell.add{type = "flow", tags = {stage = "craft"}}.add{type = "label", caption = {"hxrrc." .. reason}}
+        wrap(machine_cell.add{type = "flow", tags = {stage = "craft"}}.add{type = "label", caption = {"hxrrc." .. reason}})
         report.add{type = "empty-widget"}
         add_recipe_cell(report, "item/" .. info.item, QualityLoops.producer_of(pi, info.item))
         return
@@ -476,8 +486,10 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         local craft_label = craft_line.add{type = "label", caption = ""}
         if index == 1 and reason then
             craft_label.caption = {"hxrrc." .. reason}
+            wrap(craft_label)
         elseif not (stage and stage.machine) then
             craft_label.caption = {"hxrrc.not_automatically_craftable"}
+            wrap(craft_label)
         elseif solved then
             craft_label.caption = count_caption(Utils.machine_amount(stage.recipe, tier.crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
                 round_up_machines, pi)
@@ -499,7 +511,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
                     recycle_label.tooltip = chances_tooltip(info.chain, tier.recycle_chances)
                 end
             else
-                recycle_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+                wrap(recycle_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
             end
         end
 
@@ -544,7 +556,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
             label.tooltip = tooltip
         end
     elseif recycle then
-        pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+        wrap(pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
     else
         pool_line.add{type = "label", caption = ""}
     end
