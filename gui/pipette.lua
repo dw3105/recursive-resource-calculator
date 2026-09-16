@@ -143,7 +143,8 @@ end
 
 --Pastes the module in the hand (real or ghost) into the slot under the cursor, through the path every pick takes (so an empty row fills).
 --A module the slot's entities or recipe refuse is refused with a flying text, as a manual pick could not choose it. Returns true when stored.
-local function paste_module(player, button, held)
+--Shared by the pipette key and a left click on a slot with a module in the hand.
+function Pipette.paste_module(player, button, held)
     if not storage.module_names[held.name] then
         return false
     end
@@ -321,7 +322,7 @@ function Pipette.on_pipette(event)
     if MODULE_SLOTS[element.name] then
         local held = Pipette.held(player)
         if held then
-            return paste_module(player, element, held)
+            return Pipette.paste_module(player, element, held)
         end
         local module = stored_module(element)
         if module then

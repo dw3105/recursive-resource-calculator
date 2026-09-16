@@ -3,6 +3,7 @@
 --through ModuleGUI.pick_into, the path every pick takes, and closes the window; confirming with no module selected does nothing.
 local ModuleSetup = require "logic.module_setup"
 local ModuleGUI = require "gui.modulegui"
+local Pipette = require "gui.pipette"
 
 local ModulePicker = {}
 
@@ -212,8 +213,9 @@ local function on_choice_click(event, kind)
     return false
 end
 
---A module slot button: a left click opens the picker on it, a right click empties it. Chooser slots of reports built before 1.1.25 keep
---Factorio's own chooser and are left to their elem-changed handler. Returns true when the stored setup changed.
+--A module slot button: a left click with a module in the hand (real or ghost) pastes it, as the pipette key does; any other left click opens the
+--picker on it; a right click empties it. Chooser slots of reports built before 1.1.25 keep Factorio's own chooser and are left to their
+--elem-changed handler. Returns true when the stored setup changed.
 function ModulePicker.on_slot_click(event)
     local slot_button = event.element
     if slot_button.type ~= "sprite-button" then
@@ -221,6 +223,11 @@ function ModulePicker.on_slot_click(event)
     end
     if event.button == defines.mouse_button_type.right then
         return ModuleGUI.pick_into(slot_button, nil)
+    end
+    local player = game.get_player(event.player_index)
+    local held = Pipette.held(player)
+    if held and storage.module_names[held.name] then
+        return Pipette.paste_module(player, slot_button, held)
     end
     ModulePicker.open(slot_button)
     return false

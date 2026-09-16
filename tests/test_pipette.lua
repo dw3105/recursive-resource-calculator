@@ -36,6 +36,7 @@ local function pipette_world(shape)
     M.Calculator = require "gui.calculator"
     M.Sheet = require "gui.sheet"
     M.Pipette = require "gui.pipette"
+    M.ModulePicker = require "gui.module_picker"
     M.QualityId = require "logic.quality_id"
     M.QualityLoops = require "logic.quality_loops"
     M.Utils = require "logic.utils"
@@ -366,6 +367,54 @@ for _, shape in ipairs(H.shapes()) do
             H.equal(gear_modules(), ("speed-module@" .. case[1] .. ","):rep(4):sub(1, -2), case[1] .. " stack pasted with its quality over the ghost")
             H.near(M.Utils.recipe_effects(1, "gear").speed, 4 * case[2], case[1] .. " effects")
         end
+    end)
+end
+
+--P3: a left click on a slot with a module in the hand pastes it instead of opening the picker
+
+local function slot_click(button, mouse_button)
+    event_handlers.on_gui_click[button.name]({element = button, player_index = 1, tick = 0, button = mouse_button or defines.mouse_button_type.left})
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " P3a P3b P3f a click with a module ghost or a rare real stack pastes and opens no picker; a right click still clears", function()
+        local world = pipette_world(shape)
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "speed-module")
+        slot_click(slots(sheet_flow, "gear")[3])
+        H.equal(stored(storage[1].module_setups_by_recipe_name.gear.modules), "speed-module,speed-module,speed-module,speed-module", "P3a: empty row filled")
+        H.equal(storage[1].module_picker, nil, "P3a: no picker")
+        assert(#storage.computation_stack > 0, "P3a: recompute queued")
+        world.empty_hand(1)
+        world.hold_item(1, "efficiency-module", "rare", 5)
+        sheet_flow = sheet({{item = "gear"}})
+        slot_click(slots(sheet_flow, "gear")[2])
+        H.equal(stored(storage[1].module_setups_by_recipe_name.gear.modules), "speed-module,efficiency-module@rare,speed-module,speed-module", "P3b: rare stack stored at rare")
+        H.equal(storage[1].module_picker, nil, "P3b: no picker")
+        sheet_flow = sheet({{item = "gear"}})
+        slot_click(slots(sheet_flow, "gear")[1], defines.mouse_button_type.right)
+        H.equal(stored(storage[1].module_setups_by_recipe_name.gear.modules), "efficiency-module@rare,speed-module,speed-module", "P3f: right click clears, no paste")
+    end)
+
+    H.test(shape .. " P3c P3d P3e a refused module says why and opens nothing; a non-module in the hand or an empty hand opens the picker", function()
+        local world = pipette_world(shape)
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "fast-assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        world.hold_ghost(1, "productivity-module")
+        slot_click(slots(sheet_flow, "gear")[1])
+        H.equal(stored(storage[1].module_setups_by_recipe_name.gear.modules), "", "P3c: refused")
+        H.equal(world.flying_texts[#world.flying_texts][1], "hxrrc.module_does_not_fit_error", "P3c: says why")
+        H.equal(storage[1].module_picker, nil, "P3c: no picker")
+        H.equal(#storage.computation_stack, 0, "P3c: nothing queued")
+        world.empty_hand(1)
+        world.hold_ghost(1, "assembler")
+        slot_click(slots(sheet_flow, "gear")[1])
+        assert(storage[1].module_picker, "P3d: a machine ghost opens the picker")
+        M.ModulePicker.close(1, false)
+        world.empty_hand(1)
+        slot_click(slots(sheet_flow, "gear")[1])
+        assert(storage[1].module_picker, "P3e: an empty hand opens the picker")
     end)
 end
 
