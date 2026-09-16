@@ -34,7 +34,7 @@ for _, shape in ipairs(H.shapes()) do
         --the item is chosen while it exists and removed by a mod afterwards
         local sheet_pane, sheet_flow = H.fill_sheet({{item = "gone-item", rate = 0, unit = "/s"}})
         prototypes.item["gone-item"] = nil
-        require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
+        require("gui.sheet").calculate(require("gui.sheet").compute_button_of(sheet_flow))
         H.equal(H.parse_report(sheet_flow.output_flow), nil, "report")
         H.equal(sheet_pane.tabs[1].tab.caption[1], "hxrrc.empty_sheet", "tab title")
     end)

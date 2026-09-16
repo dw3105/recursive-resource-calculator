@@ -245,7 +245,7 @@ for _, shape in ipairs(H.shapes()) do
         local row = sheet_flow.input_container.children[1]
         row.hxrrc_desired_item_button.elem_value = nil
         event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         H.equal(state(), nil, "empty sheet computed: state gone")
         H.equal(#frames(), 0, "empty sheet computed: window gone")
 
@@ -396,7 +396,7 @@ local function control_picker_world(shape)
     row.rate_textfield.text = "1"
     row.hxrrc_desired_item_button.elem_value = {name = "gear"}
     event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     storage.computation_stack = {}
     return world, player, player.gui.screen.hxrrc_calculator, sheet_flow
 end
@@ -546,32 +546,59 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
-H.test("2.0 P1b a row saved by 1.1.25 with its spacer is repaired by a configuration change, twice, keeping its choice and visibility", function()
-    local world = picker_world("2.0", true)
-    M.Calculator.toggle(game.players[1])
-    local sheet_flow = storage[1].sheet_section.sheet_pane.tabs[1].content
-    local target = sheet_flow.input_container.children[1]
-    target.rate_textfield.text = "1"
-    target.hxrrc_desired_item_button.elem_value = {name = "gear", quality = "rare"}
-    event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = target.hxrrc_desired_item_button, player_index = 1})
-    local row = find_all(sheet_flow, function(element) return element.name == "hxrrc_start_leftovers_row" end)[1]
-    --as 1.1.25 built it: label, stretching spacer, drop-down, no alignment
-    local spacer = row.add{type = "empty-widget", index = 2}
-    spacer.style.horizontally_stretchable = true
-    row.style.horizontal_align = nil
-    row.style.horizontal_spacing = nil
-    row.hxrrc_start_leftovers_dropdown.selected_index = 3
-    H.equal(row.visible, true, "fixture: quality target shows the row")
-    world.handlers.on_configuration_changed({mod_changes = {}})
-    world.handlers.on_configuration_changed({mod_changes = {}})
-    H.equal(row.valid, true, "the same row is kept")
-    H.equal(#row.children, 2, "spacer removed")
-    H.equal(row.children[1].type, "label", "label kept")
-    H.equal(row.children[2].name, "hxrrc_start_leftovers_dropdown", "drop-down kept")
-    H.equal(row.style.horizontal_align, "center", "centered")
-    H.equal(row.style.horizontal_spacing, 8, "8 px gap")
-    H.equal(row.hxrrc_start_leftovers_dropdown.selected_index, 3, "choice kept")
-    H.equal(row.visible, true, "still visible")
+--S1d: every older layout of the sheet controls, as the sheet flow held them; state: {round_up, selected_index}
+local OLD_LAYOUTS = {
+    {name = "1.1.23 flat drop-down", shape = "2.0", build = function(sheet_flow, index, state)
+        sheet_flow.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = state.round_up, index = index}
+        sheet_flow.add{type = "drop-down", name = "hxrrc_start_leftovers_dropdown", items = {"a", "b", "c"}, selected_index = state.selected_index, index = index + 1}
+        sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 2}
+    end},
+    {name = "1.1.25 row with spacer", shape = "2.0", build = function(sheet_flow, index, state)
+        sheet_flow.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = state.round_up, index = index}
+        local row = sheet_flow.add{type = "flow", name = "hxrrc_start_leftovers_row", index = index + 1}
+        row.add{type = "label", caption = "l"}
+        row.add{type = "empty-widget"}.style.horizontally_stretchable = true
+        row.add{type = "drop-down", name = "hxrrc_start_leftovers_dropdown", items = {"a", "b", "c"}, selected_index = state.selected_index}
+        sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 2}
+    end},
+    {name = "1.1.27 row", shape = "2.0", build = function(sheet_flow, index, state)
+        sheet_flow.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = state.round_up, index = index}
+        local row = sheet_flow.add{type = "flow", name = "hxrrc_start_leftovers_row", index = index + 1}
+        row.add{type = "label", caption = "l"}
+        row.add{type = "drop-down", name = "hxrrc_start_leftovers_dropdown", items = {"a", "b", "c"}, selected_index = state.selected_index}
+        sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 2}
+    end},
+    {name = "before the checkbox", shape = "2.0", no_checkbox = true, no_dropdown = true, build = function(sheet_flow, index)
+        sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index}
+    end},
+    {name = "2.1 checkbox and Compute", shape = "2.1", no_dropdown = true, build = function(sheet_flow, index, state)
+        sheet_flow.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = state.round_up, index = index}
+        sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 1}
+    end},
+}
+
+H.test("S1d every older controls layout is rebuilt into the grid by a configuration change, twice, right after the inputs, keeping the checkbox and the choice", function()
+    for _, layout in ipairs(OLD_LAYOUTS) do
+        local world = picker_world(layout.shape, true)
+        M.Calculator.toggle(game.players[1])
+        local sheet_flow = storage[1].sheet_section.sheet_pane.tabs[1].content
+        local controls = find_all(sheet_flow, function(element) return element.name == "hxrrc_sheet_controls" end)[1]
+        local index = controls.get_index_in_parent()
+        controls.destroy()
+        layout.build(sheet_flow, index, {round_up = true, selected_index = 3})
+        world.handlers.on_configuration_changed({mod_changes = {}})
+        world.handlers.on_configuration_changed({mod_changes = {}})
+        local names = {}
+        for position, child in ipairs(sheet_flow.children) do names[position] = child.name end
+        H.equal(table.concat(names, ","), "input_container,hxrrc_sheet_controls,output_flow", layout.name .. ": one grid right after the inputs, no old control left")
+        H.equal(M.Sheet.round_up_checkbox_of(sheet_flow).state, not layout.no_checkbox, layout.name .. ": checkbox state")
+        local dropdown = find_all(sheet_flow, function(element) return element.name == "hxrrc_start_leftovers_dropdown" end)[1]
+        if layout.shape == "2.1" then
+            H.equal(dropdown, nil, layout.name .. ": no drop-down on 2.1")
+        else
+            H.equal(dropdown.selected_index, layout.no_dropdown and 1 or 3, layout.name .. ": choice")
+        end
+    end
 end)
 
 H.test("2.0 P1c a configuration change closes a picker saved by an older version and rebuilds old choose-elem machine and beacon buttons", function()

@@ -65,13 +65,13 @@ end
 local function handler_sheet(targets)
     local sheet_pane, sheet_flow = H.fill_sheet(targets)
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return sheet_flow, sheet_pane
 end
 
 local function recompute(sheet_flow)
     storage.computation_stack = {}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return H.parse_report(sheet_flow.output_flow)
 end
 
@@ -196,7 +196,7 @@ for _, shape in ipairs({"2.0"}) do
         H.near(rates[second], 2, "second demand")
         H.equal(parts[first].name .. "|" .. parts[first].quality, "a:b|c", "first parts")
         H.equal(parts[second].name .. "|" .. parts[second].quality, "a|b:c", "second parts")
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         report = H.parse_report(sheet_flow.output_flow)
         local count = 0
         for _ in pairs(storage[1].quality_loops_by_key) do count = count + 1 end
@@ -252,7 +252,7 @@ for _, shape in ipairs({"2.0"}) do
             L(key).start_quality = nil
 
             --the recycle recipe changes on another sheet: this sheet's recycle button is stale
-            M.Sheet.calculate(second_flow.hxrrc_compute_button)
+            M.Sheet.calculate(M.Sheet.compute_button_of(second_flow))
             local other = H.parse_report(second_flow.output_flow).loops[key]
             other.pool.recycle_button.elem_value = nil
             fire(other.pool.recycle_button)
@@ -501,7 +501,7 @@ for _, shape in ipairs({"2.0"}) do
         package.loaded["gui.sheet"] = nil --loaded again, so it takes the spy
         local _, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}, {item = "B", quality = "uncommon", rate = 0.5, unit = "/s"}})
         M.Sheet = require "gui.sheet"
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         local report = H.parse_report(sheet_flow.output_flow)
         H.equal(power_calls, 0, "power never computed")
         H.equal(report.energy_caption, "hxrrc.totals_unavailable", "no totals")
@@ -519,7 +519,7 @@ for _, shape in ipairs({"2.0"}) do
 
         local row = sheet_flow.input_container.children[2]
         row.rate_textfield.text = "2"
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         report = H.parse_report(sheet_flow.output_flow)
         H.equal(report.loops[b_key].reason, nil, "B solves")
         H.near(report.loops[b_key].tiers[1].craft.machines, 2, "B crafts 2 per second for 1 per second of its own")
@@ -528,7 +528,7 @@ for _, shape in ipairs({"2.0"}) do
 
         --without a B target, the uncommon B the X loop leaves is a byproduct row, even though B's loop is configured
         row.rate_textfield.text = "0"
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         report = H.parse_report(sheet_flow.output_flow)
         H.equal(report.loops[b_key], nil, "B's loop not used")
         local leftover = report.rows[b_key]

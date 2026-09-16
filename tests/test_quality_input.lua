@@ -100,7 +100,7 @@ for _, shape in ipairs(H.shapes()) do
         local rates, parts = rates_of(sheet_flow)
         H.near(rates["item/gear"], 3, "both rows on the plain item")
         H.equal(next(parts), nil, "no parts for normal targets")
-        require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
+        require("gui.sheet").calculate(require("gui.sheet").compute_button_of(sheet_flow))
         local report = H.parse_report(sheet_flow.output_flow)
         H.near(report.rows["item/gear"].rate, 3, "gear row")
         H.near(report.rows["item/gear"].machines, 3, "gear machines")

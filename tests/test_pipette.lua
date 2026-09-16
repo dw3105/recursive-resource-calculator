@@ -65,7 +65,7 @@ local function sheet(targets)
         event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
     end
     local _ = rows
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     storage.computation_stack = {}
     return sheet_flow
 end
@@ -554,7 +554,7 @@ for _, shape in ipairs(H.shapes()) do
         row.rate_textfield.text = "1"
         row.hxrrc_desired_item_button.elem_value = {name = "cog"}
         event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
-        M.Sheet.calculate(second.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(second))
         storage.computation_stack = {}
         local button = machine_button(second, "cog")
         local tags_before, sprite_before = button.tags, button.sprite
@@ -562,7 +562,7 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(chosen().cog, {name = "assembler", quality = "uncommon"}, "pasted from the first sheet's copy")
         H.deep_equal(button.tags, tags_before, "button tags untouched by the drain")
         H.equal(button.sprite, sprite_before, "button sprite untouched by the drain")
-        M.Sheet.calculate(second.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(second))
         local rebuilt = machine_button(second, "cog")
         H.equal(rebuilt.sprite, "entity/assembler", "rebuilt report shows it")
         H.equal(rebuilt.tags.quality, "uncommon", "rebuilt report shows its quality")

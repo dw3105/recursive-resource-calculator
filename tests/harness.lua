@@ -1131,9 +1131,9 @@ end
 function H.run_sheet(targets, player_index, options)
     local sheet_pane, sheet_flow = H.fill_sheet(targets, player_index)
     if options and options.round_up then
-        sheet_flow.hxrrc_round_up_machines_checkbox.state = true
+        require("gui.sheet").round_up_checkbox_of(sheet_flow).state = true
     end
-    require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
+    require("gui.sheet").calculate(require("gui.sheet").compute_button_of(sheet_flow))
     return H.parse_report(sheet_flow.output_flow), sheet_pane
 end
 
