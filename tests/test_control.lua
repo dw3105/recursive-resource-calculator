@@ -117,4 +117,18 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+H.test("R2 info.json marks the original mod incompatible and lists every mod data.lua checks as an optional dependency", function()
+    local info = io.open("info.json"):read("*a")
+    local list = info:match('"dependencies"%s*:%s*(%b[])')
+    assert(list, "dependencies listed")
+    local dependencies = {}
+    for entry in list:gmatch('"([^"]+)"') do dependencies[entry] = true end
+    assert(dependencies["! RecursiveResourceCalculator"], "the original is incompatible: both open on ALT + X")
+    assert(dependencies["base"], "base listed")
+    local data = io.open("data.lua"):read("*a")
+    for name in data:gmatch('mods%["([^"]+)"%]') do
+        assert(dependencies["? " .. name], "data.lua checks mod " .. name .. ", so it is an optional dependency")
+    end
+end)
+
 H.done("test_control")

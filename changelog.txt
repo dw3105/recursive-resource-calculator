@@ -1,4 +1,20 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.34
+Date: 2026.09.16
+  Info:
+    - Same code as 1.1.33, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.33
+Date: 2026.09.16
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.34).
+    - The original Recursive Resource Calculator is marked incompatible: both open on ALT + X, so only one can
+      be enabled.
+  Changes:
+    - The mod lists quality (Factorio 2.0) and recycler (Factorio 2.1) as optional dependencies; they provide
+      the recycle icon.
+    - Shorter mod description in the mod list.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.32
 Date: 2026.09.16
   Info:
