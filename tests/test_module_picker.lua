@@ -60,7 +60,7 @@ local function frames()
 end
 
 local function module_buttons()
-    return find_all(state().frame, function(element) return element.name == "hxrrc_picker_module_button" end)
+    return find_all(state().frame, function(element) return element.name == "hxrrc_picker_choice_button" end)
 end
 
 local function quality_buttons()
@@ -77,7 +77,7 @@ local function click(element, tick)
     event_handlers.on_gui_click[element.name]({element = element, player_index = 1, tick = tick or 0, button = defines.mouse_button_type.left})
 end
 
-local function click_module(name, tick) click(by_tag(module_buttons(), "module", name), tick) end
+local function click_module(name, tick) click(by_tag(module_buttons(), "choice", name), tick) end
 local function click_quality(name, tick) click(by_tag(quality_buttons(), "quality", name), tick) end
 local function confirm_button() return state().frame.picker_footer.hxrrc_picker_confirm_button end
 local function clear_button() return state().frame.picker_footer.hxrrc_picker_clear_button end
@@ -96,7 +96,7 @@ for _, shape in ipairs(H.shapes()) do
         local _, sheet_pane = gear_sheet()
         H.equal(M.ModulePicker.open(machine_slots(sheet_pane)[1]), true, "opened")
         local names = {}
-        for _, button in ipairs(module_buttons()) do names[#names + 1] = button.tags.module end
+        for _, button in ipairs(module_buttons()) do names[#names + 1] = button.tags.choice end
         H.equal(table.concat(names, ","), "efficiency-module,productivity-module,speed-module", "offered modules, hidden left out")
         H.equal(module_buttons()[1].sprite, "item/efficiency-module", "module sprite")
         local qualities = {}
@@ -114,8 +114,8 @@ for _, shape in ipairs(H.shapes()) do
         M.ModulePicker.open(machine_slots(sheet_pane)[3])
         storage.computation_stack = {}
         click_module("speed-module", 100)
-        H.equal(state().selected_module, "speed-module", "selected")
-        H.equal(by_tag(module_buttons(), "module", "speed-module").toggled, true, "shown pressed")
+        H.equal(state().selected_choice, "speed-module", "selected")
+        H.equal(by_tag(module_buttons(), "choice", "speed-module").toggled, true, "shown pressed")
         H.equal(gear_modules(), "", "nothing stored on one click")
         click_module("speed-module", 130)
         H.equal(gear_modules(), "speed-module,speed-module,speed-module,speed-module", "double click stores through store_pick: the empty row fills")
@@ -130,7 +130,7 @@ for _, shape in ipairs(H.shapes()) do
         M.ModulePicker.open(machine_slots(sheet_pane)[1])
         click_module("speed-module", 0)
         click_module("efficiency-module", 5)
-        H.equal(state().selected_module, "efficiency-module", "selection moved")
+        H.equal(state().selected_choice, "efficiency-module", "selection moved")
         H.equal(gear_modules(), "", "nothing stored")
         click_module("efficiency-module", 36)
         H.equal(gear_modules(), "", "31 ticks later is not a double click")
@@ -145,7 +145,7 @@ for _, shape in ipairs(H.shapes()) do
         click_module("efficiency-module", 100)
         click_quality("rare", 200)
         local pressed = {}
-        for _, button in ipairs(module_buttons()) do if button.toggled then pressed[#pressed + 1] = button.tags.module end end
+        for _, button in ipairs(module_buttons()) do if button.toggled then pressed[#pressed + 1] = button.tags.choice end end
         for _, button in ipairs(quality_buttons()) do if button.toggled then pressed[#pressed + 1] = button.tags.quality end end
         H.equal(table.concat(pressed, ","), "efficiency-module,rare", "only the selection is pressed")
         click(confirm_button(), 300)
@@ -158,7 +158,7 @@ for _, shape in ipairs(H.shapes()) do
         storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module"}, {name = "efficiency-module"}}
         local _, sheet_pane = gear_sheet()
         M.ModulePicker.open(machine_slots(sheet_pane)[1])
-        H.equal(state().selected_module, "speed-module", "the slot's module preselected")
+        H.equal(state().selected_choice, "speed-module", "the slot's module preselected")
         storage.computation_stack = {}
         click(clear_button())
         H.equal(gear_modules(), "efficiency-module", "removed, the rest shifted left")
@@ -194,7 +194,7 @@ for _, shape in ipairs(H.shapes()) do
         local _, sheet_pane = gear_sheet()
         M.ModulePicker.open(beacon_slots(sheet_pane, 2)[1])
         local names = {}
-        for _, button in ipairs(module_buttons()) do names[#names + 1] = button.tags.module end
+        for _, button in ipairs(module_buttons()) do names[#names + 1] = button.tags.choice end
         H.equal(table.concat(names, ","), "efficiency-module,speed-module", "beacon categories")
         click_module("speed-module", 0)
         click(confirm_button())
@@ -223,7 +223,7 @@ for _, shape in ipairs(H.shapes()) do
         picker_world(shape)
         local _, sheet_pane = gear_sheet()
         M.ModulePicker.open(machine_slots(sheet_pane)[1])
-        H.equal(state().selected_module, nil, "empty slot: nothing preselected")
+        H.equal(state().selected_choice, nil, "empty slot: nothing preselected")
         click_quality("rare", 0)
         click_quality("rare", 10)
         assert(state(), "still open")
@@ -269,9 +269,9 @@ for _, shape in ipairs(H.shapes()) do
             {what = "empty machine slot", slot = function() return machine_slots(sheet_pane)[2] end},
         }) do
             M.ModulePicker.open(case.slot())
-            H.equal(state().selected_module, nil, case.what .. ": nothing preselected")
+            H.equal(state().selected_choice, nil, case.what .. ": nothing preselected")
             for _, button in ipairs(module_buttons()) do
-                assert(button.tags.module ~= "hidden-module", case.what .. ": hidden module not offered")
+                assert(button.tags.choice ~= "hidden-module", case.what .. ": hidden module not offered")
             end
             storage.computation_stack = {}
             local before = M.ModulePicker and state()
@@ -327,11 +327,11 @@ for _, shape in ipairs(H.shapes()) do
         click(slot)
         assert(state(), "picker opened")
         H.equal(state().button, slot, "for the clicked slot")
-        H.equal(state().selected_module, "speed-module", "module preselected")
+        H.equal(state().selected_choice, "speed-module", "module preselected")
         H.equal(state().selected_quality, "rare", "quality preselected")
         click(beacon_slots(sheet_pane, 1)[1])
         local names = {}
-        for _, button in ipairs(module_buttons()) do names[#names + 1] = button.tags.module end
+        for _, button in ipairs(module_buttons()) do names[#names + 1] = button.tags.choice end
         H.equal(table.concat(names, ","), "efficiency-module,speed-module", "beacon slot choices")
         H.equal(#frames(), 1, "one window")
     end)
@@ -509,6 +509,18 @@ for _, shape in ipairs(H.shapes()) do
 end
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " P4a a module slot opens a picker of kind module with the module title, and confirm stores normal quality as none", function()
+        picker_world(shape)
+        local _, sheet_pane = gear_sheet()
+        M.ModulePicker.open(machine_slots(sheet_pane)[1])
+        H.equal(state().kind, "module", "kind")
+        H.equal(state().frame.caption[1], "hxrrc.module_picker_title", "title")
+        click_module("speed-module")
+        click_quality("normal", 100)
+        click(confirm_button(), 200)
+        H.equal(storage[1].module_setups_by_recipe_name.gear.modules[1].quality, nil, "normal stored as none")
+    end)
+
     H.test(shape .. " P2a P2b qualities are icon buttons with tooltips and no caption; clear is the empty-module-slot icon and still empties", function()
         picker_world(shape)
         local _, sheet_pane = gear_sheet()

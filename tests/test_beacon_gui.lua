@@ -63,8 +63,8 @@ local function offered(button)
     if button.type == "sprite-button" then
         local ModulePicker = require "gui.module_picker"
         assert(ModulePicker.open(button), "picker opens")
-        for _, element in ipairs(find_all(storage[1].module_picker.frame, function(element) return element.name == "hxrrc_picker_module_button" end)) do
-            names[#names + 1] = element.tags.module
+        for _, element in ipairs(find_all(storage[1].module_picker.frame, function(element) return element.name == "hxrrc_picker_choice_button" end)) do
+            names[#names + 1] = element.tags.choice
         end
         ModulePicker.close(1, false)
         table.sort(names)

@@ -1003,22 +1003,22 @@ function H.slot_value(slot_button)
     return {name = slot_button.sprite:match("^item/(.+)$"), quality = quality ~= "normal" and quality or nil}
 end
 
---Picks into a module slot the way a player does: nil right-clicks the slot; a value left-clicks it, then clicks the module, its quality
---(normal when none) and the tick in the picker window. Returns false when the picker did not open (a stale slot); errors when the picker does not
---offer the module or quality, since a player could not pick it.
-function H.pick_module(slot_button, value, tick)
-    if slot_button.type ~= "sprite-button" then error("H.pick_module drives slot sprite-buttons, got " .. tostring(slot_button.type), 2) end
-    local player_index = slot_button.player_index
+--Picks through the picker window the way a player does: nil right-clicks the button; a value left-clicks it, then clicks the choice, its quality
+--(normal when none) and the tick. Works for module slots, machine buttons and beacon buttons (all sprite-buttons). Returns false when no picker
+--opened (a stale button); errors when the picker does not offer the choice or quality, since a player could not pick it.
+function H.pick_choice(button, value, tick)
+    if button.type ~= "sprite-button" then error("H.pick_choice drives sprite-buttons, got " .. tostring(button.type), 2) end
+    local player_index = button.player_index
     tick = tick or 0
     local function click(element, mouse_button, at)
         event_handlers.on_gui_click[element.name]({element = element, player_index = player_index, tick = at or tick,
             button = mouse_button or defines.mouse_button_type.left})
     end
     if value == nil then
-        click(slot_button, defines.mouse_button_type.right)
+        click(button, defines.mouse_button_type.right)
         return true
     end
-    click(slot_button)
+    click(button)
     local state = storage[player_index].module_picker
     if not state then return false end
     local function find(root, name, key, wanted)
@@ -1028,14 +1028,20 @@ function H.pick_module(slot_button, value, tick)
             if found then return found end
         end
     end
-    local module_button = find(state.frame, "hxrrc_picker_module_button", "module", value.name)
-    if not module_button then error("the picker does not offer module " .. tostring(value.name), 2) end
+    local choice_button = find(state.frame, "hxrrc_picker_choice_button", "choice", value.name)
+    if not choice_button then error("the picker does not offer " .. tostring(state.kind) .. " " .. tostring(value.name), 2) end
     local quality_button = find(state.frame, "hxrrc_picker_quality_button", "quality", value.quality or "normal")
     if not quality_button then error("the picker does not offer quality " .. tostring(value.quality), 2) end
-    click(module_button, nil, tick)
+    click(choice_button, nil, tick)
     click(quality_button, nil, tick + 100)
     click(state.frame.picker_footer.hxrrc_picker_confirm_button, nil, tick + 200)
     return true
+end
+
+--A module slot pick through the picker window (see H.pick_choice)
+function H.pick_module(slot_button, value, tick)
+    if slot_button.type ~= "sprite-button" then error("H.pick_module drives slot sprite-buttons, got " .. tostring(slot_button.type), 2) end
+    return H.pick_choice(slot_button, value, tick)
 end
 
 --Builds a sheet and types the targets into it without computing. targets: {{item | fluid, quality (items only), rate, unit = "/s" | "/m"}}

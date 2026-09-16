@@ -63,7 +63,7 @@ local function offered(button)
     local ModulePicker = require "gui.module_picker"
     assert(ModulePicker.open(button), "picker opens")
     local names = {}
-    for _, element in ipairs(find_all(storage[1].module_picker.frame, "hxrrc_picker_module_button")) do names[#names + 1] = element.tags.module end
+    for _, element in ipairs(find_all(storage[1].module_picker.frame, "hxrrc_picker_choice_button")) do names[#names + 1] = element.tags.choice end
     ModulePicker.close(1, false)
     table.sort(names)
     return table.concat(names, ",")
