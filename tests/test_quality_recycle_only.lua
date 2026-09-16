@@ -453,4 +453,165 @@ H.test("2.1 R14 legendary ore stays raw input", function()
     H.near(result.unsolved_rates[key], 10, "raw input")
 end)
 
+--Report: a sheet with the targets, computed; recompute reads the report again
+local function sheet(targets)
+    local _, sheet_flow = H.fill_sheet(targets)
+    M.Sheet = require "gui.sheet"
+    M.Report = require "gui.report"
+    require "gui.calculator"
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+    return sheet_flow, H.parse_report(sheet_flow.output_flow)
+end
+
+local function recompute(sheet_flow)
+    storage.computation_stack = {}
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+    return H.parse_report(sheet_flow.output_flow)
+end
+
+local function find_named(element, name, found)
+    found = found or {}
+    for _, child in ipairs(element.children) do
+        if child.name == name then found[#found + 1] = child end
+        find_named(child, name, found)
+    end
+    return found
+end
+
+local function quality_name(value)
+    local quality = value and value.quality
+    if type(quality) == "string" then return quality ~= "normal" and quality or nil end
+    return quality and quality.name ~= "normal" and quality.name or nil
+end
+
+H.test("2.0 R12 report: a recycle-only loop shows what it takes from outside, recyclers per tier and the pool, and no craft controls", function()
+    local world = ore_world()
+    local key = configure("uncommon")
+    local sheet_flow, report = sheet({{item = "ore", quality = "uncommon", rate = 1, unit = "/s"}})
+    local loop = report.loops[key]
+    assert(loop, "loop rows")
+    local input, recycles = oracle(5, 2, 1, 0.25)
+    H.equal(#loop.tiers, 2, "normal and uncommon rows")
+    local first = loop.tiers[1]
+    H.equal(first.craft.reason, "hxrrc.quality_loop_recycle_only_input", "first row: taken from outside")
+    H.near_relative(tonumber(first.craft.caption[2]), input, "input rate shown")
+    H.equal(first.craft.machine_button, nil, "no craft machine")
+    H.equal(loop.tiers[2].craft, nil, "no craft line above the first row")
+    assert(first.recycle and first.recycle.machines > 0, "normal recyclers counted")
+    H.near_relative(loop.pool.recycle.machines, recycles * 0.5, "pool machines")
+    H.equal(#find_named(sheet_flow.output_flow, "hxrrc_choose_tier_recipe_button"), 0, "no tier recipe buttons")
+    H.equal(#find_named(loop.tiers[1].module_flow, "hxrrc_choose_module_button"), 0, "no craft module editor, first row")
+    H.equal(#find_named(loop.tiers[2].module_flow, "hxrrc_choose_module_button"), 0, "no craft module editor, second row")
+    H.equal(loop.recipe_button.elem_value.name, "ore-recycling", "loop recipe button shows the bound recipe")
+    H.equal(loop.pool.recycle_button.elem_value, "ore-recycling", "pool recipe")
+    for _, language in ipairs({"en", "cs", "ro"}) do
+        local locale = io.open("locale/" .. language .. "/locale.cfg"):read("*a")
+        for _, name in ipairs({"quality_loop_recycle_only_input", "quality_loop_recycle_only_needs_recycle", "quality_loop_recycle_only_needs_self_recycle",
+            "start_quality_recycle_only_error", "recycle_only_recipe_refused_error"}) do
+            assert(locale:find("\n" .. name .. "=", 1, true), language .. " has " .. name)
+        end
+    end
+    local _ = world
+end)
+
+H.test("2.0 R5 the loop recipe button of a recycle-only loop shows normal, refuses a quality and keeps the stored start quality", function()
+    local world = ore_world()
+    local key, config = configure("rare")
+    config.start_quality = "uncommon"
+    M.QualityLoops.store(1, key, config)
+    local sheet_flow, report = sheet({{item = "ore", quality = "rare", rate = 1, unit = "/s"}})
+    local loop = report.loops[key]
+    H.equal(loop.tiers[1].quality, "normal", "starts at normal")
+    local button = loop.recipe_button
+    H.equal(quality_name(button.elem_value), nil, "displays normal")
+    H.equal(storage[1].quality_loops_by_key[key].start_quality, "uncommon", "stored start kept")
+    local function pick(value)
+        button.elem_value = value
+        return M.Report.handle_loop_recipe_change({element = button, player_index = 1})
+    end
+    for index, quality in ipairs({"uncommon", "rare"}) do
+        H.equal(pick({name = "ore-recycling", quality = quality}), false, quality .. ": no recalc")
+        H.equal(#world.flying_texts, index, quality .. ": one message")
+        H.equal(world.flying_texts[index][1], "hxrrc.start_quality_recycle_only_error", quality .. ": message")
+        H.equal(button.elem_value.name, "ore-recycling", quality .. ": recipe restored")
+        H.equal(quality_name(button.elem_value), nil, quality .. ": displays normal")
+        H.equal(storage[1].quality_loops_by_key[key].start_quality, "uncommon", quality .. ": stored start kept")
+    end
+    H.equal(pick({name = "ore-recycling"}), false, "reselect normal: no recalc")
+    H.equal(#world.flying_texts, 2, "reselect normal: no message")
+    --stale: the stored start changed after the button was built
+    storage[1].quality_loops_by_key[key].start_quality = "rare"
+    H.equal(pick(nil), false, "stale: no recalc")
+    H.equal(#world.flying_texts, 2, "stale: no message")
+    H.equal(button.elem_value.name, "ore-recycling", "stale: restored")
+    H.equal(storage[1].recipes_by_product_full_name["item/ore"].name, "ore-recycling", "stale: binding kept")
+    storage[1].quality_loops_by_key[key].start_quality = "uncommon"
+    --clear: unbound, the stored start stays, the loop stays recycle-only
+    H.equal(pick(nil), true, "clear: recalc")
+    H.equal(storage[1].recipes_by_product_full_name["item/ore"], nil, "clear: unbound")
+    H.equal(storage[1].quality_loops_by_key[key].start_quality, "uncommon", "clear: stored start kept")
+    H.equal(M.QualityLoops.recycle_only(1, "ore", key), true, "clear: still recycle-only")
+    report = recompute(sheet_flow)
+    loop = report.loops[key]
+    H.equal(loop.tiers[1].craft.reason, "hxrrc.quality_loop_recycle_only_input", "clear: still solved")
+    assert(loop.pool.recycle.machines > 0, "clear: pool counts")
+    H.equal(loop.recipe_button.elem_value, nil, "clear: recipe button empty")
+end)
+
+H.test("2.0 R8 report: clearing the pool recipe of an unbound loop with two eligible recipes keeps the loop and its picker; picking B solves", function()
+    local world = ore_world("2.0", {extra = function(world)
+        world.add_recipe({name = "ore-recycling-2", category = "recycling", hidden = true, energy = 0.5, ingredients = {{name = "ore", amount = 1}},
+            products = {{name = "ore", amount = 1, p = 0.5}}})
+    end})
+    unbind("item/ore")
+    local key = key_of("ore", "uncommon")
+    storage[1].quality_loops_by_key[key] = {item = "ore", quality = "uncommon", recycle_recipe_name = "ore-recycling", crafts = {},
+        recycle = {machine = {name = "recycler"}, setup = {modules = four_q(), beacons = {}}}}
+    local sheet_flow, report = sheet({{item = "ore", quality = "uncommon", rate = 1, unit = "/s"}})
+    local loop = report.loops[key]
+    assert(loop.pool.recycle.machines and loop.pool.recycle.machines > 0, "A solves: " .. tostring(loop.reason) .. " " .. tostring(loop.pool.recycle.reason))
+    local button = loop.pool.recycle_button
+    button.elem_value = nil
+    H.equal(M.Report.handle_recycle_recipe_change({element = button, player_index = 1}), true, "cleared")
+    report = recompute(sheet_flow)
+    loop = report.loops[key]
+    assert(loop, "cleared: loop rows kept")
+    H.equal(loop.reason, "hxrrc.quality_loop_recycle_only_needs_recycle", "cleared: reason")
+    button = loop.pool.recycle_button
+    H.equal(button.enabled, true, "cleared: picker enabled")
+    button.elem_value = "ore-recycling-2"
+    H.equal(M.Report.handle_recycle_recipe_change({element = button, player_index = 1}), true, "B picked")
+    storage[1].quality_loops_by_key[key].recycle.setup.modules = four_q() --clearing emptied the pool's modules
+    report = recompute(sheet_flow)
+    assert((report.loops[key].pool.recycle.machines or 0) > 0, "B solves")
+    local _ = world
+end)
+
+H.test("2.0 R10 a recycle-only loop refuses a pool recipe returning other items; an ordinary loop still takes it", function()
+    local function dust(world)
+        world.add_recipe({name = "ore-to-dust", category = "recycling", hidden = true, ingredients = {{name = "ore", amount = 1}},
+            products = {{name = "ore", amount = 1, p = 0.25}, {name = "dust", amount = 1}}})
+    end
+    local world = ore_world("2.0", {extra = dust})
+    local key = configure("uncommon")
+    local _, report = sheet({{item = "ore", quality = "uncommon", rate = 1, unit = "/s"}})
+    local button = report.loops[key].pool.recycle_button
+    button.elem_value = "ore-to-dust"
+    H.equal(M.Report.handle_recycle_recipe_change({element = button, player_index = 1}), false, "refused")
+    H.equal(world.flying_texts[1][1], "hxrrc.recycle_only_recipe_refused_error", "message")
+    H.equal(button.elem_value, "ore-recycling", "restored")
+    H.equal(storage[1].quality_loops_by_key[key].recycle_recipe_name, "ore-recycling", "stored recipe kept")
+
+    world = ore_world("2.0", {extra = function(world)
+        dust(world)
+        world.add_recipe({name = "ore-from-dust", category = "crafting", ingredients = {{name = "dust", amount = 1}}, products = {{name = "ore", amount = 1}}})
+    end})
+    world.bind("item/ore", "ore-from-dust")
+    key = configure("uncommon")
+    _, report = sheet({{item = "ore", quality = "uncommon", rate = 1, unit = "/s"}})
+    button = report.loops[key].pool.recycle_button
+    button.elem_value = "ore-to-dust"
+    H.equal(M.Report.handle_recycle_recipe_change({element = button, player_index = 1}), true, "ordinary loop takes it")
+end)
+
 H.done("test_quality_recycle_only")
