@@ -508,6 +508,29 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " P2a P2b qualities are icon buttons with tooltips and no caption; clear is the empty-module-slot icon and still empties", function()
+        picker_world(shape)
+        local _, sheet_pane = gear_sheet()
+        local slot = machine_slots(sheet_pane)[1]
+        H.pick_module(slot, {name = "speed-module"})
+        M.ModulePicker.open(machine_slots(sheet_pane)[2])
+        local buttons = quality_buttons()
+        assert(#buttons > 0, "qualities offered")
+        for _, button in ipairs(buttons) do
+            H.equal(button.type, "sprite-button", "P2a: icon button")
+            H.equal(button.sprite, "quality/" .. button.tags.quality, "P2a: quality sprite")
+            H.equal(button.caption, nil, "P2a: no caption")
+            assert(button.tooltip, "P2a: tooltip names the quality")
+            H.equal(button.toggled, button.tags.quality == "normal", "P2a: only the selected quality is toggled")
+        end
+        H.equal(clear_button().type, "sprite-button", "P2b: icon button")
+        H.equal(clear_button().sprite, "utility/empty_module_slot", "P2b: empty module slot icon")
+        click(clear_button())
+        H.equal(#storage[1].module_setups_by_recipe_name.gear.modules, 3, "P2b: clear still empties the slot")
+    end)
+end
+
 H.test("2.0 P1b a row saved by 1.1.25 with its spacer is repaired by a configuration change, twice, keeping its choice and visibility", function()
     local world = picker_world("2.0", true)
     M.Calculator.toggle(game.players[1])

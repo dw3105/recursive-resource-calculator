@@ -141,13 +141,14 @@ function ModulePicker.open(slot_button)
     end
     local qualities = frame.add{type = "flow", name = "picker_qualities", direction = "horizontal"}
     for _, name in ipairs(offered_qualities(player.force)) do
-        qualities.add{type = "flow"}.add{type = "button", name = "hxrrc_picker_quality_button", caption = prototypes.quality[name].localised_name,
-            tags = {quality = name}}
+        qualities.add{type = "flow"}.add{type = "sprite-button", name = "hxrrc_picker_quality_button", sprite = "quality/" .. name, style = "slot_button",
+            tooltip = prototypes.quality[name].localised_name, tags = {quality = name}}
     end
     local footer = frame.add{type = "flow", name = "picker_footer", direction = "horizontal"}
     footer.style.horizontally_stretchable = true
     footer.style.horizontal_align = "right"
-    footer.add{type = "button", name = "hxrrc_picker_clear_button", caption = {"hxrrc.module_picker_clear"}, tooltip = {"hxrrc.module_picker_clear_tooltip"}}
+    footer.add{type = "sprite-button", name = "hxrrc_picker_clear_button", sprite = "utility/empty_module_slot", style = "slot_button",
+        tooltip = {"", {"hxrrc.module_picker_clear"}, "\n", {"hxrrc.module_picker_clear_tooltip"}}}
     footer.add{type = "sprite-button", name = "hxrrc_picker_confirm_button", sprite = "utility/check_mark_green", style = "item_and_count_select_confirm",
         tooltip = {"hxrrc.module_picker_confirm_tooltip"}}
 
