@@ -41,6 +41,8 @@ script.on_configuration_changed(function(configuration_changed_data)
     storage.computation_stack = {}
     storage.opened_restores = nil --the GUIs are rebuilt and recomputed below; pending focus restores are dropped
     for _, player in pairs(game.players) do
+        --a picker saved by an older version holds a state this version does not read; closed before anything is repaired
+        ModulePicker.close(player.index, false)
         storage[player.index].pipette_requests = nil --targets and machines may be gone
         storage[player.index].backlogged_computation_count = 0 --the stack was just emptied; older versions never decremented this count
         PlayerDataUpdater.reinitialize(player.index)

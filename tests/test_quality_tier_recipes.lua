@@ -541,22 +541,22 @@ local function as_saved_by_1_1_23(sheet_flow, selected_index)
     return index
 end
 
-H.test("2.0 N1a N1b the row holds label, spacer and drop-down in order; three bare choices; the label carries the tooltip", function()
+H.test("2.0 N1a N1b P1a the row holds label and drop-down side by side, centered with an 8 px gap; three bare choices; the label carries the tooltip", function()
     tier_world("2.0")
     local _, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
     local row = row_of(sheet_flow)
     assert(row, "row on a new sheet")
-    H.equal(#row.children, 3, "three children")
+    H.equal(#row.children, 2, "P1a: two children, no spacer")
     H.equal(row.children[1].type, "label", "label first")
     H.equal(row.children[1].caption[1], "hxrrc.start_leftovers_caption", "label caption")
     H.equal(row.children[1].tooltip[1], "hxrrc.start_leftovers_tooltip", "label tooltip")
-    H.equal(row.children[2].type, "empty-widget", "spacer second")
-    H.equal(row.children[2].style.horizontally_stretchable, true, "spacer stretches")
-    H.equal(row.children[3].name, "hxrrc_start_leftovers_dropdown", "drop-down last")
+    H.equal(row.children[2].name, "hxrrc_start_leftovers_dropdown", "drop-down second")
     local keys = {}
-    for index, item in ipairs(row.children[3].items) do keys[index] = item[1] end
+    for index, item in ipairs(row.children[2].items) do keys[index] = item[1] end
     H.deep_equal(keys, {"hxrrc.start_leftovers_byproduct", "hxrrc.start_leftovers_craft", "hxrrc.start_leftovers_recycle"}, "bare choice keys")
-    H.equal(row.style.horizontally_stretchable, true, "row stretches so the spacer can push")
+    H.equal(row.style.horizontal_align, "center", "P1a: pair centered")
+    H.equal(row.style.horizontal_spacing, 8, "P1a: 8 px gap")
+    H.equal(row.style.horizontally_stretchable, true, "row stretches so centering has room")
 end)
 
 H.test("2.0 N1c N1d a 1.1.23 flat drop-down becomes the row in its place with its choice; repairing twice leaves one row", function()

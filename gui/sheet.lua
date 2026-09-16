@@ -33,14 +33,19 @@ end
 --The sheet's choice for items quality loops return at their start quality when the start recipe takes no items (Factorio 2.0 only)
 local START_LEFTOVER_MODES = {"byproduct", "craft", "recycle"}
 
---A row of label, spacer and drop-down, hidden until the sheet targets an item above normal quality (only then can a loop use the choice)
-local function add_start_leftovers_row(sheet_flow, index)
-    local row = sheet_flow.add{type = "flow", name = "hxrrc_start_leftovers_row", direction = "horizontal", index = index, visible = false}
+--The row's layout: label and drop-down side by side, centered like the checkbox and the compute button. Also applied to rows built before 1.1.27.
+local function style_start_leftovers_row(row)
     row.style.horizontally_stretchable = true
     row.style.vertical_align = "center"
+    row.style.horizontal_align = "center"
+    row.style.horizontal_spacing = 8
+end
+
+--A row of label and drop-down, hidden until the sheet targets an item above normal quality (only then can a loop use the choice)
+local function add_start_leftovers_row(sheet_flow, index)
+    local row = sheet_flow.add{type = "flow", name = "hxrrc_start_leftovers_row", direction = "horizontal", index = index, visible = false}
+    style_start_leftovers_row(row)
     row.add{type = "label", caption = {"hxrrc.start_leftovers_caption"}, tooltip = {"hxrrc.start_leftovers_tooltip"}}
-    local spacer = row.add{type = "empty-widget"}
-    spacer.style.horizontally_stretchable = true
     row.add{
         type = "drop-down",
         name = "hxrrc_start_leftovers_dropdown",
@@ -178,12 +183,12 @@ function Sheet.add_missing_controls(sheet_pane)
         local sheet_flow = tab_and_content.content
         InputContainer.repair_rows(sheet_flow.input_container)
 
-        local compute_button_index, has_round_up_checkbox, flat_dropdown, has_row
+        local compute_button_index, has_round_up_checkbox, flat_dropdown, row
         for index, child in ipairs(sheet_flow.children) do
             if child.name == "hxrrc_compute_button" then compute_button_index = index end
             if child.name == "hxrrc_round_up_machines_checkbox" then has_round_up_checkbox = true end
             if child.name == "hxrrc_start_leftovers_dropdown" then flat_dropdown = child end
-            if child.name == "hxrrc_start_leftovers_row" then has_row = true end
+            if child.name == "hxrrc_start_leftovers_row" then row = child end
         end
         if compute_button_index and not has_round_up_checkbox then
             add_round_up_checkbox(sheet_flow, compute_button_index)
@@ -196,7 +201,13 @@ function Sheet.add_missing_controls(sheet_pane)
                 local index = flat_dropdown.get_index_in_parent()
                 flat_dropdown.destroy()
                 add_start_leftovers_row(sheet_flow, index).hxrrc_start_leftovers_dropdown.selected_index = selected_index
-            elseif compute_button_index and not has_row then
+            elseif row then
+                --1.1.25 put a stretching spacer between the label and the drop-down; the drop-down and its choice stay
+                for index = #row.children, 1, -1 do
+                    if row.children[index].type == "empty-widget" then row.children[index].destroy() end
+                end
+                style_start_leftovers_row(row)
+            elseif compute_button_index then
                 add_start_leftovers_row(sheet_flow, compute_button_index)
             end
         end

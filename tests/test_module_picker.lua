@@ -508,6 +508,45 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+H.test("2.0 P1b a row saved by 1.1.25 with its spacer is repaired by a configuration change, twice, keeping its choice and visibility", function()
+    local world = picker_world("2.0", true)
+    M.Calculator.toggle(game.players[1])
+    local sheet_flow = storage[1].sheet_section.sheet_pane.tabs[1].content
+    local target = sheet_flow.input_container.children[1]
+    target.rate_textfield.text = "1"
+    target.hxrrc_desired_item_button.elem_value = {name = "gear", quality = "rare"}
+    event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = target.hxrrc_desired_item_button, player_index = 1})
+    local row = find_all(sheet_flow, function(element) return element.name == "hxrrc_start_leftovers_row" end)[1]
+    --as 1.1.25 built it: label, stretching spacer, drop-down, no alignment
+    local spacer = row.add{type = "empty-widget", index = 2}
+    spacer.style.horizontally_stretchable = true
+    row.style.horizontal_align = nil
+    row.style.horizontal_spacing = nil
+    row.hxrrc_start_leftovers_dropdown.selected_index = 3
+    H.equal(row.visible, true, "fixture: quality target shows the row")
+    world.handlers.on_configuration_changed({mod_changes = {}})
+    world.handlers.on_configuration_changed({mod_changes = {}})
+    H.equal(row.valid, true, "the same row is kept")
+    H.equal(#row.children, 2, "spacer removed")
+    H.equal(row.children[1].type, "label", "label kept")
+    H.equal(row.children[2].name, "hxrrc_start_leftovers_dropdown", "drop-down kept")
+    H.equal(row.style.horizontal_align, "center", "centered")
+    H.equal(row.style.horizontal_spacing, 8, "8 px gap")
+    H.equal(row.hxrrc_start_leftovers_dropdown.selected_index, 3, "choice kept")
+    H.equal(row.visible, true, "still visible")
+end)
+
+H.test("2.0 P1c a picker saved by an older version is closed by a configuration change; the next tick raises nothing", function()
+    local world = picker_world("2.0", true)
+    M.Calculator.toggle(game.players[1])
+    local frame = game.players[1].gui.screen.add{type = "frame", name = "hxrrc_module_picker"}
+    storage[1].module_picker = {frame = frame, button = frame, selected_module = "speed-module", selected_quality = "normal"}
+    world.handlers.on_configuration_changed({mod_changes = {}})
+    H.equal(frame.valid, false, "old frame destroyed")
+    H.equal(storage[1].module_picker, nil, "old state dropped")
+    world.handlers.events[defines.events.on_tick]({tick = 1})
+end)
+
 H.test("every literal hxrrc locale key the GUI and control code use exists in every language", function()
     local keys = {}
     for _, file in ipairs({"gui/calculator.lua", "gui/sheet.lua", "gui/report.lua", "gui/modulegui.lua", "gui/input_container.lua", "gui/module_picker.lua", "gui/pipette.lua",
