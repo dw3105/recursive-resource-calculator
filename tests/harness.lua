@@ -1048,12 +1048,14 @@ function H.parse_report(output_flow)
     for first = HEADER_CELLS + 1, #cells, 4 do
         local item_cell, machine_cell, module_cell, recipe_cell = cells[first], cells[first + 1], cells[first + 2], cells[first + 3]
         local icon = item_cell.children[1]
-        local rate_caption = item_cell.children[2].caption
+        --the pool and assist rows show an icon where other rows show their rate
+        local rate_caption = item_cell.children[2].type == "label" and item_cell.children[2].caption or nil
         local rate = type(rate_caption) == "string" and number_in(rate_caption) or nil
         local quality = icon.type == "sprite-button" and icon.quality and icon.quality.name or nil
         if item_cell.tags.assist then
             local loop = loop_of(item_cell.tags.loop_key)
             loop.assist = parse_loop_lines(machine_cell).assist or {}
+            loop.assist.item_button, loop.assist.icon = item_cell.children[1], item_cell.children[2]
             loop.assist.module_flow = module_cell
             loop.assist.recipe_button = recipe_cell.children[1]
             loop.assist.row_index = parsed.loop_row_count + 1
@@ -1061,6 +1063,7 @@ function H.parse_report(output_flow)
         elseif item_cell.tags.pool then
             local loop = loop_of(item_cell.tags.loop_key)
             loop.pool = parse_loop_lines(machine_cell)
+            loop.pool.icon = item_cell.children[1]
             loop.pool.module_flow = module_cell
             loop.pool.recycle_button = recipe_cell.children[1]
             parsed.loop_row_count = parsed.loop_row_count + 1

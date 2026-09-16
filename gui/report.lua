@@ -16,6 +16,21 @@ local function wrap(label)
     return label
 end
 
+--The recycling arrows the data stage defines when the quality (2.0) or recycler (2.1) mod is present; checked once, when first needed
+local RECYCLE_SPRITE = "hxrrc_recycling"
+local recycle_sprite_valid
+--An icon carrying the caption as its tooltip, or the caption itself when there is no icon
+local function add_recycle_icon(cell, caption)
+    if recycle_sprite_valid == nil then
+        recycle_sprite_valid = helpers.is_valid_sprite_path(RECYCLE_SPRITE)
+    end
+    if recycle_sprite_valid then
+        cell.add{type = "sprite", sprite = RECYCLE_SPRITE, tooltip = caption}
+    else
+        cell.add{type = "label", caption = caption}
+    end
+end
+
 local function format_by_precision(float, player_index)
     local precision = settings.get_player_settings(player_index)["hxrrc-displayed-floating-point-precision"].value
 
@@ -399,7 +414,7 @@ local function add_assist_row(report, info, first_tier, recipe_rate, round_up_ma
     local item_cell = report.add{type = "flow", tags = {loop_key = info.key, assist = true}}
     item_cell.style.horizontally_stretchable = true
     item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = start, tooltip = prototypes.item[info.item].localised_name}
-    item_cell.add{type = "label", caption = {"hxrrc.assist_row"}}
+    add_recycle_icon(item_cell, {"hxrrc.assist_row"})
     local machine_cell = report.add{type = "flow", direction = "vertical"}
     local line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "assist"}}
     if stage and stage.machine then
@@ -529,7 +544,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
     --the recycler pool: every tier's recyclers are one set of machines with one setup
     local pool_cell = report.add{type = "flow", tags = {loop_key = info.key, pool = true}}
     pool_cell.style.horizontally_stretchable = true
-    pool_cell.add{type = "label", caption = {"hxrrc.recycler_pool"}}
+    add_recycle_icon(pool_cell, {"hxrrc.recycler_pool"})
     pool_cell.add{type = "label", caption = ""}
     local machine_cell = report.add{type = "flow", direction = "vertical"}
     local pool_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "recycle"}}

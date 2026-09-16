@@ -6,3 +6,19 @@ data:extend({
         key_sequence = "ALT + X",
     },
 })
+
+--Factorio 2.0 ships the recycling arrows in the quality mod; 2.1 moved them to the recycler mod. Neither present: no sprite, and the report shows text.
+--With layers, every property but name and type is read from the layers only.
+local recycling_icons = (mods["recycler"] and "__recycler__/graphics/icons/") or (mods["quality"] and "__quality__/graphics/icons/")
+if recycling_icons then
+    data:extend({
+        {
+            type = "sprite",
+            name = "hxrrc_recycling",
+            layers = {
+                {filename = recycling_icons .. "recycling.png", size = 64, scale = 0.5, flags = {"gui-icon"}},
+                {filename = recycling_icons .. "recycling-top.png", size = 64, scale = 0.5, flags = {"gui-icon"}},
+            },
+        },
+    })
+end

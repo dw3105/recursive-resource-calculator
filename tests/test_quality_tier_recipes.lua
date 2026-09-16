@@ -668,4 +668,40 @@ H.test("2.0 N1k a target change that re-raises its handler leaves the right visi
     H.equal(row_of(sheet_flow).visible, false, "hidden after the nested handler")
 end)
 
+--N3: the recycler pool and returned-items rows lead with the recycling arrows, their old text as its tooltip
+
+local function assist_and_pool_report()
+    local key = configure("uncommon")
+    L(key).assist.setup.modules = four("q")
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
+    return recompute(sheet_flow).loops[key]
+end
+
+H.test("2.0 N3a N3b N3d the pool row shows the recycle icon with its text as tooltip; the assist row shows the item button then the icon; both still parse", function()
+    tier_world("2.0", {two_tiers = true})
+    local loop = assist_and_pool_report()
+    assert(loop.pool and loop.assist, "both rows parsed")
+    H.equal(loop.pool.icon.type, "sprite", "pool icon")
+    H.equal(loop.pool.icon.sprite, "hxrrc_recycling", "recycling arrows")
+    H.equal(loop.pool.icon.tooltip[1], "hxrrc.recycler_pool", "pool text as tooltip")
+    H.equal(loop.assist.item_button.type, "sprite-button", "assist row still leads with the item")
+    H.equal(loop.assist.item_button.sprite, "item/X", "the item")
+    H.equal(loop.assist.icon.type, "sprite", "assist icon after the item")
+    H.equal(loop.assist.icon.sprite, "hxrrc_recycling", "recycling arrows")
+    H.equal(loop.assist.icon.tooltip[1], "hxrrc.assist_row", "assist text as tooltip")
+    assert(loop.pool.recycle and loop.assist.module_flow, "the rows' other cells still parse")
+end)
+
+H.test("2.0 N3c without the recycling sprite both rows fall back to their text", function()
+    local world = tier_world("2.0", {two_tiers = true})
+    world.remove_sprite("hxrrc_recycling")
+    local loop = assist_and_pool_report()
+    H.equal(loop.pool.icon.type, "label", "pool text")
+    H.equal(loop.pool.icon.caption[1], "hxrrc.recycler_pool", "pool caption")
+    H.equal(loop.assist.icon.type, "label", "assist text")
+    H.equal(loop.assist.icon.caption[1], "hxrrc.assist_row", "assist caption")
+end)
+
 H.done("test_quality_tier_recipes")
