@@ -61,7 +61,7 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "get_crafting_speed", "get_max_energy_usage", "electric_energy_source_prototype", "burner_prototype", "heat_energy_source_prototype",
     "fluid_energy_source_prototype", "void_energy_source_prototype", "module_inventory_size", "get_inventory_size", "allowed_module_categories",
     "quality_affects_module_slots", "module_slots_quality_bonus", "distribution_effectivity", "distribution_effectivity_bonus_per_quality_level",
-    "profile", "beacon_counter", "get_max_power_output", "items_to_place_this"}
+    "profile", "beacon_counter", "get_max_power_output", "items_to_place_this", "hidden"}
 local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
     "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter"}
 local QUALITY_MEMBERS = {"name", "valid", "localised_name", "level", "next", "next_probability", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus",
@@ -130,6 +130,20 @@ local GUI_MEMBERS = set_of({"type", "name", "caption", "tooltip", "children", "p
     "sprite", "valid", "auto_center", "state", "quality", "locked", "toggled"})
 
 local gui_methods = {}
+
+--Utility sprites the mod uses, each checked in 2.0.77 core/prototypes/utility-sprites.lua; any other utility path is refused
+local UTILITY_SPRITES = set_of({"check_mark_green", "empty_module_slot", "trash"})
+
+--A typed sprite path ("item/…", "fluid/…", "entity/…", "quality/…", "utility/…") checked against what exists: true or false; nil for an untyped name
+function H.typed_sprite_valid(path)
+    local sprite_type, sprite_name = tostring(path):match("^(%a+)/(.+)$")
+    if sprite_type == "item" then return prototypes.item[sprite_name] ~= nil end
+    if sprite_type == "fluid" then return prototypes.fluid[sprite_name] ~= nil end
+    if sprite_type == "entity" then return prototypes.entity[sprite_name] ~= nil end
+    if sprite_type == "quality" then return prototypes.quality[sprite_name] ~= nil end
+    if sprite_type == "utility" then return UTILITY_SPRITES[sprite_name] == true end
+    return nil
+end
 
 --Values a player can change; kept out of the element table so every script write goes through __newindex
 local VALUE_KEYS = {elem_value = true, text = true, state = true}
@@ -321,10 +335,8 @@ function gui_methods.add(self, params)
             end
         end
     end
-    --item and fluid sprites need their prototype (see LuaHelpers::is_valid_sprite_path)
-    local sprite_type, sprite_name = tostring(params.sprite or ""):match("^(%a+)/(.+)$")
-    if (sprite_type == "item" and not prototypes.item[sprite_name]) or (sprite_type == "fluid" and not prototypes.fluid[sprite_name])
-        or (sprite_type == "entity" and not prototypes.entity[sprite_name]) then
+    --typed sprites need their prototype, utility sprites must be one core defines (see H.typed_sprite_valid)
+    if params.sprite and H.typed_sprite_valid(params.sprite) == false then
         error("Unknown sprite " .. params.sprite, 3)
     end
     check_elem_filters(params)
@@ -434,11 +446,8 @@ function H.new_world(shape)
     world.sprite_prototypes = {hxrrc_recycling = true}
     function world.remove_sprite(name) world.sprite_prototypes[name] = nil end
     local function is_valid_sprite_path(path)
-        local sprite_type, sprite_name = tostring(path):match("^(%a+)/(.+)$")
-        if sprite_type == "item" then return prototypes.item[sprite_name] ~= nil end
-        if sprite_type == "fluid" then return prototypes.fluid[sprite_name] ~= nil end
-        if sprite_type == "entity" then return prototypes.entity[sprite_name] ~= nil end
-        if sprite_type == "utility" then return true end
+        local typed = H.typed_sprite_valid(path)
+        if typed ~= nil then return typed end
         return world.sprite_prototypes[path] == true
     end
     _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions, is_valid_sprite_path = is_valid_sprite_path}, HELPERS_MEMBERS)
@@ -661,6 +670,7 @@ function H.new_world(shape)
         --vanilla machines are placed by an item of their own name, which exists
         if not prototypes.item[spec.name] then world.add_item(spec.name) end
         fields.items_to_place_this = {{name = spec.name, count = 1}}
+        fields.hidden = false
         local machine = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
         prototypes.entity[spec.name] = machine
         machines[spec.name] = machine
@@ -676,6 +686,11 @@ function H.new_world(shape)
     --list: array of {name, count} (items_to_place_this is optional in 2.0.77), an empty list, or nil
     function world.set_placing_items(entity_name, list)
         prototypes.entity[entity_name].items_to_place_this = list
+    end
+
+    --flags: {hidden = boolean}, as LuaPrototypeBase reads it
+    function world.set_entity_flags(name, flags)
+        for key, value in pairs(flags) do prototypes.entity[name][key] = value end
     end
 
     function world.remove_machine(name)
@@ -705,6 +720,7 @@ function H.new_world(shape)
             allowed_effects = effect_dictionary(spec.allowed_effects or {"consumption", "speed", "pollution"}),
             allowed_module_categories = spec.allowed_module_categories and set_of(spec.allowed_module_categories),
             items_to_place_this = {{name = spec.name, count = 1}},
+            hidden = false,
         }, ENTITY_MEMBERS, ENTITY_GATES)
         prototypes.entity[spec.name] = beacon
         beacons[spec.name] = beacon

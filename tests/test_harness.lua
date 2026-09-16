@@ -467,4 +467,25 @@ H.test("N0h style names, toggled, sprite paths, item flags, placing items and mo
     assert(buttons.left ~= buttons.right and buttons.left ~= buttons.middle and buttons.right ~= buttons.middle, "distinct mouse buttons")
 end)
 
+H.test("P0a quality, entity and utility sprite paths are checked against what exists", function()
+    cursor_world()
+    local screen = game.players[1].gui.screen
+    H.equal(helpers.is_valid_sprite_path("quality/rare"), true, "quality sprite")
+    H.equal(helpers.is_valid_sprite_path("quality/nothing"), false, "missing quality sprite")
+    H.equal(helpers.is_valid_sprite_path("entity/assembler"), true, "entity sprite")
+    H.equal(helpers.is_valid_sprite_path("utility/empty_module_slot"), true, "listed utility sprite")
+    H.equal(helpers.is_valid_sprite_path("utility/trash"), true, "listed utility sprite")
+    H.equal(helpers.is_valid_sprite_path("utility/nothing_like_this"), false, "unknown utility sprite")
+    screen.add{type = "sprite-button", name = "q", sprite = "quality/rare"}
+    H.errors(function() screen.add{type = "sprite-button", name = "bad_quality", sprite = "quality/nothing"} end, "Unknown sprite", "missing quality refused")
+    H.errors(function() screen.add{type = "sprite-button", name = "bad_utility", sprite = "utility/nothing_like_this"} end, "Unknown sprite", "unknown utility refused")
+end)
+
+H.test("P0b entity prototypes expose hidden, false by default, settable by fixtures", function()
+    local world = cursor_world()
+    H.equal(prototypes.entity.assembler.hidden, false, "machine hidden defaults false")
+    world.set_entity_flags("assembler", {hidden = true})
+    H.equal(prototypes.entity.assembler.hidden, true, "hidden flag")
+end)
+
 H.done("test_harness")
