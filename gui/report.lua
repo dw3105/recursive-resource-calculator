@@ -213,7 +213,8 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
         elem_type = "entity-with-quality",
         ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
         --snapshot for refused changes on a stale report, and the row the button belongs to
-        tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality, recipe_name = recipe.name, product_full_name = product_full_name},
+        tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality, recipe_name = recipe.name, product_full_name = product_full_name,
+            signature = ModuleSetup.signature(storage[pi].module_setups_by_recipe_name[recipe.name], crafting_machine_identifier)},
         elem_filters = crafting_category_filters(recipe), --always enabled: with one machine, its quality can still be picked
     }
 
@@ -330,7 +331,8 @@ local function add_loop_machine_button(line, info, stage_name, stage, tier)
         ["entity-with-quality"] = {name = stage.machine.name, quality = stage.machine.quality},
         elem_filters = crafting_category_filters(stage.recipe), --always enabled: with one machine, its quality can still be picked
         --snapshot for refused changes on a stale report, and the loop stage the button edits
-        tags = {name = stage.machine.name, quality = stage.machine.quality, loop_key = info.key, stage = stage_name, tier = tier, recipe_name = stage.recipe.name},
+        tags = {name = stage.machine.name, quality = stage.machine.quality, loop_key = info.key, stage = stage_name, tier = tier, recipe_name = stage.recipe.name,
+            signature = ModuleSetup.signature(stage.setup, stage.machine)},
     }
 end
 
@@ -778,6 +780,61 @@ end
 
 local function as_identifier(value)
     return value and {name = value.name, quality = value.quality ~= "normal" and value.quality or nil}
+end
+
+--The row or loop stage a machine button acts on, as a plain copy of its tags that outlives the button; nil for other elements
+function Report.machine_target(button)
+    local tags = button.tags
+    if button.name == "hxrrc_choose_crafting_machine_button" then
+        return {kind = "row", recipe_name = tags.recipe_name, product_full_name = tags.product_full_name, name = tags.name, quality = tags.quality,
+            signature = tags.signature}
+    elseif button.name == "hxrrc_choose_loop_machine_button" then
+        return {kind = "stage", loop_key = tags.loop_key, stage = tags.stage, tier = tags.tier, recipe_name = tags.recipe_name, name = tags.name,
+            quality = tags.quality, signature = tags.signature}
+    end
+end
+
+--What a machine target acts on while it is still what the button showed: {recipe, machine, setup, write(machine, setup)}, or nil.
+--Fresh means the row's product is still bound to the recipe (a loop stage: the loop, its tier and its stage recipe still exist), the stored machine
+--and its quality are the ones shown, and the stored setup still has the signature the button was built with.
+function Report.machine_context_of(player_index, target)
+    if not (target and target.name and target.signature) then
+        return nil
+    end
+    local shown = {name = target.name, quality = target.quality}
+    local player_storage = storage[player_index]
+    if target.kind == "row" then
+        local recipe_name = target.recipe_name
+        local bound = recipe_name and target.product_full_name and player_storage.recipes_by_product_full_name[target.product_full_name]
+        if not (bound and bound.valid and bound.name == recipe_name) then
+            return nil
+        end
+        local identifier = player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
+        local setup = player_storage.module_setups_by_recipe_name[recipe_name]
+        if not (identifier and setup and same_entity(identifier, shown) and ModuleSetup.signature(setup, identifier) == target.signature) then
+            return nil
+        end
+        return {recipe = bound, machine = identifier, setup = setup, write = function(machine, new_setup)
+            player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name] = machine
+            player_storage.module_setups_by_recipe_name[recipe_name] = new_setup
+        end}
+    elseif target.kind == "stage" then
+        local loop = player_storage.quality_loops_by_key[target.loop_key]
+        local stage = loop and (target.stage ~= "craft" or QualityLoops.crafts_at(loop, target.tier)) and QualityLoops.stage(player_index, loop, target.stage, target.tier)
+        if not (stage and stage.machine and stage.recipe.name == target.recipe_name and same_entity(stage.machine, shown)
+            and ModuleSetup.signature(stage.setup, stage.machine) == target.signature) then
+            return nil
+        end
+        local settings = target.stage == "craft" and loop.crafts[target.tier] or target.stage == "assist" and loop.assist or loop.recycle
+        return {recipe = stage.recipe, machine = stage.machine, setup = stage.setup, write = function(machine, new_setup)
+            settings.machine = machine
+            settings.setup = new_setup
+        end}
+    end
+end
+
+function Report.machine_context(button)
+    return Report.machine_context_of(button.player_index, Report.machine_target(button))
 end
 
 --Returns true when the product's burner binding changed. Picking an entity replaces any recipe binding of the product; emptying removes the burner.

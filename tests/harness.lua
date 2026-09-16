@@ -658,6 +658,8 @@ function H.new_world(shape)
             fields.effect_receiver = {base_effect = {productivity = spec.base_productivity, quality = spec.base_quality}, uses_module_effects = spec.uses_module_effects ~= false,
                 uses_beacon_effects = spec.uses_beacon_effects ~= false, uses_surface_effects = true}
         end
+        --vanilla machines are placed by an item of their own name, which exists
+        if not prototypes.item[spec.name] then world.add_item(spec.name) end
         fields.items_to_place_this = {{name = spec.name, count = 1}}
         local machine = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
         prototypes.entity[spec.name] = machine
@@ -686,6 +688,7 @@ function H.new_world(shape)
     --  allowed_effects (list, default consumption, speed, pollution), allowed_module_categories (list)}
     function world.add_beacon(spec)
         local module_slots = spec.module_slots or 2
+        if not prototypes.item[spec.name] then world.add_item(spec.name) end
         local beacon = H.lua_object("LuaEntityPrototype", {
             name = spec.name, type = "beacon", valid = true, localised_name = {"entity-name." .. spec.name},
             module_inventory_size = module_slots,

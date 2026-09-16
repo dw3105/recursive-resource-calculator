@@ -164,4 +164,114 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+--N10: the pipette key over a machine button copies the machine and its whole setup
+
+local function machine_button(sheet_flow, recipe_name)
+    return find_all(sheet_flow, function(element) return element.name == "hxrrc_choose_crafting_machine_button" and element.tags.recipe_name == recipe_name end)[1]
+end
+
+local function clipboard() return storage[1].pipette end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N10a N10b N10c Q over a row's machine remembers the machine, its modules and beacon groups, and holds the placing item at its quality", function()
+        local world = pipette_world(shape)
+        world.set_placing_items("assembler", {{name = "raw", count = 1}}) --an item named unlike the entity
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler", quality = "rare"}
+        storage[1].module_setups_by_recipe_name.gear = {modules = {{name = "speed-module"}, {name = "efficiency-module", quality = "uncommon"}},
+            beacons = {{name = "beacon", count = 4, sharing = 2, modules = {{name = "speed-module"}}}}}
+        local sheet_flow = sheet({{item = "gear"}})
+        world.advance_tick(5)
+        press(world, machine_button(sheet_flow, "gear"))
+        local copied = clipboard()
+        assert(copied, "remembered")
+        H.equal(copied.kind, "machine", "kind")
+        H.deep_equal(copied.machine, {name = "assembler", quality = "rare"}, "machine and quality")
+        H.equal(stored(copied.setup.modules), "speed-module,efficiency-module@uncommon", "modules")
+        H.equal(#copied.setup.beacons, 1, "beacon group")
+        H.equal(copied.setup.beacons[1].count, 4, "beacon count")
+        H.equal(copied.setup.beacons[1].sharing, 2, "beacon sharing")
+        H.equal(stored(copied.setup.beacons[1].modules), "speed-module", "beacon modules")
+        H.deep_equal(copied.item, {name = "raw", quality = "rare"}, "placing item, not the entity name")
+        H.deep_equal(hand(), {name = "raw", quality = "rare", ghost = true}, "held as a ghost at the machine's quality")
+        H.equal(copied.copied_tick, 5, "copy tick")
+        H.equal(copied.own_notifications, 1, "one notification forgiven")
+    end)
+
+    H.test(shape .. " N10d a machine without placing items, or with an empty list, is refused with a flying text", function()
+        for _, items in ipairs({false, {}}) do
+            local world = pipette_world(shape)
+            world.set_placing_items("assembler", items or nil)
+            storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler"}
+            local sheet_flow = sheet({{item = "gear"}})
+            press(world, machine_button(sheet_flow, "gear"))
+            H.equal(clipboard(), nil, "nothing remembered")
+            H.equal(hand(), nil, "hand empty")
+            H.equal(world.flying_texts[#world.flying_texts][1], "hxrrc.machine_has_no_item_error", "says why")
+        end
+    end)
+
+    H.test(shape .. " N10e editing the row after the copy leaves the remembered setup as it was", function()
+        local world = pipette_world(shape)
+        storage[1].module_setups_by_recipe_name.gear = {modules = {{name = "speed-module"}},
+            beacons = {{name = "beacon", count = 1, sharing = 1, modules = {{name = "speed-module"}}}}}
+        local sheet_flow = sheet({{item = "gear"}})
+        press(world, machine_button(sheet_flow, "gear"))
+        local live = storage[1].module_setups_by_recipe_name.gear
+        live.modules[1].name = "efficiency-module"
+        live.modules[2] = {name = "productivity-module"}
+        live.beacons[1].count = 9
+        live.beacons[1].modules[1].quality = "rare"
+        H.equal(stored(clipboard().setup.modules), "speed-module", "modules untouched")
+        H.equal(clipboard().setup.beacons[1].count, 1, "beacon count untouched")
+        H.equal(stored(clipboard().setup.beacons[1].modules), "speed-module", "beacon modules untouched")
+    end)
+
+    H.test(shape .. " N10f N10g Q over a loop stage's machine copies that stage; a tier the loop no longer crafts copies nothing", function()
+        if shape ~= "2.0" then return end --quality loops are calculated on Factorio 2.0 only
+        local world = pipette_world(shape)
+        local key = M.QualityId.encode("X", "uncommon")
+        local sheet_flow = sheet({{item = "X", quality = "uncommon"}})
+        local loop = storage[1].quality_loops_by_key[key]
+        loop.crafts.normal.machine = {name = "assembler"} --fast-assembler refuses quality modules
+        loop.crafts.normal.setup.modules = {{name = "q"}, {name = "q"}}
+        sheet_flow = sheet({{item = "X", quality = "uncommon"}})
+        local rows = H.parse_report(sheet_flow.output_flow).loops[key]
+        press(world, rows.tiers[1].craft.machine_button)
+        assert(clipboard(), "stage copied")
+        H.deep_equal(clipboard().machine, {name = rows.tiers[1].craft.machine.name, quality = rows.tiers[1].craft.machine.quality}, "the stage's machine")
+        H.equal(stored(clipboard().setup.modules), "q,q", "stage modules")
+        game.players[1].clear_cursor()
+        storage[1].pipette = nil
+        storage[1].quality_loops_by_key[key].start_quality = "uncommon" --the normal tier is no longer crafted
+        press(world, rows.tiers[1].craft.machine_button)
+        H.equal(clipboard(), nil, "tier outside the loop copies nothing")
+        H.equal(hand(), nil, "hand empty")
+    end)
+
+    H.test(shape .. " N10h N10i a row whose stored machine, quality or setup changed underneath a valid button copies nothing", function()
+        local world = pipette_world(shape)
+        local chosen = storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name
+        chosen.gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        local button = machine_button(sheet_flow, "gear")
+        chosen.gear = {name = "fast-assembler"}
+        press(world, button)
+        H.equal(clipboard(), nil, "machine changed")
+        chosen.gear = {name = "assembler", quality = "uncommon"}
+        press(world, button)
+        H.equal(clipboard(), nil, "quality changed")
+        chosen.gear = {name = "assembler"}
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module"}}
+        press(world, button)
+        H.equal(clipboard(), nil, "setup changed")
+        storage[1].module_setups_by_recipe_name.gear.modules = {}
+        world.hold_item(1, "raw")
+        press(world, button)
+        H.equal(clipboard(), nil, "a full hand copies nothing")
+        world.empty_hand(1)
+        press(world, button)
+        assert(clipboard(), "copies again once storage matches the button and the hand is empty")
+    end)
+end
+
 H.done("test_pipette")
