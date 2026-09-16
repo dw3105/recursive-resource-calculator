@@ -28,13 +28,13 @@ end
 local function handler_sheet(targets)
     local sheet_pane, sheet_flow = H.fill_sheet(targets)
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return sheet_flow
 end
 
 local function recompute(sheet_flow)
     storage.computation_stack = {}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return H.parse_report(sheet_flow.output_flow)
 end
 
@@ -79,15 +79,13 @@ H.test("2.0 QL-15 the user's scenario: the same modules at legendary quality cha
     end
     for index = 1, 4 do
         local slot = slots()[index]
-        slot.elem_value = {name = "q"}
-        fire(slot)
+        H.pick_module(slot, {name = "q"})
     end
     local report = recompute(sheet_flow)
     H.near_relative(report.rows["item/cable"].machines, 25000 / 9, "normal modules: 2000 / (0.9 x 0.8)")
     for index = 1, 4 do
         local slot = slots()[index]
-        slot.elem_value = {name = "q", quality = "legendary"}
-        fire(slot)
+        H.pick_module(slot, {name = "q", quality = "legendary"})
     end
     report = recompute(sheet_flow)
     H.near_relative(report.rows["item/cable"].machines, 2000 / (0.752 * 0.8), "legendary modules: 24.8% upgrade chance")
@@ -109,8 +107,8 @@ H.test("2.0 QL-15 a recipe forbidding quality refuses quality modules; its machi
     local cell = H.parse_report(sheet_flow.output_flow).rows["item/cable"].module_cell
     local slot = find_all(cell, "hxrrc_choose_module_button")[1]
     assert(slot, "a slot for the allowed speed module")
-    slot.elem_value = {name = "q"}
-    fire(slot)
+    H.errors(function() H.pick_module(slot, {name = "q"}) end, "the picker does not offer module q", "q not offered")
+    require("gui.module_picker").close(1, false)
     H.equal(#storage[1].module_setups_by_recipe_name.cable.modules, 0, "q not kept")
     local report = recompute(sheet_flow)
     H.near(report.rows["item/cable"].machines, 2000, "no spread, no speed penalty")
@@ -211,14 +209,12 @@ H.test("2.0 QL-17 a recipe returning what it takes consumes only through its upg
     H.near(report.rows[M.QualityId.encode("X", "uncommon")].rate, -0.9, "uncommon X made")
 
     local machine_button = report.rows["item/X"].machine_button
-    machine_button.elem_value = {name = "plain-machine"}
-    fire(machine_button)
+    H.pick_choice(machine_button, {name = "plain-machine"})
     report = recompute(sheet_flow)
     H.equal(report.rows["item/X"].reason, "hxrrc.consumer_no_longer_consumes", "no quality effect: no longer consumes")
     machine_button = report.rows["item/X"].machine_button
     assert(machine_button, "machine editor on the diagnostic row")
-    machine_button.elem_value = {name = "quality-machine"}
-    fire(machine_button)
+    H.pick_choice(machine_button, {name = "quality-machine"})
     report = recompute(sheet_flow)
     H.near(report.rows["item/X"].rate, -1, "consumes again")
 end)

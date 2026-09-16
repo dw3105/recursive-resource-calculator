@@ -88,13 +88,13 @@ end
 local function handler_sheet(targets)
     local sheet_pane, sheet_flow = H.fill_sheet(targets)
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return sheet_flow
 end
 
 local function recompute(sheet_flow)
     storage.computation_stack = {}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return H.parse_report(sheet_flow.output_flow)
 end
 
@@ -296,9 +296,12 @@ end)
 
 local MODES = {byproduct = 1, craft = 2, recycle = 3}
 
-local function child_named(flow, name)
+--First element with the name anywhere under flow, depth first: the drop-down sits inside the base-quality row
+local function descendant_named(flow, name)
     for _, child in ipairs(flow.children) do
         if child.name == name then return child end
+        local found = descendant_named(child, name)
+        if found then return found end
     end
 end
 
@@ -315,7 +318,7 @@ local function add_sheet(sheet_pane, target)
 end
 
 local function select_mode(sheet_flow, mode)
-    local dropdown = child_named(sheet_flow, "hxrrc_start_leftovers_dropdown")
+    local dropdown = descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown")
     dropdown.selected_index = MODES[mode]
     event_handlers.on_gui_selection_state_changed[dropdown.name]({element = dropdown, player_index = 1})
 end
@@ -325,35 +328,34 @@ H.test("2.0 QS-1 each sheet has the start leftovers choice; old sheets get it; 2
     configure("rare")
     local sheet_pane, first = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    local dropdown = child_named(first, "hxrrc_start_leftovers_dropdown")
+    local dropdown = descendant_named(first, "hxrrc_start_leftovers_dropdown")
     assert(dropdown, "drop-down on a new sheet")
     H.equal(#dropdown.items, 3, "three choices")
     H.equal(dropdown.selected_index, 1, "left over by default")
     local second = add_sheet(sheet_pane, {item = "X", quality = "rare", rate = 2})
-    M.Sheet.calculate(first.hxrrc_compute_button)
-    M.Sheet.calculate(second.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(first))
+    M.Sheet.calculate(M.Sheet.compute_button_of(second))
     local first_report = first.output_flow.children[1]
     select_mode(second, "craft")
     H.equal(first.output_flow.children[1], first_report, "other sheet's report untouched")
     assert(H.parse_report(second.output_flow).loops[M.QualityId.encode("X", "rare")].assist, "changed sheet recomputed with assist crafts")
 
-    child_named(first, "hxrrc_start_leftovers_dropdown").destroy()
+    local controls_of_sheet = descendant_named(first, "hxrrc_sheet_controls")
+    local index = controls_of_sheet.get_index_in_parent()
+    controls_of_sheet.destroy()
+    first.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = false, index = index}
+    first.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 1}
     M.Sheet.add_missing_controls(sheet_pane)
-    local repaired = child_named(first, "hxrrc_start_leftovers_dropdown")
+    local repaired = descendant_named(first, "hxrrc_start_leftovers_dropdown")
     assert(repaired, "old sheet repaired")
     H.equal(repaired.selected_index, 1, "repaired with the default")
-    local compute_index, dropdown_index
-    for index, child in ipairs(first.children) do
-        if child == repaired then dropdown_index = index end
-        if child.name == "hxrrc_compute_button" then compute_index = index end
-    end
-    H.equal(dropdown_index + 1, compute_index, "placed before the compute button")
+    H.equal(descendant_named(first, "hxrrc_sheet_controls").get_index_in_parent(), index, "placed where the old controls were")
 
     tier_world("2.1")
     local _, sheet_21 = H.fill_sheet({{item = "X", rate = 1, unit = "/s"}})
-    H.equal(child_named(sheet_21, "hxrrc_start_leftovers_dropdown"), nil, "no choice on 2.1")
+    H.equal(descendant_named(sheet_21, "hxrrc_start_leftovers_dropdown"), nil, "no choice on 2.1")
     M.Sheet.add_missing_controls(sheet_21.parent)
-    H.equal(child_named(sheet_21, "hxrrc_start_leftovers_dropdown"), nil, "not added by repair on 2.1")
+    H.equal(descendant_named(sheet_21, "hxrrc_start_leftovers_dropdown"), nil, "not added by repair on 2.1")
 end)
 
 local function loop_numbers(result, key)
@@ -400,7 +402,7 @@ H.test("2.0 QS-3 crafted by another recipe: assist crafts bound by the returns, 
 
     local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
+    descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
     local report = recompute(sheet_flow)
     local loop = report.loops[key]
     assert(loop.assist, "assist row")
@@ -411,8 +413,7 @@ H.test("2.0 QS-3 crafted by another recipe: assist crafts bound by the returns, 
     local slot = find_all(loop.assist.module_flow, "hxrrc_choose_module_button")[1]
     local crafts_before = M.QualityLoops._deep_copy(L(key).crafts)
     local modules_before = #L(key).assist.setup.modules
-    slot.elem_value = nil
-    fire(slot)
+    H.pick_module(slot, nil)
     H.equal(#L(key).assist.setup.modules, modules_before - 1, "assist setup changed")
     H.deep_equal(L(key).crafts, crafts_before, "tier setups unchanged")
 
@@ -451,7 +452,7 @@ H.test("2.0 QS-5 recycled into themselves: returned A recycled until gone or upg
     H.near_relative(column.net_amounts["item/A"], 0.405 / 0.1225, "normal A left over as without recycling")
     local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.recycle
+    descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.recycle
     local tooltip = recompute(sheet_flow).loops[key].pool.recycle.tooltip
     local found = false
     for index = 3, #tooltip do
@@ -469,7 +470,7 @@ H.test("2.0 QS-5b pooled recipes count their own work, and a recipe forbidding q
     local tier = column.quality_loop.tiers[1]
     local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 2, unit = "/s"}})
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.recycle
+    descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.recycle
     local pool = recompute(sheet_flow).loops[key].pool.recycle
     --X recycling 0.5 s, A recycling 4 s, speed 1 (q changes no speed)
     local x_machines = tier.recycle_crafts * rate * 0.5
@@ -500,7 +501,7 @@ H.test("2.0 QS-6 a start recipe taking items: every choice gives the same loop a
     H.deep_equal(loop_numbers(solve(key, "rare", 1, "recycle"), key), byproduct, "recycle")
     local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    child_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
+    descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
     H.equal(recompute(sheet_flow).loops[key].assist, nil, "no assist row")
 end)
 
@@ -516,6 +517,235 @@ H.test("2.0 QS-7 power with assist crafts", function()
     local expected = tiers[1].crafts * rate * 2 / 2 * 400e3 + (tiers[1].assist_crafts + tiers[2].crafts) * rate * 100e3 + tiers[1].recycle_crafts * rate * 0.5 * 50e3
     H.near_relative(require("logic.compute_power_and_pollution")(1, result.columns, result.recipe_rates), expected, "assist crafts draw")
     H.near_relative(tiers[1].assist_crafts * rate, 2 * 9 / 4, "assist crafts per second")
+end)
+
+--N1/S1: the sheet controls grid (base-quality label | drop-down, round-up checkbox | Compute); the base-quality pair shows only while the sheet
+--targets an item above normal quality
+
+local function controls_of(sheet_flow) return descendant_named(sheet_flow, "hxrrc_sheet_controls") end
+local function label_of(sheet_flow) return descendant_named(sheet_flow, "hxrrc_start_leftovers_label") end
+local function dropdown_of(sheet_flow) return descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown") end
+
+local function cell_names(controls)
+    local names = {}
+    for index, cell in ipairs(controls.children) do names[index] = cell.name end
+    return table.concat(names, ",")
+end
+
+--Types a target into the sheet's first row the way the player does: value into the button, then its changed event
+local function set_target(sheet_flow, value, fluid)
+    local row = sheet_flow.input_container.children[1]
+    local button = fluid and row.hxrrc_desired_fluid_button or row.hxrrc_desired_item_button
+    button.elem_value = value
+    event_handlers.on_gui_elem_changed[button.name]({element = button, player_index = 1})
+end
+
+--A sheet as 1.1.23 saved it: checkbox, the drop-down itself, Compute, all in the sheet flow where the grid now sits
+local function as_saved_by_1_1_23(sheet_flow, selected_index, round_up)
+    local controls = controls_of(sheet_flow)
+    local index = controls.get_index_in_parent()
+    controls.destroy()
+    sheet_flow.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = round_up == true, index = index}
+    sheet_flow.add{type = "drop-down", name = "hxrrc_start_leftovers_dropdown", items = {"a", "b", "c"}, selected_index = selected_index, index = index + 1}
+    sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 2}
+    return index
+end
+
+H.test("2.0 N1a N1b S1a the controls are one two-column grid: label | drop-down, checkbox | Compute, right and left aligned, 8 px apart", function()
+    tier_world("2.0")
+    local _, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    local controls = controls_of(sheet_flow)
+    assert(controls, "S1a: grid on a new sheet")
+    H.equal(controls.type, "table", "S1a: a table")
+    H.equal(controls.column_count, 2, "S1a: two columns")
+    H.equal(controls.style.column_alignments[1], "middle-right", "S1a: first column right")
+    H.equal(controls.style.column_alignments[2], "middle-left", "S1a: second column left")
+    H.equal(controls.style.horizontal_spacing, 8, "S1a: 8 px apart")
+    H.equal(cell_names(controls), "start_leftovers_label_cell,start_leftovers_dropdown_cell,round_up_cell,compute_cell", "S1a: cell order")
+    H.equal(controls.start_leftovers_label_cell.children[1].caption[1], "hxrrc.start_leftovers_caption", "label caption")
+    H.equal(controls.start_leftovers_label_cell.children[1].tooltip[1], "hxrrc.start_leftovers_tooltip", "label tooltip")
+    local keys = {}
+    for index, item in ipairs(dropdown_of(sheet_flow).items) do keys[index] = item[1] end
+    H.deep_equal(keys, {"hxrrc.start_leftovers_byproduct", "hxrrc.start_leftovers_craft", "hxrrc.start_leftovers_recycle"}, "N1b: bare choice keys")
+    H.equal(controls.round_up_cell.children[1].name, "hxrrc_round_up_machines_checkbox", "S1a: checkbox under the label")
+    H.equal(controls.compute_cell.children[1].name, "hxrrc_compute_button", "S1a: Compute under the drop-down")
+    local names = {}
+    for index, child in ipairs(sheet_flow.children) do names[index] = child.name end
+    H.equal(table.concat(names, ","), "input_container,hxrrc_sheet_controls,output_flow", "S1a: nothing else between inputs and output")
+end)
+
+H.test("2.0 S1f the sheet flow of a checkbox, a drop-down and a Compute button is the sheet owning them", function()
+    tier_world("2.0")
+    local _, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    H.equal(M.Sheet.sheet_flow_of(M.Sheet.round_up_checkbox_of(sheet_flow)), sheet_flow, "checkbox")
+    H.equal(M.Sheet.sheet_flow_of(dropdown_of(sheet_flow)), sheet_flow, "drop-down")
+    H.equal(M.Sheet.sheet_flow_of(M.Sheet.compute_button_of(sheet_flow)), sheet_flow, "Compute")
+end)
+
+H.test("2.0 N1c N1d a 1.1.23 sheet gets the grid in its controls' place with its choice and checkbox; repairing twice leaves one grid", function()
+    tier_world("2.0")
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    local index = as_saved_by_1_1_23(sheet_flow, 3, true)
+    M.Sheet.add_missing_controls(sheet_pane)
+    M.Sheet.add_missing_controls(sheet_pane)
+    local grids, flat = 0, 0
+    for _, child in ipairs(sheet_flow.children) do
+        if child.name == "hxrrc_sheet_controls" then grids = grids + 1 end
+        if child.name == "hxrrc_start_leftovers_dropdown" or child.name == "hxrrc_round_up_machines_checkbox" or child.name == "hxrrc_compute_button" then flat = flat + 1 end
+    end
+    H.equal(grids, 1, "one grid")
+    H.equal(flat, 0, "no flat control left")
+    H.equal(controls_of(sheet_flow).get_index_in_parent(), index, "in the old controls' place")
+    H.equal(dropdown_of(sheet_flow).selected_index, 3, "choice kept")
+    H.equal(M.Sheet.round_up_checkbox_of(sheet_flow).state, true, "checkbox kept")
+end)
+
+H.test("2.0 N1e S1e a choice or a tick in one sheet recomputes only that sheet, also after a 1.1.23 sheet is repaired; Compute works through its handler", function()
+    tier_world("2.0")
+    configure("rare")
+    local sheet_pane, first = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    local second = add_sheet(sheet_pane, {item = "X", quality = "rare", rate = 2})
+    event_handlers.on_gui_click.hxrrc_compute_button({element = M.Sheet.compute_button_of(first), player_index = 1})
+    assert(first.output_flow.children[1], "S1e: Compute through its handler")
+    M.Sheet.calculate(M.Sheet.compute_button_of(second))
+    local first_report = first.output_flow.children[1]
+    select_mode(second, "craft")
+    H.equal(first.output_flow.children[1], first_report, "other sheet untouched")
+    assert(H.parse_report(second.output_flow).loops[M.QualityId.encode("X", "rare")].assist, "own sheet recomputed")
+    local second_report = second.output_flow.children[1]
+    local checkbox = M.Sheet.round_up_checkbox_of(first)
+    checkbox.state = true
+    event_handlers.on_gui_checked_state_changed[checkbox.name]({element = checkbox, player_index = 1})
+    H.equal(second.output_flow.children[1], second_report, "S1e: a tick leaves the other sheet untouched")
+    assert(first.output_flow.children[1] ~= first_report, "S1e: a tick recomputes its own sheet")
+    as_saved_by_1_1_23(first, 1)
+    M.Sheet.add_missing_controls(sheet_pane)
+    local repaired = dropdown_of(first)
+    repaired.selected_index = 2
+    second_report = second.output_flow.children[1]
+    event_handlers.on_gui_selection_state_changed[repaired.name]({element = repaired, player_index = 1})
+    assert(H.parse_report(first.output_flow).loops[M.QualityId.encode("X", "rare")].assist, "repaired drop-down reaches its own sheet")
+    H.equal(second.output_flow.children[1], second_report, "and only its own sheet")
+end)
+
+H.test("2.1 N1f S1b on 2.1 the grid holds only the checkbox and Compute, built or repaired", function()
+    tier_world("2.1")
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", rate = 1, unit = "/s"}})
+    H.equal(cell_names(controls_of(sheet_flow)), "round_up_cell,compute_cell", "S1b: built")
+    local controls = controls_of(sheet_flow)
+    local index = controls.get_index_in_parent()
+    controls.destroy()
+    sheet_flow.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = true, index = index}
+    sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 1}
+    M.Sheet.add_missing_controls(sheet_pane)
+    H.equal(cell_names(controls_of(sheet_flow)), "round_up_cell,compute_cell", "S1b: repaired")
+    H.equal(M.Sheet.round_up_checkbox_of(sheet_flow).state, true, "S1b: checkbox kept")
+    H.equal(dropdown_of(sheet_flow), nil, "N1f: no choice on 2.1")
+end)
+
+H.test("2.0 N1g N1h S1c the label and drop-down hide for normal items and fluids, show for a target above normal; the four cells always stay", function()
+    tier_world("2.0")
+    local _, sheet_flow = H.fill_sheet({})
+    local function shown()
+        H.equal(#controls_of(sheet_flow).children, 4, "S1c: four cells")
+        H.equal(label_of(sheet_flow).visible, dropdown_of(sheet_flow).visible, "S1c: label and drop-down together")
+        return dropdown_of(sheet_flow).visible
+    end
+    H.equal(shown(), false, "empty sheet")
+    set_target(sheet_flow, {name = "X"})
+    H.equal(shown(), false, "normal item")
+    set_target(sheet_flow, {name = "X", quality = "rare"})
+    H.equal(shown(), true, "item above normal")
+    set_target(sheet_flow, nil)
+    H.equal(shown(), false, "cleared")
+    set_target(sheet_flow, {name = "X", quality = "uncommon"})
+    H.equal(shown(), true, "shown again")
+    set_target(sheet_flow, {name = "X", quality = "normal"})
+    H.equal(shown(), false, "set to normal")
+    set_target(sheet_flow, {name = "X", quality = "rare"})
+    set_target(sheet_flow, "molten", true)
+    H.equal(shown(), false, "replaced by a fluid")
+    for _, cell in ipairs(controls_of(sheet_flow).children) do H.equal(cell.visible, true, "S1c: cell " .. cell.name .. " never hidden") end
+    local _, fluid_sheet = H.fill_sheet({{fluid = "molten", rate = 1, unit = "/s"}})
+    H.equal(dropdown_of(fluid_sheet).visible, false, "fluid sheet")
+end)
+
+H.test("2.0 N1i a hidden drop-down keeps its choice and the solver still gets it", function()
+    tier_world("2.0")
+    local _, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    select_mode(sheet_flow, "recycle")
+    set_target(sheet_flow, {name = "X"})
+    H.equal(dropdown_of(sheet_flow).visible, false, "hidden")
+    H.equal(dropdown_of(sheet_flow).selected_index, 3, "choice kept")
+    local seen
+    local solve_for = M.Solver.solve_for
+    M.Solver.solve_for = function(rates, player_index, parts, options)
+        seen = options.start_leftovers
+        return solve_for(rates, player_index, parts, options)
+    end
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+    M.Solver.solve_for = solve_for
+    H.equal(seen, "recycle", "hidden drop-down's choice reaches the solver")
+end)
+
+H.test("2.0 N1j repair shows the base-quality pair on an old sheet with a target above normal and hides it on a normal-only one", function()
+    tier_world("2.0")
+    local quality_pane, quality_sheet = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    as_saved_by_1_1_23(quality_sheet, 1)
+    M.Sheet.add_missing_controls(quality_pane)
+    H.equal(dropdown_of(quality_sheet).visible, true, "quality sheet shows it")
+    H.equal(label_of(quality_sheet).visible, true, "with its label")
+    local normal_pane, normal_sheet = H.fill_sheet({{item = "X", rate = 1, unit = "/s"}})
+    as_saved_by_1_1_23(normal_sheet, 1)
+    M.Sheet.add_missing_controls(normal_pane)
+    H.equal(dropdown_of(normal_sheet).visible, false, "normal-only sheet hides it")
+end)
+
+H.test("2.0 N1k a target change that re-raises its handler leaves the right visibility", function()
+    tier_world("2.0")
+    local _, sheet_flow = H.fill_sheet({{item = "X", quality = "rare", rate = 1, unit = "/s"}})
+    H.equal(dropdown_of(sheet_flow).visible, true, "shown")
+    H.refire_on_script_set = true
+    set_target(sheet_flow, "molten", true) --clears the item button, which raises the handler again
+    H.refire_on_script_set = false
+    H.equal(dropdown_of(sheet_flow).visible, false, "hidden after the nested handler")
+end)
+
+--N3: the recycler pool and returned-items rows lead with the recycling arrows, their old text as its tooltip
+
+local function assist_and_pool_report()
+    local key = configure("uncommon")
+    L(key).assist.setup.modules = four("q")
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
+    storage[1].sheet_section = {sheet_pane = sheet_pane}
+    descendant_named(sheet_flow, "hxrrc_start_leftovers_dropdown").selected_index = MODES.craft
+    return recompute(sheet_flow).loops[key]
+end
+
+H.test("2.0 N3a N3b N3d the pool row shows the recycle icon with its text as tooltip; the assist row shows the item button then the icon; both still parse", function()
+    tier_world("2.0", {two_tiers = true})
+    local loop = assist_and_pool_report()
+    assert(loop.pool and loop.assist, "both rows parsed")
+    H.equal(loop.pool.icon.type, "sprite", "pool icon")
+    H.equal(loop.pool.icon.sprite, "hxrrc_recycling", "recycling arrows")
+    H.equal(loop.pool.icon.tooltip[1], "hxrrc.recycler_pool", "pool text as tooltip")
+    H.equal(loop.assist.item_button.type, "sprite-button", "assist row still leads with the item")
+    H.equal(loop.assist.item_button.sprite, "item/X", "the item")
+    H.equal(loop.assist.icon.type, "sprite", "assist icon after the item")
+    H.equal(loop.assist.icon.sprite, "hxrrc_recycling", "recycling arrows")
+    H.equal(loop.assist.icon.tooltip[1], "hxrrc.assist_row", "assist text as tooltip")
+    assert(loop.pool.recycle and loop.assist.module_flow, "the rows' other cells still parse")
+end)
+
+H.test("2.0 N3c without the recycling sprite both rows fall back to their text", function()
+    local world = tier_world("2.0", {two_tiers = true})
+    world.remove_sprite("hxrrc_recycling")
+    local loop = assist_and_pool_report()
+    H.equal(loop.pool.icon.type, "label", "pool text")
+    H.equal(loop.pool.icon.caption[1], "hxrrc.recycler_pool", "pool caption")
+    H.equal(loop.assist.icon.type, "label", "assist text")
+    H.equal(loop.assist.icon.caption[1], "hxrrc.assist_row", "assist caption")
 end)
 
 H.done("test_quality_tier_recipes")

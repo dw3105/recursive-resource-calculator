@@ -65,13 +65,13 @@ end
 local function handler_sheet(targets)
     local sheet_pane, sheet_flow = H.fill_sheet(targets)
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return sheet_flow, sheet_pane
 end
 
 local function recompute(sheet_flow)
     storage.computation_stack = {}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return H.parse_report(sheet_flow.output_flow)
 end
 
@@ -151,15 +151,14 @@ for _, shape in ipairs({"2.0"}) do
             assert(tier.craft.machine_button, "machine editor on tier " .. index)
             H.equal(#slots(tier.module_flow), 4, "module editor on tier " .. index)
             for slot_index, slot in ipairs(slots(tier.module_flow)) do
-                H.equal(slot.elem_value, nil, "tier " .. index .. " slot " .. slot_index .. " shows the loop's empty setup")
+                H.equal(H.slot_value(slot), nil, "tier " .. index .. " slot " .. slot_index .. " shows the loop's empty setup")
             end
         end
         H.equal(loop.pool.recycle.machines, nil, "no pool count")
         assert(loop.pool.recycle.machine_button, "pool editor")
         local slot = slots(loop.tiers[1].module_flow)[1]
-        slot.elem_value = {name = "q"}
-        fire(slot)
-        H.equal(#L(key).crafts.normal.setup.modules, 1, "module stored on the normal tier")
+        H.pick_module(slot, {name = "q"})
+        H.equal(#L(key).crafts.normal.setup.modules, 4, "module fills the normal tier's empty row")
         H.equal(#L(key).crafts.uncommon.setup.modules, 0, "other tier untouched")
         H.equal(#storage[1].module_setups_by_recipe_name.X.modules, 2, "the recipe's own setup untouched")
         report = recompute(sheet_flow)
@@ -197,7 +196,7 @@ for _, shape in ipairs({"2.0"}) do
         H.near(rates[second], 2, "second demand")
         H.equal(parts[first].name .. "|" .. parts[first].quality, "a:b|c", "first parts")
         H.equal(parts[second].name .. "|" .. parts[second].quality, "a|b:c", "second parts")
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         report = H.parse_report(sheet_flow.output_flow)
         local count = 0
         for _ in pairs(storage[1].quality_loops_by_key) do count = count + 1 end
@@ -226,12 +225,12 @@ for _, shape in ipairs({"2.0"}) do
             local old = H.parse_report(sheet_flow.output_flow).loops[key]
             H.refire_on_script_set = refire
 
-            --emptying a loop machine button
+            --a right click on a loop machine button empties nothing and opens nothing
             local craft_button = old.tiers[1].craft.machine_button
-            craft_button.elem_value = nil
-            fire(craft_button)
-            H.equal(craft_button.elem_value.name, "assembler", "emptied button restored")
-            H.equal(world.flying_texts[#world.flying_texts][1], "hxrrc.cannot_empty_a_choose_crafting_machine_button_error", "flying text")
+            local crafts_before = M.QualityLoops._deep_copy(L(key).crafts)
+            H.pick_choice(craft_button, nil)
+            H.deep_equal(L(key).crafts, crafts_before, "right click stores nothing")
+            H.equal(storage[1].module_picker, nil, "right click opens no picker")
 
             --a recycle recipe that takes another item
             local recycle_button = old.pool.recycle_button
@@ -245,18 +244,15 @@ for _, shape in ipairs({"2.0"}) do
             L(key).start_quality = "uncommon"
             local normal_machine_before = M.QualityLoops._deep_copy(L(key).crafts.normal)
             local normal_button = old.tiers[1].craft.machine_button
-            normal_button.elem_value = {name = "big-assembler"}
-            fire(normal_button)
+            H.equal(H.pick_choice(normal_button, {name = "big-assembler"}), false, "stale button opens no picker")
             H.deep_equal(L(key).crafts.normal, normal_machine_before, "tier outside the loop not edited by its machine button")
-            H.equal(normal_button.elem_value.name, "assembler", "restored")
             local normal_slot = slots(old.tiers[1].module_flow)[1]
-            normal_slot.elem_value = nil
-            fire(normal_slot)
+            H.pick_module(normal_slot, nil)
             H.deep_equal(L(key).crafts.normal, normal_machine_before, "tier outside the loop not edited by its module button")
             L(key).start_quality = nil
 
             --the recycle recipe changes on another sheet: this sheet's recycle button is stale
-            M.Sheet.calculate(second_flow.hxrrc_compute_button)
+            M.Sheet.calculate(M.Sheet.compute_button_of(second_flow))
             local other = H.parse_report(second_flow.output_flow).loops[key]
             other.pool.recycle_button.elem_value = nil
             fire(other.pool.recycle_button)
@@ -267,12 +263,10 @@ for _, shape in ipairs({"2.0"}) do
             H.equal(recycle_button.elem_value, "X-recycling", "stale recycle button shows its snapshot")
             --its old pool machine button and pool module button are stale too
             local pool_button = old.pool.recycle.machine_button
-            pool_button.elem_value = {name = "recycler", quality = "uncommon"}
-            fire(pool_button)
+            H.equal(H.pick_choice(pool_button, {name = "recycler", quality = "uncommon"}), false, "stale pool machine button opens no picker")
             H.equal(L(key).recycle.machine, nil, "stale pool machine button refused")
             local pool_slot = slots(old.pool.module_flow)[1]
-            pool_slot.elem_value = nil
-            fire(pool_slot)
+            H.pick_module(pool_slot, nil)
             H.equal(#L(key).recycle.setup.modules, 0, "stale pool module button stores nothing")
 
             --the item's recipe changes: every tier's old controls are stale
@@ -281,13 +275,10 @@ for _, shape in ipairs({"2.0"}) do
             storage[1].product_full_names_by_recipe_name.X2 = "item/X"
             local tier_before = M.QualityLoops._deep_copy(L(key).crafts.uncommon)
             local tier_button = old.tiers[2].craft.machine_button
-            tier_button.elem_value = {name = "big-assembler"}
-            fire(tier_button)
+            H.equal(H.pick_choice(tier_button, {name = "big-assembler"}), false, "stale craft machine button opens no picker")
             H.deep_equal(L(key).crafts.uncommon, tier_before, "stale craft machine button refused")
-            H.equal(tier_button.elem_value.name, "assembler", "restored")
             local tier_slot = slots(old.tiers[2].module_flow)[1]
-            tier_slot.elem_value = nil
-            fire(tier_slot)
+            H.pick_module(tier_slot, nil)
             H.deep_equal(L(key).crafts.uncommon, tier_before, "stale craft module button stores nothing")
             H.refire_on_script_set = false
         end)
@@ -301,8 +292,7 @@ for _, shape in ipairs({"2.0"}) do
         local before = H.parse_report(sheet_flow.output_flow).loops[key]
         local others = {normal = M.QualityLoops._deep_copy(L(key).crafts.normal), uncommon = M.QualityLoops._deep_copy(L(key).crafts.uncommon)}
         local slot = slots(before.tiers[3].module_flow)[4]
-        slot.elem_value = {name = "s"}
-        fire(slot)
+        H.pick_module(slot, {name = "s"})
         H.equal(L(key).crafts.rare.setup.modules[4].name, "s", "stored on the rare tier")
         H.deep_equal(L(key).crafts.normal, others.normal, "normal tier settings unchanged")
         H.deep_equal(L(key).crafts.uncommon, others.uncommon, "uncommon tier settings unchanged")
@@ -318,14 +308,13 @@ for _, shape in ipairs({"2.0"}) do
     H.test(shape .. " QL-5 (b) productivity on the target tier alone changes the crafts below it", function()
         loop_world(shape)
         local key = configure("X", "uncommon")
-        L(key).crafts.uncommon.setup.modules = {}
+        L(key).crafts.uncommon.setup.modules = {{name = "s"}} --one speed module, replaced by productivity below; a pick into an empty row would fill it (N5)
         local sheet_flow = handler_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
         local report = H.parse_report(sheet_flow.output_flow)
         H.near(report.loops[key].tiers[1].craft.machines, 400 / 49 / 0.8, "yield 49/400 per normal craft")
         local normal_before = M.QualityLoops._deep_copy(L(key).crafts.normal)
         local slot = slots(report.loops[key].tiers[2].module_flow)[1]
-        slot.elem_value = {name = "p"}
-        fire(slot)
+        H.pick_module(slot, {name = "p"})
         report = recompute(sheet_flow)
         H.near(report.loops[key].tiers[1].craft.machines, 800 / 107 / 0.8, "yield 107/800 per normal craft")
         H.near(report.loops[key].tiers[1].recycle.machines, 0.9 * 800 / 107 * 0.5 / 0.8, "normal recycling follows")
@@ -423,8 +412,7 @@ for _, shape in ipairs({"2.0"}) do
         H.near(loop.pool.recycle.machines, loop.tiers[1].recycle.machines + loop.tiers[2].recycle.machines, "pool total")
         H.equal(loop.tiers[2].recycle.machine_button, nil, "tier lines have no editor")
         local slot = slots(loop.pool.module_flow)[1]
-        slot.elem_value = nil
-        fire(slot)
+        H.pick_module(slot, nil)
         H.equal(#L(key).recycle.setup.modules, 3, "pool module editor edits the recycler pool")
         H.equal(#L(key).crafts.normal.setup.modules, 4, "craft tiers untouched")
 
@@ -513,7 +501,7 @@ for _, shape in ipairs({"2.0"}) do
         package.loaded["gui.sheet"] = nil --loaded again, so it takes the spy
         local _, sheet_flow = H.fill_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}, {item = "B", quality = "uncommon", rate = 0.5, unit = "/s"}})
         M.Sheet = require "gui.sheet"
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         local report = H.parse_report(sheet_flow.output_flow)
         H.equal(power_calls, 0, "power never computed")
         H.equal(report.energy_caption, "hxrrc.totals_unavailable", "no totals")
@@ -531,7 +519,7 @@ for _, shape in ipairs({"2.0"}) do
 
         local row = sheet_flow.input_container.children[2]
         row.rate_textfield.text = "2"
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         report = H.parse_report(sheet_flow.output_flow)
         H.equal(report.loops[b_key].reason, nil, "B solves")
         H.near(report.loops[b_key].tiers[1].craft.machines, 2, "B crafts 2 per second for 1 per second of its own")
@@ -540,7 +528,7 @@ for _, shape in ipairs({"2.0"}) do
 
         --without a B target, the uncommon B the X loop leaves is a byproduct row, even though B's loop is configured
         row.rate_textfield.text = "0"
-        M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
         report = H.parse_report(sheet_flow.output_flow)
         H.equal(report.loops[b_key], nil, "B's loop not used")
         local leftover = report.rows[b_key]
@@ -573,11 +561,9 @@ for _, shape in ipairs({"2.0"}) do
         H.equal(L(key).recycle_recipe_name, nil, "cleared")
         H.equal(L(key).recycle.machine, nil, "machine cleared")
         H.equal(#L(key).recycle.setup.modules, 0, "setup emptied")
-        old_pool_machine.elem_value = {name = "recycler", quality = "uncommon"}
-        fire(old_pool_machine)
+        H.pick_choice(old_pool_machine, {name = "recycler", quality = "uncommon"})
         H.equal(L(key).recycle.machine, nil, "old pool machine button stale")
-        old_pool_slot.elem_value = {name = "q"}
-        fire(old_pool_slot)
+        H.pick_module(old_pool_slot, {name = "q"})
         H.equal(#L(key).recycle.setup.modules, 0, "old pool module button stale")
 
         --(a) rendered without recycling; power counts the craft tiers only
@@ -616,8 +602,7 @@ for _, shape in ipairs({"2.0"}) do
         H.equal(rows.pool.recycle.machine_button.enabled, true, "pool button enabled")
 
         local button = rows.tiers[2].craft.machine_button
-        button.elem_value = {name = "assembler", quality = "uncommon"}
-        fire(button)
+        H.pick_choice(button, {name = "assembler", quality = "uncommon"})
         H.equal(L(key).crafts.uncommon.machine.quality, "uncommon", "uncommon tier's machine quality stored")
         H.equal(L(key).crafts.normal.machine.quality, nil, "normal tier unchanged")
         rows = recompute(sheet_flow).loops[key]
@@ -625,11 +610,10 @@ for _, shape in ipairs({"2.0"}) do
         H.equal(#slots(rows.tiers[1].module_flow), 4, "other tier's slots unchanged")
         H.near(rows.tiers[1].craft.machines, 1 / Y / 0.8, "normal tier count at normal speed")
         H.near(rows.tiers[2].craft.machines, 0.0225 / Y / 0.8 / 2, "uncommon tier count at uncommon speed")
-        H.equal(rows.tiers[2].craft.machine_button.elem_value.quality, "uncommon", "button shows the quality")
+        H.equal(rows.tiers[2].craft.machine_button.tags.quality, "uncommon", "button shows the quality")
 
         button = rows.pool.recycle.machine_button
-        button.elem_value = {name = "recycler", quality = "uncommon"}
-        fire(button)
+        H.pick_choice(button, {name = "recycler", quality = "uncommon"})
         H.equal(L(key).recycle.machine.quality, "uncommon", "pool machine quality stored")
         rows = recompute(sheet_flow).loops[key]
         H.near(rows.tiers[1].recycle.machines, 0.9 / Y * 0.5 / 0.8 / 4, "recyclers at uncommon speed")
@@ -643,8 +627,7 @@ H.test("2.0 Q-23 an ordinary row's only machine can change quality", function()
     local report = H.parse_report(sheet_flow.output_flow)
     local button = report.rows["item/X"].machine_button
     H.equal(button.enabled, true, "enabled with one machine")
-    button.elem_value = {name = "assembler", quality = "uncommon"}
-    fire(button)
+    H.pick_choice(button, {name = "assembler", quality = "uncommon"})
     H.equal(storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.X.quality, "uncommon", "stored")
     report = recompute(sheet_flow)
     H.near(report.rows["item/X"].machines, 0.5, "count at uncommon speed")

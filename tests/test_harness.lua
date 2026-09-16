@@ -214,7 +214,8 @@ H.test("H6 quality prototypes chain through next, and forces answer is_quality_u
     H.equal(prototypes.quality.normal.next.name, "c", "modded chain")
     H.equal(prototypes.quality.c.next_probability, 0.05, "modded next_probability")
     H.equal(prototypes.quality.uncommon, nil, "vanilla qualities replaced")
-    H.errors(function() return normal.hidden end, "LuaQualityPrototype doesn't contain key hidden", "quality mock stays strict")
+    H.errors(function() return normal.color end, "LuaQualityPrototype doesn't contain key color", "quality mock stays strict")
+    H.equal(prototypes.quality.normal.hidden, false, "hidden is a LuaPrototypeBase member, false unless a fixture hides the quality")
 end)
 
 H.test("H6 GUI mock: elem_type is read-only, only sprite-buttons show a quality, and a destroyed child's name can be reused", function()
@@ -261,6 +262,270 @@ H.test("H7 recipe filters: category and mode are checked, and matching follows a
         {"x-craft", "y-rec"}, "and before or")
     H.deep_equal(H.recipes_matching({takes("X"), {filter = "category", category = "recycling", mode = "and", invert = true}}), {"x-craft"}, "invert")
     H.equal(prototypes.recipe_category.recycling.name, "recycling", "categories indexed")
+end)
+
+--Round 6 (N0): the cursor, custom inputs, player.opened, element lifetime, style names, sprites and placing items
+
+local function cursor_world()
+    local world = H.new_world("2.0")
+    world.add_item("iron-plate")
+    world.add_module("speed-module", "speed", {speed = 0.2, consumption = 0.5})
+    world.add_machine({name = "assembler", categories = {"crafting"}})
+    world.add_player(1)
+    world.add_player(2)
+    return world
+end
+
+H.test("N0a cursor_ghost takes names or prototypes, reads back prototypes, and refuses unknown items and qualities", function()
+    local world = cursor_world()
+    local player = game.players[1]
+    H.equal(player.cursor_ghost, nil, "empty hand")
+    player.cursor_ghost = {name = "speed-module", quality = "rare"}
+    local ghost = player.cursor_ghost
+    H.equal(ghost.name, prototypes.item["speed-module"], "name reads as the item prototype")
+    H.equal(ghost.quality, prototypes.quality.rare, "quality reads as the quality prototype")
+    player.cursor_ghost = "iron-plate"
+    H.equal(player.cursor_ghost.quality, prototypes.quality.normal, "a ghost without quality reads normal")
+    player.cursor_ghost = {name = prototypes.item["speed-module"], quality = prototypes.quality.epic}
+    H.equal(player.cursor_ghost.quality.name, "epic", "prototypes accepted on write")
+    H.errors(function() player.cursor_ghost = {name = "nothing"} end, "Unknown item nothing", "unknown item")
+    H.errors(function() player.cursor_ghost = {name = "iron-plate", quality = "shiny"} end, "Unknown quality shiny", "unknown quality")
+    H.errors(function() player.cursor_ghost = 5 end, "ItemWithQualityID", "not an item id")
+    player.cursor_ghost = nil
+    H.equal(player.cursor_ghost, nil, "cleared")
+end)
+
+H.test("N0b cursor_stack is read-only, reads quality as a prototype (normal included), and an empty stack refuses item reads", function()
+    local world = cursor_world()
+    local player = game.players[1]
+    local stack = player.cursor_stack
+    H.equal(stack.valid_for_read, false, "empty stack")
+    H.errors(function() return stack.name end, "invalid for read", "name of an empty stack")
+    world.hold_item(1, "speed-module", "legendary", 3)
+    H.equal(stack.valid_for_read, true, "held")
+    H.equal(stack.name, "speed-module", "name")
+    H.equal(stack.quality, prototypes.quality.legendary, "quality prototype")
+    H.equal(stack.count, 3, "count")
+    world.hold_item(1, "speed-module")
+    H.equal(stack.quality, prototypes.quality.normal, "normal reads as the normal prototype, not nil")
+    H.errors(function() player.cursor_stack = stack end, "cursor_stack is read-only", "assigning the stack")
+end)
+
+H.test("N0c a stack and a ghost can be held at once; clear_cursor empties both; is_cursor_empty is refused as unmodelled", function()
+    local world = cursor_world()
+    local player = game.players[1]
+    world.hold_ghost(1, "iron-plate", "rare")
+    world.hold_item(1, "speed-module", "rare")
+    assert(player.cursor_ghost and player.cursor_stack.valid_for_read, "both held")
+    H.errors(function() return player.is_cursor_empty() end, "is_cursor_empty is not modelled", "ambiguous member")
+    H.equal(player.clear_cursor(), true, "clear_cursor result")
+    H.equal(player.cursor_ghost, nil, "ghost cleared")
+    H.equal(player.cursor_stack.valid_for_read, false, "stack cleared")
+    world.cursor_ghost_needs_empty_cursor = true
+    world.hold_item(1, "speed-module")
+    H.errors(function() player.cursor_ghost = "iron-plate" end, "cursor is not empty", "strict switch refuses a ghost over a stack")
+end)
+
+H.test("N0d every cursor write queues one notification with its tick; flush delivers them in order; suppression and merging are opt-in", function()
+    local world = cursor_world()
+    local delivered = {}
+    world.handlers.events[defines.events.on_player_cursor_stack_changed] = function(event)
+        assert(event.name == defines.events.on_player_cursor_stack_changed, "event name")
+        delivered[#delivered + 1] = event.player_index .. "@" .. event.tick
+        for key, _ in pairs(event) do
+            assert(key == "name" or key == "player_index" or key == "tick", "notification carries only name, player_index, tick; got " .. key)
+        end
+    end
+    world.hold_ghost(1, "iron-plate")
+    world.advance_tick()
+    game.players[1].cursor_ghost = nil
+    game.players[2].clear_cursor()
+    H.equal(#delivered, 0, "not delivered before a flush")
+    world.flush_cursor_events()
+    H.deep_equal(delivered, {"1@0", "1@1", "2@1"}, "one per write, in order, each with its tick")
+    delivered = {}
+    world.suppress_next_cursor_event(1)
+    world.hold_ghost(1, "iron-plate")
+    world.hold_ghost(1, "speed-module")
+    world.flush_cursor_events()
+    H.deep_equal(delivered, {"1@1"}, "the suppressed write raised nothing")
+    delivered = {}
+    world.merge_cursor_events = true
+    world.empty_hand(1)
+    world.hold_ghost(1, "iron-plate")
+    world.advance_tick()
+    world.empty_hand(1)
+    world.flush_cursor_events()
+    H.deep_equal(delivered, {"1@1", "1@2"}, "merge mode: one per player per tick")
+end)
+
+H.test("N0e H.press raises a plain custom input event and refuses what the engine cannot produce", function()
+    local world = cursor_world()
+    local seen
+    world.handlers.events["hxrrc_probe"] = function(event) seen = event end
+    local button = game.players[1].gui.screen.add{type = "sprite-button", name = "probe_button"}
+    world.advance_tick(7)
+    H.press(world, "hxrrc_probe", {element = button})
+    H.equal(seen.element, button, "element")
+    H.equal(seen.in_gui, true, "in_gui follows the element")
+    H.equal(seen.tick, 7, "tick")
+    H.equal(seen.input_name, "hxrrc_probe", "input_name")
+    H.equal(getmetatable(seen), nil, "plain table")
+    H.press(world, "hxrrc_probe", {})
+    H.equal(seen.element, nil, "no element over the world")
+    H.equal(seen.in_gui, false, "not in a GUI")
+    H.errors(function() H.press(world, "hxrrc_missing", {}) end, "no handler registered", "unregistered input")
+    H.errors(function() H.press(world, "hxrrc_probe", {element = button, in_gui = false}) end, "in_gui true", "element outside a GUI")
+    H.errors(function() H.press(world, "hxrrc_probe", {element = button, player_index = 2}) end, "another player", "another player's element")
+    H.errors(function() H.press(world, "hxrrc_probe", {selected_prototype = {name = "x"}}) end, "selected_prototype", "malformed selection")
+    button.destroy()
+    H.errors(function() H.press(world, "hxrrc_probe", {element = button}) end, "not valid", "destroyed element")
+end)
+
+H.test("N0f assigning player.opened raises on_gui_closed for the open element; a destroyed opened element reads nil; another GUI can take it", function()
+    local world = cursor_world()
+    local closed = {}
+    world.handlers.events[defines.events.on_gui_closed] = function(event) closed[#closed + 1] = event.element.name end
+    local player = game.players[1]
+    local first = player.gui.screen.add{type = "frame", name = "first"}
+    local second = player.gui.screen.add{type = "frame", name = "second"}
+    player.opened = first
+    H.deep_equal(closed, {}, "nothing was open")
+    player.opened = second
+    H.deep_equal(closed, {"first"}, "replacing closes the open element")
+    player.opened = second
+    H.deep_equal(closed, {"first"}, "re-assigning the same element closes nothing")
+    second.destroy()
+    H.equal(player.opened, nil, "destroyed element reads nil")
+    player.opened = first
+    H.deep_equal(closed, {"first"}, "a destroyed element raises no close")
+    world.open_other_gui(1)
+    H.deep_equal(closed, {"first", "first"}, "another GUI closes ours")
+    H.equal(player.opened.name, "other_gui", "the other GUI is opened")
+end)
+
+H.test("N0i opening a GUI inside on_gui_closed is refused, as Factorio force closes it; clearing the focus there is allowed", function()
+    local world = cursor_world()
+    local player = game.players[1]
+    local first = player.gui.screen.add{type = "frame", name = "first"}
+    local second = player.gui.screen.add{type = "frame", name = "second"}
+    world.handlers.events[defines.events.on_gui_closed] = function() player.opened = second end
+    player.opened = first
+    H.errors(function() player.opened = nil end, "opened during on_gui_closed", "reopening inside the close")
+    local cleared = false
+    world.handlers.events[defines.events.on_gui_closed] = function()
+        if not cleared then cleared = true player.opened = nil end
+    end
+    player.opened = first
+    player.opened = nil
+    H.equal(cleared, true, "the close handler ran")
+    H.equal(player.opened, nil, "clearing inside the close is fine")
+end)
+
+H.test("N0g destroy and clear invalidate the whole removed subtree", function()
+    cursor_world()
+    local screen = game.players[1].gui.screen
+    local outer = screen.add{type = "flow", name = "outer"}
+    local inner = outer.add{type = "flow", name = "inner"}
+    local leaf = inner.add{type = "sprite-button", name = "leaf"}
+    outer.clear()
+    H.equal(inner.valid, false, "cleared child")
+    H.equal(leaf.valid, false, "cleared grandchild")
+    H.equal(outer.valid, true, "cleared element itself stays valid")
+    local again = outer.add{type = "flow", name = "inner"}
+    local again_leaf = again.add{type = "sprite-button", name = "leaf"}
+    outer.destroy()
+    H.equal(again_leaf.valid, false, "destroyed grandchild")
+end)
+
+H.test("N0h style names, toggled, sprite paths, item flags, placing items and mouse buttons are modelled", function()
+    local world = cursor_world()
+    local screen = game.players[1].gui.screen
+    local button = screen.add{type = "sprite-button", name = "slot", style = "slot_button"}
+    H.equal(button.style.name, "slot_button", "style by name")
+    button.style.width = 40
+    H.equal(button.style.width, 40, "style table still writable")
+    button.style = "item_and_count_select_confirm"
+    H.equal(button.style.name, "item_and_count_select_confirm", "style assigned by name")
+    button.toggled = true
+    H.equal(button.toggled, true, "toggled")
+    H.equal(helpers.is_valid_sprite_path("hxrrc_recycling"), true, "data-stage sprite")
+    H.equal(helpers.is_valid_sprite_path("item/speed-module"), true, "item sprite")
+    H.equal(helpers.is_valid_sprite_path("item/nothing"), false, "missing item sprite")
+    H.equal(helpers.is_valid_sprite_path("utility/check_mark_green"), true, "utility sprite")
+    world.remove_sprite("hxrrc_recycling")
+    H.equal(helpers.is_valid_sprite_path("hxrrc_recycling"), false, "removed sprite")
+    H.equal(prototypes.item["speed-module"].hidden, false, "hidden defaults false")
+    world.set_item_flags("speed-module", {hidden = true, parameter = true})
+    H.equal(prototypes.item["speed-module"].parameter, true, "parameter flag")
+    H.deep_equal(prototypes.entity.assembler.items_to_place_this, {{name = "assembler", count = 1}}, "default placing item")
+    world.set_placing_items("assembler", nil)
+    H.equal(prototypes.entity.assembler.items_to_place_this, nil, "absent placing items")
+    world.set_placing_items("assembler", {{name = "iron-plate", count = 1}})
+    H.equal(prototypes.entity.assembler.items_to_place_this[1].name, "iron-plate", "item name differing from the entity")
+    local buttons = defines.mouse_button_type
+    assert(buttons.left ~= buttons.right and buttons.left ~= buttons.middle and buttons.right ~= buttons.middle, "distinct mouse buttons")
+end)
+
+H.test("P0a quality, entity and utility sprite paths are checked against what exists", function()
+    cursor_world()
+    local screen = game.players[1].gui.screen
+    H.equal(helpers.is_valid_sprite_path("quality/rare"), true, "quality sprite")
+    H.equal(helpers.is_valid_sprite_path("quality/nothing"), false, "missing quality sprite")
+    H.equal(helpers.is_valid_sprite_path("entity/assembler"), true, "entity sprite")
+    H.equal(helpers.is_valid_sprite_path("utility/empty_module_slot"), true, "listed utility sprite")
+    H.equal(helpers.is_valid_sprite_path("utility/trash"), true, "listed utility sprite")
+    H.equal(helpers.is_valid_sprite_path("utility/nothing_like_this"), false, "unknown utility sprite")
+    screen.add{type = "sprite-button", name = "q", sprite = "quality/rare"}
+    H.errors(function() screen.add{type = "sprite-button", name = "bad_quality", sprite = "quality/nothing"} end, "Unknown sprite", "missing quality refused")
+    H.errors(function() screen.add{type = "sprite-button", name = "bad_utility", sprite = "utility/nothing_like_this"} end, "Unknown sprite", "unknown utility refused")
+end)
+
+H.test("P0b entity prototypes expose hidden, false by default, settable by fixtures", function()
+    local world = cursor_world()
+    H.equal(prototypes.entity.assembler.hidden, false, "machine hidden defaults false")
+    world.set_entity_flags("assembler", {hidden = true})
+    H.equal(prototypes.entity.assembler.hidden, true, "hidden flag")
+end)
+
+H.test("Q0a Q0b engine objects read as userdata, as in Factorio 2.0; plain tables stay tables; a ghost's name is a prototype holding a string name", function()
+    local world = cursor_world()
+    H.equal(type(prototypes.item["speed-module"]), "userdata", "Q0a: item prototype")
+    H.equal(type(prototypes.quality.normal), "userdata", "Q0a: quality prototype")
+    H.equal(type(game.players[1]), "userdata", "Q0a: player")
+    H.equal(type(game.players[1].gui.screen), "userdata", "Q0a: GUI element")
+    H.equal(type({}), "table", "Q0a: plain table")
+    H.equal(type("speed-module"), "string", "Q0a: string")
+    world.hold_ghost(1, "speed-module")
+    local ghost = game.players[1].cursor_ghost
+    H.equal(type(ghost), "table", "Q0b: the ghost pair is a concept table")
+    H.equal(type(ghost.name), "userdata", "Q0b: its name is a prototype")
+    H.equal(type(ghost.name.name), "string", "Q0b: the prototype's name is a string")
+    H.equal(type(game.players[1].cursor_stack), "userdata", "Q0b: the cursor stack")
+end)
+
+H.test("Q0c a library blueprint reads as cursor_record apart from stack and ghost; clearing the cursor clears it; is_cursor_empty still refuses", function()
+    local world = cursor_world()
+    local player = game.players[1]
+    H.equal(player.cursor_record, nil, "empty hand")
+    world.hold_record(1)
+    H.equal(type(player.cursor_record), "userdata", "record held")
+    H.equal(player.cursor_ghost, nil, "no ghost")
+    H.equal(player.cursor_stack.valid_for_read, false, "no stack item")
+    player.clear_cursor()
+    H.equal(player.cursor_record, nil, "cleared")
+    H.errors(function() return player.is_cursor_empty() end, "is_cursor_empty is not modelled", "still refused")
+end)
+
+H.test("S0a a table's style column_alignments is writable by index but not replaceable; other elements refuse it", function()
+    cursor_world()
+    local screen = game.players[1].gui.screen
+    local grid = screen.add{type = "table", name = "grid", column_count = 2}
+    grid.style.column_alignments[1] = "middle-right"
+    H.equal(grid.style.column_alignments[1], "middle-right", "index write reads back")
+    H.errors(function() grid.style.column_alignments = {"middle-left"} end, "read-only", "whole assignment refused")
+    local flow = screen.add{type = "flow", name = "flow"}
+    H.errors(function() return flow.style.column_alignments end, "can only be used if this is table", "flow refuses")
 end)
 
 H.done("test_harness")

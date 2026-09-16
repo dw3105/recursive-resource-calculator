@@ -7,4 +7,8 @@ for lua in ${LUAS:-lua5.2 lua5.4}; do
         "$lua" "$test_file" || status=1
     done
 done
+# No test loads the data stage: at least refuse a syntax error there (prototype schemas and graphics files stay in-game checks)
+for file in data.lua settings.lua; do
+    luac5.2 -p "$file" || status=1
+done
 exit $status

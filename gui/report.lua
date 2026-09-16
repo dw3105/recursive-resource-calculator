@@ -8,6 +8,29 @@ local QualityLoops = require "logic.quality_loops"
 
 local Report = {}
 
+--Reasons and errors can run past 150 characters; such a label wraps inside this width instead of widening its table column. Numbers never wrap.
+local REASON_WIDTH = 320
+local function wrap(label)
+    label.style.single_line = false
+    label.style.maximal_width = REASON_WIDTH
+    return label
+end
+
+--The recycling arrows the data stage defines when the quality (2.0) or recycler (2.1) mod is present; checked once, when first needed
+local RECYCLE_SPRITE = "hxrrc_recycling"
+local recycle_sprite_valid
+--An icon carrying the caption as its tooltip, or the caption itself when there is no icon
+local function add_recycle_icon(cell, caption)
+    if recycle_sprite_valid == nil then
+        recycle_sprite_valid = helpers.is_valid_sprite_path(RECYCLE_SPRITE)
+    end
+    if recycle_sprite_valid then
+        cell.add{type = "sprite", sprite = RECYCLE_SPRITE, tooltip = caption}
+    else
+        cell.add{type = "label", caption = caption}
+    end
+end
+
 local function format_by_precision(float, player_index)
     local precision = settings.get_player_settings(player_index)["hxrrc-displayed-floating-point-precision"].value
 
@@ -37,7 +60,7 @@ local function setup_headers(report, energy_consumption, pollution, unsolvable)
     if energy_consumption then
         report.add{type = "label", caption = format_by_precision(energy_consumption / 1000000, report.player_index) .. " MW"}
     else
-        report.add{type = "label", caption = unsolvable and {"hxrrc.system_with_no_solution_error"} or {"hxrrc.totals_unavailable"}}
+        wrap(report.add{type = "label", caption = unsolvable and {"hxrrc.system_with_no_solution_error"} or {"hxrrc.totals_unavailable"}})
     end
 
     add_header(report, {"", {"hxrrc.pollution"}, ":"}, {"hxrrc.pollution_header_tooltip"})
@@ -46,7 +69,7 @@ local function setup_headers(report, energy_consumption, pollution, unsolvable)
     if pollution then
         report.pollution_flow.add{type = "label", caption = format_by_precision(pollution * 60, report.player_index) .. " /m"}
     else
-        report.pollution_flow.add{type = "label", caption = {"hxrrc.totals_unavailable"}}
+        wrap(report.pollution_flow.add{type = "label", caption = {"hxrrc.totals_unavailable"}})
     end
 
     for _, caption in ipairs({
@@ -153,6 +176,7 @@ local function add_row_for_burner(report, column, product_rate, rate, round_up_m
     local label = machine_cell.add{type = "label", name = "label"}
     if reason then
         label.caption = {"hxrrc." .. reason}
+        wrap(label)
     else
         local units_per_entity = Burners.draw(product_full_name, burner)
         local count = rate / units_per_entity
@@ -168,13 +192,8 @@ local function add_row_for_burner(report, column, product_rate, rate, round_up_m
     add_recipe_cell(report, product_full_name, nil, true)
 end
 
---One filter per category the recipe can be crafted through; filters in a list combine with "or"
-local function crafting_category_filters(recipe)
-    local filters = {}
-    for _, category in ipairs(Utils.recipe_categories(recipe)) do
-        filters[#filters + 1] = {filter = "crafting-category", crafting_category = category}
-    end
-    return filters
+local function machine_button_tooltip(machine_name)
+    return {"", prototypes.entity[machine_name].localised_name, "\n", {"hxrrc.choose_machine_button_tooltip_2"}}
 end
 
 --reason: locale key shown in place of the machine count, for a row whose count cannot be trusted or does not exist
@@ -182,21 +201,25 @@ local function add_machine_cell(report, crafting_machine, recipe, recipe_rate, c
     local pi = report.player_index
     local machine_cell = report.add{type = "flow"}
     machine_cell.style.horizontally_stretchable = true
-    --the machine:
+    --the machine: a left click opens the machine picker (see ModulePicker.on_machine_click); a sprite-button, since Factorio keeps the pipette key
+    --over a choose-elem-button for itself
     machine_cell.add{
-        type = "choose-elem-button",
+        type = "sprite-button",
         name = "hxrrc_choose_crafting_machine_button",
-        elem_type = "entity-with-quality",
-        ["entity-with-quality"] = {name = crafting_machine.name, quality = crafting_machine_identifier.quality},
-        --snapshot for refused changes on a stale report, and the row the button belongs to
-        tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality, recipe_name = recipe.name, product_full_name = product_full_name},
-        elem_filters = crafting_category_filters(recipe), --always enabled: with one machine, its quality can still be picked
+        style = "slot_button",
+        sprite = "entity/" .. crafting_machine.name,
+        quality = crafting_machine_identifier.quality,
+        tooltip = machine_button_tooltip(crafting_machine.name),
+        --the machine shown and the row the button belongs to, checked before a pick or a pipette copy
+        tags = {name = crafting_machine.name, quality = crafting_machine_identifier.quality, recipe_name = recipe.name, product_full_name = product_full_name,
+            signature = ModuleSetup.signature(storage[pi].module_setups_by_recipe_name[recipe.name], crafting_machine_identifier)},
     }
 
     --the machine amount:
     local label = machine_cell.add{type = "label", name = "label"}
     if reason then
         label.caption = {"hxrrc." .. reason}
+        wrap(label)
         return
     end
     local machine_amount = Utils.machine_amount(recipe, recipe_rate, crafting_machine, crafting_machine_identifier.quality,
@@ -225,7 +248,7 @@ local function add_row_for_solved_product(report, column, product_rate, recipe_r
     --Crafting machine and module cells:
     local crafting_machine_identifier = storage[pi].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name]
     if not crafting_machine_identifier then --the recipe only supports manual crafting:
-        report.add{type = "label", caption = {"hxrrc." .. (reason or "not_automatically_craftable")}}
+        wrap(report.add{type = "label", caption = {"hxrrc." .. (reason or "not_automatically_craftable")}})
         report.add{type = "empty-widget"}
     else
         local crafting_machine = prototypes.entity[crafting_machine_identifier.name]
@@ -299,18 +322,61 @@ end
 --A loop's machine button: tier nil for the recycler pool
 local function add_loop_machine_button(line, info, stage_name, stage, tier)
     line.add{
-        type = "choose-elem-button",
+        type = "sprite-button",
         name = "hxrrc_choose_loop_machine_button",
-        elem_type = "entity-with-quality",
-        ["entity-with-quality"] = {name = stage.machine.name, quality = stage.machine.quality},
-        elem_filters = crafting_category_filters(stage.recipe), --always enabled: with one machine, its quality can still be picked
-        --snapshot for refused changes on a stale report, and the loop stage the button edits
-        tags = {name = stage.machine.name, quality = stage.machine.quality, loop_key = info.key, stage = stage_name, tier = tier, recipe_name = stage.recipe.name},
+        style = "slot_button",
+        sprite = "entity/" .. stage.machine.name,
+        quality = stage.machine.quality,
+        tooltip = machine_button_tooltip(stage.machine.name),
+        --the machine shown and the loop stage the button edits, checked before a pick or a pipette copy
+        tags = {name = stage.machine.name, quality = stage.machine.quality, loop_key = info.key, stage = stage_name, tier = tier, recipe_name = stage.recipe.name,
+            signature = ModuleSetup.signature(stage.setup, stage.machine)},
     }
 end
 
 local function count_caption(machine_amount, round_up_machines, pi)
     return " x " .. (round_up_machines and rounded_up_count_text(machine_amount) or format_by_precision(machine_amount, pi))
+end
+
+--An idle loop stage's text wraps narrower than other messages, so the machine column does not widen for it; a few names, the rest in the tooltip
+local IDLE_WIDTH = 160
+local IDLE_NAMES_SHOWN = 2
+
+local function idle(label)
+    label.style.single_line = false
+    label.style.maximal_width = IDLE_WIDTH
+    return label
+end
+
+local function item_name_caption(name)
+    local prototype = prototypes.item[name]
+    return prototype and prototype.localised_name or name
+end
+
+--A loop stage that runs no machines says so; missing: the item ingredients the solve found no supply of for it at quality_name (see
+--QualityLoop._tier_step), which the caption names
+local function set_idle_stage_caption(label, missing, quality_name)
+    idle(label)
+    if not (missing and #missing > 0) then
+        label.caption = {"hxrrc.quality_loop_stage_idle_plain"}
+        return
+    end
+    local names = {""}
+    for index = 1, math.min(#missing, IDLE_NAMES_SHOWN) do
+        if index > 1 then names[#names + 1] = ", " end
+        names[#names + 1] = item_name_caption(missing[index])
+    end
+    if #missing > IDLE_NAMES_SHOWN then
+        names[#names + 1] = " "
+        names[#names + 1] = {"hxrrc.and_more", #missing - IDLE_NAMES_SHOWN}
+    end
+    local quality = prototypes.quality[quality_name]
+    label.caption = {"hxrrc.quality_loop_stage_idle", quality and quality.localised_name or quality_name, names}
+    local tooltip = {""}
+    for index, name in ipairs(missing) do
+        if #tooltip < 20 then tooltip[#tooltip + 1] = {"", index > 1 and "\n" or "", item_name_caption(name)} end
+    end
+    label.tooltip = tooltip
 end
 
 --The module editor of a loop stage (tier nil for the recycler pool), in a flow of its own tagged with the stage
@@ -389,19 +455,21 @@ local function add_assist_row(report, info, first_tier, recipe_rate, round_up_ma
     local item_cell = report.add{type = "flow", tags = {loop_key = info.key, assist = true}}
     item_cell.style.horizontally_stretchable = true
     item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = start, tooltip = prototypes.item[info.item].localised_name}
-    item_cell.add{type = "label", caption = {"hxrrc.assist_row"}}
+    add_recycle_icon(item_cell, {"hxrrc.assist_row"})
     local machine_cell = report.add{type = "flow", direction = "vertical"}
     local line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "assist"}}
     if stage and stage.machine then
         add_loop_machine_button(line, info, "assist", stage)
         local label = line.add{type = "label", caption = ""}
-        if solved and first_tier.assist_crafts then
+        if solved and first_tier.assist_crafts == 0 then
+            set_idle_stage_caption(label, first_tier.assist_missing, start or "normal")
+        elseif solved and first_tier.assist_crafts then
             label.caption = count_caption(Utils.machine_amount(stage.recipe, first_tier.assist_crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
                 round_up_machines, pi)
             label.tooltip = chances_tooltip(info.chain, first_tier.assist_chances or {})
         end
     elseif stage then
-        line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+        wrap(line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
     else
         line.add{type = "label", caption = ""}
     end
@@ -434,7 +502,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
             tags = {loop_key = info.key, tier = info.quality}}
         item_cell.add{type = "label", caption = ""}
         local machine_cell = report.add{type = "flow", direction = "vertical"}
-        machine_cell.add{type = "flow", tags = {stage = "craft"}}.add{type = "label", caption = {"hxrrc." .. reason}}
+        wrap(machine_cell.add{type = "flow", tags = {stage = "craft"}}.add{type = "label", caption = {"hxrrc." .. reason}})
         report.add{type = "empty-widget"}
         add_recipe_cell(report, "item/" .. info.item, QualityLoops.producer_of(pi, info.item))
         return
@@ -476,8 +544,12 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         local craft_label = craft_line.add{type = "label", caption = ""}
         if index == 1 and reason then
             craft_label.caption = {"hxrrc." .. reason}
+            wrap(craft_label)
         elseif not (stage and stage.machine) then
             craft_label.caption = {"hxrrc.not_automatically_craftable"}
+            wrap(craft_label)
+        elseif solved and tier.crafts == 0 then
+            set_idle_stage_caption(craft_label, tier.missing, tier.quality)
         elseif solved then
             craft_label.caption = count_caption(Utils.machine_amount(stage.recipe, tier.crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
                 round_up_machines, pi)
@@ -495,11 +567,15 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
                     local count = Utils.machine_amount(recycle.recipe, tier.recycle_crafts * recipe_rate, recycle.prototype, recycle.machine.quality, recycle.setup)
                     recycler_counts[#recycler_counts + 1] = {quality = tier.quality, count = count}
                     recycler_total = recycler_total + count
-                    recycle_label.caption = count_caption(count, round_up_machines, pi)
-                    recycle_label.tooltip = chances_tooltip(info.chain, tier.recycle_chances)
+                    if count == 0 then
+                        idle(recycle_label).caption = {"hxrrc.quality_loop_recycler_idle"}
+                    else
+                        recycle_label.caption = count_caption(count, round_up_machines, pi)
+                        recycle_label.tooltip = chances_tooltip(info.chain, tier.recycle_chances)
+                    end
                 end
             else
-                recycle_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+                wrap(recycle_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
             end
         end
 
@@ -517,7 +593,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
     --the recycler pool: every tier's recyclers are one set of machines with one setup
     local pool_cell = report.add{type = "flow", tags = {loop_key = info.key, pool = true}}
     pool_cell.style.horizontally_stretchable = true
-    pool_cell.add{type = "label", caption = {"hxrrc.recycler_pool"}}
+    add_recycle_icon(pool_cell, {"hxrrc.recycler_pool"})
     pool_cell.add{type = "label", caption = ""}
     local machine_cell = report.add{type = "flow", direction = "vertical"}
     local pool_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "recycle"}}
@@ -540,11 +616,15 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
             for _, name in ipairs(info.kept_ingredients or {}) do
                 if #tooltip < 20 then tooltip[#tooltip + 1] = {"", "\n", {"hxrrc.recycler_pool_ingredient_kept", prototypes.item[name].localised_name}} end
             end
-            label.caption = count_caption(recycler_total, round_up_machines, pi)
-            label.tooltip = tooltip
+            if recycler_total == 0 then
+                idle(label).caption = {"hxrrc.quality_loop_recycler_idle"}
+            else
+                label.caption = count_caption(recycler_total, round_up_machines, pi)
+                label.tooltip = tooltip
+            end
         end
     elseif recycle then
-        pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}}
+        wrap(pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
     else
         pool_line.add{type = "label", caption = ""}
     end
@@ -753,6 +833,80 @@ local function as_identifier(value)
     return value and {name = value.name, quality = value.quality ~= "normal" and value.quality or nil}
 end
 
+--The row or loop stage a machine button acts on, as a plain copy of its tags that outlives the button; nil for other elements
+function Report.machine_target(button)
+    local tags = button.tags
+    if button.name == "hxrrc_choose_crafting_machine_button" then
+        return {kind = "row", recipe_name = tags.recipe_name, product_full_name = tags.product_full_name, name = tags.name, quality = tags.quality,
+            signature = tags.signature}
+    elseif button.name == "hxrrc_choose_loop_machine_button" then
+        return {kind = "stage", loop_key = tags.loop_key, stage = tags.stage, tier = tags.tier, recipe_name = tags.recipe_name, name = tags.name,
+            quality = tags.quality, signature = tags.signature}
+    end
+end
+
+--What a machine target acts on while it is still what the button showed: {recipe, machine, setup, write(machine, setup)}, or nil.
+--Fresh means the row's product is still bound to the recipe (a loop stage: the loop, its tier and its stage recipe still exist), the stored machine
+--and its quality are the ones shown, and the stored setup still has the signature the button was built with.
+function Report.machine_context_of(player_index, target)
+    if not (target and target.name and target.signature) then
+        return nil
+    end
+    local shown = {name = target.name, quality = target.quality}
+    local player_storage = storage[player_index]
+    if target.kind == "row" then
+        local recipe_name = target.recipe_name
+        local bound = recipe_name and target.product_full_name and player_storage.recipes_by_product_full_name[target.product_full_name]
+        if not (bound and bound.valid and bound.name == recipe_name) then
+            return nil
+        end
+        local identifier = player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
+        local setup = player_storage.module_setups_by_recipe_name[recipe_name]
+        if not (identifier and setup and same_entity(identifier, shown) and ModuleSetup.signature(setup, identifier) == target.signature) then
+            return nil
+        end
+        return {recipe = bound, machine = identifier, setup = setup, write = function(machine, new_setup)
+            player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name] = machine
+            player_storage.module_setups_by_recipe_name[recipe_name] = new_setup
+        end}
+    elseif target.kind == "stage" then
+        local loop = player_storage.quality_loops_by_key[target.loop_key]
+        local stage = loop and (target.stage ~= "craft" or QualityLoops.crafts_at(loop, target.tier)) and QualityLoops.stage(player_index, loop, target.stage, target.tier)
+        if not (stage and stage.machine and stage.recipe.name == target.recipe_name and same_entity(stage.machine, shown)
+            and ModuleSetup.signature(stage.setup, stage.machine) == target.signature) then
+            return nil
+        end
+        local settings = target.stage == "craft" and loop.crafts[target.tier] or target.stage == "assist" and loop.assist or loop.recycle
+        return {recipe = stage.recipe, machine = stage.machine, setup = stage.setup, write = function(machine, new_setup)
+            settings.machine = machine
+            settings.setup = new_setup
+        end}
+    end
+end
+
+function Report.machine_context(button)
+    return Report.machine_context_of(button.player_index, Report.machine_target(button))
+end
+
+--Stores a machine picked for a row or loop stage through its sprite-button (the machine picker). The button must still show what is stored; the
+--machine must craft the recipe; the setup is fitted to the new machine, dropping what it refuses. Returns true when stored state changed.
+--Reports built before 1.1.27 keep choose-elem-buttons, handled by handle_crafting_machine_change and handle_loop_machine_change.
+function Report.pick_machine(button, picked)
+    local machine = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
+    local context = Report.machine_context(button)
+    if not context then
+        return false
+    end
+    if same_entity(machine, context.machine) then
+        return false
+    end
+    if not Utils.can_craft(machine.name, context.recipe) then
+        return false
+    end
+    context.write(machine, QualityLoops.fitted_setup_copy(context.setup, machine, context.recipe))
+    return true
+end
+
 --Returns true when the product's burner binding changed. Picking an entity replaces any recipe binding of the product; emptying removes the burner.
 --Every refusal restores the stored binding, so a re-raised event is a no-op.
 function Report.handle_burner_change(event)
@@ -856,7 +1010,7 @@ local function recipe_value(value)
     if not value then
         return nil
     end
-    local quality = type(value.quality) == "table" and value.quality.name or value.quality
+    local quality = Utils.id_name(value.quality)
     return {name = value.name, quality = quality ~= "normal" and quality or nil}
 end
 

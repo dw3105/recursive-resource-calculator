@@ -75,7 +75,7 @@ for _, shape in ipairs(H.shapes()) do
             Sheet.calculate(nil, sheet_pane, sheet_index)
         end
         sheet_pane.selected_tab_index = 2
-        local checkbox = sheet_pane.tabs[2].content.hxrrc_round_up_machines_checkbox
+        local checkbox = Sheet.round_up_checkbox_of(sheet_pane.tabs[2].content)
         checkbox.state = true
         world.handlers.events[defines.events.on_gui_checked_state_changed]({element = checkbox, player_index = 1})
         H.equal(sheet_report(sheet_pane, 2).rows["item/gear"].machine_caption, " x 3", "toggled sheet")
@@ -83,24 +83,25 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(sheet_report(sheet_pane, 1).rows["item/gear"].machine_tooltip, nil, "other sheet not rounded")
     end)
 
-    H.test(shape .. " G6d sheets saved without the checkbox get exactly one on configuration change", function()
+    H.test(shape .. " G6d sheets saved without the checkbox get exactly one, in the controls grid, on configuration change", function()
         local world = control_gear_world(shape)
+        local Sheet = require "gui.sheet"
         local sheet_pane = storage[1].sheet_section.sheet_pane
         local sheet_flow = sheet_pane.tabs[1].content
-        for index = #sheet_flow.children, 1, -1 do --what a 1.1.11 save holds
-            if sheet_flow.children[index].name == "hxrrc_round_up_machines_checkbox" then sheet_flow.children[index].destroy() end
-        end
+        --what a 1.1.11 save holds: a lone Compute button after the inputs
+        local controls = child_indexes(sheet_flow, "hxrrc_sheet_controls")[1]
+        sheet_flow.children[controls].destroy()
+        sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = controls}
         for _ = 1, 2 do
             world.handlers.on_configuration_changed({mod_changes = {}})
             drain_ticks(world)
         end
-        local checkboxes = child_indexes(sheet_flow, "hxrrc_round_up_machines_checkbox")
-        H.equal(#checkboxes, 1, "checkboxes")
-        H.equal(checkboxes[1] + 1, child_indexes(sheet_flow, "hxrrc_compute_button")[1], "checkbox right before Compute")
-        H.equal(sheet_flow.hxrrc_round_up_machines_checkbox.state, false, "repaired checkbox starts off")
+        H.equal(#child_indexes(sheet_flow, "hxrrc_sheet_controls"), 1, "one grid")
+        H.equal(#child_indexes(sheet_flow, "hxrrc_compute_button"), 0, "no lone Compute left")
+        H.equal(Sheet.round_up_checkbox_of(sheet_flow).state, false, "repaired checkbox starts off")
         type_gear_target(sheet_pane, 1, "2.4")
-        sheet_flow.hxrrc_round_up_machines_checkbox.state = true
-        require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
+        Sheet.round_up_checkbox_of(sheet_flow).state = true
+        Sheet.calculate(Sheet.compute_button_of(sheet_flow))
         H.equal(sheet_report(sheet_pane, 1).rows["item/gear"].machine_caption, " x 3", "repaired sheet rounds")
     end)
 

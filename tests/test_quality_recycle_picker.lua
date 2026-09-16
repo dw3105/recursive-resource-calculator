@@ -67,7 +67,7 @@ end
 local function handler_sheet(targets)
     local sheet_pane, sheet_flow = H.fill_sheet(targets)
     storage[1].sheet_section = {sheet_pane = sheet_pane}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return sheet_flow
 end
 
@@ -81,7 +81,7 @@ end
 
 local function recompute(sheet_flow)
     storage.computation_stack = {}
-    M.Sheet.calculate(sheet_flow.hxrrc_compute_button)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
     return parse(sheet_flow)
 end
 

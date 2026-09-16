@@ -262,28 +262,25 @@ for _, shape in ipairs(H.shapes()) do
 
         local button = report.rows["item/gear"].machine_button
         H.equal(button.tags.recipe_name, "a", "button tagged with its recipe")
-        button.elem_value = {name = "fast-assembler"}
-        fire_elem_changed(button)
+        H.pick_choice(button, {name = "fast-assembler"})
         H.equal(chosen.a.name, "fast-assembler", "change applies to a")
         H.equal(button.tags.recipe_name, "a", "tags keep the row after a change")
-        H.equal(button.tags.name, "fast-assembler", "snapshot follows the change")
 
+        report = recompute(sheet_pane)
+        button = report.rows["item/gear"].machine_button
         pick_recipe(report, "item/gear", "b")
         storage.computation_stack = {}
-        button.elem_value = {name = "assembler"}
-        fire_elem_changed(button)
+        H.equal(H.pick_choice(button, {name = "assembler"}), false, "stale button opens no picker")
         H.equal(chosen.a.name, "fast-assembler", "a unchanged by the stale button")
         H.equal(chosen.b.name, "assembler", "b unchanged: the neighbour recipe button already shows b")
-        H.equal(button.elem_value.name, "fast-assembler", "stale button restored")
+        H.equal(button.tags.name, "fast-assembler", "stale button still shows its machine")
         H.equal(#storage.computation_stack, 0, "nothing queued")
 
         report = recompute(sheet_pane)
         local untagged = report.rows["item/gear"].machine_button
-        untagged.tags = {name = "assembler"} --a button built before rows were tagged
-        untagged.elem_value = {name = "fast-assembler"}
-        fire_elem_changed(untagged)
+        untagged.tags = {name = "assembler"} --a button whose row tags are missing
+        H.equal(H.pick_choice(untagged, {name = "fast-assembler"}), false, "untagged button opens no picker")
         H.equal(chosen.b.name, "assembler", "untagged button refused")
-        H.equal(untagged.elem_value.name, "assembler", "untagged button restored")
     end)
 
     H.test(shape .. " R4-1 oil byproducts cracked down to the target fluid, picked on their byproduct rows", function()
@@ -452,11 +449,12 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(report.rows["item/scrap"].machine.name, "mod-sorter", "primary category's machine first")
         H.near(report.rows["item/scrap"].machines, 0.5, "sorters")
         local machine_button = report.rows["item/scrap"].machine_button
-        H.equal(machine_button.enabled, true, "two machines can sort scrap")
-        H.equal(#machine_button.elem_filters, 2, "one filter per category")
-        H.equal(machine_button.elem_filters[2].crafting_category, "grinding", "additional category listed")
-        machine_button.elem_value = {name = "mod-grinder"}
-        fire_elem_changed(machine_button)
+        require("gui.module_picker").open(machine_button)
+        local offered = {}
+        for _, flow in ipairs(storage[1].module_picker.frame.picker_scroll.picker_grid.children) do offered[#offered + 1] = flow.children[1].tags.choice end
+        H.equal(table.concat(offered, ","), "mod-sorter,mod-grinder", "both categories' machines offered, primary first")
+        require("gui.module_picker").close(1, false)
+        H.pick_choice(machine_button, {name = "mod-grinder"})
         report = recompute(sheet_pane)
         H.near(report.rows["item/scrap"].machines, 1, "grinders at half speed")
         H.equal(require("logic.utils").can_craft("assembler", prototypes.recipe["scrap-sort"]), false, "assembler cannot sort")
@@ -509,25 +507,22 @@ for _, shape in ipairs(H.shapes()) do
 
         pick_recipe(report, "item/x", "burn2")
         storage.computation_stack = {}
-        local shown = old_button.elem_value.name
-        old_button.elem_value = {name = shown == "fast-assembler" and "assembler" or "fast-assembler"}
-        fire_elem_changed(old_button)
-        H.equal(old_button.elem_value.name, shown, "stale consumer machine button restored")
+        local shown = old_button.tags.name
+        H.equal(H.pick_choice(old_button, {name = shown == "fast-assembler" and "assembler" or "fast-assembler"}), false, "stale consumer machine button opens no picker")
+        H.equal(old_button.tags.name, shown, "stale consumer machine button still shows its machine")
         H.equal(#storage.computation_stack, 0, "nothing queued")
 
         report = recompute(sheet_pane)
         local button = report.rows["item/x"].machine_button
-        button.elem_value = {name = "fast-assembler"}
-        fire_elem_changed(button)
+        H.pick_choice(button, {name = "fast-assembler"})
         H.equal(chosen.burn2.name, "fast-assembler", "machine change applies to burn2")
         report = recompute(sheet_pane)
         local slots = {}
         for _, flow in ipairs(report.rows["item/x"].module_cell.hxrrc_module_slots.children) do slots[#slots + 1] = flow.children[1] end
-        slots[1].elem_value = {name = "speed-module"}
-        fire_elem_changed(slots[1])
-        H.equal(storage[1].module_setups_by_recipe_name.burn2.modules[1].name, "speed-module", "module change applies to burn2")
+        H.pick_module(slots[1], {name = "speed-module"})
+        H.equal(storage[1].module_setups_by_recipe_name.burn2.modules[4].name, "speed-module", "module change applies to burn2, filling its empty row")
         report = recompute(sheet_pane)
-        H.near(report.rows["item/x"].machines, 2 * 1 / (2 * 1.5), "burn2 on fast assemblers with a speed module")
+        H.near(report.rows["item/x"].machines, 2 * 1 / (2 * 3), "burn2 on fast assemblers with four speed modules")
     end)
 
     H.test(shape .. " R4-14 a module that makes the consumer net zero is removed from the diagnostic row, and the sheet solves again", function()
@@ -539,21 +534,17 @@ for _, shape in ipairs(H.shapes()) do
         local function slot(row_report, index)
             return row_report.rows["item/x"].module_cell.hxrrc_module_slots.children[index].children[1]
         end
-        local first = slot(report, 1)
-        first.elem_value = {name = "prod"}
-        fire_elem_changed(first)
+        storage[1].module_setups_by_recipe_name.burn2.modules = {{name = "prod"}} --one module, as an earlier edit left it; a pick into the empty row would fill it (N5)
         report = recompute(sheet_pane)
         H.near(report.rows["item/x"].machines, 4, "one module: net -0.25, four burns")
         local second = slot(report, 2)
-        second.elem_value = {name = "prod"}
-        fire_elem_changed(second)
+        H.pick_module(second, {name = "prod"})
         report = recompute(sheet_pane)
         H.equal(report.rows["item/x"].reason, "hxrrc.consumer_no_longer_consumes", "two modules: net zero, diagnostic")
         H.equal(report.energy_mw, nil, "no totals")
         second = slot(report, 2)
-        H.equal(second.elem_value.name, "prod", "diagnostic row shows the module")
-        second.elem_value = nil
-        fire_elem_changed(second)
+        H.equal(H.slot_value(second).name, "prod", "diagnostic row shows the module")
+        H.pick_module(second, nil)
         H.equal(#storage[1].module_setups_by_recipe_name.burn2.modules, 1, "module removed from the diagnostic row")
         report = recompute(sheet_pane)
         H.near(report.rows["item/x"].machines, 4, "solved again")
@@ -572,8 +563,7 @@ for _, shape in ipairs(H.shapes()) do
         storage[1].sheet_section = {sheet_pane = sheet_pane}
         H.equal(report.rows["item/x"].reason, "hxrrc.consumer_no_longer_consumes", "hot machine: net zero")
         local button = report.rows["item/x"].machine_button
-        button.elem_value = {name = "assembler"}
-        fire_elem_changed(button)
+        H.pick_choice(button, {name = "assembler"})
         H.equal(chosen.burn2.name, "assembler", "machine changed from the diagnostic row")
         report = recompute(sheet_pane)
         H.near(report.rows["item/x"].machines, 2, "solved: two burns")

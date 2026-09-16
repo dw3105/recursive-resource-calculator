@@ -28,43 +28,50 @@ local function receives_beacons(machine)
     return not (effect_receiver and effect_receiver.uses_beacon_effects == false) and next(storage.beacon_names) ~= nil
 end
 
-local function sorted_beacon_names()
+--The beacons the beacon picker offers: indexed, not hidden, by name
+function ModuleGUI.offered_beacon_names()
     local names = {}
     for beacon_name, _ in pairs(storage.beacon_names) do
-        names[#names + 1] = beacon_name
+        local prototype = prototypes.entity[beacon_name]
+        if prototype and not prototype.hidden then
+            names[#names + 1] = beacon_name
+        end
     end
     table.sort(names)
     return names
 end
 
+--Slot buttons: a left click opens the module picker window, a right click empties the slot (see ModulePicker.on_slot_click).
 --Each button sits in its own flow: the engine refuses two children with the same name under one parent
-local function add_module_buttons(row, name, modules, capacity, allowed, group_index)
+local function add_module_buttons(row, name, modules, capacity, group_index)
     for index = 1, capacity do
         local module = modules[index]
         local value = module and {name = module.name, quality = module.quality}
         row.add{type = "flow"}.add{
-            type = "choose-elem-button",
+            type = "sprite-button",
             name = name,
-            tooltip = {"hxrrc.choose_module_button_tooltip"},
-            elem_type = "item-with-quality",
-            ["item-with-quality"] = value,
-            elem_filters = {{filter = "name", name = allowed}},
-            tags = {group = group_index, index = index, value = value}, --snapshot for refused changes on a stale report
+            style = "slot_button",
+            sprite = module and ("item/" .. module.name) or nil,
+            quality = module and module.quality or nil,
+            tooltip = module and {"", prototypes.item[module.name].localised_name, "\n", {"hxrrc.choose_module_slot_tooltip"}} or {"hxrrc.choose_module_slot_tooltip"},
+            tags = {group = group_index, index = index, value = value}, --the module shown, preselected when the picker opens
         }
     end
 end
 
---group nil makes the button that adds a group
-local function add_beacon_button(row, group, group_index, beacon_filter)
+--group nil makes the button that adds a group. A left click opens the beacon picker, a right click on a group removes it
+--(see ModulePicker.on_beacon_click); a sprite-button, since Factorio keeps the pipette key over a choose-elem-button for itself
+local function add_beacon_button(row, group, group_index)
     local value = group and {name = group.name, quality = group.quality}
     row.add{
-        type = "choose-elem-button",
+        type = "sprite-button",
         name = "hxrrc_choose_beacon_button",
-        tooltip = {"hxrrc.beacon_button_tooltip"},
-        elem_type = "entity-with-quality",
-        ["entity-with-quality"] = value,
-        elem_filters = beacon_filter,
-        tags = {group = group_index, value = value},
+        style = "slot_button",
+        sprite = group and ("entity/" .. group.name) or nil,
+        quality = group and group.quality or nil,
+        tooltip = group and {"", prototypes.entity[group.name].localised_name, "\n", {"hxrrc.choose_beacon_button_tooltip_2"}}
+            or {"hxrrc.add_beacon_button_tooltip"},
+        tags = {group = group_index, value = value}, --the group shown, checked before a pick or a pipette copy
     }
 end
 
@@ -106,27 +113,27 @@ local function fill(cell, recipe, machine, identifier, product_full_name, owner)
 
     local capacity = ModuleSetup.machine_capacity(machine, identifier.quality)
     local allowed = ModuleSetup.allowed_module_names({machine}, recipe)
-    if capacity > 0 and #allowed > 0 then
+    --stored modules keep their slots even when nothing is offered (a hidden module), so they can still be removed
+    if capacity > 0 and (#allowed > 0 or #setup.modules > 0) then
         local slots = cell.add{type = "flow", direction = "horizontal", name = "hxrrc_module_slots"}
         slots.style.right_padding = 4
-        add_module_buttons(slots, "hxrrc_choose_module_button", setup.modules, capacity, allowed)
+        add_module_buttons(slots, "hxrrc_choose_module_button", setup.modules, capacity)
     end
 
     if receives_beacons(machine) then
-        local beacon_filter = {{filter = "name", name = sorted_beacon_names()}}
         for group_index, group in ipairs(setup.beacons) do
             local row = cell.add{type = "flow", direction = "horizontal"}
-            add_beacon_button(row, group, group_index, beacon_filter)
+            add_beacon_button(row, group, group_index)
             add_count_field(row, "hxrrc_beacon_count_textfield", "hxrrc.beacon_count_textfield_tooltip", group_index, group.count)
             add_count_field(row, "hxrrc_beacon_sharing_textfield", "hxrrc.beacon_sharing_textfield_tooltip", group_index, group.sharing)
             local beacon = prototypes.entity[group.name]
             local beacon_allowed = ModuleSetup.allowed_module_names({beacon, machine}, recipe)
-            if #beacon_allowed > 0 then
-                add_module_buttons(row, "hxrrc_choose_beacon_module_button", group.modules, ModuleSetup.beacon_capacity(beacon, group.quality), beacon_allowed, group_index)
+            if #beacon_allowed > 0 or #group.modules > 0 then
+                add_module_buttons(row, "hxrrc_choose_beacon_module_button", group.modules, ModuleSetup.beacon_capacity(beacon, group.quality), group_index)
             end
         end
         local add_row = cell.add{type = "flow", direction = "horizontal"}
-        add_beacon_button(add_row, nil, #setup.beacons + 1, beacon_filter)
+        add_beacon_button(add_row, nil, #setup.beacons + 1)
     end
 
     add_effects_label(cell, setup)
@@ -142,35 +149,53 @@ function ModuleGUI.new(parent, recipe, machine, identifier, product_full_name, o
     fill(cell, recipe, machine, identifier, product_full_name, owner or {})
 end
 
---The stored setup a control of a cell acts on, or nil when the cell is stale:
---the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built
-local function current_setup(element)
-    local cell = element.parent
-    while cell and not cell.tags.recipe_name do --the cell is the nearest ancestor tagged with a recipe
-        cell = cell.parent
-    end
-    if not cell then
+--The stored setup a module cell's tags describe, with the recipe name and machine identifier, or nil when that cell is stale:
+--the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built. Works from a plain copy of the tags,
+--so a request can outlive the cell.
+function ModuleGUI.context_of(player_index, tags)
+    local recipe_name = tags.recipe_name
+    if not recipe_name then
         return nil
     end
-    local recipe_name = cell.tags.recipe_name
-    local player_index = element.player_index
-    if cell.tags.loop_key then
+    if tags.loop_key then
         --a loop stage's cell: stale once the loop, its stage recipe, its machine or its setup changed
-        local loop = storage[player_index].quality_loops_by_key[cell.tags.loop_key]
-        local stage = loop and (cell.tags.stage ~= "craft" or QualityLoops.crafts_at(loop, cell.tags.tier))
-            and QualityLoops.stage(player_index, loop, cell.tags.stage, cell.tags.tier)
-        if not (stage and stage.machine and stage.recipe.name == recipe_name) or ModuleSetup.signature(stage.setup, stage.machine) ~= cell.tags.signature then
+        local loop = storage[player_index].quality_loops_by_key[tags.loop_key]
+        local stage = loop and (tags.stage ~= "craft" or QualityLoops.crafts_at(loop, tags.tier))
+            and QualityLoops.stage(player_index, loop, tags.stage, tags.tier)
+        if not (stage and stage.machine and stage.recipe.name == recipe_name) or ModuleSetup.signature(stage.setup, stage.machine) ~= tags.signature then
             return nil
         end
-        return stage.setup, cell, recipe_name, stage.machine
+        return stage.setup, recipe_name, stage.machine
     end
     local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
     local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
-    if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
+    if not setup or not tags.signature or ModuleSetup.signature(setup, identifier) ~= tags.signature then
         return nil
     end
     --the row's product was bound to another recipe since the cell was built, so the cell shows a recipe the row no longer uses
-    if storage[player_index].product_full_names_by_recipe_name[recipe_name] ~= cell.tags.product_full_name then
+    if storage[player_index].product_full_names_by_recipe_name[recipe_name] ~= tags.product_full_name then
+        return nil
+    end
+    return setup, recipe_name, identifier
+end
+
+--The module cell holding a control: the nearest ancestor tagged with a recipe
+function ModuleGUI.cell_of(element)
+    local cell = element.parent
+    while cell and not cell.tags.recipe_name do
+        cell = cell.parent
+    end
+    return cell
+end
+
+--The stored setup a control of a cell acts on, with the cell, recipe name and machine identifier, or nil when the cell is stale
+local function current_setup(element)
+    local cell = ModuleGUI.cell_of(element)
+    if not cell then
+        return nil
+    end
+    local setup, recipe_name, identifier = ModuleGUI.context_of(element.player_index, cell.tags)
+    if not setup then
         return nil
     end
     return setup, cell, recipe_name, identifier
@@ -207,54 +232,59 @@ local function restored_value(button)
     return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
 end
 
---Stores a pick into a dense module list: an empty button appends, an occupied one is replaced, an emptied one is removed and the rest shift left
-local function store_pick(modules, index, picked)
-    if picked == nil then
-        table.remove(modules, index)
-    else
-        local module = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
-        if index <= #modules then
-            modules[index] = module
-        else --any empty slot appends, so the list never has holes
-            modules[#modules + 1] = module
-        end
-    end
+--The stored setup, cell, recipe name and machine identifier a module slot acts on, or nil when its cell is stale
+function ModuleGUI.context(element)
+    return current_setup(element)
 end
 
+--The module list a slot button stores into, with the entities its modules must fit and that list's slot count; nil when the slot's group is gone
+function ModuleGUI.slot_target(button, setup, identifier)
+    local machine = prototypes.entity[identifier.name]
+    if button.name == "hxrrc_choose_beacon_module_button" then
+        local group = setup.beacons[button.tags.group]
+        if not group then
+            return nil
+        end
+        local beacon = prototypes.entity[group.name]
+        return group.modules, {beacon, machine}, ModuleSetup.beacon_capacity(beacon, group.quality)
+    end
+    return setup.modules, {machine}, ModuleSetup.machine_capacity(machine, identifier.quality)
+end
+
+--Stores a value into the slot a button owns the way every pick does: a stale cell refuses it, the module list takes it through
+--ModuleSetup.store_pick (so an empty row fills), then the setup is sanitized and the cell rebuilt. picked: {name, quality} or nil to empty the slot.
+--Returns true when the stored setup changed. Shared by the chooser, the module picker window and pipette pastes.
+function ModuleGUI.pick_into(button, picked)
+    local setup, cell, recipe_name, identifier = current_setup(button)
+    if not setup then
+        return false
+    end
+    local modules, _, capacity = ModuleGUI.slot_target(button, setup, identifier)
+    if not modules or not ModuleSetup.store_pick(modules, button.tags.index, picked, capacity) then
+        return false
+    end
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+--A chooser slot of a report built by 1.1.23/1.1.24, before slots opened the module picker window: refused changes restore the button's snapshot.
 --Returns true when the stored setup changed
-function ModuleGUI.on_module_button_changed(event)
+local function on_slot_value_changed(event)
     local button = event.element
     local restored = restored_value(button)
     --a refused change restores the button, which may raise this event again: the restored value is then a no-op
     if same_value(button.elem_value, restored) then
         return false
     end
-    local setup, cell, recipe_name, identifier = current_setup(button)
-    if not setup then
+    if not current_setup(button) then
         button.elem_value = restored
         return false
     end
-    store_pick(setup.modules, button.tags.index, button.elem_value)
-    apply(cell, recipe_name, identifier)
-    return true
+    return ModuleGUI.pick_into(button, button.elem_value)
 end
 
---Returns true when the stored setup changed
-function ModuleGUI.on_beacon_module_button_changed(event)
-    local module_button = event.element
-    local restored = restored_value(module_button)
-    if same_value(module_button.elem_value, restored) then
-        return false
-    end
-    local setup, cell, recipe_name, identifier = current_setup(module_button)
-    if not setup then
-        module_button.elem_value = restored
-        return false
-    end
-    store_pick(setup.beacons[module_button.tags.group].modules, module_button.tags.index, module_button.elem_value)
-    apply(cell, recipe_name, identifier)
-    return true
-end
+ModuleGUI.on_module_button_changed = on_slot_value_changed
+ModuleGUI.on_beacon_module_button_changed = on_slot_value_changed
 
 local function restored_beacon(beacon_button)
     local value = beacon_button.tags.value
@@ -287,6 +317,43 @@ function ModuleGUI.on_beacon_button_changed(event)
     else
         setup.beacons[#setup.beacons + 1] = {name = picked_beacon.name, quality = picked_beacon.quality ~= "normal" and picked_beacon.quality or nil,
             count = 1, sharing = 1, modules = {}}
+    end
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+--Stores a beacon picked through a beacon sprite-button (the beacon picker). The cell must be fresh and the button must still show its group (the add
+--button: still sit after the last group). A group button replaces the group's beacon and quality, keeping its numbers and the modules the new
+--beacon accepts, or removes the group when picked is nil; the add button appends a group of one beacon per machine, one machine per beacon.
+--Normal quality is stored as none. Returns true when the stored setup changed. Reports built before 1.1.27 keep choose-elem-buttons, handled by
+--ModuleGUI.on_beacon_button_changed.
+function ModuleGUI.pick_beacon(button, picked)
+    local beacon = picked and {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
+    if beacon and not storage.beacon_names[beacon.name] then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(button)
+    if not setup then
+        return false
+    end
+    local group_index, shown = button.tags.group, button.tags.value
+    if shown then
+        local group = setup.beacons[group_index]
+        if not (group and same_value(group, shown)) then
+            return false
+        end
+        if not beacon then
+            table.remove(setup.beacons, group_index)
+        elseif same_value(beacon, group) then
+            return false
+        else
+            group.name, group.quality = beacon.name, beacon.quality
+        end
+    else
+        if not beacon or group_index ~= #setup.beacons + 1 then
+            return false
+        end
+        setup.beacons[group_index] = {name = beacon.name, quality = beacon.quality, count = 1, sharing = 1, modules = {}}
     end
     apply(cell, recipe_name, identifier)
     return true

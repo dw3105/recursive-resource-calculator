@@ -111,7 +111,8 @@ end
 
 --One tier of the balance. t: {first, recycling, items = {names}, amounts = {[name] = a_i}, supply = {[name] = A_i(u)}, feed = F_u, own = m_u,
 --  returns = {[name] = g_i}, self_return = y_X·D_r(u,u)}.
---Returns {crafts, x, leftovers = {[name] = net amount at this tier}} or {reason}.
+--Returns {crafts, x, leftovers = {[name] = net amount at this tier}, missing?} or {reason}. missing: for a tier above the first that crafts nothing,
+--the sorted item ingredients whose bound made it nothing (no supply of them reaches this tier), for the report to say why.
 function QualityLoop._tier_step(t)
     if t.none then --a tier without a recipe crafts nothing; what reaches it stays
         local leftovers = {}
@@ -173,7 +174,18 @@ function QualityLoop._tier_step(t)
         end
         leftovers[name] = leftover
     end
-    return {crafts = crafts, x = x, leftovers = leftovers, recycled = recycling}
+    local missing
+    if not t.first and crafts == 0 then
+        missing = {}
+        for _, name in ipairs(t.items) do
+            local g = recycling and t.returns[name] or 0
+            if t.amounts[name] - g * t.own / denominator > 0 and t.supply[name] + g * t.feed / denominator == 0 then
+                missing[#missing + 1] = name
+            end
+        end
+        table.sort(missing)
+    end
+    return {crafts = crafts, x = x, leftovers = leftovers, recycled = recycling, missing = missing}
 end
 
 local function add(table_of_tiers, name, tier, amount)
@@ -415,7 +427,9 @@ function QualityLoop.balance(spec)
         end
 
         tiers[u] = {crafts = crafts, recycle_crafts = recycle_crafts, x = x, craft_chances = craft_chances[u], recycle_chances = recycle_chances[u],
-            assist_crafts = assist_crafts, assist_chances = u == 1 and assist_chances or nil, ingredient_recycles = ingredient_recycles}
+            assist_crafts = assist_crafts, assist_chances = u == 1 and assist_chances or nil, ingredient_recycles = ingredient_recycles,
+            --what an idle stage lacks: the assist step stands in for the start tier's balance when there is one
+            missing = not (u == 1 and assist) and step.missing or nil, assist_missing = u == 1 and assist and step.missing or nil}
     end
 
     local output = tiers[T].x

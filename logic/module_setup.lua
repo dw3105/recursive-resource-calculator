@@ -20,6 +20,31 @@ function ModuleSetup.beacon_capacity(beacon, quality)
     return beacon.get_inventory_size(defines.inventory.beacon_modules, quality) or 0
 end
 
+--Stores a pick into a dense module list and returns true when the list changed. picked: {name, quality} or nil to empty the slot.
+--An emptied slot is removed and the rest shift left; emptying a slot that holds nothing changes nothing. A module picked into a row where no slot
+--is filled goes into every slot of that row (separate tables), so filling a machine takes one pick; a row already holding a module takes only
+--the picked slot, which replaces a module or appends after the last one, so the list never has holes.
+function ModuleSetup.store_pick(modules, index, picked, capacity)
+    if picked == nil then
+        if index > #modules then
+            return false
+        end
+        table.remove(modules, index)
+        return true
+    end
+    local quality = picked.quality ~= "normal" and picked.quality or nil
+    if #modules == 0 then
+        for slot = 1, math.max(capacity, 1) do
+            modules[slot] = {name = picked.name, quality = quality}
+        end
+    elseif index <= #modules then
+        modules[index] = {name = picked.name, quality = quality}
+    else
+        modules[#modules + 1] = {name = picked.name, quality = quality}
+    end
+    return true
+end
+
 --Beacon counts and sharing are whole numbers from 1 to 9999, so every accepted value is written exactly in a signature; nan and infinities fail here
 function ModuleSetup.is_valid_count(value)
     return type(value) == "number" and value >= 1 and value <= 9999 and value == math.floor(value)
@@ -64,11 +89,18 @@ function ModuleSetup.fits(module_name, entities, recipe)
     return true
 end
 
---Names of the modules that fit, sorted
+--Modules a picker offers: not ones the engine hides, and not blueprint parameter placeholders. Kept out of fits, which also decides whether a
+--module already stored in a save survives sanitizing, so a hidden module a player stored keeps its slot and its effects.
+local function is_offered(module_name)
+    local module = prototypes.item[module_name]
+    return not module.hidden and not module.parameter
+end
+
+--Names of the modules that fit and are offered, sorted
 function ModuleSetup.allowed_module_names(entities, recipe)
     local names = {}
     for module_name, _ in pairs(storage.module_names) do
-        if ModuleSetup.fits(module_name, entities, recipe) then
+        if ModuleSetup.fits(module_name, entities, recipe) and is_offered(module_name) then
             names[#names + 1] = module_name
         end
     end

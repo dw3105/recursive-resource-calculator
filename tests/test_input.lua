@@ -95,7 +95,7 @@ for _, shape in ipairs(H.shapes()) do
         local rates = require("gui.input_container").get_desired_production_rates_by_full_item_name(sheet_flow.input_container)
         H.equal(rates["fluid/lube"], nil, "removed fluid rate")
         H.near(rates["item/gear"], 1, "gear rate kept")
-        require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
+        require("gui.sheet").calculate(require("gui.sheet").compute_button_of(sheet_flow))
         local report = H.parse_report(sheet_flow.output_flow)
         assert(report, "no report")
         assert(report.rows["item/gear"], "gear row missing")
@@ -135,7 +135,7 @@ for _, shape in ipairs(H.shapes()) do
         last_row.time_unit_dropdown.selected_index = 2
         last_row.hxrrc_desired_fluid_button.elem_value = "lube"
         local sheet_flow = storage[1].sheet_section.sheet_pane.tabs[1].content
-        require("gui.sheet").calculate(sheet_flow.hxrrc_compute_button)
+        require("gui.sheet").calculate(require("gui.sheet").compute_button_of(sheet_flow))
         local report = H.parse_report(sheet_flow.output_flow)
         assert(report and report.rows["fluid/lube"], "no lube row after repair")
         H.near(report.rows["fluid/lube"].rate, 20, "repaired row computes")

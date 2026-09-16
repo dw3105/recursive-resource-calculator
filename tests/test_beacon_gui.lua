@@ -43,9 +43,9 @@ local function beacon_module_buttons(sheet_pane, group_index)
     end)
 end
 
+--Module slots and beacon buttons are picked through the picker window; nil right-clicks
 local function pick(button, value)
-    button.elem_value = value
-    event_handlers.on_gui_elem_changed[button.name]({element = button, player_index = 1})
+    H.pick_choice(button, value)
 end
 
 local function confirm(field, text)
@@ -55,7 +55,14 @@ end
 
 local function offered(button)
     local names = {}
-    for _, name in ipairs(button.elem_filters[1].name) do names[#names + 1] = name end
+    if button.type == "sprite-button" then
+        local ModulePicker = require "gui.module_picker"
+        assert(ModulePicker.open(button), "picker opens")
+        for _, element in ipairs(find_all(storage[1].module_picker.frame, function(element) return element.name == "hxrrc_picker_choice_button" end)) do
+            names[#names + 1] = element.tags.choice
+        end
+        ModulePicker.close(1, false)
+    end
     table.sort(names)
     return table.concat(names, ",")
 end
@@ -101,7 +108,7 @@ for _, shape in ipairs(H.shapes()) do
         local slots = beacon_module_buttons(sheet_pane, 1)
         H.equal(#slots, 2, "beacon slots")
         pick(slots[2], {name = "speed-module"})
-        H.equal(stored_groups(), "beacon x8 /2 [speed-module]", "last beacon slot picked first is stored first")
+        H.equal(stored_groups(), "beacon x8 /2 [speed-module,speed-module]", "a pick into the group's empty slots fills both (N5)")
         H.equal(storage[1].module_setups_by_recipe_name.gear.modules[1], nil, "machine slots untouched")
 
         pick(beacon_buttons(sheet_pane)[1], {name = "mod-beacon"})
@@ -162,8 +169,9 @@ for _, shape in ipairs(H.shapes()) do
 
         H.refire_on_script_set = true
         local beacon_b = beacon_buttons(pane_b)[1]
-        beacon_b.elem_value = {name = "mod-beacon"}
-        H.equal(beacon_b.elem_value and beacon_b.elem_value.name, "beacon", "beacon button restored")
+        H.equal(H.pick_choice(beacon_b, {name = "mod-beacon"}), false, "no picker on sheet B's stale beacon button")
+        H.pick_choice(beacon_b, nil)
+        H.equal(beacon_b.tags.value.name, "beacon", "beacon button still shows its beacon")
         local count_b = count_fields(pane_b)[1]
         count_b.text = "7"
         H.equal(count_b.text, "3", "count field restored")
@@ -171,8 +179,9 @@ for _, shape in ipairs(H.shapes()) do
         sharing_b.text = "4"
         H.equal(sharing_b.text, "2", "sharing field restored")
         local slot_b = beacon_module_buttons(pane_b, 1)[1]
-        slot_b.elem_value = nil
-        H.equal(slot_b.elem_value and slot_b.elem_value.name, "speed-module", "beacon slot restored")
+        H.pick_module(slot_b, nil)
+        H.equal(H.pick_module(slot_b, {name = "efficiency-module"}), false, "no picker on sheet B's stale beacon slot")
+        H.equal(H.slot_value(slot_b).name, "speed-module", "beacon slot still shows its module")
         H.refire_on_script_set = false
 
         H.equal(stored_groups(), "beacon x5 /2 [speed-module]", "stored groups unchanged")

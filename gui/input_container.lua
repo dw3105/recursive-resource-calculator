@@ -1,5 +1,7 @@
 local QualityId = require "logic.quality_id"
 
+local InputContainer = {}
+
 --value: {name, quality} or nil
 local function add_item_button(row, index, value)
     row.add{
@@ -73,6 +75,11 @@ local function adjust_row_configuration_on_button_change(event)
     elseif not filled and row_index < row_count then
         row.destroy()
     end
+
+    --the row may be gone by now, so the sheet is reached through the container; running it again gives the same result
+    if InputContainer.on_target_changed then
+        InputContainer.on_target_changed(input_container.parent)
+    end
 end
 
 local function get_desired_production_rate(row)
@@ -88,8 +95,6 @@ end
 
 event_handlers.on_gui_elem_changed["hxrrc_desired_item_button"] = adjust_row_configuration_on_button_change
 event_handlers.on_gui_elem_changed["hxrrc_desired_fluid_button"] = adjust_row_configuration_on_button_change
-
-local InputContainer = {}
 function InputContainer.build_and_add_to(parent)
     local input_container = parent.add{
         type = "flow",
@@ -123,6 +128,15 @@ local function target_of(row)
     elseif fluid and prototypes.fluid[fluid] then
         return "fluid/" .. fluid
     end
+end
+
+--Whether some row targets an item above normal quality that still exists
+function InputContainer.has_quality_target(input_container)
+    for _, row in ipairs(input_container.children) do
+        local _, parts = target_of(row)
+        if parts then return true end
+    end
+    return false
 end
 
 --Returns the rates by full name, and the parts of every full name of an item above normal quality

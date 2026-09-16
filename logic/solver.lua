@@ -895,9 +895,15 @@ local function mix(column, theta)
         tiers[#tiers + 1] = tier
         by_quality[tier.quality] = tier
     end
+    --names each final tier's idle stages may lack, from every contributing path (callers add only paths with a positive weight)
+    local lacking = {}
     local function add_tiers(source_tiers, weight)
         for _, source in ipairs(source_tiers or {}) do
             local tier = by_quality[source.quality]
+            lacking[tier] = lacking[tier] or {missing = {}, assist_missing = {}}
+            for _, field in ipairs({"missing", "assist_missing"}) do
+                for _, name in ipairs(source[field] or {}) do lacking[tier][field][name] = true end
+            end
             tier.crafts = tier.crafts + weight * source.crafts
             tier.recycle_crafts = tier.recycle_crafts + weight * source.recycle_crafts
             tier.x = tier.x + weight * source.x
@@ -919,6 +925,15 @@ local function mix(column, theta)
     end
     for _, tier in ipairs(tiers) do
         tier.craft_chances = tier.craft_chances or {}
+        --a mixed stage is idle only when every contributing path is idle there; an active stage keeps no reason
+        for field, count in pairs({missing = "crafts", assist_missing = "assist_crafts"}) do
+            if tier[count] == 0 and lacking[tier] then
+                local names = {}
+                for name, _ in pairs(lacking[tier][field]) do names[#names + 1] = name end
+                table.sort(names)
+                tier[field] = names
+            end
+        end
     end
     info.tiers = tiers
     --what the loop takes from the rest of the sheet at each tier, per target: {[quality] = {{identity, item, amount}}}, own leftovers it reuses not listed
