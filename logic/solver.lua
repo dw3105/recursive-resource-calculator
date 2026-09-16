@@ -19,14 +19,20 @@ local function productivity_bonus(recipe, machine_identifier, setup, player_inde
     return math.min(math.max(machine_bonus + research_bonus + module_bonus, 0), recipe.maximum_productivity)
 end
 
+local function split_full_name(full_name)
+    local slash = string.find(full_name, "/", 1, true)
+    return full_name:sub(1, slash - 1), full_name:sub(slash + 1)
+end
+
 --The column key of a product's binding, when the walk follows it. Inputs follow any binding; outputs follow only a binding picked to
 --get rid of them (a consumer recipe or a burner), so byproducts bound to a producer stay out of the system as before.
 --An item above normal quality (it has parts) is made by its quality loop once its item has a producer, whether or not the loop was configured
---before (a target's, or an ingredient's of another loop); as an output it is never followed.
+--before (a target's, or an ingredient's of another loop), or once its loop is recycle-only (QualityLoops.recycle_only); as an output it is never followed.
+--A normal item needed as an input and bound as producer to a recipe that recycles it into itself and can only lose it is taken from outside (2.0).
 local function followed_binding(product_full_name, as_output, player_storage, product_parts, player_index)
     local parts = product_parts[product_full_name]
     if parts then
-        if not as_output and QualityLoops.producer_of(player_index, parts.name) then
+        if not as_output and (QualityLoops.producer_of(player_index, parts.name) or QualityLoops.recycle_only(player_index, parts.name, product_full_name)) then
             return Solver.LOOP_PREFIX .. product_full_name
         end
         return nil
@@ -35,14 +41,15 @@ local function followed_binding(product_full_name, as_output, player_storage, pr
         return Burners.COLUMN_PREFIX .. product_full_name
     end
     local recipe = player_storage.recipes_by_product_full_name[product_full_name]
+    if recipe and not as_output and not Utils.IS_2_1 and not player_storage.consumer_product_full_names[product_full_name] then
+        local product_type, name = split_full_name(product_full_name)
+        if product_type == "item" and not QualityLoop.self_recycle_refusal(recipe, name) and QualityLoop.never_nets_item(recipe, name) then
+            return nil
+        end
+    end
     if recipe and (not as_output or player_storage.consumer_product_full_names[product_full_name]) then
         return recipe.name
     end
-end
-
-local function split_full_name(full_name)
-    local slash = string.find(full_name, "/", 1, true)
-    return full_name:sub(1, slash - 1), full_name:sub(slash + 1)
 end
 
 --The quality effect a stage's machine gives: its setup's and its own base effect, none when hand-crafted or when the recipe forbids quality (P10)
@@ -167,6 +174,68 @@ local function balance_tiers(result, chain)
     return result.tiers
 end
 
+--The recycle spec of a loop's recycler pool: its quality effect, what one craft takes of the item and returns of every item, its fluids
+local function recycle_spec_of(recycle, consumed, player_index)
+    local bonus = productivity_bonus(recycle.recipe, recycle.machine, recycle.setup, player_index)
+    local spec = {quality_effect = stage_quality_effect(recycle), consumed = consumed, yields = {}, fluid_ingredients = {}, fluid_products = {}}
+    for _, product in ipairs(recycle.recipe.products) do
+        if product.type == "item" then
+            spec.yields[product.name] = (spec.yields[product.name] or 0) + Utils.product_amount(product, bonus)
+        elseif product.type == "fluid" then
+            spec.fluid_products[#spec.fluid_products + 1] = {name = product.name, amount = Utils.product_amount(product, bonus)}
+        end
+    end
+    for _, ingredient in ipairs(recycle.recipe.ingredients) do
+        if ingredient.type == "fluid" then
+            spec.fluid_ingredients[#spec.fluid_ingredients + 1] = {name = ingredient.name, amount = ingredient.amount}
+        end
+    end
+    return spec
+end
+
+local function empty_tier_spec(fields)
+    local spec = {quality_effect = 0, output = 0, ingredients = {}, fluid_ingredients = {}, byproducts = {}, fluid_products = {}}
+    for key, value in pairs(fields) do spec[key] = value end
+    return spec
+end
+
+--A recycle-only loop column (QualityLoops.recycle_only): normal items taken from outside, recycled by the pool into themselves at every quality below
+--the target until gone or better. It always starts at normal, whatever start quality is stored. loop_info.input: items taken per target; no tier
+--crafts, so power, pollution and the report count recyclers only.
+local function recycle_only_column(player_index, column, config, chain, next_probabilities, unlocked, indexes, product_parts)
+    local loop_info = column.quality_loop
+    loop_info.chain = chain
+    loop_info.start_takes_no_items = false
+    local recipe = config.recycle_recipe_name and prototypes.recipe[config.recycle_recipe_name]
+    local consumed
+    if recipe and not QualityLoop.self_recycle_refusal(recipe, loop_info.item) then
+        consumed = select(2, QualityLoop.recycler_refusal(recipe, loop_info.item))
+    end
+    local recycle = consumed and QualityLoops.stage(player_index, config, "recycle")
+    if not recycle then
+        loop_info.reason = "quality_loop_recycle_only_needs_recycle"
+        return column
+    end
+    local target = indexes[loop_info.quality]
+    if not target then
+        loop_info.reason = "quality_target_unreachable"
+        return column
+    end
+    local craft_tiers = {[1] = empty_tier_spec({input = true, output = 1})}
+    for index = 2, target do craft_tiers[index] = empty_tier_spec({none = true}) end
+    local result = QualityLoop.balance({next_probabilities = next_probabilities, unlocked = unlocked, start = 1, target = target, item = loop_info.item,
+        craft = {tiers = craft_tiers}, recycle = recycle_spec_of(recycle, consumed, player_index)})
+    if result.reason then
+        loop_info.reason = result.reason
+        return column
+    end
+    add_balance_nets(column.net_amounts, result, chain, product_parts)
+    loop_info.tiers = balance_tiers(result, chain)
+    loop_info.input = loop_info.tiers[1].crafts
+    for _, tier in ipairs(loop_info.tiers) do tier.crafts = 0 end
+    return column
+end
+
 --The column of the quality loop making the target key (parts: its item and quality), built from the loop's normalized configuration, which the
 --column keeps for power, pollution, the report and storing. Its net amounts are per target item; items it takes or leaves above normal quality get
 --their parts added to product_parts. column.quality_loop: {key, item, quality, config, chain, craft_recipe_name, recycle_recipe_name,
@@ -183,10 +252,14 @@ local function loop_column(player_index, key, parts, product_parts, config, opti
     config = config or QualityLoops.normalized(player_index, key, parts)
     loop_info.config = config
     local craft_recipe = QualityLoops.producer_of(player_index, parts.name)
-    loop_info.craft_recipe_name = craft_recipe.name
+    loop_info.craft_recipe_name = craft_recipe and craft_recipe.name
     loop_info.recycle_recipe_name = config.recycle_recipe_name
+    loop_info.recycle_only = QualityLoops.recycle_only(player_index, parts.name, key)
 
     local chain, next_probabilities, unlocked, indexes = chain_data(player_index)
+    if loop_info.recycle_only then
+        return recycle_only_column(player_index, column, config, chain, next_probabilities, unlocked, indexes, product_parts)
+    end
     local reason, consumed = QualityLoop.tier_recipe_refusal(craft_recipe, parts.name, indexes[config.start_quality or "normal"] or 1)
     if not reason and config.recycle_recipe_name then
         reason, consumed = QualityLoop.recycler_refusal(prototypes.recipe[config.recycle_recipe_name], parts.name)
@@ -221,20 +294,7 @@ local function loop_column(player_index, key, parts, product_parts, config, opti
     local recycle_spec
     local recycle = QualityLoops.stage(player_index, config, "recycle")
     if recycle then
-        local bonus = productivity_bonus(recycle.recipe, recycle.machine, recycle.setup, player_index)
-        recycle_spec = {quality_effect = stage_quality_effect(recycle), consumed = consumed, yields = {}, fluid_ingredients = {}, fluid_products = {}}
-        for _, product in ipairs(recycle.recipe.products) do
-            if product.type == "item" then
-                recycle_spec.yields[product.name] = (recycle_spec.yields[product.name] or 0) + Utils.product_amount(product, bonus)
-            elseif product.type == "fluid" then
-                recycle_spec.fluid_products[#recycle_spec.fluid_products + 1] = {name = product.name, amount = Utils.product_amount(product, bonus)}
-            end
-        end
-        for _, ingredient in ipairs(recycle.recipe.ingredients) do
-            if ingredient.type == "fluid" then
-                recycle_spec.fluid_ingredients[#recycle_spec.fluid_ingredients + 1] = {name = ingredient.name, amount = ingredient.amount}
-            end
-        end
+        recycle_spec = recycle_spec_of(recycle, consumed, player_index)
     end
 
     --items recycling returns at the start quality, when the start recipe takes no items: left over, crafted by assist crafts, or recycled into
