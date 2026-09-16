@@ -262,6 +262,10 @@ local function new_gui_element(params, parent, player_index)
     element.player_index = parent and parent.player_index or player_index
     return setmetatable(element, {
         __index = function(self, key)
+            --2.0.77: elem_value "can only be used if this is choose-elem-button"
+            if key == "elem_value" and rawget(self, "type") ~= "choose-elem-button" then
+                error("LuaGuiElement::elem_value can only be used if this is choose-elem-button", 2)
+            end
             if VALUE_KEYS[key] or key == "elem_type" or key == "style" then return rawget(self, "_values")[key] end
             --a sprite-button's quality is written as a name and read as the quality prototype
             if key == "quality" then
@@ -284,6 +288,9 @@ local function new_gui_element(params, parent, player_index)
         end,
         __newindex = function(self, key, value)
             if VALUE_KEYS[key] then
+                if key == "elem_value" and rawget(self, "type") ~= "choose-elem-button" then
+                    error("LuaGuiElement::elem_value can only be used if this is choose-elem-button", 2)
+                end
                 if key == "elem_value" then check_elem_value(self, value) end
                 rawget(self, "_values")[key] = normalize_value(key, value)
                 refire(self, key)
@@ -953,6 +960,53 @@ function H.press(world, input_name, params)
     end
     return handler({name = input_name, tick = world.tick, player_index = player_index, input_name = input_name,
         cursor_position = {x = 0, y = 0}, cursor_display_location = {x = 0, y = 0}, element = element, in_gui = in_gui, selected_prototype = selected})
+end
+
+--The module a slot shows as {name, quality}, quality nil for normal: read from a slot sprite-button, or from a chooser slot built by 1.1.23/1.1.24
+function H.slot_value(slot_button)
+    if slot_button.type ~= "sprite-button" then
+        return slot_button.elem_value
+    end
+    if not slot_button.sprite then
+        return nil
+    end
+    local quality = slot_button.quality and slot_button.quality.name
+    return {name = slot_button.sprite:match("^item/(.+)$"), quality = quality ~= "normal" and quality or nil}
+end
+
+--Picks into a module slot the way a player does: nil right-clicks the slot; a value left-clicks it, then clicks the module, its quality
+--(normal when none) and the tick in the picker window. Returns false when the picker did not open (a stale slot); errors when the picker does not
+--offer the module or quality, since a player could not pick it.
+function H.pick_module(slot_button, value, tick)
+    if slot_button.type ~= "sprite-button" then error("H.pick_module drives slot sprite-buttons, got " .. tostring(slot_button.type), 2) end
+    local player_index = slot_button.player_index
+    tick = tick or 0
+    local function click(element, mouse_button, at)
+        event_handlers.on_gui_click[element.name]({element = element, player_index = player_index, tick = at or tick,
+            button = mouse_button or defines.mouse_button_type.left})
+    end
+    if value == nil then
+        click(slot_button, defines.mouse_button_type.right)
+        return true
+    end
+    click(slot_button)
+    local state = storage[player_index].module_picker
+    if not state then return false end
+    local function find(root, name, key, wanted)
+        if root.name == name and root.tags[key] == wanted then return root end
+        for _, child in ipairs(root.children) do
+            local found = find(child, name, key, wanted)
+            if found then return found end
+        end
+    end
+    local module_button = find(state.frame, "hxrrc_picker_module_button", "module", value.name)
+    if not module_button then error("the picker does not offer module " .. tostring(value.name), 2) end
+    local quality_button = find(state.frame, "hxrrc_picker_quality_button", "quality", value.quality or "normal")
+    if not quality_button then error("the picker does not offer quality " .. tostring(value.quality), 2) end
+    click(module_button, nil, tick)
+    click(quality_button, nil, tick + 100)
+    click(state.frame.picker_footer.hxrrc_picker_confirm_button, nil, tick + 200)
+    return true
 end
 
 --Builds a sheet and types the targets into it without computing. targets: {{item | fluid, quality (items only), rate, unit = "/s" | "/m"}}

@@ -73,7 +73,7 @@ end
 local function find_module_buttons(element, found)
     found = found or {}
     for _, child in ipairs(element.children) do
-        if child.name == "hxrrc_choose_module_button" and child.elem_value then found[#found + 1] = child end
+        if child.name == "hxrrc_choose_module_button" and H.slot_value(child) then found[#found + 1] = child end
         find_module_buttons(child, found)
     end
     return found

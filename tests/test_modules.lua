@@ -46,9 +46,7 @@ local function fire(element)
 end
 
 local function pick(sheet_pane, index, value)
-    local button = slot_buttons(sheet_pane)[index]
-    button.elem_value = value
-    fire(button)
+    H.pick_module(slot_buttons(sheet_pane)[index], value)
 end
 
 --Stored machine modules as "name@quality" in slot order
@@ -60,9 +58,13 @@ local function stored()
     return table.concat(names, ",")
 end
 
+--The modules the picker window offers for a slot, sorted, the way a player sees them; the window is closed again
 local function offered(button)
+    local ModulePicker = require "gui.module_picker"
+    assert(ModulePicker.open(button), "picker opens")
     local names = {}
-    for _, name in ipairs(button.elem_filters[1].name) do names[#names + 1] = name end
+    for _, element in ipairs(find_all(storage[1].module_picker.frame, "hxrrc_picker_module_button")) do names[#names + 1] = element.tags.module end
+    ModulePicker.close(1, false)
     table.sort(names)
     return table.concat(names, ",")
 end
@@ -124,8 +126,8 @@ for _, shape in ipairs(H.shapes()) do
         local buttons = slot_buttons(sheet_pane)
         H.equal(#buttons, 4, "rebuilt cell keeps every slot")
         for index, button in ipairs(buttons) do
-            H.equal(button.elem_value and button.elem_value.name, "speed-module", "slot " .. index .. " shows the module")
-            H.equal(button.elem_value and button.elem_value.quality, "rare", "slot " .. index .. " with its quality")
+            H.equal(H.slot_value(button) and H.slot_value(button).name, "speed-module", "slot " .. index .. " shows the module")
+            H.equal(H.slot_value(button) and H.slot_value(button).quality, "rare", "slot " .. index .. " with its quality")
         end
         assert(#storage.computation_stack > 0, "picking recomputes")
     end)
@@ -137,8 +139,8 @@ for _, shape in ipairs(H.shapes()) do
         pick(sheet_pane, 4, {name = "efficiency-module"})
         H.equal(stored(), "speed-module@rare,efficiency-module", "picked into the last slot, appended after the last module")
         local buttons = slot_buttons(sheet_pane)
-        H.equal(buttons[2].elem_value and buttons[2].elem_value.name, "efficiency-module", "rebuilt cell shows it in the second slot")
-        H.equal(buttons[4].elem_value, nil, "last slot empty again")
+        H.equal(H.slot_value(buttons[2]) and H.slot_value(buttons[2]).name, "efficiency-module", "rebuilt cell shows it in the second slot")
+        H.equal(H.slot_value(buttons[4]), nil, "last slot empty again")
         assert(#storage.computation_stack > 0, "picking recomputes")
         pick(sheet_pane, 1, {name = "productivity-module"})
         H.equal(stored(), "productivity-module,efficiency-module", "replaced in place")
@@ -171,7 +173,7 @@ for _, shape in ipairs(H.shapes()) do
         local _, sheet_pane = gear_sheet()
         storage.computation_stack = {}
         H.refire_on_script_set = true
-        slot_buttons(sheet_pane)[1].elem_value = {name = "speed-module", quality = "normal"}
+        H.pick_module(slot_buttons(sheet_pane)[1], {name = "speed-module", quality = "normal"})
         H.refire_on_script_set = false
         local module = storage[1].module_setups_by_recipe_name.gear.modules[1]
         H.equal(module and module.name, "speed-module", "stored module")
@@ -373,7 +375,7 @@ for _, shape in ipairs(H.shapes()) do
         H.near(report.rows["item/gear"].machines, 1 / 1.2, "its speed still counts")
         local buttons = slot_buttons(sheet_pane)
         H.equal(#buttons, 4, "the machine's slots are shown")
-        H.equal(buttons[1].elem_value and buttons[1].elem_value.name, "speed-module", "the occupied slot shows the hidden module")
+        H.equal(H.slot_value(buttons[1]) and H.slot_value(buttons[1]).name, "speed-module", "the occupied slot shows the hidden module")
     end)
 
     H.test(shape .. " N4d a hidden module stored in a beacon group keeps that group's slots and the group itself", function()
@@ -385,7 +387,7 @@ for _, shape in ipairs(H.shapes()) do
         local _, sheet_pane = gear_sheet()
         local beacon_slots = find_all(sheet_pane, "hxrrc_choose_beacon_module_button")
         H.equal(#beacon_slots, 2, "the beacon's slots are shown")
-        H.equal(beacon_slots[1].elem_value and beacon_slots[1].elem_value.name, "speed-module", "occupied by the hidden module")
+        H.equal(H.slot_value(beacon_slots[1]) and H.slot_value(beacon_slots[1]).name, "speed-module", "occupied by the hidden module")
         H.equal(#storage[1].module_setups_by_recipe_name.gear.beacons, 1, "group kept")
     end)
 end
@@ -464,8 +466,7 @@ for _, shape in ipairs(H.shapes()) do
             if button.tags.group == 1 then first_group[#first_group + 1] = button end
         end
         H.equal(#first_group, 4, "rare beacon: 2 slots + 2 for rare")
-        first_group[1].elem_value = {name = "speed-module"}
-        fire(first_group[1])
+        H.pick_module(first_group[1], {name = "speed-module"})
         local groups = storage[1].module_setups_by_recipe_name.gear.beacons
         H.equal(names_of(groups[1].modules), "speed-module,speed-module,speed-module,speed-module", "rare group filled to 4")
         H.equal(#groups[2].modules, 0, "other group untouched")

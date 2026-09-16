@@ -291,6 +291,94 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+--N7: module slots are sprite-buttons; a left click opens the picker, a right click empties the slot; chooser slots of older reports keep their old path
+
+local function right_click(element)
+    event_handlers.on_gui_click[element.name]({element = element, player_index = 1, tick = 0, button = defines.mouse_button_type.right})
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N7a a filled slot shows its module sprite, quality and name; an empty slot shows the click hint", function()
+        picker_world(shape)
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module", quality = "rare"}}
+        local _, sheet_pane = gear_sheet()
+        local slots = machine_slots(sheet_pane)
+        H.equal(slots[1].type, "sprite-button", "slot is a sprite-button")
+        H.equal(slots[1].style.name, "slot_button", "slot style")
+        H.equal(slots[1].sprite, "item/speed-module", "module sprite")
+        H.equal(slots[1].quality.name, "rare", "quality shown")
+        H.equal(slots[1].tooltip[2][1], "item-name.speed-module", "module name in the tooltip")
+        H.equal(slots[1].tooltip[4][1], "hxrrc.choose_module_slot_tooltip", "click hint in the tooltip")
+        H.equal(slots[2].sprite, nil, "empty slot has no sprite")
+        H.equal(slots[2].tooltip[1], "hxrrc.choose_module_slot_tooltip", "empty slot hint")
+    end)
+
+    H.test(shape .. " N7b N7e a left click opens the picker on that slot with its module and quality preselected; a beacon slot lists what beacon and machine accept", function()
+        picker_world(shape)
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module", quality = "rare"}}
+        storage[1].module_setups_by_recipe_name.gear.beacons = {{name = "beacon", count = 1, sharing = 1, modules = {}}}
+        local _, sheet_pane = gear_sheet()
+        local slot = machine_slots(sheet_pane)[1]
+        click(slot)
+        assert(state(), "picker opened")
+        H.equal(state().button, slot, "for the clicked slot")
+        H.equal(state().selected_module, "speed-module", "module preselected")
+        H.equal(state().selected_quality, "rare", "quality preselected")
+        click(beacon_slots(sheet_pane, 1)[1])
+        local names = {}
+        for _, button in ipairs(module_buttons()) do names[#names + 1] = button.tags.module end
+        H.equal(table.concat(names, ","), "efficiency-module,speed-module", "beacon slot choices")
+        H.equal(#frames(), 1, "one window")
+    end)
+
+    H.test(shape .. " N7c N7f a right click empties a filled slot without opening the picker; on an empty slot it changes nothing and queues nothing", function()
+        picker_world(shape)
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module"}, {name = "efficiency-module"}}
+        local _, sheet_pane = gear_sheet()
+        storage.computation_stack = {}
+        right_click(machine_slots(sheet_pane)[1])
+        H.equal(gear_modules(), "efficiency-module", "emptied, the rest shifted left")
+        H.equal(state(), nil, "no picker")
+        assert(#storage.computation_stack > 0, "recomputes")
+
+        _, sheet_pane = gear_sheet()
+        storage.computation_stack = {}
+        right_click(machine_slots(sheet_pane)[4])
+        H.equal(gear_modules(), "efficiency-module", "partly filled row: empty slot changes nothing")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+
+        storage[1].module_setups_by_recipe_name.gear.modules = {}
+        _, sheet_pane = gear_sheet()
+        storage.computation_stack = {}
+        right_click(machine_slots(sheet_pane)[1])
+        H.equal(gear_modules(), "", "empty row: nothing changes")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+        H.equal(state(), nil, "no picker")
+    end)
+
+    H.test(shape .. " N7d a chooser slot of an older report opens no picker, and a change on its stale cell is refused and restored", function()
+        picker_world(shape)
+        local _, sheet_pane = gear_sheet()
+        --a chooser slot in a cell that is still current (same tags as the rebuilt cell), so only the slot type keeps the picker away
+        local current_cell = machine_slots(sheet_pane)[1].parent.parent.parent
+        local fresh_cell = H.gui_root({type = "flow", name = "fresh_cell", tags = current_cell.tags}, 1)
+        local fresh_slot = fresh_cell.add{type = "flow"}.add{type = "choose-elem-button", name = "hxrrc_choose_module_button", elem_type = "item-with-quality",
+            tags = {index = 1}}
+        assert(require("gui.modulegui").context(fresh_slot), "the fresh cell is current")
+        click(fresh_slot)
+        H.equal(state(), nil, "no picker for a chooser slot")
+        local old_cell = H.gui_root({type = "flow", name = "old_cell", tags = {recipe_name = "gear", signature = "built by 1.1.24"}}, 1)
+        local old_slot = old_cell.add{type = "flow"}.add{type = "choose-elem-button", name = "hxrrc_choose_module_button", elem_type = "item-with-quality",
+            tags = {index = 1}}
+        storage.computation_stack = {}
+        old_slot.elem_value = {name = "speed-module"}
+        event_handlers.on_gui_elem_changed[old_slot.name]({element = old_slot, player_index = 1})
+        H.equal(old_slot.elem_value, nil, "restored")
+        H.equal(gear_modules(), "", "nothing stored")
+        H.equal(#storage.computation_stack, 0, "nothing queued")
+    end)
+end
+
 H.test("every literal hxrrc locale key the GUI and control code use exists in every language", function()
     local keys = {}
     for _, file in ipairs({"gui/calculator.lua", "gui/sheet.lua", "gui/report.lua", "gui/modulegui.lua", "gui/input_container.lua", "gui/module_picker.lua",

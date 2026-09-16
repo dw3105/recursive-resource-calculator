@@ -43,7 +43,12 @@ local function beacon_module_buttons(sheet_pane, group_index)
     end)
 end
 
+--Module slots are picked through the picker window; beacon buttons are Factorio's chooser
 local function pick(button, value)
+    if button.type == "sprite-button" then
+        H.pick_module(button, value)
+        return
+    end
     button.elem_value = value
     event_handlers.on_gui_elem_changed[button.name]({element = button, player_index = 1})
 end
@@ -55,6 +60,16 @@ end
 
 local function offered(button)
     local names = {}
+    if button.type == "sprite-button" then
+        local ModulePicker = require "gui.module_picker"
+        assert(ModulePicker.open(button), "picker opens")
+        for _, element in ipairs(find_all(storage[1].module_picker.frame, function(element) return element.name == "hxrrc_picker_module_button" end)) do
+            names[#names + 1] = element.tags.module
+        end
+        ModulePicker.close(1, false)
+        table.sort(names)
+        return table.concat(names, ",")
+    end
     for _, name in ipairs(button.elem_filters[1].name) do names[#names + 1] = name end
     table.sort(names)
     return table.concat(names, ",")
@@ -171,8 +186,9 @@ for _, shape in ipairs(H.shapes()) do
         sharing_b.text = "4"
         H.equal(sharing_b.text, "2", "sharing field restored")
         local slot_b = beacon_module_buttons(pane_b, 1)[1]
-        slot_b.elem_value = nil
-        H.equal(slot_b.elem_value and slot_b.elem_value.name, "speed-module", "beacon slot restored")
+        H.pick_module(slot_b, nil)
+        H.equal(H.pick_module(slot_b, {name = "efficiency-module"}), false, "no picker on sheet B's stale beacon slot")
+        H.equal(H.slot_value(slot_b).name, "speed-module", "beacon slot still shows its module")
         H.refire_on_script_set = false
 
         H.equal(stored_groups(), "beacon x5 /2 [speed-module]", "stored groups unchanged")

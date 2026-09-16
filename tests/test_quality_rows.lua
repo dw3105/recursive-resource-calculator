@@ -79,15 +79,13 @@ H.test("2.0 QL-15 the user's scenario: the same modules at legendary quality cha
     end
     for index = 1, 4 do
         local slot = slots()[index]
-        slot.elem_value = {name = "q"}
-        fire(slot)
+        H.pick_module(slot, {name = "q"})
     end
     local report = recompute(sheet_flow)
     H.near_relative(report.rows["item/cable"].machines, 25000 / 9, "normal modules: 2000 / (0.9 x 0.8)")
     for index = 1, 4 do
         local slot = slots()[index]
-        slot.elem_value = {name = "q", quality = "legendary"}
-        fire(slot)
+        H.pick_module(slot, {name = "q", quality = "legendary"})
     end
     report = recompute(sheet_flow)
     H.near_relative(report.rows["item/cable"].machines, 2000 / (0.752 * 0.8), "legendary modules: 24.8% upgrade chance")
@@ -109,8 +107,8 @@ H.test("2.0 QL-15 a recipe forbidding quality refuses quality modules; its machi
     local cell = H.parse_report(sheet_flow.output_flow).rows["item/cable"].module_cell
     local slot = find_all(cell, "hxrrc_choose_module_button")[1]
     assert(slot, "a slot for the allowed speed module")
-    slot.elem_value = {name = "q"}
-    fire(slot)
+    H.errors(function() H.pick_module(slot, {name = "q"}) end, "the picker does not offer module q", "q not offered")
+    require("gui.module_picker").close(1, false)
     H.equal(#storage[1].module_setups_by_recipe_name.cable.modules, 0, "q not kept")
     local report = recompute(sheet_flow)
     H.near(report.rows["item/cable"].machines, 2000, "no spread, no speed penalty")

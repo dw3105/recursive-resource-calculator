@@ -84,8 +84,10 @@ event_handlers.on_gui_elem_changed["hxrrc_choose_module_button"] = function(even
     end
 end
 
---The module picker window's buttons
+--Module slots and the module picker window's buttons
 for name, handler in pairs({
+    hxrrc_choose_module_button = ModulePicker.on_slot_click,
+    hxrrc_choose_beacon_module_button = ModulePicker.on_slot_click,
     hxrrc_picker_module_button = ModulePicker.on_module_click,
     hxrrc_picker_quality_button = ModulePicker.on_quality_click,
     hxrrc_picker_confirm_button = function(event) return ModulePicker.confirm(event.player_index) end,

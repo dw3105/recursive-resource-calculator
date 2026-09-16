@@ -414,8 +414,7 @@ H.test("2.0 QS-3 crafted by another recipe: assist crafts bound by the returns, 
     local slot = find_all(loop.assist.module_flow, "hxrrc_choose_module_button")[1]
     local crafts_before = M.QualityLoops._deep_copy(L(key).crafts)
     local modules_before = #L(key).assist.setup.modules
-    slot.elem_value = nil
-    fire(slot)
+    H.pick_module(slot, nil)
     H.equal(#L(key).assist.setup.modules, modules_before - 1, "assist setup changed")
     H.deep_equal(L(key).crafts, crafts_before, "tier setups unchanged")
 

@@ -37,19 +37,20 @@ local function sorted_beacon_names()
     return names
 end
 
+--Slot buttons: a left click opens the module picker window, a right click empties the slot (see ModulePicker.on_slot_click).
 --Each button sits in its own flow: the engine refuses two children with the same name under one parent
-local function add_module_buttons(row, name, modules, capacity, allowed, group_index)
+local function add_module_buttons(row, name, modules, capacity, group_index)
     for index = 1, capacity do
         local module = modules[index]
         local value = module and {name = module.name, quality = module.quality}
         row.add{type = "flow"}.add{
-            type = "choose-elem-button",
+            type = "sprite-button",
             name = name,
-            tooltip = {"hxrrc.choose_module_button_tooltip"},
-            elem_type = "item-with-quality",
-            ["item-with-quality"] = value,
-            elem_filters = {{filter = "name", name = allowed}},
-            tags = {group = group_index, index = index, value = value}, --snapshot for refused changes on a stale report
+            style = "slot_button",
+            sprite = module and ("item/" .. module.name) or nil,
+            quality = module and module.quality or nil,
+            tooltip = module and {"", prototypes.item[module.name].localised_name, "\n", {"hxrrc.choose_module_slot_tooltip"}} or {"hxrrc.choose_module_slot_tooltip"},
+            tags = {group = group_index, index = index, value = value}, --the module shown, preselected when the picker opens
         }
     end
 end
@@ -110,7 +111,7 @@ local function fill(cell, recipe, machine, identifier, product_full_name, owner)
     if capacity > 0 and (#allowed > 0 or #setup.modules > 0) then
         local slots = cell.add{type = "flow", direction = "horizontal", name = "hxrrc_module_slots"}
         slots.style.right_padding = 4
-        add_module_buttons(slots, "hxrrc_choose_module_button", setup.modules, capacity, allowed)
+        add_module_buttons(slots, "hxrrc_choose_module_button", setup.modules, capacity)
     end
 
     if receives_beacons(machine) then
@@ -123,7 +124,7 @@ local function fill(cell, recipe, machine, identifier, product_full_name, owner)
             local beacon = prototypes.entity[group.name]
             local beacon_allowed = ModuleSetup.allowed_module_names({beacon, machine}, recipe)
             if #beacon_allowed > 0 or #group.modules > 0 then
-                add_module_buttons(row, "hxrrc_choose_beacon_module_button", group.modules, ModuleSetup.beacon_capacity(beacon, group.quality), beacon_allowed, group_index)
+                add_module_buttons(row, "hxrrc_choose_beacon_module_button", group.modules, ModuleSetup.beacon_capacity(beacon, group.quality), group_index)
             end
         end
         local add_row = cell.add{type = "flow", direction = "horizontal"}
@@ -243,7 +244,7 @@ function ModuleGUI.pick_into(button, picked)
     return true
 end
 
---A chooser slot (Factorio's own picker, kept for reports built before the module picker window): refused changes restore the button's snapshot.
+--A chooser slot of a report built by 1.1.23/1.1.24, before slots opened the module picker window: refused changes restore the button's snapshot.
 --Returns true when the stored setup changed
 local function on_slot_value_changed(event)
     local button = event.element

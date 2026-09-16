@@ -151,14 +151,13 @@ for _, shape in ipairs({"2.0"}) do
             assert(tier.craft.machine_button, "machine editor on tier " .. index)
             H.equal(#slots(tier.module_flow), 4, "module editor on tier " .. index)
             for slot_index, slot in ipairs(slots(tier.module_flow)) do
-                H.equal(slot.elem_value, nil, "tier " .. index .. " slot " .. slot_index .. " shows the loop's empty setup")
+                H.equal(H.slot_value(slot), nil, "tier " .. index .. " slot " .. slot_index .. " shows the loop's empty setup")
             end
         end
         H.equal(loop.pool.recycle.machines, nil, "no pool count")
         assert(loop.pool.recycle.machine_button, "pool editor")
         local slot = slots(loop.tiers[1].module_flow)[1]
-        slot.elem_value = {name = "q"}
-        fire(slot)
+        H.pick_module(slot, {name = "q"})
         H.equal(#L(key).crafts.normal.setup.modules, 4, "module fills the normal tier's empty row")
         H.equal(#L(key).crafts.uncommon.setup.modules, 0, "other tier untouched")
         H.equal(#storage[1].module_setups_by_recipe_name.X.modules, 2, "the recipe's own setup untouched")
@@ -250,8 +249,7 @@ for _, shape in ipairs({"2.0"}) do
             H.deep_equal(L(key).crafts.normal, normal_machine_before, "tier outside the loop not edited by its machine button")
             H.equal(normal_button.elem_value.name, "assembler", "restored")
             local normal_slot = slots(old.tiers[1].module_flow)[1]
-            normal_slot.elem_value = nil
-            fire(normal_slot)
+            H.pick_module(normal_slot, nil)
             H.deep_equal(L(key).crafts.normal, normal_machine_before, "tier outside the loop not edited by its module button")
             L(key).start_quality = nil
 
@@ -271,8 +269,7 @@ for _, shape in ipairs({"2.0"}) do
             fire(pool_button)
             H.equal(L(key).recycle.machine, nil, "stale pool machine button refused")
             local pool_slot = slots(old.pool.module_flow)[1]
-            pool_slot.elem_value = nil
-            fire(pool_slot)
+            H.pick_module(pool_slot, nil)
             H.equal(#L(key).recycle.setup.modules, 0, "stale pool module button stores nothing")
 
             --the item's recipe changes: every tier's old controls are stale
@@ -286,8 +283,7 @@ for _, shape in ipairs({"2.0"}) do
             H.deep_equal(L(key).crafts.uncommon, tier_before, "stale craft machine button refused")
             H.equal(tier_button.elem_value.name, "assembler", "restored")
             local tier_slot = slots(old.tiers[2].module_flow)[1]
-            tier_slot.elem_value = nil
-            fire(tier_slot)
+            H.pick_module(tier_slot, nil)
             H.deep_equal(L(key).crafts.uncommon, tier_before, "stale craft module button stores nothing")
             H.refire_on_script_set = false
         end)
@@ -301,8 +297,7 @@ for _, shape in ipairs({"2.0"}) do
         local before = H.parse_report(sheet_flow.output_flow).loops[key]
         local others = {normal = M.QualityLoops._deep_copy(L(key).crafts.normal), uncommon = M.QualityLoops._deep_copy(L(key).crafts.uncommon)}
         local slot = slots(before.tiers[3].module_flow)[4]
-        slot.elem_value = {name = "s"}
-        fire(slot)
+        H.pick_module(slot, {name = "s"})
         H.equal(L(key).crafts.rare.setup.modules[4].name, "s", "stored on the rare tier")
         H.deep_equal(L(key).crafts.normal, others.normal, "normal tier settings unchanged")
         H.deep_equal(L(key).crafts.uncommon, others.uncommon, "uncommon tier settings unchanged")
@@ -324,8 +319,7 @@ for _, shape in ipairs({"2.0"}) do
         H.near(report.loops[key].tiers[1].craft.machines, 400 / 49 / 0.8, "yield 49/400 per normal craft")
         local normal_before = M.QualityLoops._deep_copy(L(key).crafts.normal)
         local slot = slots(report.loops[key].tiers[2].module_flow)[1]
-        slot.elem_value = {name = "p"}
-        fire(slot)
+        H.pick_module(slot, {name = "p"})
         report = recompute(sheet_flow)
         H.near(report.loops[key].tiers[1].craft.machines, 800 / 107 / 0.8, "yield 107/800 per normal craft")
         H.near(report.loops[key].tiers[1].recycle.machines, 0.9 * 800 / 107 * 0.5 / 0.8, "normal recycling follows")
@@ -423,8 +417,7 @@ for _, shape in ipairs({"2.0"}) do
         H.near(loop.pool.recycle.machines, loop.tiers[1].recycle.machines + loop.tiers[2].recycle.machines, "pool total")
         H.equal(loop.tiers[2].recycle.machine_button, nil, "tier lines have no editor")
         local slot = slots(loop.pool.module_flow)[1]
-        slot.elem_value = nil
-        fire(slot)
+        H.pick_module(slot, nil)
         H.equal(#L(key).recycle.setup.modules, 3, "pool module editor edits the recycler pool")
         H.equal(#L(key).crafts.normal.setup.modules, 4, "craft tiers untouched")
 
@@ -576,8 +569,7 @@ for _, shape in ipairs({"2.0"}) do
         old_pool_machine.elem_value = {name = "recycler", quality = "uncommon"}
         fire(old_pool_machine)
         H.equal(L(key).recycle.machine, nil, "old pool machine button stale")
-        old_pool_slot.elem_value = {name = "q"}
-        fire(old_pool_slot)
+        H.pick_module(old_pool_slot, {name = "q"})
         H.equal(#L(key).recycle.setup.modules, 0, "old pool module button stale")
 
         --(a) rendered without recycling; power counts the craft tiers only

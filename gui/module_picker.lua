@@ -154,6 +154,20 @@ local function on_choice_click(event, kind)
     return false
 end
 
+--A module slot button: a left click opens the picker on it, a right click empties it. Chooser slots of reports built before 1.1.25 keep
+--Factorio's own chooser and are left to their elem-changed handler. Returns true when the stored setup changed.
+function ModulePicker.on_slot_click(event)
+    local slot_button = event.element
+    if slot_button.type ~= "sprite-button" then
+        return false
+    end
+    if event.button == defines.mouse_button_type.right then
+        return ModuleGUI.pick_into(slot_button, nil)
+    end
+    ModulePicker.open(slot_button)
+    return false
+end
+
 function ModulePicker.on_module_click(event)
     return on_choice_click(event, "module")
 end

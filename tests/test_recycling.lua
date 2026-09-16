@@ -523,8 +523,7 @@ for _, shape in ipairs(H.shapes()) do
         report = recompute(sheet_pane)
         local slots = {}
         for _, flow in ipairs(report.rows["item/x"].module_cell.hxrrc_module_slots.children) do slots[#slots + 1] = flow.children[1] end
-        slots[1].elem_value = {name = "speed-module"}
-        fire_elem_changed(slots[1])
+        H.pick_module(slots[1], {name = "speed-module"})
         H.equal(storage[1].module_setups_by_recipe_name.burn2.modules[4].name, "speed-module", "module change applies to burn2, filling its empty row")
         report = recompute(sheet_pane)
         H.near(report.rows["item/x"].machines, 2 * 1 / (2 * 3), "burn2 on fast assemblers with four speed modules")
@@ -543,15 +542,13 @@ for _, shape in ipairs(H.shapes()) do
         report = recompute(sheet_pane)
         H.near(report.rows["item/x"].machines, 4, "one module: net -0.25, four burns")
         local second = slot(report, 2)
-        second.elem_value = {name = "prod"}
-        fire_elem_changed(second)
+        H.pick_module(second, {name = "prod"})
         report = recompute(sheet_pane)
         H.equal(report.rows["item/x"].reason, "hxrrc.consumer_no_longer_consumes", "two modules: net zero, diagnostic")
         H.equal(report.energy_mw, nil, "no totals")
         second = slot(report, 2)
-        H.equal(second.elem_value.name, "prod", "diagnostic row shows the module")
-        second.elem_value = nil
-        fire_elem_changed(second)
+        H.equal(H.slot_value(second).name, "prod", "diagnostic row shows the module")
+        H.pick_module(second, nil)
         H.equal(#storage[1].module_setups_by_recipe_name.burn2.modules, 1, "module removed from the diagnostic row")
         report = recompute(sheet_pane)
         H.near(report.rows["item/x"].machines, 4, "solved again")
