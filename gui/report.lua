@@ -338,6 +338,47 @@ local function count_caption(machine_amount, round_up_machines, pi)
     return " x " .. (round_up_machines and rounded_up_count_text(machine_amount) or format_by_precision(machine_amount, pi))
 end
 
+--An idle loop stage's text wraps narrower than other messages, so the machine column does not widen for it; a few names, the rest in the tooltip
+local IDLE_WIDTH = 160
+local IDLE_NAMES_SHOWN = 2
+
+local function idle(label)
+    label.style.single_line = false
+    label.style.maximal_width = IDLE_WIDTH
+    return label
+end
+
+local function item_name_caption(name)
+    local prototype = prototypes.item[name]
+    return prototype and prototype.localised_name or name
+end
+
+--A loop stage that runs no machines says so; missing: the item ingredients the solve found no supply of for it at quality_name (see
+--QualityLoop._tier_step), which the caption names
+local function set_idle_stage_caption(label, missing, quality_name)
+    idle(label)
+    if not (missing and #missing > 0) then
+        label.caption = {"hxrrc.quality_loop_stage_idle_plain"}
+        return
+    end
+    local names = {""}
+    for index = 1, math.min(#missing, IDLE_NAMES_SHOWN) do
+        if index > 1 then names[#names + 1] = ", " end
+        names[#names + 1] = item_name_caption(missing[index])
+    end
+    if #missing > IDLE_NAMES_SHOWN then
+        names[#names + 1] = " "
+        names[#names + 1] = {"hxrrc.and_more", #missing - IDLE_NAMES_SHOWN}
+    end
+    local quality = prototypes.quality[quality_name]
+    label.caption = {"hxrrc.quality_loop_stage_idle", quality and quality.localised_name or quality_name, names}
+    local tooltip = {""}
+    for index, name in ipairs(missing) do
+        if #tooltip < 20 then tooltip[#tooltip + 1] = {"", index > 1 and "\n" or "", item_name_caption(name)} end
+    end
+    label.tooltip = tooltip
+end
+
 --The module editor of a loop stage (tier nil for the recycler pool), in a flow of its own tagged with the stage
 local function add_loop_module_cell(report, info, stage_name, stage, tier)
     local cell = report.add{type = "flow", direction = "vertical", tags = {stage = stage_name, tier = tier}}
@@ -420,7 +461,9 @@ local function add_assist_row(report, info, first_tier, recipe_rate, round_up_ma
     if stage and stage.machine then
         add_loop_machine_button(line, info, "assist", stage)
         local label = line.add{type = "label", caption = ""}
-        if solved and first_tier.assist_crafts then
+        if solved and first_tier.assist_crafts == 0 then
+            set_idle_stage_caption(label, first_tier.assist_missing, start or "normal")
+        elseif solved and first_tier.assist_crafts then
             label.caption = count_caption(Utils.machine_amount(stage.recipe, first_tier.assist_crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
                 round_up_machines, pi)
             label.tooltip = chances_tooltip(info.chain, first_tier.assist_chances or {})
@@ -505,6 +548,8 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         elseif not (stage and stage.machine) then
             craft_label.caption = {"hxrrc.not_automatically_craftable"}
             wrap(craft_label)
+        elseif solved and tier.crafts == 0 then
+            set_idle_stage_caption(craft_label, tier.missing, tier.quality)
         elseif solved then
             craft_label.caption = count_caption(Utils.machine_amount(stage.recipe, tier.crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
                 round_up_machines, pi)
@@ -522,8 +567,12 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
                     local count = Utils.machine_amount(recycle.recipe, tier.recycle_crafts * recipe_rate, recycle.prototype, recycle.machine.quality, recycle.setup)
                     recycler_counts[#recycler_counts + 1] = {quality = tier.quality, count = count}
                     recycler_total = recycler_total + count
-                    recycle_label.caption = count_caption(count, round_up_machines, pi)
-                    recycle_label.tooltip = chances_tooltip(info.chain, tier.recycle_chances)
+                    if count == 0 then
+                        idle(recycle_label).caption = {"hxrrc.quality_loop_recycler_idle"}
+                    else
+                        recycle_label.caption = count_caption(count, round_up_machines, pi)
+                        recycle_label.tooltip = chances_tooltip(info.chain, tier.recycle_chances)
+                    end
                 end
             else
                 wrap(recycle_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
@@ -567,8 +616,12 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
             for _, name in ipairs(info.kept_ingredients or {}) do
                 if #tooltip < 20 then tooltip[#tooltip + 1] = {"", "\n", {"hxrrc.recycler_pool_ingredient_kept", prototypes.item[name].localised_name}} end
             end
-            label.caption = count_caption(recycler_total, round_up_machines, pi)
-            label.tooltip = tooltip
+            if recycler_total == 0 then
+                idle(label).caption = {"hxrrc.quality_loop_recycler_idle"}
+            else
+                label.caption = count_caption(recycler_total, round_up_machines, pi)
+                label.tooltip = tooltip
+            end
         end
     elseif recycle then
         wrap(pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
