@@ -981,6 +981,10 @@ function H.press(world, input_name, params)
         if in_gui == false then error("a custom input over a GUI element has in_gui true", 2) end
         if element.valid ~= true then error("custom input element is not valid", 2) end
         if element.player_index ~= player_index then error("custom input element belongs to another player", 2) end
+        --assumed engine rule (in-game check G18): Factorio pipettes a choose-elem-button itself, and the linked custom input does not fire there
+        if input_name == "hxrrc_pipette" and element.type == "choose-elem-button" then
+            error("Factorio 2.0.77 pipettes choose-elem-buttons itself; the custom input never fires there", 2)
+        end
     end
     local selected = params.selected_prototype
     if selected ~= nil and not (type(selected) == "table" and type(selected.base_type) == "string" and type(selected.derived_type) == "string"

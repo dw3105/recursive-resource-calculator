@@ -43,14 +43,9 @@ local function beacon_module_buttons(sheet_pane, group_index)
     end)
 end
 
---Module slots are picked through the picker window; beacon buttons are Factorio's chooser
+--Module slots and beacon buttons are picked through the picker window; nil right-clicks
 local function pick(button, value)
-    if button.type == "sprite-button" then
-        H.pick_module(button, value)
-        return
-    end
-    button.elem_value = value
-    event_handlers.on_gui_elem_changed[button.name]({element = button, player_index = 1})
+    H.pick_choice(button, value)
 end
 
 local function confirm(field, text)
@@ -67,10 +62,7 @@ local function offered(button)
             names[#names + 1] = element.tags.choice
         end
         ModulePicker.close(1, false)
-        table.sort(names)
-        return table.concat(names, ",")
     end
-    for _, name in ipairs(button.elem_filters[1].name) do names[#names + 1] = name end
     table.sort(names)
     return table.concat(names, ",")
 end
@@ -177,8 +169,9 @@ for _, shape in ipairs(H.shapes()) do
 
         H.refire_on_script_set = true
         local beacon_b = beacon_buttons(pane_b)[1]
-        beacon_b.elem_value = {name = "mod-beacon"}
-        H.equal(beacon_b.elem_value and beacon_b.elem_value.name, "beacon", "beacon button restored")
+        H.equal(H.pick_choice(beacon_b, {name = "mod-beacon"}), false, "no picker on sheet B's stale beacon button")
+        H.pick_choice(beacon_b, nil)
+        H.equal(beacon_b.tags.value.name, "beacon", "beacon button still shows its beacon")
         local count_b = count_fields(pane_b)[1]
         count_b.text = "7"
         H.equal(count_b.text, "3", "count field restored")

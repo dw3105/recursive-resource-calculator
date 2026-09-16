@@ -63,6 +63,34 @@ local KINDS = {
         end,
         store = function(button, picked) return Report.pick_machine(button, picked) end,
     },
+    --a group button can remove its group; the add button offers no clear
+    beacon = {
+        title = {"hxrrc.beacon_picker_title"},
+        confirm_tooltip = {"hxrrc.beacon_picker_confirm_tooltip"},
+        sprite_prefix = "entity/",
+        prototypes = function() return prototypes.entity end,
+        describe = function(button)
+            local setup = ModuleGUI.context(button)
+            if not setup then
+                return nil
+            end
+            local group_index, shown = button.tags.group, button.tags.value
+            local description = {choices = ModuleGUI.offered_beacon_names()}
+            if shown then
+                local group = setup.beacons[group_index]
+                if not (group and group.name == shown.name and (group.quality or "normal") == (shown.quality or "normal")) then
+                    return nil
+                end
+                description.stored = group
+                description.clear = {sprite = "utility/trash", tooltip = {"", {"hxrrc.beacon_picker_clear"}, "\n", {"hxrrc.beacon_picker_clear_tooltip"}}}
+            elseif group_index ~= #setup.beacons + 1 then
+                return nil
+            end
+            return description
+        end,
+        store = function(button, picked) return ModuleGUI.pick_beacon(button, picked) end,
+        clear = function(button) return ModuleGUI.pick_beacon(button, nil) end,
+    },
 }
 
 ModulePicker.KIND_OF_BUTTON = {
@@ -70,6 +98,7 @@ ModulePicker.KIND_OF_BUTTON = {
     hxrrc_choose_beacon_module_button = "module",
     hxrrc_choose_crafting_machine_button = "machine",
     hxrrc_choose_loop_machine_button = "machine",
+    hxrrc_choose_beacon_button = "beacon",
 }
 --Unlocked qualities by level, then name; qualities the engine hides are left out
 local function offered_qualities(force)
@@ -301,6 +330,20 @@ function ModulePicker.on_machine_click(event)
     local button = event.element
     if button.type ~= "sprite-button" or event.button ~= defines.mouse_button_type.left then
         return false
+    end
+    ModulePicker.open(button)
+    return false
+end
+
+--A beacon button: a left click opens the beacon picker; a right click removes a group (the add button: nothing). Choose-elem-buttons of reports
+--built before 1.1.27 are left to their elem-changed handler. Returns true when the stored setup changed.
+function ModulePicker.on_beacon_click(event)
+    local button = event.element
+    if button.type ~= "sprite-button" then
+        return false
+    end
+    if event.button == defines.mouse_button_type.right then
+        return button.tags.value ~= nil and ModuleGUI.pick_beacon(button, nil)
     end
     ModulePicker.open(button)
     return false

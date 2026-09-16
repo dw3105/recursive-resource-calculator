@@ -38,6 +38,7 @@ local function pipette_world(shape)
     M.Pipette = require "gui.pipette"
     M.ModulePicker = require "gui.module_picker"
     M.Report = require "gui.report"
+    M.ModuleGUI = require "gui.modulegui"
     M.QualityId = require "logic.quality_id"
     M.QualityLoops = require "logic.quality_loops"
     M.Utils = require "logic.utils"
@@ -1065,6 +1066,114 @@ for _, shape in ipairs(H.shapes()) do
         local sheet_flow = sheet({{item = "gear"}})
         left_click(machine_button(sheet_flow, "gear"))
         H.equal(offered_choices(), "assembler", "hidden machine left out")
+    end)
+end
+
+--P6: beacon buttons are sprite-buttons that open the beacon picker, so the pipette key reaches them too
+
+local function groups(recipe_name)
+    local out = {}
+    for _, group in ipairs(setups()[recipe_name].beacons) do
+        local names = {}
+        for _, module in ipairs(group.modules) do names[#names + 1] = module.name .. (module.quality and ("@" .. module.quality) or "") end
+        out[#out + 1] = group.name .. (group.quality and ("@" .. group.quality) or "") .. " x" .. group.count .. " /" .. group.sharing .. " [" .. table.concat(names, ",") .. "]"
+    end
+    return table.concat(out, "; ")
+end
+
+local function beacon_world(shape)
+    local world = pipette_world(shape)
+    world.add_beacon({name = "wide-beacon", module_slots = 2, allowed_module_categories = {"speed"}})
+    require("logic.indexer").run()
+    chosen().gear, chosen().cog = {name = "assembler"}, {name = "assembler"}
+    return world
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " P6a P6b P6c group and add buttons are sprite-buttons; the add button appends a group; a group button replaces its beacon, keeping numbers and fitting modules", function()
+        beacon_world(shape)
+        setups().gear = {modules = {}, beacons = {}}
+        local sheet_flow = sheet({{item = "gear"}})
+        local add = beacon_buttons(sheet_flow, "gear")[1]
+        H.equal(add.type, "sprite-button", "P6a: add button is a sprite-button")
+        H.equal(add.sprite, nil, "P6a: add button has no sprite")
+        H.equal(add.tooltip[1], "hxrrc.add_beacon_button_tooltip", "P6a: add button tooltip")
+        left_click(add)
+        H.equal(picker().kind, "beacon", "P6b: beacon picker")
+        H.equal(offered_choices(), "beacon,wide-beacon", "P6b: beacons offered")
+        H.equal(#find_all(picker().frame, function(element) return element.name == "hxrrc_picker_clear_button" end), 0, "P6b: the add button offers no clear")
+        M.ModulePicker.close(1, false)
+        H.pick_choice(add, {name = "beacon", quality = "uncommon"})
+        H.equal(groups("gear"), "beacon@uncommon x1 /1 []", "P6b: group appended at count 1, sharing 1")
+        assert(#storage.computation_stack > 0, "P6b: recompute queued")
+
+        setups().gear.beacons[1] = {name = "beacon", quality = "uncommon", count = 4, sharing = 2, modules = {{name = "speed-module"}, {name = "efficiency-module"}}}
+        sheet_flow = sheet({{item = "gear"}})
+        local group_button = beacon_buttons(sheet_flow, "gear")[1]
+        H.equal(group_button.sprite, "entity/beacon", "P6a: group button shows its beacon")
+        H.equal(group_button.quality.name, "uncommon", "P6a: and its quality")
+        H.equal(group_button.tooltip[4][1], "hxrrc.choose_beacon_button_tooltip", "P6a: group button tooltip")
+        H.pick_choice(group_button, {name = "wide-beacon", quality = "rare"})
+        H.equal(groups("gear"), "wide-beacon@rare x4 /2 [speed-module]", "P6c: beacon replaced; numbers kept; refused module dropped")
+    end)
+
+    H.test(shape .. " P6d P6e P6f the trash button and a right click remove a group; a right click on the add button does nothing; a stale button stores nothing", function()
+        beacon_world(shape)
+        setups().gear = {modules = {}, beacons = {{name = "beacon", count = 2, sharing = 1, modules = {}}, {name = "wide-beacon", count = 1, sharing = 1, modules = {}}}}
+        local sheet_flow = sheet({{item = "gear"}})
+        left_click(beacon_buttons(sheet_flow, "gear")[1])
+        local clear = picker().frame.picker_footer.hxrrc_picker_clear_button
+        H.equal(clear.sprite, "utility/trash", "P6d: trash icon")
+        event_handlers.on_gui_click[clear.name]({element = clear, player_index = 1, tick = 0, button = defines.mouse_button_type.left})
+        H.equal(groups("gear"), "wide-beacon x1 /1 []", "P6d: first group removed")
+        H.equal(picker(), nil, "P6d: picker closed")
+
+        sheet_flow = sheet({{item = "gear"}})
+        local buttons = beacon_buttons(sheet_flow, "gear")
+        H.equal(#buttons, 2, "group and add buttons")
+        storage.computation_stack = {}
+        H.pick_choice(buttons[2], nil)
+        H.equal(groups("gear"), "wide-beacon x1 /1 []", "P6e: right click on the add button removes nothing")
+        H.equal(#storage.computation_stack, 0, "P6e: nothing queued")
+        H.pick_choice(buttons[1], nil)
+        H.equal(groups("gear"), "", "P6e: right click removes the group")
+
+        sheet_flow = sheet({{item = "gear"}})
+        local stale = beacon_buttons(sheet_flow, "gear")[1] --the add button, before storage changes under it
+        setups().gear.beacons = {{name = "beacon", count = 1, sharing = 1, modules = {}}}
+        H.equal(H.pick_choice(stale, {name = "wide-beacon"}), false, "P6f: a stale add button opens no picker")
+        H.equal(M.ModuleGUI.pick_beacon(stale, {name = "wide-beacon"}), false, "P6f: and stores nothing")
+        H.equal(groups("gear"), "beacon x1 /1 []", "P6f: storage unchanged")
+    end)
+
+    H.test(shape .. " P6h P6j a beacon picked at normal after rare is stored as none; Q copies the group through its sprite-button and pastes it at another row's add button", function()
+        local world = beacon_world(shape)
+        setups().gear = {modules = {}, beacons = {{name = "beacon", quality = "rare", count = 3, sharing = 1, modules = {{name = "speed-module"}}}}}
+        setups().cog = {modules = {}, beacons = {}}
+        local sheet_flow = sheet({{item = "gear"}, {item = "cog"}})
+        H.pick_choice(beacon_buttons(sheet_flow, "gear")[1], {name = "beacon", quality = "normal"})
+        H.equal(setups().gear.beacons[1].quality, nil, "P6j: normal stored as none")
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}})
+        press(world, beacon_buttons(sheet_flow, "gear")[1])
+        world.flush_cursor_events()
+        assert(clipboard(), "P6h P6j: copied, and the copy survives its own notification")
+        world.advance_tick()
+        paste(world, beacon_buttons(sheet_flow, "cog")[1])
+        H.equal(groups("cog"), "beacon x3 /1 [speed-module]", "P6h: group appended at cog's add button")
+        assert(clipboard(), "P6j: clipboard kept")
+    end)
+
+    H.test(shape .. " P6i P6k the harness refuses the pipette key over a choose-elem-button (assumed engine rule, G18); a hidden beacon is not offered", function()
+        local world = beacon_world(shape)
+        local screen = game.players[1].gui.screen
+        local chooser = screen.add{type = "choose-elem-button", name = "legacy", elem_type = "entity-with-quality"}
+        H.errors(function() press(world, chooser) end, "pipettes choose-elem-buttons itself", "P6i: refused")
+        H.press(world, "hxrrc_confirm_module_picker", {element = chooser}) --other custom inputs are not affected
+        world.set_entity_flags("wide-beacon", {hidden = true})
+        setups().gear = {modules = {}, beacons = {}}
+        local sheet_flow = sheet({{item = "gear"}})
+        left_click(beacon_buttons(sheet_flow, "gear")[1])
+        H.equal(offered_choices(), "beacon", "P6k: hidden beacon left out")
     end)
 end
 

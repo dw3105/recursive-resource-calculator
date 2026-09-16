@@ -228,6 +228,31 @@ for _, shape in ipairs(H.shapes()) do
         assert(#storage.computation_stack > 0, "recompute queued")
     end)
 
+    H.test(shape .. " P6g a beacon button of a report built before 1.1.27 still restores on a refused change and still adds a group", function()
+        local world = stale_world(shape)
+        world.add_beacon({name = "beacon", module_slots = 2})
+        reconfigure()
+        local _, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+        storage[1].sheet_section = {sheet_pane = sheet_pane}
+        local sprite_button = find_all(sheet_pane, function(element) return element.name == "hxrrc_choose_beacon_button" end)[1]
+        local function as_legacy(button)
+            local row, tags = button.parent, button.tags
+            button.destroy()
+            return row.add{type = "choose-elem-button", name = "hxrrc_choose_beacon_button", elem_type = "entity-with-quality", index = 1, tags = tags}
+        end
+        local button = as_legacy(sprite_button)
+        H.refire_on_script_set = true
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module"}} --the cell is stale now
+        button.elem_value = {name = "beacon"}
+        H.equal(button.elem_value, nil, "refused pick restored to empty")
+        H.equal(#storage[1].module_setups_by_recipe_name.gear.beacons, 0, "no group added")
+        H.refire_on_script_set = false
+        storage[1].module_setups_by_recipe_name.gear.modules = {}
+        button.elem_value = {name = "beacon"}
+        fire_elem_changed(button)
+        H.equal(#storage[1].module_setups_by_recipe_name.gear.beacons, 1, "a fresh legacy add button still adds a group")
+    end)
+
     H.test(shape .. " F2e a stale machine button of a removed recipe refuses changes", function()
         local _, _, sprite_button = removed_recipe_machine_state(shape)
         local sprite_shown = sprite_button.tags.name
@@ -433,9 +458,9 @@ for _, shape in ipairs(H.shapes()) do
             H.pick_module(beacon_slot, nil)
             H.equal(H.slot_value(beacon_slot).name, "speed-module", what .. ": beacon slot still shows its module")
             local beacon = first(pane, "hxrrc_choose_beacon_button")
-            beacon.elem_value = nil
-            fire_elem_changed(beacon)
-            H.equal(beacon.elem_value and beacon.elem_value.name, "beacon", what .. ": beacon button restored")
+            H.pick_choice(beacon, nil)
+            H.equal(H.pick_choice(beacon, {name = "beacon", quality = "uncommon"}), false, what .. ": no picker on the old recipe's beacon button")
+            H.equal(beacon.tags.value.name, "beacon", what .. ": beacon button still shows its beacon")
         end
 
         local setups = storage[1].module_setups_by_recipe_name

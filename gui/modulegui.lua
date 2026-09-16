@@ -28,10 +28,14 @@ local function receives_beacons(machine)
     return not (effect_receiver and effect_receiver.uses_beacon_effects == false) and next(storage.beacon_names) ~= nil
 end
 
-local function sorted_beacon_names()
+--The beacons the beacon picker offers: indexed, not hidden, by name
+function ModuleGUI.offered_beacon_names()
     local names = {}
     for beacon_name, _ in pairs(storage.beacon_names) do
-        names[#names + 1] = beacon_name
+        local prototype = prototypes.entity[beacon_name]
+        if prototype and not prototype.hidden then
+            names[#names + 1] = beacon_name
+        end
     end
     table.sort(names)
     return names
@@ -55,17 +59,19 @@ local function add_module_buttons(row, name, modules, capacity, group_index)
     end
 end
 
---group nil makes the button that adds a group
-local function add_beacon_button(row, group, group_index, beacon_filter)
+--group nil makes the button that adds a group. A left click opens the beacon picker, a right click on a group removes it
+--(see ModulePicker.on_beacon_click); a sprite-button, since Factorio keeps the pipette key over a choose-elem-button for itself
+local function add_beacon_button(row, group, group_index)
     local value = group and {name = group.name, quality = group.quality}
     row.add{
-        type = "choose-elem-button",
+        type = "sprite-button",
         name = "hxrrc_choose_beacon_button",
-        tooltip = {"hxrrc.beacon_button_tooltip"},
-        elem_type = "entity-with-quality",
-        ["entity-with-quality"] = value,
-        elem_filters = beacon_filter,
-        tags = {group = group_index, value = value},
+        style = "slot_button",
+        sprite = group and ("entity/" .. group.name) or nil,
+        quality = group and group.quality or nil,
+        tooltip = group and {"", prototypes.entity[group.name].localised_name, "\n", {"hxrrc.choose_beacon_button_tooltip"}}
+            or {"hxrrc.add_beacon_button_tooltip"},
+        tags = {group = group_index, value = value}, --the group shown, checked before a pick or a pipette copy
     }
 end
 
@@ -115,10 +121,9 @@ local function fill(cell, recipe, machine, identifier, product_full_name, owner)
     end
 
     if receives_beacons(machine) then
-        local beacon_filter = {{filter = "name", name = sorted_beacon_names()}}
         for group_index, group in ipairs(setup.beacons) do
             local row = cell.add{type = "flow", direction = "horizontal"}
-            add_beacon_button(row, group, group_index, beacon_filter)
+            add_beacon_button(row, group, group_index)
             add_count_field(row, "hxrrc_beacon_count_textfield", "hxrrc.beacon_count_textfield_tooltip", group_index, group.count)
             add_count_field(row, "hxrrc_beacon_sharing_textfield", "hxrrc.beacon_sharing_textfield_tooltip", group_index, group.sharing)
             local beacon = prototypes.entity[group.name]
@@ -128,7 +133,7 @@ local function fill(cell, recipe, machine, identifier, product_full_name, owner)
             end
         end
         local add_row = cell.add{type = "flow", direction = "horizontal"}
-        add_beacon_button(add_row, nil, #setup.beacons + 1, beacon_filter)
+        add_beacon_button(add_row, nil, #setup.beacons + 1)
     end
 
     add_effects_label(cell, setup)
@@ -312,6 +317,43 @@ function ModuleGUI.on_beacon_button_changed(event)
     else
         setup.beacons[#setup.beacons + 1] = {name = picked_beacon.name, quality = picked_beacon.quality ~= "normal" and picked_beacon.quality or nil,
             count = 1, sharing = 1, modules = {}}
+    end
+    apply(cell, recipe_name, identifier)
+    return true
+end
+
+--Stores a beacon picked through a beacon sprite-button (the beacon picker). The cell must be fresh and the button must still show its group (the add
+--button: still sit after the last group). A group button replaces the group's beacon and quality, keeping its numbers and the modules the new
+--beacon accepts, or removes the group when picked is nil; the add button appends a group of one beacon per machine, one machine per beacon.
+--Normal quality is stored as none. Returns true when the stored setup changed. Reports built before 1.1.27 keep choose-elem-buttons, handled by
+--ModuleGUI.on_beacon_button_changed.
+function ModuleGUI.pick_beacon(button, picked)
+    local beacon = picked and {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
+    if beacon and not storage.beacon_names[beacon.name] then
+        return false
+    end
+    local setup, cell, recipe_name, identifier = current_setup(button)
+    if not setup then
+        return false
+    end
+    local group_index, shown = button.tags.group, button.tags.value
+    if shown then
+        local group = setup.beacons[group_index]
+        if not (group and same_value(group, shown)) then
+            return false
+        end
+        if not beacon then
+            table.remove(setup.beacons, group_index)
+        elseif same_value(beacon, group) then
+            return false
+        else
+            group.name, group.quality = beacon.name, beacon.quality
+        end
+    else
+        if not beacon or group_index ~= #setup.beacons + 1 then
+            return false
+        end
+        setup.beacons[group_index] = {name = beacon.name, quality = beacon.quality, count = 1, sharing = 1, modules = {}}
     end
     apply(cell, recipe_name, identifier)
     return true

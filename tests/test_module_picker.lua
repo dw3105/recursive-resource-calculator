@@ -571,15 +571,27 @@ H.test("2.0 P1b a row saved by 1.1.25 with its spacer is repaired by a configura
     H.equal(row.visible, true, "still visible")
 end)
 
-H.test("2.0 P1c a picker saved by an older version is closed by a configuration change; the next tick raises nothing", function()
-    local world = picker_world("2.0", true)
-    M.Calculator.toggle(game.players[1])
+H.test("2.0 P1c a configuration change closes a picker saved by an older version and rebuilds old choose-elem machine and beacon buttons", function()
+    local world, _, calculator, sheet_flow = control_picker_world("2.0")
+    --a report as 1.1.25 built it: the machine and a beacon add button on choose-elem-buttons
+    for _, name in ipairs({"hxrrc_choose_crafting_machine_button", "hxrrc_choose_beacon_button"}) do
+        local button = find_all(sheet_flow, function(element) return element.name == name end)[1]
+        local parent, tags, index = button.parent, button.tags, button.get_index_in_parent()
+        button.destroy()
+        parent.add{type = "choose-elem-button", name = name, elem_type = "entity-with-quality", index = index, tags = tags}
+    end
     local frame = game.players[1].gui.screen.add{type = "frame", name = "hxrrc_module_picker"}
     storage[1].module_picker = {frame = frame, button = frame, selected_module = "speed-module", selected_quality = "normal"}
     world.handlers.on_configuration_changed({mod_changes = {}})
     H.equal(frame.valid, false, "old frame destroyed")
     H.equal(storage[1].module_picker, nil, "old state dropped")
-    world.handlers.events[defines.events.on_tick]({tick = 1})
+    for at = 1, 20 do tick(world, at) end
+    H.equal(#storage.computation_stack, 0, "queued recomputes drained")
+    local choosers = find_all(calculator, function(element)
+        return element.type == "choose-elem-button" and (element.name == "hxrrc_choose_crafting_machine_button" or element.name == "hxrrc_choose_beacon_button")
+    end)
+    H.equal(#choosers, 0, "no choose-elem machine or beacon buttons left")
+    assert(#find_all(calculator, function(element) return element.name == "hxrrc_choose_crafting_machine_button" end) > 0, "machine buttons rebuilt")
 end)
 
 H.test("every literal hxrrc locale key the GUI and control code use exists in every language", function()
