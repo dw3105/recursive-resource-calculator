@@ -279,6 +279,7 @@ H.test("2.0 R6 guard scope: normal ore with a producer that nets ore, a consumer
         local result = solve({["item/ore"] = 10})
         H.equal(result.status, "ok", shape .. " wet producer solved")
         H.near(result.recipe_rates["ore-wet"], 10, shape .. " wet producer rate")
+        H.equal(M.QualityLoops.recycle_only(1, "ore", key_of("ore", "uncommon")), false, shape .. " a producer that nets ore makes no recycle-only loop")
 
         world = ore_world(shape, {extra = wet})
         world.bind_consumer("item/ore", "ore-recycling")
