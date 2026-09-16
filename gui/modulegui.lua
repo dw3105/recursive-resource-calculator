@@ -106,7 +106,8 @@ local function fill(cell, recipe, machine, identifier, product_full_name, owner)
 
     local capacity = ModuleSetup.machine_capacity(machine, identifier.quality)
     local allowed = ModuleSetup.allowed_module_names({machine}, recipe)
-    if capacity > 0 and #allowed > 0 then
+    --stored modules keep their slots even when nothing is offered (a hidden module), so they can still be removed
+    if capacity > 0 and (#allowed > 0 or #setup.modules > 0) then
         local slots = cell.add{type = "flow", direction = "horizontal", name = "hxrrc_module_slots"}
         slots.style.right_padding = 4
         add_module_buttons(slots, "hxrrc_choose_module_button", setup.modules, capacity, allowed)
@@ -121,7 +122,7 @@ local function fill(cell, recipe, machine, identifier, product_full_name, owner)
             add_count_field(row, "hxrrc_beacon_sharing_textfield", "hxrrc.beacon_sharing_textfield_tooltip", group_index, group.sharing)
             local beacon = prototypes.entity[group.name]
             local beacon_allowed = ModuleSetup.allowed_module_names({beacon, machine}, recipe)
-            if #beacon_allowed > 0 then
+            if #beacon_allowed > 0 or #group.modules > 0 then
                 add_module_buttons(row, "hxrrc_choose_beacon_module_button", group.modules, ModuleSetup.beacon_capacity(beacon, group.quality), beacon_allowed, group_index)
             end
         end

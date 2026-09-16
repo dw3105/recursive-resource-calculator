@@ -64,11 +64,18 @@ function ModuleSetup.fits(module_name, entities, recipe)
     return true
 end
 
---Names of the modules that fit, sorted
+--Modules a picker offers: not ones the engine hides, and not blueprint parameter placeholders. Kept out of fits, which also decides whether a
+--module already stored in a save survives sanitizing, so a hidden module a player stored keeps its slot and its effects.
+local function is_offered(module_name)
+    local module = prototypes.item[module_name]
+    return not module.hidden and not module.parameter
+end
+
+--Names of the modules that fit and are offered, sorted
 function ModuleSetup.allowed_module_names(entities, recipe)
     local names = {}
     for module_name, _ in pairs(storage.module_names) do
-        if ModuleSetup.fits(module_name, entities, recipe) then
+        if ModuleSetup.fits(module_name, entities, recipe) and is_offered(module_name) then
             names[#names + 1] = module_name
         end
     end

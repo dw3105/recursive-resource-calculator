@@ -324,4 +324,60 @@ H.test("W3b every signature reads back into exactly the setup and machine it was
     end
 end)
 
+--N4: pickers leave out hidden and parameter modules; a hidden module already stored keeps its slot and its effects
+
+--Gear on an assembler taking only speed modules, beside a beacon taking only speed modules; speed-module is hidden, the others are not speed modules
+local function hidden_world(shape)
+    local world = module_world(shape, {allowed_module_categories = {"speed"}})
+    world.add_module("parameter-module", "speed", {speed = 0.3})
+    world.set_item_flags("parameter-module", {parameter = true})
+    world.set_item_flags("speed-module-3", {hidden = true})
+    world.set_item_flags("speed-module", {hidden = true})
+    world.add_beacon({name = "speed-beacon", module_slots = 2, allowed_module_categories = {"speed"}})
+    require("logic.indexer").run()
+    return world
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N4a the offered list drops hidden and parameter modules and keeps the rest", function()
+        module_world(shape)
+        local ModuleSetup = require "logic.module_setup"
+        local world_recipe = prototypes.recipe.gear
+        local machine = prototypes.entity.assembler
+        H.equal(table.concat(ModuleSetup.allowed_module_names({machine}, world_recipe), ","),
+            "efficiency-module,productivity-module,quality-module,speed-module,speed-module-3", "all offered before flags")
+        prototypes.item["speed-module"].hidden = true
+        prototypes.item["efficiency-module"].parameter = true
+        H.equal(table.concat(ModuleSetup.allowed_module_names({machine}, world_recipe), ","), "productivity-module,quality-module,speed-module-3",
+            "hidden and parameter modules left out")
+    end)
+
+    H.test(shape .. " N4b N4c a hidden module stored on a machine survives sanitizing, keeps its effect and still has its slot", function()
+        hidden_world(shape)
+        local ModuleSetup = require "logic.module_setup"
+        H.equal(#ModuleSetup.allowed_module_names({prototypes.entity.assembler}, prototypes.recipe.gear), 0, "nothing offered")
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module"}}
+        ModuleSetup.sanitize(1, "gear")
+        H.equal(stored(), "speed-module", "kept by sanitizing")
+        local report, sheet_pane = gear_sheet()
+        H.near(report.rows["item/gear"].machines, 1 / 1.2, "its speed still counts")
+        local buttons = slot_buttons(sheet_pane)
+        H.equal(#buttons, 4, "the machine's slots are shown")
+        H.equal(buttons[1].elem_value and buttons[1].elem_value.name, "speed-module", "the occupied slot shows the hidden module")
+    end)
+
+    H.test(shape .. " N4d a hidden module stored in a beacon group keeps that group's slots and the group itself", function()
+        hidden_world(shape)
+        local ModuleSetup = require "logic.module_setup"
+        H.equal(#ModuleSetup.allowed_module_names({prototypes.entity["speed-beacon"], prototypes.entity.assembler}, prototypes.recipe.gear), 0, "nothing offered")
+        storage[1].module_setups_by_recipe_name.gear.beacons = {{name = "speed-beacon", count = 1, sharing = 1, modules = {{name = "speed-module"}}}}
+        ModuleSetup.sanitize(1, "gear")
+        local _, sheet_pane = gear_sheet()
+        local beacon_slots = find_all(sheet_pane, "hxrrc_choose_beacon_module_button")
+        H.equal(#beacon_slots, 2, "the beacon's slots are shown")
+        H.equal(beacon_slots[1].elem_value and beacon_slots[1].elem_value.name, "speed-module", "occupied by the hidden module")
+        H.equal(#storage[1].module_setups_by_recipe_name.gear.beacons, 1, "group kept")
+    end)
+end
+
 H.done("test_modules")
