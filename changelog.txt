@@ -1,4 +1,45 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.26
+Date: 2026.09.16
+  Info:
+    - Same code as 1.1.25, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+    - Quality is not calculated in Factorio 2.1 yet, so the base-quality row stays hidden there; the module
+      picker and the pipette key work as in 1.1.25.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.25
+Date: 2026.09.16
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.26).
+    - The pipette key follows the player's own binding (Q by default) and still pipettes in the world as before.
+    - The recycle icon needs the quality mod (Factorio 2.0) or the recycler mod (Factorio 2.1); without it the
+      two rows show their text as before.
+    - A copied machine or beacon setup lasts while its item stays in the hand untouched; putting it down and
+      picking it up again forgets the setup.
+  Features:
+    - Module slots open a module picker: every module the slot accepts in one grid with no groups, and the
+      unlocked qualities below. One click selects; a double click on a module (or on a quality once a module is
+      chosen), the green tick or Enter stores it. "No module" empties the slot; a right click on a slot does too.
+    - Picking a module into a slot row that holds no module fills every slot of that row, for machines and
+      beacons alike. A row that already holds a module takes only the picked slot.
+    - The pipette key over a module slot puts that module, with its quality, in the hand; over another slot it
+      pastes the module in the hand (an empty row fills).
+    - The pipette key over a machine button copies the machine with all its modules and beacon groups; over
+      another row's or loop stage's machine button it pastes them. Modules the new recipe refuses are left out,
+      with a message.
+    - The pipette key over a beacon button copies the whole beacon group; over another group it replaces it,
+      over the add button it adds it.
+  Changes:
+    - The base-quality choice (left over, crafted by another recipe, recycled) is a labelled row that shows
+      only when the sheet targets an item above normal quality. Sheets saved with the old drop-down keep their
+      choice.
+    - Long messages in the report wrap instead of widening their column.
+    - The recycler pool and returned-items rows show the recycling icon, with their old text as its tooltip.
+    - Module lists leave out hidden and parameter modules; a hidden module already set keeps its slot and can
+      be removed.
+  Locale:
+    - New texts for the base-quality label, the module picker, the pipette and its messages (English in all
+      three languages).
+---------------------------------------------------------------------------------------------------
 Version: 1.1.24
 Date: 2026.09.15
   Info:
