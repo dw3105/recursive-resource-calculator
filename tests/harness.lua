@@ -783,6 +783,8 @@ function H.new_world(shape)
     world.cursor_events = {}
     world.suppressed_cursor_events = {}
     world.merge_cursor_events = false
+    --Vanilla Q emptying a hand that already holds what is under the cursor (see H.press); false is a defensive no-clear profile for tests
+    world.vanilla_pipette_clears = true
     world.cursor_ghost_needs_empty_cursor = false
     local function cursor_of(index)
         world.cursors[index] = world.cursors[index] or {}
@@ -1008,8 +1010,25 @@ function H.press(world, input_name, params)
         and type(selected.name) == "string") then
         error("selected_prototype must be {base_type, derived_type, name}", 2)
     end
-    return handler({name = input_name, tick = world.tick, player_index = player_index, input_name = input_name,
+    --Vanilla Q runs after the mod's input (CustomInputPrototype consuming = "none"). Observed in game 2026-09-16 on machine sprite-buttons, assumed for
+    --beacons: when the hand already holds the ghost of the item placing the entity the button shows, vanilla Q empties the hand. Decided from the
+    --hand before the mod's handler, so a ghost the handler itself writes (a copy) is never cleared. Quality is not compared; real stacks not modelled.
+    local clears = false
+    if input_name == "hxrrc_pipette" and world.vanilla_pipette_clears and element ~= nil and element.type == "sprite-button" then
+        local entity_name = type(element.sprite) == "string" and element.sprite:match("^entity/(.+)$") or nil
+        local entity = entity_name and prototypes.entity[entity_name] or nil
+        local items = entity and entity.items_to_place_this or nil
+        local cursor = world.cursors[player_index] or {}
+        if items and items[1] and cursor.stack == nil and cursor.ghost and cursor.ghost.name == items[1].name then
+            clears = true
+        end
+    end
+    local result = handler({name = input_name, tick = world.tick, player_index = player_index, input_name = input_name,
         cursor_position = {x = 0, y = 0}, cursor_display_location = {x = 0, y = 0}, element = element, in_gui = in_gui, selected_prototype = selected})
+    if clears then
+        game.players[player_index].clear_cursor()
+    end
+    return result
 end
 
 --The module a slot shows as {name, quality}, quality nil for normal: read from a slot sprite-button, or from a chooser slot built by 1.1.23/1.1.24

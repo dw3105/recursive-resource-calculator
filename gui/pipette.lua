@@ -174,8 +174,11 @@ end
 --"in the same tick that the change happens, but not instantly" and promises nothing about their order against this input, so waiting a tick
 --lets every notification for a change made up to this press drop the clipboard first. The target is kept as a tags snapshot, so a report
 --rebuilt meanwhile does not lose the request.
---kind: "machine" or "beacon"; a clipboard of the other kind never pastes here
-function Pipette.request_paste(player, button, held, tick, kind)
+--kind: "machine" or "beacon"; a clipboard of the other kind never pastes here.
+--options.expect_vanilla_clear: the pipette key was pressed over a button showing the entity the held ghost places. Factorio's own pipette runs after
+--this input (consuming = "none") and empties such a hand, as observed in game on 2026-09-16; the request then survives that one emptying, see
+--Pipette.on_cursor_changed and run_request, and the drain gives the ghost back.
+function Pipette.request_paste(player, button, held, tick, kind, options)
     local clipboard = storage[player.index].pipette
     if not (clipboard and clipboard.kind == kind) then
         return
@@ -201,7 +204,11 @@ function Pipette.request_paste(player, button, held, tick, kind)
     end
     local requests = storage[player.index].pipette_requests or {}
     storage[player.index].pipette_requests = requests
-    requests[#requests + 1] = {clipboard_id = clipboard.id, tick = tick, kind = kind, target = target}
+    local expect_vanilla_clear = options and options.expect_vanilla_clear or nil
+    requests[#requests + 1] = {clipboard_id = clipboard.id, tick = tick, kind = kind, target = target, expect_vanilla_clear = expect_vanilla_clear}
+    if expect_vanilla_clear then
+        clipboard.vanilla_clear_tick = tick
+    end
 end
 
 local function module_count(setup)
@@ -235,7 +242,8 @@ end
 --Writes one request if the same clipboard is still in the hand and the target is still fresh. Returns true when stored state changed.
 local function run_request(player, request)
     local clipboard = storage[player.index].pipette
-    if not (clipboard and clipboard.id == request.clipboard_id and Pipette.still_held(player, clipboard)) then
+    if not (clipboard and clipboard.id == request.clipboard_id
+        and (Pipette.still_held(player, clipboard) or (request.expect_vanilla_clear and Pipette.hand_empty(player)))) then
         return false
     end
     if request.kind == "beacon" then
@@ -271,15 +279,24 @@ function Pipette.run_requests(tick)
         local player_storage = storage[player.index]
         local requests = player_storage and player_storage.pipette_requests
         if requests then
-            local kept, wrote = {}, false
+            local kept, wrote, give_back = {}, false, false
             for _, request in ipairs(requests) do
                 if request.tick < tick then
-                    wrote = run_request(player, request) or wrote
+                    local written = run_request(player, request)
+                    wrote = written or wrote
+                    give_back = give_back or (written and request.expect_vanilla_clear == true)
                 else
                     kept[#kept + 1] = request
                 end
             end
             player_storage.pipette_requests = #kept > 0 and kept or nil
+            --the ghost Factorio's own pipette put away goes back in the hand; its notification comes in this tick and is forgiven like a copy's own
+            local clipboard = player_storage.pipette
+            if give_back and clipboard and Pipette.hand_empty(player) then
+                clipboard.own_notifications = 1
+                clipboard.copied_tick = tick
+                player.cursor_ghost = {name = clipboard.item.name, quality = clipboard.item.quality}
+            end
             if wrote then
                 changed[#changed + 1] = player.index
             end
@@ -302,6 +319,9 @@ function Pipette.on_cursor_changed(event)
     local player = game.get_player(event.player_index)
     if event.tick == clipboard.copied_tick and clipboard.own_notifications > 0 and Pipette.still_held(player, clipboard) then
         clipboard.own_notifications = clipboard.own_notifications - 1
+    elseif clipboard.vanilla_clear_tick and event.tick == clipboard.vanilla_clear_tick and Pipette.hand_empty(player) then
+        --Factorio's own pipette emptied the hand in the tick a paste was requested over the same entity (see Pipette.request_paste): forgiven once
+        clipboard.vanilla_clear_tick = nil
     else
         player_storage.pipette = nil
     end
@@ -345,7 +365,8 @@ function Pipette.on_pipette(event)
         if held == nil then
             copy_machine(player, element, event.tick)
         else
-            Pipette.request_paste(player, element, held, event.tick, "machine")
+            Pipette.request_paste(player, element, held, event.tick, "machine",
+                {expect_vanilla_clear = held.ghost == true and element.tags.name ~= nil and held.name == placing_item(element.tags.name)})
         end
         return false
     end
@@ -354,7 +375,9 @@ function Pipette.on_pipette(event)
         if held == nil then
             copy_beacon(player, element, event.tick)
         else
-            Pipette.request_paste(player, element, held, event.tick, "beacon")
+            local shown = element.tags.value
+            Pipette.request_paste(player, element, held, event.tick, "beacon",
+                {expect_vanilla_clear = held.ghost == true and shown ~= nil and held.name == placing_item(shown.name)})
         end
         return false
     end
