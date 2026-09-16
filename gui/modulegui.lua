@@ -144,35 +144,53 @@ function ModuleGUI.new(parent, recipe, machine, identifier, product_full_name, o
     fill(cell, recipe, machine, identifier, product_full_name, owner or {})
 end
 
---The stored setup a control of a cell acts on, or nil when the cell is stale:
---the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built
-local function current_setup(element)
-    local cell = element.parent
-    while cell and not cell.tags.recipe_name do --the cell is the nearest ancestor tagged with a recipe
-        cell = cell.parent
-    end
-    if not cell then
+--The stored setup a module cell's tags describe, with the recipe name and machine identifier, or nil when that cell is stale:
+--the recipe is gone, the cell predates signatures, or the setup or machine changed since the cell was built. Works from a plain copy of the tags,
+--so a request can outlive the cell.
+function ModuleGUI.context_of(player_index, tags)
+    local recipe_name = tags.recipe_name
+    if not recipe_name then
         return nil
     end
-    local recipe_name = cell.tags.recipe_name
-    local player_index = element.player_index
-    if cell.tags.loop_key then
+    if tags.loop_key then
         --a loop stage's cell: stale once the loop, its stage recipe, its machine or its setup changed
-        local loop = storage[player_index].quality_loops_by_key[cell.tags.loop_key]
-        local stage = loop and (cell.tags.stage ~= "craft" or QualityLoops.crafts_at(loop, cell.tags.tier))
-            and QualityLoops.stage(player_index, loop, cell.tags.stage, cell.tags.tier)
-        if not (stage and stage.machine and stage.recipe.name == recipe_name) or ModuleSetup.signature(stage.setup, stage.machine) ~= cell.tags.signature then
+        local loop = storage[player_index].quality_loops_by_key[tags.loop_key]
+        local stage = loop and (tags.stage ~= "craft" or QualityLoops.crafts_at(loop, tags.tier))
+            and QualityLoops.stage(player_index, loop, tags.stage, tags.tier)
+        if not (stage and stage.machine and stage.recipe.name == recipe_name) or ModuleSetup.signature(stage.setup, stage.machine) ~= tags.signature then
             return nil
         end
-        return stage.setup, cell, recipe_name, stage.machine
+        return stage.setup, recipe_name, stage.machine
     end
     local setup = storage[player_index].module_setups_by_recipe_name[recipe_name]
     local identifier = storage[player_index].identifiers_of_chosen_crafting_machines_by_recipe_name[recipe_name]
-    if not setup or not cell.tags.signature or ModuleSetup.signature(setup, identifier) ~= cell.tags.signature then
+    if not setup or not tags.signature or ModuleSetup.signature(setup, identifier) ~= tags.signature then
         return nil
     end
     --the row's product was bound to another recipe since the cell was built, so the cell shows a recipe the row no longer uses
-    if storage[player_index].product_full_names_by_recipe_name[recipe_name] ~= cell.tags.product_full_name then
+    if storage[player_index].product_full_names_by_recipe_name[recipe_name] ~= tags.product_full_name then
+        return nil
+    end
+    return setup, recipe_name, identifier
+end
+
+--The module cell holding a control: the nearest ancestor tagged with a recipe
+function ModuleGUI.cell_of(element)
+    local cell = element.parent
+    while cell and not cell.tags.recipe_name do
+        cell = cell.parent
+    end
+    return cell
+end
+
+--The stored setup a control of a cell acts on, with the cell, recipe name and machine identifier, or nil when the cell is stale
+local function current_setup(element)
+    local cell = ModuleGUI.cell_of(element)
+    if not cell then
+        return nil
+    end
+    local setup, recipe_name, identifier = ModuleGUI.context_of(element.player_index, cell.tags)
+    if not setup then
         return nil
     end
     return setup, cell, recipe_name, identifier

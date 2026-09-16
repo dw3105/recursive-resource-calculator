@@ -11,12 +11,80 @@ local Pipette = {}
 
 local MODULE_SLOTS = {hxrrc_choose_module_button = true, hxrrc_choose_beacon_module_button = true}
 local MACHINE_BUTTONS = {hxrrc_choose_crafting_machine_button = true, hxrrc_choose_loop_machine_button = true}
+local BEACON_BUTTON = "hxrrc_choose_beacon_button"
+
+local function new_clipboard_id()
+    local id = storage.pipette_next_id or 1
+    storage.pipette_next_id = id + 1
+    return id
+end
+
+--A beacon group as fresh tables, sharing nothing with the one given
+local function group_copy(group)
+    local modules = {}
+    for index, module in ipairs(group.modules) do modules[index] = {name = module.name, quality = module.quality} end
+    return {name = group.name, quality = group.quality, count = group.count, sharing = group.sharing, modules = modules}
+end
+
+--The beacon button's target as a plain snapshot: the cell's tags, the group index, and the group the button showed (none on the add button)
+local function beacon_target(button)
+    local cell = ModuleGUI.cell_of(button)
+    if not cell then
+        return nil
+    end
+    local value = button.tags.value
+    return {cell_tags = cell.tags, group = button.tags.group, add = value == nil, name = value and value.name, quality = value and value.quality}
+end
+
+--The stored setup, recipe name and machine of a beacon target, and its groups, while the cell is fresh and the group is still the one shown
+--(the add button: still the place after the last group)
+local function beacon_context(player_index, target)
+    if not target then
+        return nil
+    end
+    local setup, recipe_name, identifier = ModuleGUI.context_of(player_index, target.cell_tags)
+    if not setup then
+        return nil
+    end
+    if target.add then
+        if target.group ~= #setup.beacons + 1 then
+            return nil
+        end
+    else
+        local group = setup.beacons[target.group]
+        if not (group and group.name == target.name and (group.quality or "normal") == (target.quality or "normal")) then
+            return nil
+        end
+    end
+    return setup, recipe_name, identifier
+end
 
 --The item that places an entity, never assumed to share the entity's name; nil when the entity has none (items_to_place_this is optional)
 local function placing_item(entity_name)
     local prototype = prototypes.entity[entity_name]
     local items = prototype and prototype.items_to_place_this
     return items and items[1] and items[1].name
+end
+
+--Remembers a fresh beacon group (beacon, quality, count, sharing and modules) as a copy, and puts the beacon's item in the hand (amendment B)
+local function copy_beacon(player, button, tick)
+    local target = beacon_target(button)
+    if not target or target.add then
+        return
+    end
+    local setup = beacon_context(player.index, target)
+    if not setup then
+        return
+    end
+    local group = setup.beacons[target.group]
+    local item = placing_item(group.name)
+    if not item then
+        player.create_local_flying_text{text = {"hxrrc.machine_has_no_item_error"}, create_at_cursor = true}
+        return
+    end
+    storage[player.index].pipette = {id = new_clipboard_id(), kind = "beacon", item = {name = item, quality = group.quality}, group = group_copy(group),
+        own_notifications = 1, copied_tick = tick}
+    player.cursor_ghost = {name = item, quality = group.quality}
 end
 
 --Remembers a fresh row's or loop stage's machine and a copy of its setup that shares no table with it, and puts the machine's item in the hand.
@@ -31,10 +99,8 @@ local function copy_machine(player, button, tick)
         player.create_local_flying_text{text = {"hxrrc.machine_has_no_item_error"}, create_at_cursor = true}
         return
     end
-    local id = storage.pipette_next_id or 1
-    storage.pipette_next_id = id + 1
     storage[player.index].pipette = {
-        id = id,
+        id = new_clipboard_id(),
         kind = "machine",
         item = {name = item, quality = context.machine.quality},
         machine = {name = context.machine.name, quality = context.machine.quality},
@@ -107,25 +173,34 @@ end
 --"in the same tick that the change happens, but not instantly" and promises nothing about their order against this input, so waiting a tick
 --lets every notification for a change made up to this press drop the clipboard first. The target is kept as a tags snapshot, so a report
 --rebuilt meanwhile does not lose the request.
-local function request_machine_paste(player, button, held, tick)
+--kind: "machine" or "beacon"; a clipboard of the other kind never pastes here
+local function request_paste(player, button, held, tick, kind)
     local clipboard = storage[player.index].pipette
-    if not (clipboard and clipboard.kind == "machine") then
+    if not (clipboard and clipboard.kind == kind) then
         return
     end
-    if held.real then --a real item in the hand is not the copied machine's ghost
+    if held.real then --a real item in the hand is not the copied ghost
         storage[player.index].pipette = nil
         return
     end
     if not (held.name == clipboard.item.name and held.quality == clipboard.item.quality) then
         return
     end
-    local target = Report.machine_target(button)
-    if not Report.machine_context_of(player.index, target) then
-        return
+    local target
+    if kind == "machine" then
+        target = Report.machine_target(button)
+        if not Report.machine_context_of(player.index, target) then
+            return
+        end
+    else
+        target = beacon_target(button)
+        if not beacon_context(player.index, target) then
+            return
+        end
     end
     local requests = storage[player.index].pipette_requests or {}
     storage[player.index].pipette_requests = requests
-    requests[#requests + 1] = {clipboard_id = clipboard.id, tick = tick, target = target}
+    requests[#requests + 1] = {clipboard_id = clipboard.id, tick = tick, kind = kind, target = target}
 end
 
 local function module_count(setup)
@@ -134,11 +209,36 @@ local function module_count(setup)
     return count
 end
 
+--Replaces the target group, or adds one at the add button, with a copy of the remembered group fitted to the cell's machine and recipe
+local function write_beacon_request(player, clipboard, request)
+    if not storage.beacon_names[clipboard.group.name] then
+        return false
+    end
+    local setup, recipe_name, identifier = beacon_context(player.index, request.target)
+    if not setup then
+        return false
+    end
+    local trial = {modules = {}, beacons = {group_copy(clipboard.group)}}
+    ModuleSetup.sanitize_setup(trial, identifier, prototypes.recipe[recipe_name])
+    local fitted = trial.beacons[1]
+    if not fitted or #fitted.modules < #clipboard.group.modules then
+        player.create_local_flying_text{text = {"hxrrc.pasted_setup_partly_refused"}, create_at_cursor = true}
+    end
+    if not fitted then --the machine takes no beacons
+        return false
+    end
+    setup.beacons[request.target.group] = fitted
+    return true
+end
+
 --Writes one request if the same clipboard is still in the hand and the target is still fresh. Returns true when stored state changed.
 local function run_request(player, request)
     local clipboard = storage[player.index].pipette
     if not (clipboard and clipboard.id == request.clipboard_id and Pipette.still_held(player, clipboard)) then
         return false
+    end
+    if request.kind == "beacon" then
+        return write_beacon_request(player, clipboard, request)
     end
     --a configuration change drops the clipboard first; still, never paste a machine whose prototype is gone
     if not prototypes.entity[clipboard.machine.name] then
@@ -234,7 +334,16 @@ function Pipette.on_pipette(event)
         if held == nil then
             copy_machine(player, element, event.tick)
         else
-            request_machine_paste(player, element, held, event.tick)
+            request_paste(player, element, held, event.tick, "machine")
+        end
+        return false
+    end
+    if element.name == BEACON_BUTTON then
+        local held = Pipette.held(player)
+        if held == nil then
+            copy_beacon(player, element, event.tick)
+        else
+            request_paste(player, element, held, event.tick, "beacon")
         end
         return false
     end

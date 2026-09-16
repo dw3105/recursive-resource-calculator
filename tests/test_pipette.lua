@@ -758,4 +758,117 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+--N13b (amendment B): the pipette key copies and pastes beacon groups the same way
+
+local function beacon_buttons(root, recipe_name)
+    return find_all(root, function(element) return element.name == "hxrrc_choose_beacon_button" and recipe_of(element) == recipe_name end)
+end
+
+--gear with a group of 3 uncommon beacons shared by 2, holding a rare speed module and an efficiency module; cog and X with their own setups
+local function copied_beacon_group(world)
+    chosen().gear, chosen().cog, chosen().X = {name = "assembler"}, {name = "assembler"}, {name = "assembler"}
+    setups().gear = {modules = {}, beacons = {{name = "beacon", quality = "uncommon", count = 3, sharing = 2,
+        modules = {{name = "speed-module", quality = "rare"}, {name = "efficiency-module"}}}}}
+    setups().cog = {modules = {}, beacons = {{name = "beacon", count = 1, sharing = 1, modules = {}}}}
+    setups().X = {modules = {}, beacons = {}}
+    local sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+    press(world, beacon_buttons(sheet_flow, "gear")[1])
+    world.flush_cursor_events()
+    world.advance_tick()
+    return sheet_flow
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N13q N13r Q over a beacon group copies the whole group and holds the beacon's placing item", function()
+        local world = pipette_world(shape)
+        world.set_placing_items("beacon", {{name = "raw", count = 1}})
+        copied_beacon_group(world)
+        local copied = clipboard()
+        assert(copied, "copied")
+        H.equal(copied.kind, "beacon", "kind")
+        H.deep_equal(copied.group, {name = "beacon", quality = "uncommon", count = 3, sharing = 2,
+            modules = {{name = "speed-module", quality = "rare"}, {name = "efficiency-module"}}}, "whole group")
+        H.deep_equal(hand(), {name = "raw", quality = "uncommon", ghost = true}, "placing item at the beacon's quality")
+        setups().gear.beacons[1].modules[1].name = "efficiency-module"
+        H.equal(copied.group.modules[1].name, "speed-module", "a copy, not the live group")
+    end)
+
+    H.test(shape .. " N13s N13t a beacon ghost replaces the group under the key, or adds one at the add button, one tick later", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_beacon_group(world)
+        paste(world, beacon_buttons(sheet_flow, "cog")[1])
+        H.deep_equal(setups().cog.beacons, {clipboard().group}, "cog's group replaced")
+        assert(setups().cog.beacons[1] ~= clipboard().group and setups().cog.beacons[1].modules ~= clipboard().group.modules, "fresh tables")
+        local add = beacon_buttons(sheet_flow, "X")
+        H.equal(#add, 1, "X shows only the add button")
+        paste(world, add[1])
+        H.equal(#setups().X.beacons, 1, "a group added")
+        H.equal(setups().X.beacons[1].count, 3, "with its count")
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}}) --rebuilt: cog now shows its group and the add button
+        local cog_buttons = beacon_buttons(sheet_flow, "cog")
+        H.equal(#cog_buttons, 2, "group button and add button")
+        paste(world, cog_buttons[2])
+        H.equal(#setups().cog.beacons, 2, "added after the existing group, which stays")
+    end)
+
+    H.test(shape .. " N13u modules the target machine or recipe refuse are left out, with a flying text", function()
+        local world = pipette_world(shape)
+        world.add_beacon({name = "open-beacon", module_slots = 2, allowed_effects = {"consumption", "speed", "productivity", "pollution"}})
+        require("logic.indexer").run()
+        chosen().gear, chosen().cog = {name = "assembler"}, {name = "assembler"}
+        setups().gear = {modules = {}, beacons = {{name = "open-beacon", count = 1, sharing = 1, modules = {{name = "productivity-module"}, {name = "speed-module"}}}}}
+        setups().cog = {modules = {}, beacons = {}}
+        local sheet_flow = sheet({{item = "gear"}, {item = "cog"}})
+        press(world, beacon_buttons(sheet_flow, "gear")[1])
+        world.flush_cursor_events()
+        world.advance_tick()
+        paste(world, beacon_buttons(sheet_flow, "cog")[1])
+        H.equal(stored(setups().cog.beacons[1].modules), "speed-module", "cog refuses productivity")
+        H.equal(world.flying_texts[#world.flying_texts][1], "hxrrc.pasted_setup_partly_refused", "says so")
+    end)
+
+    H.test(shape .. " N13v N13w kinds never cross; a stale group copies nothing", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_beacon_group(world)
+        local before = M.QualityLoops._deep_copy(chosen().cog)
+        paste(world, machine_button(sheet_flow, "cog"))
+        H.deep_equal(chosen().cog, before, "a beacon ghost over a machine button pastes nothing")
+        H.equal(storage[1].pipette_requests, nil, "no request")
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        press(world, machine_button(sheet_flow, "gear"))
+        world.flush_cursor_events()
+        world.advance_tick()
+        local groups = M.QualityLoops._deep_copy(setups().cog.beacons)
+        paste(world, beacon_buttons(sheet_flow, "cog")[1])
+        H.deep_equal(setups().cog.beacons, groups, "a machine ghost over a beacon button pastes nothing")
+
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        local button = beacon_buttons(sheet_flow, "gear")[1]
+        setups().gear.beacons[1].name = "beacon"
+        setups().gear.beacons[1].quality = nil --the group changed since the button was built
+        press(world, button)
+        H.equal(clipboard(), nil, "stale group copies nothing")
+    end)
+
+    H.test(shape .. " N13x the rev-4 order with a beacon clipboard: clear and reselect, press before the notifications; the destination is unchanged", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_beacon_group(world)
+        drain(world)
+        world.advance_tick()
+        local snapshot = M.QualityLoops._deep_copy(setups().cog.beacons)
+        local item, quality = clipboard().item.name, clipboard().item.quality
+        world.empty_hand(1)
+        world.hold_ghost(1, item, quality)
+        press(world, beacon_buttons(sheet_flow, "cog")[1])
+        world.flush_cursor_events()
+        world.advance_tick()
+        drain(world)
+        H.deep_equal(setups().cog.beacons, snapshot, "destination unchanged")
+        H.equal(clipboard(), nil, "clipboard gone")
+    end)
+end
+
 H.done("test_pipette")
