@@ -101,7 +101,7 @@ for _, shape in ipairs(H.shapes()) do
         local slots = beacon_module_buttons(sheet_pane, 1)
         H.equal(#slots, 2, "beacon slots")
         pick(slots[2], {name = "speed-module"})
-        H.equal(stored_groups(), "beacon x8 /2 [speed-module]", "last beacon slot picked first is stored first")
+        H.equal(stored_groups(), "beacon x8 /2 [speed-module,speed-module]", "a pick into the group's empty slots fills both (N5)")
         H.equal(storage[1].module_setups_by_recipe_name.gear.modules[1], nil, "machine slots untouched")
 
         pick(beacon_buttons(sheet_pane)[1], {name = "mod-beacon"})

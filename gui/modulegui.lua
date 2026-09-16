@@ -208,20 +208,6 @@ local function restored_value(button)
     return {name = value.name, quality = value.quality and prototypes.quality[value.quality] and value.quality or nil}
 end
 
---Stores a pick into a dense module list: an empty button appends, an occupied one is replaced, an emptied one is removed and the rest shift left
-local function store_pick(modules, index, picked)
-    if picked == nil then
-        table.remove(modules, index)
-    else
-        local module = {name = picked.name, quality = picked.quality ~= "normal" and picked.quality or nil}
-        if index <= #modules then
-            modules[index] = module
-        else --any empty slot appends, so the list never has holes
-            modules[#modules + 1] = module
-        end
-    end
-end
-
 --Returns true when the stored setup changed
 function ModuleGUI.on_module_button_changed(event)
     local button = event.element
@@ -235,7 +221,10 @@ function ModuleGUI.on_module_button_changed(event)
         button.elem_value = restored
         return false
     end
-    store_pick(setup.modules, button.tags.index, button.elem_value)
+    if not ModuleSetup.store_pick(setup.modules, button.tags.index, button.elem_value,
+        ModuleSetup.machine_capacity(prototypes.entity[identifier.name], identifier.quality)) then
+        return false
+    end
     apply(cell, recipe_name, identifier)
     return true
 end
@@ -252,7 +241,11 @@ function ModuleGUI.on_beacon_module_button_changed(event)
         module_button.elem_value = restored
         return false
     end
-    store_pick(setup.beacons[module_button.tags.group].modules, module_button.tags.index, module_button.elem_value)
+    local group = setup.beacons[module_button.tags.group]
+    if not ModuleSetup.store_pick(group.modules, module_button.tags.index, module_button.elem_value,
+        ModuleSetup.beacon_capacity(prototypes.entity[group.name], group.quality)) then
+        return false
+    end
     apply(cell, recipe_name, identifier)
     return true
 end

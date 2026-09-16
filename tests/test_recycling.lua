@@ -525,9 +525,9 @@ for _, shape in ipairs(H.shapes()) do
         for _, flow in ipairs(report.rows["item/x"].module_cell.hxrrc_module_slots.children) do slots[#slots + 1] = flow.children[1] end
         slots[1].elem_value = {name = "speed-module"}
         fire_elem_changed(slots[1])
-        H.equal(storage[1].module_setups_by_recipe_name.burn2.modules[1].name, "speed-module", "module change applies to burn2")
+        H.equal(storage[1].module_setups_by_recipe_name.burn2.modules[4].name, "speed-module", "module change applies to burn2, filling its empty row")
         report = recompute(sheet_pane)
-        H.near(report.rows["item/x"].machines, 2 * 1 / (2 * 1.5), "burn2 on fast assemblers with a speed module")
+        H.near(report.rows["item/x"].machines, 2 * 1 / (2 * 3), "burn2 on fast assemblers with four speed modules")
     end)
 
     H.test(shape .. " R4-14 a module that makes the consumer net zero is removed from the diagnostic row, and the sheet solves again", function()
@@ -539,9 +539,7 @@ for _, shape in ipairs(H.shapes()) do
         local function slot(row_report, index)
             return row_report.rows["item/x"].module_cell.hxrrc_module_slots.children[index].children[1]
         end
-        local first = slot(report, 1)
-        first.elem_value = {name = "prod"}
-        fire_elem_changed(first)
+        storage[1].module_setups_by_recipe_name.burn2.modules = {{name = "prod"}} --one module, as an earlier edit left it; a pick into the empty row would fill it (N5)
         report = recompute(sheet_pane)
         H.near(report.rows["item/x"].machines, 4, "one module: net -0.25, four burns")
         local second = slot(report, 2)

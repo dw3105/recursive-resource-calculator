@@ -20,6 +20,31 @@ function ModuleSetup.beacon_capacity(beacon, quality)
     return beacon.get_inventory_size(defines.inventory.beacon_modules, quality) or 0
 end
 
+--Stores a pick into a dense module list and returns true when the list changed. picked: {name, quality} or nil to empty the slot.
+--An emptied slot is removed and the rest shift left; emptying a slot that holds nothing changes nothing. A module picked into a row where no slot
+--is filled goes into every slot of that row (separate tables), so filling a machine takes one pick; a row already holding a module takes only
+--the picked slot, which replaces a module or appends after the last one, so the list never has holes.
+function ModuleSetup.store_pick(modules, index, picked, capacity)
+    if picked == nil then
+        if index > #modules then
+            return false
+        end
+        table.remove(modules, index)
+        return true
+    end
+    local quality = picked.quality ~= "normal" and picked.quality or nil
+    if #modules == 0 then
+        for slot = 1, math.max(capacity, 1) do
+            modules[slot] = {name = picked.name, quality = quality}
+        end
+    elseif index <= #modules then
+        modules[index] = {name = picked.name, quality = quality}
+    else
+        modules[#modules + 1] = {name = picked.name, quality = quality}
+    end
+    return true
+end
+
 --Beacon counts and sharing are whole numbers from 1 to 9999, so every accepted value is written exactly in a signature; nan and infinities fail here
 function ModuleSetup.is_valid_count(value)
     return type(value) == "number" and value >= 1 and value <= 9999 and value == math.floor(value)

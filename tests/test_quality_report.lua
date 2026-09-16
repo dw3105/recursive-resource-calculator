@@ -159,7 +159,7 @@ for _, shape in ipairs({"2.0"}) do
         local slot = slots(loop.tiers[1].module_flow)[1]
         slot.elem_value = {name = "q"}
         fire(slot)
-        H.equal(#L(key).crafts.normal.setup.modules, 1, "module stored on the normal tier")
+        H.equal(#L(key).crafts.normal.setup.modules, 4, "module fills the normal tier's empty row")
         H.equal(#L(key).crafts.uncommon.setup.modules, 0, "other tier untouched")
         H.equal(#storage[1].module_setups_by_recipe_name.X.modules, 2, "the recipe's own setup untouched")
         report = recompute(sheet_flow)
@@ -318,7 +318,7 @@ for _, shape in ipairs({"2.0"}) do
     H.test(shape .. " QL-5 (b) productivity on the target tier alone changes the crafts below it", function()
         loop_world(shape)
         local key = configure("X", "uncommon")
-        L(key).crafts.uncommon.setup.modules = {}
+        L(key).crafts.uncommon.setup.modules = {{name = "s"}} --one speed module, replaced by productivity below; a pick into an empty row would fill it (N5)
         local sheet_flow = handler_sheet({{item = "X", quality = "uncommon", rate = 1, unit = "/s"}})
         local report = H.parse_report(sheet_flow.output_flow)
         H.near(report.loops[key].tiers[1].craft.machines, 400 / 49 / 0.8, "yield 49/400 per normal craft")

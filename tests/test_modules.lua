@@ -116,20 +116,30 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(#slot_buttons(sheet_pane), 0, "slot buttons")
     end)
 
-    H.test(shape .. " K2 picking an empty slot appends, replacing keeps the position, emptying shifts left", function()
+    H.test(shape .. " K2a picking into an empty row fills every slot with the module at its quality", function()
         module_world(shape)
         local _, sheet_pane = gear_sheet()
         pick(sheet_pane, 4, {name = "speed-module", quality = "rare"})
-        H.equal(stored(), "speed-module@rare", "last slot picked first is stored first")
+        H.equal(stored(), "speed-module@rare,speed-module@rare,speed-module@rare,speed-module@rare", "every slot filled")
         local buttons = slot_buttons(sheet_pane)
         H.equal(#buttons, 4, "rebuilt cell keeps every slot")
-        H.equal(buttons[1].elem_value and buttons[1].elem_value.name, "speed-module", "rebuilt cell shows the module on the first slot")
-        H.equal(buttons[1].elem_value and buttons[1].elem_value.quality, "rare", "with its quality")
+        for index, button in ipairs(buttons) do
+            H.equal(button.elem_value and button.elem_value.name, "speed-module", "slot " .. index .. " shows the module")
+            H.equal(button.elem_value and button.elem_value.quality, "rare", "slot " .. index .. " with its quality")
+        end
+        assert(#storage.computation_stack > 0, "picking recomputes")
+    end)
+
+    H.test(shape .. " K2b on a row already holding a module an empty slot appends, replacing keeps the position, emptying shifts left", function()
+        module_world(shape)
+        storage[1].module_setups_by_recipe_name.gear.modules = {{name = "speed-module", quality = "rare"}}
+        local _, sheet_pane = gear_sheet()
+        pick(sheet_pane, 4, {name = "efficiency-module"})
+        H.equal(stored(), "speed-module@rare,efficiency-module", "picked into the last slot, appended after the last module")
+        local buttons = slot_buttons(sheet_pane)
+        H.equal(buttons[2].elem_value and buttons[2].elem_value.name, "efficiency-module", "rebuilt cell shows it in the second slot")
         H.equal(buttons[4].elem_value, nil, "last slot empty again")
         assert(#storage.computation_stack > 0, "picking recomputes")
-
-        pick(sheet_pane, 4, {name = "efficiency-module"})
-        H.equal(stored(), "speed-module@rare,efficiency-module", "second pick appended")
         pick(sheet_pane, 1, {name = "productivity-module"})
         H.equal(stored(), "productivity-module,efficiency-module", "replaced in place")
         pick(sheet_pane, 1, nil)
@@ -377,6 +387,89 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(#beacon_slots, 2, "the beacon's slots are shown")
         H.equal(beacon_slots[1].elem_value and beacon_slots[1].elem_value.name, "speed-module", "occupied by the hidden module")
         H.equal(#storage[1].module_setups_by_recipe_name.gear.beacons, 1, "group kept")
+    end)
+end
+
+--N5: a module picked into a row with no module fills every slot of that row; a row already holding one takes only the picked slot
+
+local function names_of(modules)
+    local names = {}
+    for index, module in ipairs(modules) do names[index] = module.name .. (module.quality and ("@" .. module.quality) or "") end
+    return table.concat(names, ",")
+end
+
+H.test("N5a N5b N5h N5j a pick into an empty row fills every slot from the first, at the picked quality, with separate tables", function()
+    module_world("2.0")
+    local ModuleSetup = require "logic.module_setup"
+    local modules = {}
+    H.equal(ModuleSetup.store_pick(modules, 4, {name = "speed-module", quality = "epic"}, 4), true, "changed")
+    H.equal(names_of(modules), "speed-module@epic,speed-module@epic,speed-module@epic,speed-module@epic", "filled from slot 1")
+    for first = 1, 4 do
+        for second = first + 1, 4 do
+            assert(modules[first] ~= modules[second], "slots " .. first .. " and " .. second .. " share a table")
+        end
+    end
+    modules = {}
+    ModuleSetup.store_pick(modules, 1, {name = "speed-module", quality = "normal"}, 2)
+    H.equal(names_of(modules), "speed-module,speed-module", "normal stored as none, to the capacity given")
+end)
+
+H.test("N5c N5d N5e a row holding a module takes only the picked slot; replacing its only module does not refill; emptying fills nothing", function()
+    module_world("2.0")
+    local ModuleSetup = require "logic.module_setup"
+    local modules = {{name = "speed-module"}}
+    ModuleSetup.store_pick(modules, 3, {name = "efficiency-module"}, 4)
+    H.equal(names_of(modules), "speed-module,efficiency-module", "appended, nothing else filled")
+    modules = {{name = "speed-module"}}
+    ModuleSetup.store_pick(modules, 1, {name = "efficiency-module"}, 4)
+    H.equal(names_of(modules), "efficiency-module", "replaced the only module, no refill")
+    modules = {{name = "speed-module"}, {name = "efficiency-module"}}
+    H.equal(ModuleSetup.store_pick(modules, 1, nil, 4), true, "emptying changes")
+    H.equal(names_of(modules), "efficiency-module", "shifted left, nothing filled")
+end)
+
+H.test("N5k emptying a slot that holds nothing changes nothing, in an empty row and past the last module of a partly filled one", function()
+    module_world("2.0")
+    local ModuleSetup = require "logic.module_setup"
+    local empty = {}
+    H.equal(ModuleSetup.store_pick(empty, 4, nil, 4), false, "empty row, last slot")
+    H.equal(#empty, 0, "still empty")
+    local partly = {{name = "speed-module"}}
+    H.equal(ModuleSetup.store_pick(partly, 3, nil, 4), false, "partly filled row, empty slot")
+    H.equal(names_of(partly), "speed-module", "unchanged")
+end)
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N5i picking into an empty machine row through the report fills it, and machine count and effects follow", function()
+        module_world(shape)
+        local _, sheet_pane = gear_sheet()
+        pick(sheet_pane, 2, {name = "speed-module"})
+        H.equal(stored(), "speed-module,speed-module,speed-module,speed-module", "filled")
+        local Utils = require "logic.utils"
+        H.near(Utils.recipe_effects(1, "gear").speed, 0.8, "four speed modules")
+        local report = gear_sheet()
+        H.near(report.rows["item/gear"].machines, 1 / 1.8, "count follows every slot")
+    end)
+
+    H.test(shape .. " N5f N5g a pick into an empty beacon group fills that group only, to its beacon quality's slot count", function()
+        local world = module_world(shape, {module_slots = 2}) --fewer machine slots than the rare beacon has, so the two capacities differ
+        world.add_beacon({name = "beacon", quality_affects_module_slots = true, allowed_module_categories = {"speed"}})
+        require("logic.indexer").run()
+        storage[1].module_setups_by_recipe_name.gear.beacons = {
+            {name = "beacon", quality = "rare", count = 1, sharing = 1, modules = {}},
+            {name = "beacon", count = 1, sharing = 1, modules = {}}}
+        local _, sheet_pane = gear_sheet()
+        local first_group = {}
+        for _, button in ipairs(find_all(sheet_pane, "hxrrc_choose_beacon_module_button")) do
+            if button.tags.group == 1 then first_group[#first_group + 1] = button end
+        end
+        H.equal(#first_group, 4, "rare beacon: 2 slots + 2 for rare")
+        first_group[1].elem_value = {name = "speed-module"}
+        fire(first_group[1])
+        local groups = storage[1].module_setups_by_recipe_name.gear.beacons
+        H.equal(names_of(groups[1].modules), "speed-module,speed-module,speed-module,speed-module", "rare group filled to 4")
+        H.equal(#groups[2].modules, 0, "other group untouched")
+        H.equal(#storage[1].module_setups_by_recipe_name.gear.modules, 0, "machine row untouched")
     end)
 end
 

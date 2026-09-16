@@ -165,21 +165,23 @@ for _, shape in ipairs(H.shapes()) do
             fire_elem_changed(button)
         end
 
-        pick({name = "speed-module"})
-        H.equal(stored_names("gear"), "speed-module", "added module")
-        H.near(Utils.recipe_effects(1, "gear").speed, 0.2, "speed after adding")
+        pick({name = "speed-module"}) --into an empty row: fills every slot (N5)
+        H.equal(stored_names("gear"), "speed-module,speed-module,speed-module,speed-module", "added module fills the row")
+        H.near(Utils.recipe_effects(1, "gear").speed, 0.8, "speed after adding")
         assert(#storage.computation_stack > 0, "adding a module recomputes")
         H.equal(#module_buttons(sheet_pane, "gear"), 4, "every slot after rebuilding")
 
         storage.computation_stack = {}
         pick({name = "gone-productivity"})
-        H.equal(stored_names("gear"), "gone-productivity", "replaced module")
-        H.near(Utils.recipe_effects(1, "gear").speed, 0, "speed after replacing")
+        H.equal(stored_names("gear"), "gone-productivity,speed-module,speed-module,speed-module", "replaced in place")
+        H.near(Utils.recipe_effects(1, "gear").speed, 0.6, "speed after replacing")
         H.near(Utils.recipe_effects(1, "gear").productivity, 0.1, "productivity after replacing")
         assert(#storage.computation_stack > 0, "replacing a module recomputes")
 
         pick(nil)
-        H.equal(stored_names("gear"), "", "removed module")
+        H.equal(stored_names("gear"), "speed-module,speed-module,speed-module", "removed module, the rest shift left")
+        for _ = 1, 3 do pick(nil) end
+        H.equal(stored_names("gear"), "", "every module removed")
         assert_no_effects("gear")
     end)
 
