@@ -1135,6 +1135,8 @@ for _, shape in ipairs(H.shapes()) do
         H.pick_choice(buttons[2], nil)
         H.equal(groups("gear"), "wide-beacon x1 /1 []", "P6e: right click on the add button removes nothing")
         H.equal(#storage.computation_stack, 0, "P6e: nothing queued")
+        H.equal(M.ModuleGUI.pick_beacon(buttons[2], nil), false, "P6e: emptying the add button itself stores nothing")
+        H.equal(groups("gear"), "wide-beacon x1 /1 []", "P6e: groups unchanged")
         H.pick_choice(buttons[1], nil)
         H.equal(groups("gear"), "", "P6e: right click removes the group")
 
