@@ -510,7 +510,7 @@ end
 
 H.test("every literal hxrrc locale key the GUI and control code use exists in every language", function()
     local keys = {}
-    for _, file in ipairs({"gui/calculator.lua", "gui/sheet.lua", "gui/report.lua", "gui/modulegui.lua", "gui/input_container.lua", "gui/module_picker.lua",
+    for _, file in ipairs({"gui/calculator.lua", "gui/sheet.lua", "gui/report.lua", "gui/modulegui.lua", "gui/input_container.lua", "gui/module_picker.lua", "gui/pipette.lua",
         "control.lua", "data.lua"}) do
         local source = io.open(file):read("*a")
         for key in source:gmatch('"hxrrc%.([%w_]+)"') do keys[key] = true end

@@ -7,6 +7,7 @@ event_handlers.on_gui_selection_state_changed = {}
 
 local Calculator = require "gui.calculator"
 local ModulePicker = require "gui.module_picker"
+local Pipette = require "gui.pipette"
 local Sheet = require "gui.sheet"
 local Indexer = require "logic.indexer"
 local PlayerData = require "logic.player_data"
@@ -64,6 +65,12 @@ end)
 
 script.on_event("hxrrc_toggle_calculator", function(event)
     Calculator.toggle(game.get_player(event.player_index))
+end)
+
+script.on_event("hxrrc_pipette", function(event)
+    if Pipette.on_pipette(event) then
+        Calculator.recompute_everything(event.player_index)
+    end
 end)
 
 script.on_event("hxrrc_confirm_module_picker", function(event)

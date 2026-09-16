@@ -14,6 +14,16 @@ data:extend({
         linked_game_control = "confirm-gui",
         consuming = "none",
     },
+    {
+        --the player's own pipette key: over the calculator it copies a module; "game-only" would block the vanilla pipette everywhere, so none
+        type = "custom-input",
+        name = "hxrrc_pipette",
+        localised_name = {"hxrrc.pipette"},
+        key_sequence = "",
+        linked_game_control = "pipette",
+        consuming = "none",
+        include_selected_prototype = false, --the handler reads event.element, never the world selection
+    },
 })
 
 --Factorio 2.0 ships the recycling arrows in the quality mod; 2.1 moved them to the recycler mod. Neither present: no sprite, and the report shows text.
