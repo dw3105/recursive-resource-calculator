@@ -105,7 +105,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(#frames(), 1, "one window")
         H.equal(frames()[1].auto_center, true, "centred")
         H.equal(confirm_button().sprite, "utility/check_mark_green", "green tick")
-        H.equal(confirm_button().style.name, "item_and_count_select_confirm", "tick style")
+        H.equal(confirm_button().style.name, "slot_sized_button_green", "tick style")
     end)
 
     H.test(shape .. " N6b N6g one click selects; a second click on it within 30 ticks fills the empty row and closes", function()
@@ -521,7 +521,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(storage[1].module_setups_by_recipe_name.gear.modules[1].quality, nil, "normal stored as none")
     end)
 
-    H.test(shape .. " P2a P2b qualities are icon buttons with tooltips and no caption; clear is the empty-module-slot icon and still empties", function()
+    H.test(shape .. " P2a P2b Q3a qualities are icon buttons with tooltips and no caption; clear is the empty-module-slot icon and still empties; clear and tick are the same size", function()
         picker_world(shape)
         local _, sheet_pane = gear_sheet()
         local slot = machine_slots(sheet_pane)[1]
@@ -538,6 +538,9 @@ for _, shape in ipairs(H.shapes()) do
         end
         H.equal(clear_button().type, "sprite-button", "P2b: icon button")
         H.equal(clear_button().sprite, "utility/empty_module_slot", "P2b: empty module slot icon")
+        --Q3a: both 40 px in core 2.0.77 and 2.1.17 style.lua (slot_button size = 40; slot_sized_button_green inherits slot_sized_button size = 40)
+        H.equal(clear_button().style.name, "slot_button", "Q3a: clear button is 40 px")
+        H.equal(confirm_button().style.name, "slot_sized_button_green", "Q3a: tick is 40 px")
         click(clear_button())
         H.equal(#storage[1].module_setups_by_recipe_name.gear.modules, 3, "P2b: clear still empties the slot")
     end)

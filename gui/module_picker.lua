@@ -236,7 +236,8 @@ function ModulePicker.open(button)
         footer.add{type = "sprite-button", name = "hxrrc_picker_clear_button", sprite = description.clear.sprite, style = "slot_button",
             tooltip = description.clear.tooltip}
     end
-    footer.add{type = "sprite-button", name = "hxrrc_picker_confirm_button", sprite = "utility/check_mark_green", style = "item_and_count_select_confirm",
+    --slot_sized_button_green is 40 px like slot_button, so the clear button and the tick match (item_and_count_select_confirm is 28 px)
+    footer.add{type = "sprite-button", name = "hxrrc_picker_confirm_button", sprite = "utility/check_mark_green", style = "slot_sized_button_green",
         tooltip = kind.confirm_tooltip}
 
     local stored_quality = stored and stored.quality and prototypes.quality[stored.quality] and stored.quality or "normal"
