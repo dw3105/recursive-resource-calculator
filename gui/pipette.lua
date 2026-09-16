@@ -140,6 +140,10 @@ local function run_request(player, request)
     if not (clipboard and clipboard.id == request.clipboard_id and Pipette.still_held(player, clipboard)) then
         return false
     end
+    --a configuration change drops the clipboard first; still, never paste a machine whose prototype is gone
+    if not prototypes.entity[clipboard.machine.name] then
+        return false
+    end
     local context = Report.machine_context_of(player.index, request.target)
     if not context then
         return false
@@ -183,13 +187,37 @@ function Pipette.run_requests(tick)
     return changed
 end
 
+--on_player_cursor_stack_changed. A notification carries no old or new cursor value and arrives "in the same tick that the change happens, but
+--not instantly", so the handler sees only the final cursor. The clipboard therefore forgives exactly one notification, in the tick it was copied
+--and with its ghost still in hand: the one its own ghost write raises. Any other notification drops it, even one that ends with an identical
+--ghost, so a setup put down and picked up again is never pasted.
+--Assumption A1 (not verifiable offline, in-game check G10f): nothing else rewrites the cursor to the same ghost within the copy's own tick.
+function Pipette.on_cursor_changed(event)
+    local player_storage = storage[event.player_index]
+    local clipboard = player_storage and player_storage.pipette
+    if not clipboard then
+        return
+    end
+    local player = game.get_player(event.player_index)
+    if event.tick == clipboard.copied_tick and clipboard.own_notifications > 0 and Pipette.still_held(player, clipboard) then
+        clipboard.own_notifications = clipboard.own_notifications - 1
+    else
+        player_storage.pipette = nil
+    end
+end
+
 --Returns true when stored sheet state changed (so the caller recomputes)
 function Pipette.on_pipette(event)
+    local player = game.get_player(event.player_index)
+    --before anything else, whatever the cursor is over: a clipboard whose ghost has left the hand is gone, even if no notification came yet
+    local clipboard = storage[event.player_index].pipette
+    if clipboard and not Pipette.still_held(player, clipboard) then
+        storage[event.player_index].pipette = nil
+    end
     local element = event.element
     if not (element and element.valid) then
         return false
     end
-    local player = game.get_player(event.player_index)
     if MODULE_SLOTS[element.name] then
         local held = Pipette.held(player)
         if held then

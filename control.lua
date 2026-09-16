@@ -74,6 +74,8 @@ script.on_event("hxrrc_pipette", function(event)
     end
 end)
 
+script.on_event(defines.events.on_player_cursor_stack_changed, Pipette.on_cursor_changed)
+
 script.on_event("hxrrc_confirm_module_picker", function(event)
     if ModulePicker.confirm(event.player_index) then
         Calculator.recompute_everything(event.player_index)

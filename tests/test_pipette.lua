@@ -581,4 +581,181 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+--N13: a copied machine setup lives only while its own ghost stays in the hand, untouched
+
+local function drain(world)
+    world.handlers.events[defines.events.on_tick]({tick = world.tick})
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " N12m the rev-4 order: clear and reselect the same ghost, press before their notifications arrive; the destination is unchanged", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        world.advance_tick()
+        local snapshot = {machine = M.QualityLoops._deep_copy(chosen().cog), setup = M.QualityLoops._deep_copy(setups().cog)}
+        world.empty_hand(1)
+        world.hold_ghost(1, clipboard().item.name, clipboard().item.quality)
+        press(world, machine_button(sheet_flow, "cog"))
+        world.flush_cursor_events()
+        world.advance_tick()
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+        H.deep_equal({machine = chosen().cog, setup = setups().cog}, snapshot, "destination unchanged")
+        H.equal(clipboard(), nil, "clipboard gone")
+    end)
+
+
+    H.test(shape .. " N13a N13b N13c after its copy tick, clearing the hand, another quality of the machine, or a real item drops the clipboard", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        H.equal(clipboard(), nil, "N13a: cleared hand")
+
+        chosen().gear = {name = "assembler"}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        press(world, machine_button(sheet_flow, "gear"))
+        world.flush_cursor_events()
+        world.advance_tick()
+        local item = clipboard().item.name
+        world.hold_ghost(1, item, "rare") --not flushed: only the Q-top quality comparison can see it
+        local before = M.QualityLoops._deep_copy(chosen().cog)
+        paste(world, machine_button(sheet_flow, "cog"))
+        H.deep_equal(chosen().cog, before, "N13b: nothing pasted")
+        H.equal(clipboard(), nil, "N13b: dropped by the quality comparison")
+
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        press(world, machine_button(sheet_flow, "gear"))
+        world.flush_cursor_events()
+        world.advance_tick()
+        world.empty_hand(1)
+        world.hold_item(1, clipboard().item.name, clipboard().item.quality) --a real item of the very machine copied
+        H.press(world, "hxrrc_pipette", {}) --before any notification: only the held-ghost check can drop it
+        H.equal(clipboard(), nil, "N13c: real item")
+    end)
+
+    H.test(shape .. " N13d N13e N13g a configuration change drops the clipboard and pending pastes; a removed player takes theirs; closing the calculator keeps it", function()
+        local world = pipette_world(shape)
+        copied_assembler(world)
+        M.Calculator.toggle(game.players[1])
+        M.Calculator.toggle(game.players[1])
+        assert(clipboard(), "N13g: kept across closing and opening the calculator")
+        storage[1].pipette_requests = {{clipboard_id = clipboard().id, tick = world.tick, target = {}}}
+        world.handlers.on_configuration_changed({mod_changes = {}})
+        H.equal(clipboard(), nil, "N13d: configuration change drops it")
+        H.equal(storage[1].pipette_requests, nil, "N13d: and pending pastes")
+        storage[1].pipette_requests = {{clipboard_id = 1, tick = world.tick, target = {}}}
+        require("logic.player_data_updater").reinitialize(1)
+        H.equal(storage[1].pipette_requests, nil, "N13d: reinitializing the player drops pending pastes itself")
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        copied_assembler(world)
+        world.handlers.events[defines.events.on_player_removed]({player_index = 1})
+        H.equal(storage[1], nil, "N13e: removed with the player")
+    end)
+
+    H.test(shape .. " N13f a machine a mod removed cannot be pasted", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        chosen().gear = {name = "fast-assembler"}
+        world.remove_machine("assembler")
+        world.advance_tick()
+        paste(world, machine_button(sheet_flow, "cog"))
+        H.deep_equal(chosen().cog, {name = "press"}, "nothing pasted")
+    end)
+
+    H.test(shape .. " N13i N13j pastes in later ticks keep the clipboard; Q over the world with a changed hand drops it without any notification", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        paste(world, machine_button(sheet_flow, "cog"))
+        paste(world, machine_button(sheet_flow, "X"))
+        H.equal(chosen().cog.name, "assembler", "first paste")
+        H.equal(chosen().X.name, "assembler", "second paste")
+        assert(clipboard(), "N13i: kept")
+        world.suppress_next_cursor_event(1)
+        world.empty_hand(1)
+        H.press(world, "hxrrc_pipette", {})
+        H.equal(clipboard(), nil, "N13j: dropped at the top of the press")
+    end)
+
+    H.test(shape .. " N13k N13l N13m flushes between writes, a suppressed own notification, and a retired allowance never paste a put-down setup", function()
+        local world = pipette_world(shape)
+        local sheet_flow = copied_assembler(world)
+        local item, quality = clipboard().item.name, clipboard().item.quality
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        world.hold_ghost(1, item, quality)
+        world.flush_cursor_events()
+        paste(world, machine_button(sheet_flow, "cog"))
+        H.deep_equal(chosen().cog, {name = "press"}, "N13k: nothing pasted")
+
+        chosen().gear = {name = "assembler"}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        world.advance_tick()
+        world.suppress_next_cursor_event(1)
+        press(world, machine_button(sheet_flow, "gear"))
+        world.advance_tick()
+        paste(world, machine_button(sheet_flow, "cog"))
+        H.equal(chosen().cog.name, "assembler", "N13l: with no own notification the paste still works")
+        world.advance_tick()
+        world.empty_hand(1)
+        world.hold_ghost(1, item, quality)
+        world.flush_cursor_events()
+        chosen().X = {name = "fast-assembler"}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        paste(world, machine_button(sheet_flow, "X"))
+        H.deep_equal(chosen().X, {name = "fast-assembler"}, "N13l: put down and picked up again: nothing pasted")
+
+        chosen().gear = {name = "assembler"}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        world.suppress_next_cursor_event(1)
+        press(world, machine_button(sheet_flow, "gear"))
+        assert(clipboard(), "copied without an own notification")
+        world.advance_tick()
+        world.hold_ghost(1, item, quality) --same ghost, a later tick: one external notification
+        world.flush_cursor_events()
+        H.equal(clipboard(), nil, "N13m: the unused allowance expired with its tick")
+    end)
+
+    H.test(shape .. " N13n N13o merged notifications: at a later tick they drop the clipboard; in the copy's own tick they cannot be told apart (A1)", function()
+        local world = pipette_world(shape)
+        world.merge_cursor_events = true
+        local sheet_flow = copied_assembler(world)
+        local item, quality = clipboard().item.name, clipboard().item.quality
+        world.empty_hand(1)
+        world.hold_ghost(1, item, quality)
+        world.flush_cursor_events()
+        H.equal(clipboard(), nil, "N13n: later-tick merged notification drops it")
+
+        chosen().gear = {name = "assembler"}
+        sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}})
+        world.empty_hand(1)
+        world.flush_cursor_events()
+        world.advance_tick()
+        press(world, machine_button(sheet_flow, "gear"))
+        world.empty_hand(1)
+        world.hold_ghost(1, item, quality)
+        world.flush_cursor_events()
+        --negative capability: the one delivery model the rule cannot handle, pinned so a change to it is noticed; G10f observes the engine
+        assert(clipboard(), "N13o: copy-tick merge of copy, clear and identical reselect keeps the clipboard (documented residual A1)")
+    end)
+
+    H.test(shape .. " N13p a second notification in the copy tick, with the same ghost still in hand, drops the clipboard", function()
+        local world = pipette_world(shape)
+        chosen().gear = {name = "assembler"}
+        local sheet_flow = sheet({{item = "gear"}})
+        world.advance_tick()
+        press(world, machine_button(sheet_flow, "gear"))
+        local item, quality = clipboard().item.name, clipboard().item.quality
+        world.hold_ghost(1, item, quality) --rewritten to the same ghost in the same tick
+        world.flush_cursor_events()
+        H.equal(clipboard(), nil, "only one notification is forgiven")
+    end)
+end
+
 H.done("test_pipette")

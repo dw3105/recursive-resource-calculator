@@ -90,6 +90,9 @@ function PlayerDataUpdater.reinitialize(player_index)
     ModuleSetup.migrate(player_index)
     ModuleSetup.reinitialize(player_index)
     QualityLoops.reinitialize(player_index)
+    --a copied machine setup and its pending pastes may name machines, modules or recipes a mod removed; the player copies again with one key
+    storage[player_index].pipette = nil
+    storage[player_index].pipette_requests = nil
 end
 
 return PlayerDataUpdater
