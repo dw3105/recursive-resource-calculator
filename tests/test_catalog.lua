@@ -3,7 +3,8 @@ local H = require "tests.harness"
 
 local Catalog
 
-local function world_with_catalog_fixtures(shape)
+local function world_with_catalog_fixtures(shape, quality_fixtures)
+    quality_fixtures = quality_fixtures or {}
     local world = H.new_world(shape)
     Catalog = require "logic.catalog"
     world.add_item("plate")
@@ -13,7 +14,20 @@ local function world_with_catalog_fixtures(shape)
         speeds_by_quality = {normal = 1, legendary = 2.5}, module_slots = 2,
         quality_affects_module_slots = true})
     world.add_beacon({name = "beacon", module_slots = 2, quality_affects_module_slots = true})
+    if quality_fixtures.beacon_supply then
+        local supply = quality_fixtures.beacon_supply
+        prototypes.entity.beacon.quality_affects_supply_area_distance = true
+        prototypes.entity.beacon.get_supply_area_distance = function(quality)
+            local level = prototypes.quality[quality].level
+            return supply.normal + level * supply.bonus_per_level
+        end
+    end
     world.add_default_infrastructure()
+    if quality_fixtures.pole_wire_bonus then
+        world.add_electric_pole({name = "quality-pole", supply_area = 2.5, wire_distance = 8,
+            quality_affects_supply_area = true, supply_bonus_per_level = 0.25,
+            wire_bonus_per_level = quality_fixtures.pole_wire_bonus})
+    end
     world.set_fluid_boxes("assembler", {
         world.fluid_box({connections = {
             {offset = {x = 0, y = -1}, direction = defines.direction.north},
@@ -160,6 +174,58 @@ for _, shape in ipairs(H.shapes()) do
             pole = "medium-electric-pole", robo = "roboport",
         })
         walk_plain(catalog, nil, "catalog")
+    end)
+
+    H.test(shape .. " C12 a pole's wire reach uses the selected quality", function()
+        world_with_catalog_fixtures(shape, {pole_wire_bonus = 2})
+        local normal = Catalog.build(1, {quality = "normal", pole = "quality-pole"})
+        local legendary = Catalog.build(1, {quality = "legendary", pole = "quality-pole"})
+        H.equal(normal.pole ~= nil, true, "normal pole is projected")
+        H.equal(legendary.pole ~= nil, true, "legendary pole is projected")
+        H.near(normal.pole.wire_reach, 8, "normal pole wire reach")
+        H.near(legendary.pole.wire_reach, 18, "legendary pole wire reach")
+    end)
+
+    H.test(shape .. " C13 crafting speed uses the selected quality", function()
+        world_with_catalog_fixtures(shape)
+        local catalog = Catalog.build(1, {quality = "legendary", entities = {"assembler"}})
+        H.equal(catalog.entity.assembler ~= nil, true, "assembler is projected")
+        H.near(catalog.entity.assembler.crafting_speed, 2.5, "legendary crafting speed")
+    end)
+
+    H.test(shape .. " C14 machine and beacon module slots use the selected quality", function()
+        world_with_catalog_fixtures(shape)
+        local catalog = Catalog.build(1, {quality = "legendary", entities = {"assembler", "beacon"}})
+        H.equal(catalog.entity.assembler ~= nil, true, "assembler is projected")
+        H.equal(catalog.entity.beacon ~= nil, true, "beacon is projected")
+        H.equal(catalog.entity.assembler.module_slots, 7, "legendary machine module slots")
+        H.equal(catalog.entity.beacon.module_slots, 7, "legendary beacon module slots")
+    end)
+
+    H.test(shape .. " C15 beacon supply area uses the selected quality", function()
+        world_with_catalog_fixtures(shape, {beacon_supply = {normal = 10, bonus_per_level = 1.5}})
+        local catalog = Catalog.build(1, {quality = "legendary", entities = {"beacon"}})
+        H.equal(catalog.entity.beacon ~= nil, true, "beacon is projected")
+        H.equal(catalog.entity.beacon.beacon ~= nil, true, "beacon data is projected")
+        H.near(catalog.entity.beacon.beacon.supply_w, 17.5, "legendary beacon supply area")
+        H.near(catalog.entity.beacon.beacon.supply_h, 17.5, "legendary beacon supply area height")
+    end)
+
+    H.test(shape .. " C16 selected quality retains all roboport prototype radii", function()
+        local world = H.new_world(shape)
+        Catalog = require "logic.catalog"
+        world.add_roboport({name = "quality-robo", tile_width = 6, logistic_radius = 31,
+            construction_radius = 67, connection_distance = 43})
+        local normal = Catalog.build(1, {quality = "normal", robo = "quality-robo"})
+        local legendary = Catalog.build(1, {quality = "legendary", robo = "quality-robo"})
+        H.equal(normal.robo ~= nil, true, "normal roboport is projected")
+        H.equal(legendary.robo ~= nil, true, "legendary roboport is projected")
+        H.equal(normal.robo.quality, "normal", "normal roboport quality")
+        H.equal(legendary.robo.quality, "legendary", "legendary roboport quality")
+        H.deep_equal({normal.robo.logistic_radius, normal.robo.construction_radius, normal.robo.connection_distance},
+            {31, 67, 43}, "normal roboport radii")
+        H.deep_equal({legendary.robo.logistic_radius, legendary.robo.construction_radius, legendary.robo.connection_distance},
+            {31, 67, 43}, "legendary roboport radii")
     end)
 end
 
