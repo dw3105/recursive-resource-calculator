@@ -280,7 +280,10 @@ function Jobs.request_all_sheets(player_index)
     for index = 1, #pane.tabs do
         if index ~= selected then add_tab(index) end
     end
-    for _, entry in ipairs(order) do Jobs.request_sheet(player_index, entry.sheet_id, entry.context) end
+    for position, entry in ipairs(order) do
+        entry.context.cursor = {request_order = position}
+        Jobs.request_sheet(player_index, entry.sheet_id, entry.context)
+    end
     return #order
 end
 
@@ -360,13 +363,18 @@ local function first_calc_sheet(data)
     if not is_plain_table(data) or not is_plain_table(data.calc_jobs) then return nil end
     local keys = {}
     for sheet_id, job in pairs(data.calc_jobs) do
-        if job ~= nil then keys[#keys + 1] = sheet_id end
+        if job ~= nil then
+            local cursor = is_plain_table(job.cursor) and job.cursor or {}
+            keys[#keys + 1] = {sheet_id = sheet_id, request_order = number_or(cursor.request_order, math.huge)}
+        end
     end
     table.sort(keys, function(a, b)
-        if type(a) == type(b) then return a < b end
-        return type(a) == "number"
+        if a.request_order ~= b.request_order then return a.request_order < b.request_order end
+        local left, right = a.sheet_id, b.sheet_id
+        if type(left) == type(right) then return left < right end
+        return type(left) == "number"
     end)
-    return keys[1]
+    return keys[1] and keys[1].sheet_id
 end
 
 local function cursor_start(indices)

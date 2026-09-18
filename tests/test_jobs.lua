@@ -18,7 +18,7 @@ local function world_with_control(shape, player_indices)
     return world, require "logic.jobs"
 end
 
-local function install_fake(Jobs, commits, steps, begins, kind)
+local function install_fake(Jobs, commits, steps, begins, kind, served)
     Jobs.register(kind or "fake", {
         begin = function(context)
             if begins then begins[#begins + 1] = context.sheet_id end
@@ -27,6 +27,7 @@ local function install_fake(Jobs, commits, steps, begins, kind)
         step = function(job, budget)
             local player_index = job.player_index
             steps[player_index] = (steps[player_index] or 0) + 1
+            if served then served[#served + 1] = job.sheet_id end
             job.state.remaining = job.state.remaining - 1
             job.state.completed = job.state.completed + 1
             job.progress.done_units = job.progress.done_units + 1
@@ -232,11 +233,14 @@ for _, shape in ipairs(H.shapes()) do
         local pane = storage[1].sheet_section.sheet_pane
         Sheet.new(pane)
         pane.selected_tab_index = 2
-        local commits, steps, begins = {}, {}, {}
-        install_fake(Jobs, commits, steps, begins, "calculation")
+        local commits, steps, begins, served = {}, {}, {}, {}
+        install_fake(Jobs, commits, steps, begins, "calculation", served)
         H.equal(Jobs.request_all_sheets(1), 2, "both sheets are queued")
         H.equal(begins[1], pane.tabs[2].content.tags.hxrrc_sheet_id, "visible sheet is begun first")
         H.equal(begins[2], pane.tabs[1].content.tags.hxrrc_sheet_id, "other sheet follows in tab order")
+        Jobs.OPS_PER_TICK = 1
+        H.run_ticks(world, 1)
+        H.equal(served[1], pane.tabs[2].content.tags.hxrrc_sheet_id, "visible sheet is serviced first")
     end)
 end
 
