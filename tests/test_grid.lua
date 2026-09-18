@@ -30,11 +30,13 @@ end
 local function rotate_relative_port(port, block_w, block_h)
     local x, y = port.attach_dx, port.attach_dy
     local frame_w, frame_h = block_w, block_h
+    local dir = port.normal_dir
     for _ = 1, 4 do
         x, y = Grid.rotate_rect(x, y, 1, 1, frame_w, frame_h, Grid.EAST)
         frame_w, frame_h = frame_h, frame_w
+        dir = Grid.rotate_dir(dir, Grid.EAST)
     end
-    return {x = x, y = y, dir = Grid.rotate_dir(port.normal_dir, Grid.EAST * 4)}
+    return {x = x, y = y, dir = dir}
 end
 
 for _, shape in ipairs(H.shapes()) do
