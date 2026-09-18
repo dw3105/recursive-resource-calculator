@@ -1,0 +1,18 @@
+[estate]
+release = "7e16fee1bf67ab0dec8e743f643f1638f242046f"
+template = "ae2a0aa00ebacea759031b83f6a38c870da04821350cef61a2d64a32cf4d234a"
+
+[lane]
+task_dir = "docs/tasks"
+claimed_numbers = "docs/tasks/CLAIMED_NUMBERS.md"
+prefix = ""
+audit_dir = "docs/audit/runs"
+engine = "codex exec"
+label = "rrc/agent"
+weight_mib = 1024
+weight_cores = 0.5
+suite_label = "rrc/heavy"
+
+[verify]
+default = "lua5.2 {tests}"
+scaffold = "sh tests/run.sh"

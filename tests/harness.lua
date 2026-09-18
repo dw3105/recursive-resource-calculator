@@ -71,7 +71,13 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "get_crafting_speed", "get_max_energy_usage", "electric_energy_source_prototype", "burner_prototype", "heat_energy_source_prototype",
     "fluid_energy_source_prototype", "void_energy_source_prototype", "module_inventory_size", "get_inventory_size", "allowed_module_categories",
     "quality_affects_module_slots", "module_slots_quality_bonus", "distribution_effectivity", "distribution_effectivity_bonus_per_quality_level",
-    "profile", "beacon_counter", "get_max_power_output", "items_to_place_this", "hidden"}
+    "profile", "beacon_counter", "get_max_power_output", "items_to_place_this", "hidden",
+    --round 8 geometry and infrastructure, every name taken from docs/api/*.members.json (see tests/test_api_shapes.lua):
+    "collision_box", "collision_mask", "tile_width", "tile_height", "flags", "fluidbox_prototypes",
+    "belt_speed", "related_underground_belt", "max_underground_distance",
+    "inserter_pickup_position", "inserter_drop_position", "inserter_stack_size_bonus", "inserter_max_belt_stack_size",
+    "logistic_radius", "construction_radius", "connection_distance",
+    "quality_affects_supply_area_distance", "get_supply_area_distance", "get_max_wire_distance"}
 local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
     "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter"}
 local QUALITY_MEMBERS = {"name", "valid", "localised_name", "level", "next", "next_probability", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus",
@@ -88,6 +94,20 @@ local ENTITY_GATES = {
     crafting_categories = gate(CRAFTING_MACHINE_TYPES),
     get_crafting_speed = gate(CRAFTING_MACHINE_TYPES),
     quality_affects_module_slots = gate({"beacon", "assembling-machine", "furnace", "rocket-silo", "mining-drill", "lab"}),
+    --round 8: members only their own entity type carries, so code cannot read a belt speed off a machine
+    belt_speed = gate({"transport-belt", "underground-belt", "splitter", "loader", "loader-1x1"}),
+    related_underground_belt = gate({"underground-belt"}),
+    max_underground_distance = gate({"underground-belt", "pipe-to-ground"}),
+    inserter_pickup_position = gate({"inserter"}),
+    inserter_drop_position = gate({"inserter"}),
+    inserter_stack_size_bonus = gate({"inserter"}),
+    inserter_max_belt_stack_size = gate({"inserter"}),
+    logistic_radius = gate({"roboport"}),
+    construction_radius = gate({"roboport"}),
+    connection_distance = gate({"roboport"}),
+    get_supply_area_distance = gate({"electric-pole", "beacon"}),
+    quality_affects_supply_area_distance = gate({"electric-pole", "beacon"}),
+    get_max_wire_distance = gate({"electric-pole", "power-switch"}),
 }
 local ITEM_GATES = {module_effects = gate({"module"}), get_module_effects = gate({"module"}), category = gate({"module"})}
 
@@ -124,20 +144,294 @@ local FLUID_ENERGY_SOURCE_MEMBERS = {
         "output_fluid_box", "spent_fluid"},
 }
 FLUID_ENERGY_SOURCE_MEMBERS.hybrid = FLUID_ENERGY_SOURCE_MEMBERS["2.0"]
-local FLUID_BOX_MEMBERS = {"valid", "filter"}
+--LuaFluidBoxPrototype: pipe_connections is where a machine's real fluid geometry lives. Its entries are concept
+--tables (plain Lua tables), and at runtime each carries positions (one MapPosition per cardinal orientation),
+--direction, connection_type and flow_direction. 2.1 adds alt_direction/alt_position. The data-stage singular
+--"position" shape does not exist here, so code cannot read a field the engine never returns.
+--2.0.77 carries volume; 2.1.19 dropped it, so a catalog that reads volume on 2.1 gets the engine's refusal here
+local FLUID_BOX_MEMBERS = {
+    ["2.0"] = {"valid", "filter", "index", "production_type", "volume", "pipe_connections", "minimum_temperature", "maximum_temperature"},
+    ["2.1"] = {"valid", "filter", "index", "production_type", "pipe_connections", "minimum_temperature", "maximum_temperature"},
+}
+FLUID_BOX_MEMBERS.hybrid = FLUID_BOX_MEMBERS["2.0"]
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
 local FORCE_MEMBERS = {"name", "valid", "recipes", "players", "is_quality_unlocked"}
 local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text", "cursor_ghost", "cursor_stack", "clear_cursor",
     "is_cursor_empty", "cursor_record"}
 --LuaItemStack per 2.0.77, the members the cursor stack mock serves; quality reads as LuaQualityPrototype
-local ITEM_STACK_MEMBERS = {"valid", "valid_for_read", "name", "quality", "count", "prototype"}
-local HELPERS_MEMBERS = {"compare_versions", "is_valid_sprite_path"}
+local ITEM_STACK_MEMBERS = {"valid", "valid_for_read", "name", "quality", "count", "prototype",
+    --round 8 blueprint delivery; set_blueprint_entities and friends are LuaItemCommon members LuaItemStack inherits
+    "set_stack", "clear", "is_blueprint", "is_blueprint_setup", "get_blueprint_entities", "set_blueprint_entities",
+    "label", "label_color", "preview_icons", "default_icons", "blueprint_description"}
+local HELPERS_MEMBERS = {"compare_versions", "is_valid_sprite_path", "table_to_json", "json_to_table", "encode_string", "decode_string"}
+
+--------------------------------------------------------------------------------
+--helpers.table_to_json / json_to_table / encode_string / decode_string
+--
+--The engine's encode_string is "compression plus Base64", not Base64 of the plain string, and the mod's debug export
+--is specified to decode offline with python3 base64.b64decode + zlib.decompress. So this mock emits a real zlib
+--stream: 0x78 0x01 header, deflate STORED blocks (BTYPE 00, byte aligned, max 65535 bytes each), adler32 trailer.
+--Stored blocks compress nothing, which does not matter for a test: what matters is that the bytes a decoder gets
+--are a zlib stream, so the documented offline decoder is exercised rather than assumed.
+--------------------------------------------------------------------------------
+
+local function adler32(data)
+    local a, b = 1, 0
+    for index = 1, #data do
+        a = (a + data:byte(index)) % 65521
+        b = (b + a) % 65521
+    end
+    return b * 65536 + a
+end
+
+local BASE64_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+
+local function base64_encode(data)
+    local out, length = {}, #data
+    for index = 1, length, 3 do
+        local b1, b2, b3 = data:byte(index), data:byte(index + 1), data:byte(index + 2)
+        local n = b1 * 65536 + (b2 or 0) * 256 + (b3 or 0)
+        local c1 = math.floor(n / 262144) % 64
+        local c2 = math.floor(n / 4096) % 64
+        local c3 = math.floor(n / 64) % 64
+        local c4 = n % 64
+        local chunk = BASE64_ALPHABET:sub(c1 + 1, c1 + 1) .. BASE64_ALPHABET:sub(c2 + 1, c2 + 1)
+        chunk = chunk .. (b2 and BASE64_ALPHABET:sub(c3 + 1, c3 + 1) or "=")
+        chunk = chunk .. (b3 and BASE64_ALPHABET:sub(c4 + 1, c4 + 1) or "=")
+        out[#out + 1] = chunk
+    end
+    return table.concat(out)
+end
+
+local BASE64_VALUES = {}
+for index = 1, #BASE64_ALPHABET do BASE64_VALUES[BASE64_ALPHABET:sub(index, index)] = index - 1 end
+
+local function base64_decode(text)
+    text = text:gsub("%s", ""):gsub("=", "")
+    local out, bits, count = {}, 0, 0
+    for index = 1, #text do
+        local value = BASE64_VALUES[text:sub(index, index)]
+        if value == nil then return nil end
+        bits, count = bits * 64 + value, count + 6
+        if count >= 8 then
+            count = count - 8
+            local byte = math.floor(bits / 2 ^ count)
+            bits = bits - byte * 2 ^ count
+            out[#out + 1] = string.char(byte)
+        end
+    end
+    return table.concat(out)
+end
+
+local function little_endian_16(value) return string.char(value % 256, math.floor(value / 256) % 256) end
+
+local function zlib_deflate_stored(data)
+    local parts = {string.char(0x78, 0x01)}
+    local length, offset = #data, 0
+    repeat
+        local size = math.min(65535, length - offset)
+        local final = (offset + size >= length) and 1 or 0
+        parts[#parts + 1] = string.char(final)
+        parts[#parts + 1] = little_endian_16(size)
+        parts[#parts + 1] = little_endian_16(65535 - size)
+        parts[#parts + 1] = data:sub(offset + 1, offset + size)
+        offset = offset + size
+    until offset >= length
+    local sum = adler32(data)
+    parts[#parts + 1] = string.char(math.floor(sum / 16777216) % 256, math.floor(sum / 65536) % 256,
+        math.floor(sum / 256) % 256, sum % 256)
+    return table.concat(parts)
+end
+
+local function zlib_inflate_stored(data)
+    if #data < 6 or data:byte(1) ~= 0x78 then return nil end
+    local out, position = {}, 3
+    while position <= #data - 4 do
+        local header = data:byte(position)
+        local btype = math.floor(header / 2) % 4
+        if btype ~= 0 then return nil end --this mock never emits compressed blocks
+        local size = data:byte(position + 1) + data:byte(position + 2) * 256
+        out[#out + 1] = data:sub(position + 5, position + 4 + size)
+        position = position + 5 + size
+        if header % 2 == 1 then break end
+    end
+    return table.concat(out)
+end
+
+--JSON writer matching what the export needs: arrays for 1..n tables, objects otherwise with sorted keys (so one
+--unchanged payload always serializes to one string), full precision numbers, no NaN or infinity.
+local function json_escape(text)
+    local escaped = text:gsub('[%c"\\]', function(character)
+        local known = {['"'] = '\\"', ["\\"] = "\\\\", ["\n"] = "\\n", ["\r"] = "\\r", ["\t"] = "\\t", ["\b"] = "\\b", ["\f"] = "\\f"}
+        return known[character] or string.format("\\u%04x", character:byte())
+    end)
+    return '"' .. escaped .. '"'
+end
+
+local function json_number(value)
+    if value ~= value or value == math.huge or value == -math.huge then
+        error("helpers.table_to_json cannot serialize " .. tostring(value), 3)
+    end
+    if value == math.floor(value) and math.abs(value) < 2 ^ 53 then return string.format("%d", value) end
+    return string.format("%.17g", value)
+end
+
+local function json_write(value, out)
+    local value_type = raw_type(value)
+    if value == nil then out[#out + 1] = "null"
+    elseif value_type == "boolean" then out[#out + 1] = tostring(value)
+    elseif value_type == "number" then out[#out + 1] = json_number(value)
+    elseif value_type == "string" then out[#out + 1] = json_escape(value)
+    elseif value_type == "table" then
+        local count = #value
+        local is_array = count > 0
+        if is_array then
+            for key in pairs(value) do
+                if raw_type(key) ~= "number" or key < 1 or key > count or key ~= math.floor(key) then is_array = false break end
+            end
+        end
+        if is_array then
+            out[#out + 1] = "["
+            for index = 1, count do
+                if index > 1 then out[#out + 1] = "," end
+                json_write(value[index], out)
+            end
+            out[#out + 1] = "]"
+        else
+            local keys = {}
+            for key in pairs(value) do keys[#keys + 1] = tostring(key) end
+            table.sort(keys)
+            out[#out + 1] = "{"
+            for index, key in ipairs(keys) do
+                if index > 1 then out[#out + 1] = "," end
+                out[#out + 1] = json_escape(key) .. ":"
+                json_write(value[key] ~= nil and value[key] or value[tonumber(key)], out)
+            end
+            out[#out + 1] = "}"
+        end
+    else
+        error("helpers.table_to_json cannot serialize a " .. value_type, 3)
+    end
+end
+
+local function table_to_json(value)
+    local out = {}
+    json_write(value, out)
+    return table.concat(out)
+end
+
+--Small reader, enough for the round trips the tests make; objects come back with string keys, arrays as 1..n
+local function json_to_table(text)
+    local position = 1
+    local parse_value
+
+    local function skip_space() position = text:find("[^ \t\r\n]", position) or #text + 1 end
+
+    local function parse_string()
+        position = position + 1
+        local out = {}
+        while true do
+            local character = text:sub(position, position)
+            if character == "" then error("helpers.json_to_table: unterminated string", 4) end
+            if character == '"' then position = position + 1 break end
+            if character == "\\" then
+                local escape = text:sub(position + 1, position + 1)
+                local known = {n = "\n", r = "\r", t = "\t", b = "\b", f = "\f", ['"'] = '"', ["\\"] = "\\", ["/"] = "/"}
+                if escape == "u" then
+                    out[#out + 1] = string.char(tonumber(text:sub(position + 2, position + 5), 16) % 256)
+                    position = position + 6
+                else
+                    out[#out + 1] = known[escape] or escape
+                    position = position + 2
+                end
+            else
+                out[#out + 1] = character
+                position = position + 1
+            end
+        end
+        return table.concat(out)
+    end
+
+    parse_value = function()
+        skip_space()
+        local character = text:sub(position, position)
+        if character == "{" then
+            local object = {}
+            position = position + 1
+            skip_space()
+            if text:sub(position, position) == "}" then position = position + 1 return object end
+            while true do
+                skip_space()
+                local key = parse_string()
+                skip_space()
+                position = position + 1 --colon
+                object[key] = parse_value()
+                skip_space()
+                local separator = text:sub(position, position)
+                position = position + 1
+                if separator == "}" then return object end
+            end
+        elseif character == "[" then
+            local array = {}
+            position = position + 1
+            skip_space()
+            if text:sub(position, position) == "]" then position = position + 1 return array end
+            while true do
+                array[#array + 1] = parse_value()
+                skip_space()
+                local separator = text:sub(position, position)
+                position = position + 1
+                if separator == "]" then return array end
+            end
+        elseif character == '"' then
+            return parse_string()
+        elseif text:sub(position, position + 3) == "true" then position = position + 4 return true
+        elseif text:sub(position, position + 4) == "false" then position = position + 5 return false
+        elseif text:sub(position, position + 3) == "null" then position = position + 4 return nil
+        else
+            local literal = text:match("^%-?%d+%.?%d*[eE]?[%+%-]?%d*", position)
+            if not literal then error("helpers.json_to_table: unexpected character " .. character, 4) end
+            position = position + #literal
+            return tonumber(literal)
+        end
+    end
+
+    local ok, value = pcall(parse_value)
+    if not ok then return nil end
+    return value
+end
 local SCRIPT_MEMBERS = {"active_mods", "mod_name", "on_init", "on_load", "on_configuration_changed", "on_event", "on_nth_tick"}
 
 local GUI_MEMBERS = set_of({"type", "name", "caption", "tooltip", "children", "parent", "style", "tags", "player_index", "enabled", "visible",
     "text", "elem_value", "elem_type", "elem_filters", "elem_tooltip", "selected_index", "items", "tabs", "selected_tab_index", "numeric",
     "allow_decimal", "allow_negative", "lose_focus_on_confirm", "direction", "column_count", "draw_horizontal_lines", "draw_vertical_lines",
-    "sprite", "valid", "auto_center", "state", "quality", "locked", "toggled"})
+    "sprite", "valid", "auto_center", "state", "quality", "locked", "toggled",
+    --round 8: the progress bar's value, and the export box's reading keys
+    "value", "read_only", "selectable", "word_wrap", "vertical_scroll_policy", "horizontal_scroll_policy"})
+
+--Members only some element types carry; reading or writing one elsewhere is what the engine refuses
+local GUI_TYPE_GATES = {
+    value = {progressbar = true, slider = true},
+    read_only = {["text-box"] = true, textfield = true},
+    selectable = {["text-box"] = true, textfield = true},
+    word_wrap = {["text-box"] = true},
+    vertical_scroll_policy = {["scroll-pane"] = true},
+    horizontal_scroll_policy = {["scroll-pane"] = true},
+}
+
+local function check_gui_type(element, key, level)
+    local gate = GUI_TYPE_GATES[key]
+    if not gate then return end
+    local element_type = rawget(element, "type")
+    if not gate[element_type] then
+        error("LuaGuiElement::" .. key .. " can only be used if this is " .. table.concat((function()
+            local names = {}
+            for name in pairs(gate) do names[#names + 1] = name end
+            table.sort(names)
+            return names
+        end)(), " or "), (level or 2) + 1)
+    end
+end
 
 local gui_methods = {}
 
@@ -156,7 +450,16 @@ function H.typed_sprite_valid(path)
 end
 
 --Values a player can change; kept out of the element table so every script write goes through __newindex
-local VALUE_KEYS = {elem_value = true, text = true, state = true}
+local VALUE_KEYS = {elem_value = true, text = true, state = true, value = true}
+
+--2.0.77 LuaGuiElement::value: "the value of this progressbar, in [0, 1]". Anything else is refused, so a bar cannot
+--be driven with a percentage or a negative remainder. Being inside the range is not "honest progress": that a job
+--below completion never writes 1 is a behaviour case, not this check.
+local function check_progress_value(value)
+    if type(value) ~= "number" or value ~= value or value < 0 or value > 1 then
+        error("LuaGuiElement::value must be a number in [0, 1], got " .. tostring(value), 4)
+    end
+end
 
 --Conservative assumption (not established for the engine): choose-elem-buttons refuse names of prototypes that do not exist
 local function check_elem_value(element, value)
@@ -298,6 +601,14 @@ local function new_gui_element(params, parent, player_index)
         element._values.elem_value = params[params.elem_type]
     end
     element._values.text = normalize_value("text", params.text)
+    for key in pairs(GUI_TYPE_GATES) do
+        if params[key] ~= nil then
+            check_gui_type(element, key, 3)
+            if key == "value" then check_progress_value(params[key]) end
+            element._values[key] = params[key]
+        end
+    end
+    if params.type == "progressbar" and element._values.value == nil then element._values.value = 0 end
     element._values.state = params.state
     check_quality(element, params.quality)
     element._values.quality = params.quality
@@ -310,7 +621,14 @@ local function new_gui_element(params, parent, player_index)
             if key == "elem_value" and rawget(self, "type") ~= "choose-elem-button" then
                 error("LuaGuiElement::elem_value can only be used if this is choose-elem-button", 2)
             end
-            if VALUE_KEYS[key] or key == "elem_type" or key == "style" then return rawget(self, "_values")[key] end
+            if VALUE_KEYS[key] or key == "elem_type" or key == "style" then
+                check_gui_type(self, key)
+                return rawget(self, "_values")[key]
+            end
+            if GUI_TYPE_GATES[key] then
+                check_gui_type(self, key)
+                return rawget(self, "_values")[key]
+            end
             --a sprite-button's quality is written as a name and read as the quality prototype
             if key == "quality" then
                 local quality_name = rawget(self, "_values").quality
@@ -336,6 +654,8 @@ local function new_gui_element(params, parent, player_index)
                     error("LuaGuiElement::elem_value can only be used if this is choose-elem-button", 2)
                 end
                 if key == "elem_value" then check_elem_value(self, value) end
+                check_gui_type(self, key)
+                if key == "value" then check_progress_value(value) end
                 rawget(self, "_values")[key] = normalize_value(key, value)
                 refire(self, key)
                 return
@@ -347,6 +667,11 @@ local function new_gui_element(params, parent, player_index)
             end
             if key == "elem_type" then error("LuaGuiElement::elem_type is read-only", 2) end
             if not GUI_MEMBERS[key] then error("LuaGuiElement doesn't contain key " .. tostring(key), 2) end
+            if GUI_TYPE_GATES[key] then
+                check_gui_type(self, key)
+                rawget(self, "_values")[key] = value
+                return
+            end
             if key == "style" then
                 rawget(self, "_values").style = type(value) == "string" and new_style(rawget(self, "type"), {name = value}) or value
                 return
@@ -417,6 +742,25 @@ end
 
 function gui_methods.force_auto_center() end
 
+--2.0.77: select_all and focus exist on textfield and text-box; the export dialog uses them for its Select all action
+local TEXT_INPUT_TYPES = {textfield = true, ["text-box"] = true}
+local function check_text_input(self, method)
+    if not TEXT_INPUT_TYPES[rawget(self, "type")] then
+        error("LuaGuiElement::" .. method .. " can only be used if this is textfield or text-box", 3)
+    end
+end
+function gui_methods.select_all(self)
+    check_text_input(self, "select_all")
+    rawget(self, "_values").selected_all = true
+end
+function gui_methods.focus(self)
+    check_text_input(self, "focus")
+    rawget(self, "_values").focused = true
+end
+--What a test reads back after the dialog's Select all ran; not an engine member
+function H.text_selected(element) return rawget(element, "_values").selected_all == true end
+function H.text_focused(element) return rawget(element, "_values").focused == true end
+
 function H.gui_root(params, player_index)
     return new_gui_element(params, nil, player_index or 1)
 end
@@ -471,7 +815,13 @@ function H.new_world(shape)
         on_runtime_mod_setting_changed = "on_runtime_mod_setting_changed", on_player_cursor_stack_changed = "on_player_cursor_stack_changed"},
         inventory = {beacon_modules = 1, crafter_modules = 4},
         --distinct values only: the mod compares against this table and never relies on the engine's numbers
-        mouse_button_type = {none = 1, left = 2, right = 4, middle = 3}}
+        mouse_button_type = {none = 1, left = 2, right = 4, middle = 3},
+        --2.0 serializes directions on the 16-step scale; a blueprint only ever uses the four cardinals
+        direction = {north = 0, northeast = 2, east = 4, southeast = 6, south = 8, southwest = 10, west = 12, northwest = 14},
+        --copper carries power, the circuit connectors never do; a wire edge is legal only between copper connectors
+        wire_connector_id = {pole_copper = 0, power_switch_left_copper = 1, power_switch_right_copper = 2,
+            circuit_red = 3, circuit_green = 4},
+        wire_type = {copper = 0, red = 1, green = 2}}
     --named sprite prototypes the data stage defined; item, fluid and entity paths are checked against their prototypes
     world.sprite_prototypes = {hxrrc_recycling = true}
     function world.remove_sprite(name) world.sprite_prototypes[name] = nil end
@@ -480,7 +830,26 @@ function H.new_world(shape)
         if typed ~= nil then return typed end
         return world.sprite_prototypes[path] == true
     end
-    _G.helpers = H.lua_object("LuaHelpers", {compare_versions = compare_versions, is_valid_sprite_path = is_valid_sprite_path}, HELPERS_MEMBERS)
+    --One failed encode on demand: the export has to say so rather than hand out a truncated string it calls valid
+    local encode_fails_next = false
+    function world.fail_next_encode() encode_fails_next = true end
+
+    _G.helpers = H.lua_object("LuaHelpers", {
+        compare_versions = compare_versions,
+        is_valid_sprite_path = is_valid_sprite_path,
+        table_to_json = function(value) return table_to_json(value) end,
+        json_to_table = function(text) return json_to_table(text) end,
+        --2.0.77 LuaHelpers::encode_string returns "the string encoded, or nil if the encoding failed"
+        encode_string = function(text)
+            if encode_fails_next then encode_fails_next = false return nil end
+            return base64_encode(zlib_deflate_stored(text))
+        end,
+        decode_string = function(text)
+            local raw = base64_decode(text)
+            if raw == nil then return nil end
+            return zlib_inflate_stored(raw)
+        end,
+    }, HELPERS_MEMBERS)
     _G.script = H.lua_object("LuaBootstrap", {
         active_mods = {base = base_version, ["RRC-Fork"] = "1.1.10"},
         mod_name = "RRC-Fork",
@@ -540,6 +909,64 @@ function H.new_world(shape)
         end,
     }
     _G.game = {players = {}, get_player = function(index) return game.players[index] end}
+
+    --A staging inventory, so a finished blueprint can be built without touching whatever the player already holds:
+    --BP-18 requires failure and cancellation to leave the cursor item untouched, which is only testable off-cursor.
+    function _G.game.create_inventory(size)
+        local slots = {}
+        for slot = 1, size do
+            local held
+            slots[slot] = H.lua_object("LuaItemStack", {valid = true}, ITEM_STACK_MEMBERS, nil, {
+                valid_for_read = {read = function() return held ~= nil end},
+                name = {read = function()
+                    if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    return held.name
+                end},
+                count = {read = function() return held and held.count or 0 end},
+                quality = {read = function()
+                    if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    return prototypes.quality[held.quality or "normal"]
+                end},
+                prototype = {read = function()
+                    if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    return prototypes.item[held.name]
+                end},
+                is_blueprint = {read = function() return held ~= nil and held.name == "blueprint" end},
+                is_blueprint_setup = {read = function() return function() return held ~= nil and held.name == "blueprint" and held.entities ~= nil end end},
+                blueprint_description = {read = function() return held and held.description end,
+                    write = function(_, value) if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end held.description = value end},
+                label = {read = function() return held and held.label end,
+                    write = function(_, value) if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end held.label = value end},
+                preview_icons = {read = function() return held and held.icons end,
+                    write = function(_, value) if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end held.icons = value end},
+                set_stack = {read = function() return function(spec)
+                    if spec == nil then held = nil return true end
+                    local name = raw_type(spec) == "table" and spec.name or spec
+                    if not prototypes.item[name] then error("Unknown item name " .. tostring(name), 3) end
+                    held = {name = name, count = raw_type(spec) == "table" and spec.count or 1, quality = raw_type(spec) == "table" and spec.quality or nil}
+                    return true
+                end end},
+                clear = {read = function() return function() held = nil return true end end},
+                set_blueprint_entities = {read = function() return function(entities)
+                    if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    if held.name ~= "blueprint" then error("LuaItemStack::set_blueprint_entities can only be used if this is a blueprint", 3) end
+                    held.entities = entities
+                end end},
+                get_blueprint_entities = {read = function() return function()
+                    if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    if held.name ~= "blueprint" then error("LuaItemStack::get_blueprint_entities can only be used if this is a blueprint", 3) end
+                    return held.entities
+                end end},
+            })
+        end
+        return slots
+    end
+
+    --The blueprint item itself, which set_stack{name = "blueprint"} needs to exist
+    function world.add_blueprint_item()
+        world.add_item("blueprint")
+        return prototypes.item.blueprint
+    end
 
     --fuel (optional): {value (J), category, emissions_multiplier (default 1)}; items without it have fuel value 0 and no fuel category
     function world.add_item(name, fuel)
@@ -651,9 +1078,9 @@ function H.new_world(shape)
             local source = {valid = true, emissions_per_joule = emissions, effectivity = fluid.effectivity or 1,
                 burns_fluid = fluid.burns_fluid ~= false, scale_fluid_usage = fluid.scale_fluid_usage == true,
                 fluid_usage_per_tick = fluid.fluid_usage_per_tick or 0, maximum_temperature = 0,
-                fluid_box = H.lua_object("LuaFluidBoxPrototype", {valid = true, filter = fluid.filter and prototypes.fluid[fluid.filter]}, FLUID_BOX_MEMBERS)}
+                fluid_box = H.lua_object("LuaFluidBoxPrototype", {valid = true, filter = fluid.filter and prototypes.fluid[fluid.filter]}, FLUID_BOX_MEMBERS[shape])}
             if shape == "2.1" then
-                source.output_fluid_box = fluid.output_fluid_box and H.lua_object("LuaFluidBoxPrototype", {valid = true}, FLUID_BOX_MEMBERS) or nil
+                source.output_fluid_box = fluid.output_fluid_box and H.lua_object("LuaFluidBoxPrototype", {valid = true}, FLUID_BOX_MEMBERS[shape]) or nil
                 source.spent_fluid = fluid.spent_fluid
             elseif fluid.output_fluid_box or fluid.spent_fluid then
                 error("fixture gives a 2.0 fluid energy source 2.1-only members", 2)
@@ -897,6 +1324,67 @@ function H.new_world(shape)
                 if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
                 return prototypes.item[stack.name]
             end},
+            --A blueprint delivered to the cursor: is_blueprint reads the held item, the entity list lives on the stack
+            is_blueprint = {read = function()
+                local stack = cursor_of(index).stack
+                return stack ~= nil and stack.name == "blueprint"
+            end},
+            --pinned API: is_blueprint_setup() is a method, is_blueprint an attribute
+            is_blueprint_setup = {read = function()
+                return function()
+                    local stack = cursor_of(index).stack
+                    return stack ~= nil and stack.name == "blueprint" and stack.entities ~= nil
+                end
+            end},
+            blueprint_description = {read = function() local stack = cursor_of(index).stack return stack and stack.description end,
+                write = function(_, value)
+                    local stack = cursor_of(index).stack
+                    if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    stack.description = value
+                end},
+            label = {read = function() local stack = cursor_of(index).stack return stack and stack.label end,
+                write = function(_, value)
+                    local stack = cursor_of(index).stack
+                    if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    stack.label = value
+                end},
+            preview_icons = {read = function() local stack = cursor_of(index).stack return stack and stack.icons end,
+                write = function(_, value)
+                    local stack = cursor_of(index).stack
+                    if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    stack.icons = value
+                end},
+            set_stack = {read = function()
+                return function(spec)
+                    --2.0.77: set_stack replaces what the stack holds; the mod must have released the old item first
+                    if spec == nil then world.cursors[index] = {} queue_cursor_event(index) return true end
+                    local name = raw_type(spec) == "table" and spec.name or spec
+                    if not prototypes.item[name] then error("Unknown item name " .. tostring(name), 3) end
+                    world.cursors[index] = {stack = {name = name, count = raw_type(spec) == "table" and spec.count or 1,
+                        quality = raw_type(spec) == "table" and spec.quality or nil}}
+                    queue_cursor_event(index)
+                    return true
+                end
+            end},
+            clear = {read = function()
+                return function() world.cursors[index] = {} queue_cursor_event(index) return true end
+            end},
+            set_blueprint_entities = {read = function()
+                return function(entities)
+                    local stack = cursor_of(index).stack
+                    if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    if stack.name ~= "blueprint" then error("LuaItemStack::set_blueprint_entities can only be used if this is a blueprint", 3) end
+                    stack.entities = entities
+                end
+            end},
+            get_blueprint_entities = {read = function()
+                return function()
+                    local stack = cursor_of(index).stack
+                    if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    if stack.name ~= "blueprint" then error("LuaItemStack::get_blueprint_entities can only be used if this is a blueprint", 3) end
+                    return stack.entities
+                end
+            end},
         })
         local player = H.lua_object("LuaPlayer", {
             index = index, name = "player" .. index, valid = true, force = force,
@@ -971,6 +1459,176 @@ function H.new_world(shape)
     end
 
     --Runs the mod's own indexing and per-player initialization over the fixture prototypes
+    --------------------------------------------------------------------------------
+    --Infrastructure fixtures: the entities a blueprint is built out of. One builder each, so the geometry lanes
+    --read prototype members instead of inventing constants, and every lane shares one set of fixtures.
+    --Geometry conventions: tile_width/tile_height are the north footprint; collision_box is the exact box in
+    --tiles relative to the entity centre; positions in a fluid box connection are MapPositions relative to that
+    --same centre, one per cardinal orientation, in the engine's north/east/south/west order.
+    --------------------------------------------------------------------------------
+
+    local function box(width, height)
+        return {left_top = {x = -width / 2 + 0.05, y = -height / 2 + 0.05}, right_bottom = {x = width / 2 - 0.05, y = height / 2 - 0.05}}
+    end
+
+    --spec: {name, tile_width, tile_height, type, collision_box (exact box, default derived), flags, energy_kw, ...}
+    local function infrastructure(spec, extra)
+        local fields = {
+            name = spec.name, type = spec.type, valid = true, localised_name = {"entity-name." .. spec.name},
+            tile_width = spec.tile_width or 1, tile_height = spec.tile_height or 1,
+            collision_box = spec.collision_box or box(spec.tile_width or 1, spec.tile_height or 1),
+            collision_mask = spec.collision_mask or {layers = {object = true, player = true, water_tile = true}},
+            flags = spec.flags or {["player-creation"] = true},
+            energy_usage = (spec.energy_kw or 0) * 1000 / 60,
+            items_to_place_this = {{name = spec.name, count = 1}},
+            hidden = false,
+        }
+        for key, value in pairs(extra or {}) do fields[key] = value end
+        local entity = H.lua_object("LuaEntityPrototype", fields, ENTITY_MEMBERS, ENTITY_GATES)
+        prototypes.entity[spec.name] = entity
+        if prototypes.item[spec.name] == nil then world.add_item(spec.name) end
+        return entity
+    end
+
+    --spec: {name, items_per_second (both lanes, default 15)}
+    function world.add_transport_belt(spec)
+        return infrastructure({name = spec.name, type = "transport-belt"},
+            {belt_speed = (spec.items_per_second or 15) / 480}) --2.0.77: belt_speed is tiles per tick
+    end
+
+    --spec: {name, items_per_second, max_distance (default 5), related (the matching surface belt's name)}
+    function world.add_underground_belt(spec)
+        return infrastructure({name = spec.name, type = "underground-belt"},
+            {belt_speed = (spec.items_per_second or 15) / 480,
+             max_underground_distance = spec.max_distance or 5,
+             related_underground_belt = spec.related and prototypes.entity[spec.related] or nil})
+    end
+
+    --spec: {name, items_per_second}
+    function world.add_splitter(spec)
+        return infrastructure({name = spec.name, type = "splitter", tile_width = 2, tile_height = 1},
+            {belt_speed = (spec.items_per_second or 15) / 480})
+    end
+
+    --spec: {name, items_per_second (default 4.62), pickup (vector, default one tile behind), drop (vector, default one tile ahead),
+    --  stack_bonus (default 0), max_belt_stack (default 1), energy_kw}
+    function world.add_inserter(spec)
+        return infrastructure({name = spec.name, type = "inserter", energy_kw = spec.energy_kw or 13},
+            {inserter_pickup_position = spec.pickup or {x = 0, y = 1},
+             inserter_drop_position = spec.drop or {x = 0, y = -1.203125},
+             inserter_stack_size_bonus = spec.stack_bonus or 0,
+             inserter_max_belt_stack_size = spec.max_belt_stack or 1,
+             --the mod reads a rate from its own model; the prototype only carries geometry and bonuses
+             energy_usage = (spec.energy_kw or 13) * 1000 / 60})
+    end
+
+    --Builds the four rotated MapPositions of one connection tile offset, in north/east/south/west order
+    local function rotated_positions(offset)
+        return {{x = offset.x, y = offset.y}, {x = -offset.y, y = offset.x}, {x = -offset.x, y = -offset.y}, {x = offset.y, y = -offset.x}}
+    end
+
+    --connections: list of {offset = {x=, y=}, direction (defines.direction value), connection_type ("normal"|"underground"),
+    --  flow_direction ("input"|"output"|"input-output"), max_underground_distance}
+    function world.fluid_box(spec)
+        local connections = {}
+        for index, connection in ipairs(spec.connections or {}) do
+            local entry = {
+                positions = rotated_positions(connection.offset),
+                direction = connection.direction,
+                connection_type = connection.connection_type or "normal",
+                flow_direction = connection.flow_direction or "input-output",
+                connection_category = connection.connection_category or {"default"},
+            }
+            if connection.max_underground_distance then entry.max_underground_distance = connection.max_underground_distance end
+            if shape == "2.1" then
+                entry.alt_direction = connection.alt_direction
+                entry.alt_position = connection.alt_position
+            elseif connection.alt_direction or connection.alt_position then
+                error("fixture gives a 2.0 pipe connection 2.1-only members", 2)
+            end
+            connections[index] = entry
+        end
+        local fields = {valid = true, index = spec.index or 1,
+            production_type = spec.production_type or "input-output",
+            minimum_temperature = spec.minimum_temperature or 0,
+            maximum_temperature = spec.maximum_temperature or 1000,
+            filter = spec.filter and prototypes.fluid[spec.filter] or nil,
+            pipe_connections = connections}
+        if shape ~= "2.1" then fields.volume = spec.volume or 100 end
+        return H.lua_object("LuaFluidBoxPrototype", fields, FLUID_BOX_MEMBERS[shape])
+    end
+
+    --Gives an existing machine its fluid boxes; boxes are world.fluid_box(...) results in prototype order
+    function world.set_fluid_boxes(machine_name, boxes)
+        local machine = prototypes.entity[machine_name]
+        if not machine then error("no such machine " .. tostring(machine_name), 2) end
+        machine.fluidbox_prototypes = boxes
+    end
+
+    --spec: {name, max_distance (default 10), underground (name of the matching pipe-to-ground)}
+    function world.add_pipe(spec)
+        return infrastructure({name = spec.name, type = "pipe"},
+            {fluidbox_prototypes = {world.fluid_box({connections = {
+                {offset = {x = 0, y = -1}, direction = defines.direction.north},
+                {offset = {x = 1, y = 0}, direction = defines.direction.east},
+                {offset = {x = 0, y = 1}, direction = defines.direction.south},
+                {offset = {x = -1, y = 0}, direction = defines.direction.west},
+            }})}})
+    end
+
+    --spec: {name, max_distance (default 10)}
+    function world.add_pipe_to_ground(spec)
+        local distance = spec.max_distance or 10
+        return infrastructure({name = spec.name, type = "pipe-to-ground"},
+            {max_underground_distance = distance,
+             --vanilla: the exposed connection faces north in the default orientation, the underground one faces south
+             fluidbox_prototypes = {world.fluid_box({connections = {
+                {offset = {x = 0, y = -1}, direction = defines.direction.north, connection_type = "normal"},
+                {offset = {x = 0, y = 1}, direction = defines.direction.south, connection_type = "underground",
+                 max_underground_distance = distance},
+             }})}})
+    end
+
+    --spec: {name, tile_width, supply_area (half-width in tiles at normal quality), wire_distance, quality_affects_supply_area,
+    --  supply_bonus_per_level (default 0), wire_bonus_per_level (default 0)}
+    function world.add_electric_pole(spec)
+        local supply, wire = spec.supply_area or 2, spec.wire_distance or 7.5
+        return infrastructure({name = spec.name, type = "electric-pole", tile_width = spec.tile_width or 1, tile_height = spec.tile_height or spec.tile_width or 1},
+            {quality_affects_supply_area_distance = spec.quality_affects_supply_area == true,
+             get_supply_area_distance = function(quality)
+                 local level = quality and prototypes.quality[quality] and prototypes.quality[quality].level or 0
+                 if not spec.quality_affects_supply_area then return supply end
+                 return supply + level * (spec.supply_bonus_per_level or 0)
+             end,
+             get_max_wire_distance = function(quality)
+                 local level = quality and prototypes.quality[quality] and prototypes.quality[quality].level or 0
+                 return wire + level * (spec.wire_bonus_per_level or 0)
+             end})
+    end
+
+    --spec: {name, tile_width (default 4), logistic_radius (default 25), construction_radius (default 55), connection_distance (default 50)}
+    function world.add_roboport(spec)
+        return infrastructure({name = spec.name, type = "roboport", tile_width = spec.tile_width or 4, tile_height = spec.tile_height or spec.tile_width or 4,
+                energy_kw = spec.energy_kw or 50},
+            {logistic_radius = spec.logistic_radius or 25,
+             construction_radius = spec.construction_radius or 55,
+             connection_distance = spec.connection_distance or 50})
+    end
+
+    --The vanilla-shaped set every blueprint fixture starts from: one belt family, inserter, pipes, pole, roboport
+    function world.add_default_infrastructure()
+        world.add_transport_belt({name = "transport-belt", items_per_second = 15})
+        world.add_underground_belt({name = "underground-belt", items_per_second = 15, max_distance = 5, related = "transport-belt"})
+        world.add_splitter({name = "splitter", items_per_second = 15})
+        world.add_inserter({name = "inserter"})
+        world.add_pipe({name = "pipe"})
+        world.add_pipe_to_ground({name = "pipe-to-ground", max_distance = 10})
+        world.add_electric_pole({name = "medium-electric-pole", supply_area = 3.5, wire_distance = 9,
+            quality_affects_supply_area = true, supply_bonus_per_level = 0.5, wire_bonus_per_level = 0})
+        world.add_roboport({name = "roboport"})
+        return world
+    end
+
     function world.init()
         for _, player in pairs(game.players) do
             for recipe_name, _ in pairs(prototypes.recipe) do
@@ -1322,27 +1980,32 @@ end
 
 local results = {passed = 0, failed = 0, names = {}}
 
+--A failure the assertion helpers raised, versus anything else that went wrong (nil index, a refused mocked member, a fixture blowing up).
+--Gates read the tag: a red proof and a killed mutant need [assert]; [error] means the case never reached its assertion.
+H.ASSERT_MARK = "RRC-ASSERT: "
+
 function H.test(name, fn)
     local ok, err = xpcall(fn, debug.traceback)
     if ok then
         results.passed = results.passed + 1
     else
         results.failed = results.failed + 1
-        print("FAIL " .. name .. "\n  " .. tostring(err):gsub("\n", "\n  "))
+        local tag = tostring(err):find(H.ASSERT_MARK, 1, true) and "[assert]" or "[error]"
+        print("FAIL " .. name .. " " .. tag .. "\n  " .. tostring(err):gsub("\n", "\n  "))
     end
 end
 
 --NaN compares false with everything, so a plain tolerance check would let it pass
 local function check_finite(actual, what)
     if type(actual) ~= "number" or actual ~= actual or actual == math.huge or actual == -math.huge then
-        error(string.format("%s: expected a finite number, got %s", what, tostring(actual)), 3)
+        error(H.ASSERT_MARK .. string.format("%s: expected a finite number, got %s", what, tostring(actual)), 3)
     end
 end
 
 function H.near(actual, expected, what)
     check_finite(actual, what)
     if math.abs(actual - expected) > TOLERANCE then
-        error(string.format("%s: expected %.12g, got %s", what, expected, tostring(actual)), 2)
+        error(H.ASSERT_MARK .. string.format("%s: expected %.12g, got %s", what, expected, tostring(actual)), 2)
     end
 end
 
@@ -1350,13 +2013,13 @@ end
 function H.near_relative(actual, expected, what)
     check_finite(actual, what)
     if math.abs(actual - expected) > TOLERANCE * math.max(1, math.abs(expected)) then
-        error(string.format("%s: expected %.12g, got %s", what, expected, tostring(actual)), 2)
+        error(H.ASSERT_MARK .. string.format("%s: expected %.12g, got %s", what, expected, tostring(actual)), 2)
     end
 end
 
 function H.equal(actual, expected, what)
     if actual ~= expected then
-        error(string.format("%s: expected %s, got %s", what, tostring(expected), tostring(actual)), 2)
+        error(H.ASSERT_MARK .. string.format("%s: expected %s, got %s", what, tostring(expected), tostring(actual)), 2)
     end
 end
 
@@ -1364,12 +2027,12 @@ end
 function H.deep_equal(actual, expected, what)
     local function compare(a, b, path)
         if type(a) ~= "table" or type(b) ~= "table" then
-            if a ~= b then error(string.format("%s: at %s expected %s, got %s", what, path, tostring(b), tostring(a)), 4) end
+            if a ~= b then error(H.ASSERT_MARK .. string.format("%s: at %s expected %s, got %s", what, path, tostring(b), tostring(a)), 4) end
             return
         end
         for key, value in pairs(b) do compare(a[key], value, path .. "." .. tostring(key)) end
         for key, value in pairs(a) do
-            if b[key] == nil then error(string.format("%s: at %s unexpected %s", what, path .. "." .. tostring(key), tostring(value)), 4) end
+            if b[key] == nil then error(H.ASSERT_MARK .. string.format("%s: at %s unexpected %s", what, path .. "." .. tostring(key), tostring(value)), 4) end
         end
     end
     compare(actual, expected, "")
@@ -1377,8 +2040,30 @@ end
 
 function H.errors(fn, pattern, what)
     local ok, err = pcall(fn)
-    if ok then error(what .. ": expected an error matching '" .. pattern .. "', got none", 2) end
-    if not tostring(err):find(pattern, 1, true) then error(what .. ": error '" .. tostring(err) .. "' does not contain '" .. pattern .. "'", 2) end
+    if ok then error(H.ASSERT_MARK .. what .. ": expected an error matching '" .. pattern .. "', got none", 2) end
+    if not tostring(err):find(pattern, 1, true) then error(H.ASSERT_MARK .. what .. ": error '" .. tostring(err) .. "' does not contain '" .. pattern .. "'", 2) end
+end
+
+--Advances the tick and fires the mod's registered on_tick that many times, the way the game does. Every incremental
+--job is driven through this, so a test cannot accidentally prove progress by calling a step function directly.
+function H.run_ticks(world, count)
+    local handler = world.handlers.events[defines.events.on_tick]
+    for _ = 1, count or 1 do
+        world.advance_tick(1)
+        world.flush_cursor_events()
+        if handler then handler({name = defines.events.on_tick, tick = world.tick}) end
+    end
+    return world.tick
+end
+
+--Decodes what the mod's export action produced: base64 -> zlib -> JSON -> table. The offline acceptance check is
+--python3 base64.b64decode + zlib.decompress, so a test that reads this is reading the same bytes that decoder gets.
+function H.decode_export(encoded)
+    local json = helpers.decode_string((encoded or ""):gsub("%s", ""))
+    if json == nil then return nil, "not a zlib stream" end
+    local payload = helpers.json_to_table(json)
+    if payload == nil then return nil, "not JSON" end
+    return payload, json
 end
 
 --Shapes to run version-parametrized cases against; RRC_SHAPES overrides (e.g. "hybrid" for a red run on cb6b529)
