@@ -6,7 +6,7 @@
   "new": "    return math.max(1, math.floor(rate / capacity + 0.5))",
   "test": "tests/test_bp_plan.lua",
   "shapes": "2.0",
-  "expect": "BP",
+  "expect": "BP8",
   "note": "mutates lane_count, the port lane count, not Plan.machine_count"
  },
  {
@@ -52,7 +52,7 @@
   "new": "",
   "test": "tests/test_export_payload.lua",
   "shapes": "2.0",
-  "expect": "E"
+  "expect": "E11"
  },
  {
   "id": "W2-M07",
