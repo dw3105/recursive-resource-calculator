@@ -1,0 +1,83 @@
+[
+ {
+  "id": "W1-M01",
+  "file": "logic/bp/grid.lua",
+  "old": "dx, dy, a, b, w, h = h - dy - b, dx, b, a, h, w",
+  "new": "dx, dy, a, b, w, h = h - 1 - dy, dx, b, a, h, w",
+  "test": "tests/test_grid.lua",
+  "shapes": "2.0",
+  "expect": "G4"
+ },
+ {
+  "id": "W1-M02",
+  "file": "logic/bp/grid.lua",
+  "old": "    if rect.x < 0 or rect.y < 0 or rect.x + rect.w > grid.w or rect.y + rect.h > grid.h then",
+  "new": "    if rect.x < 0 or rect.y < 0 or rect.x + rect.w > grid.w + 1 or rect.y + rect.h > grid.h then",
+  "test": "tests/test_grid.lua",
+  "shapes": "2.0",
+  "expect": "G"
+ },
+ {
+  "id": "W1-M03",
+  "file": "logic/snapshot.lua",
+  "old": "    if snapshot and snapshot.fingerprint and result_fingerprint == snapshot.fingerprint.input then\n        return \"current\"\n    end\n    return \"stale\"",
+  "new": "    return \"current\"",
+  "test": "tests/test_snapshot.lua",
+  "shapes": "2.0",
+  "expect": "S"
+ },
+ {
+  "id": "W1-M04",
+  "file": "logic/snapshot.lua",
+  "old": "    if job_running then\n        return \"pending\"\n    end",
+  "new": "    if job_running and false then\n        return \"pending\"\n    end",
+  "test": "tests/test_snapshot.lua",
+  "shapes": "2.0",
+  "expect": "S"
+ },
+ {
+  "id": "W1-M05",
+  "file": "gui/progress_panel.lua",
+  "old": "        return math.min(1, done / total), total",
+  "new": "        return math.min(1, done / total + 1), total",
+  "test": "tests/test_progress_panel.lua",
+  "shapes": "2.0",
+  "expect": "PP"
+ },
+ {
+  "id": "W1-M06",
+  "file": "gui/progress_panel.lua",
+  "old": "    return math.max(0, math.floor(value))",
+  "new": "    return math.floor(value)",
+  "test": "tests/test_progress_panel.lua",
+  "shapes": "2.0",
+  "expect": "PP"
+ },
+ {
+  "id": "W1-M07",
+  "file": "logic/jobs.lua",
+  "old": "Jobs.OPS_PER_TICK = 2000",
+  "new": "Jobs.OPS_PER_TICK = 1",
+  "test": "tests/test_jobs.lua",
+  "shapes": "2.0",
+  "expect": "J"
+ },
+ {
+  "id": "W1-M08",
+  "file": "logic/catalog.lua",
+  "old": "        if type(entity.get_supply_area_distance) == \"function\" then supply = entity.get_supply_area_distance(quality_name) end",
+  "new": "        if type(entity.get_supply_area_distance) == \"function\" then supply = entity.get_supply_area_distance(\"normal\") end",
+  "test": "tests/test_catalog.lua",
+  "shapes": "2.0",
+  "expect": "C"
+ },
+ {
+  "id": "W1-M09",
+  "file": "logic/catalog.lua",
+  "old": "        if type(entity.get_max_wire_distance) == \"function\" then wire = entity.get_max_wire_distance(quality_name) end",
+  "new": "        if type(entity.get_max_wire_distance) == \"function\" then wire = entity.get_max_wire_distance(\"normal\") end",
+  "test": "tests/test_catalog.lua",
+  "shapes": "2.0",
+  "expect": "C"
+ }
+]
