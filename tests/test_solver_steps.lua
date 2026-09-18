@@ -65,8 +65,13 @@ end
 local function answer(result)
     local columns = {}
     for index, column in ipairs(result.columns or {}) do
+        local info = column.quality_loop
         columns[index] = {recipe_name = column.recipe_name, product_full_name = column.product_full_name,
-            binding_full_name = column.binding_full_name}
+            binding_full_name = column.binding_full_name, quality_loop = info and {
+                key = info.key, item = info.item, quality = info.quality, reason = info.reason, forced = info.forced,
+                craft_recipe_name = info.craft_recipe_name, recycle_recipe_name = info.recycle_recipe_name,
+                start_leftovers = info.start_leftovers,
+            } or nil}
     end
     return {status = result.status, recipe_rates = result.recipe_rates, solved_rates = result.solved_rates,
         unsolved_rates = result.unsolved_rates, reasons_by_column = result.reasons_by_column,
@@ -96,11 +101,14 @@ for _, shape in ipairs(H.shapes()) do
         world_for(shape, false)
         local input = quality_input(false)
         local state, one_at_a_time = step_to_end(Steps.begin(copy(input)), 1)
-        local unbounded_state, unbounded = step_to_end(Steps.begin(copy(input)), 1000000000)
+        local unbounded_state, unbounded = step_to_end(Steps.begin(copy(input)), math.huge)
         local reference = Solver._solve_for_sync(input.rates, input.player_index, copy(input.product_parts), input.options)
         assert_same(reference, state, "quality answer")
         H.deep_equal(answer(state.result), answer(unbounded_state.result), "quality fixture fields")
         H.equal(one_at_a_time > unbounded, true, "one operation takes more steps")
+        local work = 0
+        for _, units in pairs(state.work) do work = work + units end
+        H.equal(one_at_a_time <= work + 8, true, "one-operation steps stay bounded by recorded work")
     end)
 
     H.test(shape .. " S2 feed fixture preserves rates statuses recipe choices and feed rounds", function()
@@ -130,7 +138,7 @@ for _, shape in ipairs(H.shapes()) do
         world.add_item("P")
         world.add_item("Q")
         world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
-        world.add_recipe({name = "backwards", ingredients = {{name = "P", amount = 2}}, products = {{name = "P"}}})
+        world.add_recipe({name = "backwards", ingredients = {{name = "P", amount = 2}}, products = {{name = "P", amount = 1}}})
         world.add_recipe({name = "same", ingredients = {}, products = {{name = "P", amount = 1}, {name = "Q", amount = 1}}})
         world.add_recipe({name = "same-2", ingredients = {}, products = {{name = "P", amount = 1}, {name = "Q", amount = 1}}})
         world.add_player(1)
@@ -139,14 +147,14 @@ for _, shape in ipairs(H.shapes()) do
         local infeasible = {rates = {["item/P"] = 1}, player_index = 1, product_parts = {}, options = nil}
         local infeasible_state = step_to_end(Steps.begin(copy(infeasible)), 1)
         local infeasible_reference = Solver._solve_for_sync(infeasible.rates, 1, {}, nil)
-        H.equal(infeasible_state.result.status, infeasible_reference.status, "infeasible status")
+        assert_same(infeasible_reference, infeasible_state, "infeasible answer")
 
         world.bind("item/P", "same")
         world.bind("item/Q", "same-2")
         local unsolvable = {rates = {["item/P"] = 1, ["item/Q"] = 1}, player_index = 1, product_parts = {}, options = nil}
         local unsolvable_state = step_to_end(Steps.begin(copy(unsolvable)), 1)
         local unsolvable_reference = Solver._solve_for_sync(unsolvable.rates, 1, {}, nil)
-        H.equal(unsolvable_state.result.status, unsolvable_reference.status, "unsolvable status")
+        assert_same(unsolvable_reference, unsolvable_state, "unsolvable answer")
     end)
 end
 

@@ -838,7 +838,7 @@ end
 --product_parts: the parts of the targets above normal quality
 --  feed_rounds: rounds of the share search when loops use higher-quality items made elsewhere (M3), else nil.
 --options: {start_leftovers = "byproduct" (default) | "craft" | "recycle"}, the sheet's choice for items loops return at their start quality
-function Solver.solve_for(production_rates_by_product_full_name, player_index, product_parts, options)
+local function solve_for_sync(production_rates_by_product_full_name, player_index, product_parts, options)
     local parts = {} --the targets' parts, joined by those of the items loops leave above normal quality
     for full_name, target_parts in pairs(product_parts or {}) do parts[full_name] = target_parts end
     product_parts = parts
@@ -1193,6 +1193,21 @@ function Solver._solve_with_feed(columns, mixed, rates, product_parts, solve_onc
 end
 
 Solver.productivity_bonus = productivity_bonus
+
+--The synchronous implementation is kept as the calculation kernel. SolverSteps owns the resumable boundary;
+--keeping this seam here also makes the old answer the reference for every sliced run.
+Solver._solve_for_sync = solve_for_sync
+
+function Solver.solve_for(production_rates_by_product_full_name, player_index, product_parts, options)
+    local SolverSteps = require "logic.solver_steps"
+    local state = SolverSteps.begin({rates = production_rates_by_product_full_name, player_index = player_index,
+        product_parts = product_parts, options = options})
+    local budget = {ops = math.huge}
+    while not state.done do
+        state = SolverSteps.step(state, budget)
+    end
+    return SolverSteps._result(state) or state.result
+end
 
 --Exposed for offline tests only
 Solver._gauss_solve = gauss_solve
