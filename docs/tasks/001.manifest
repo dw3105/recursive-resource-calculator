@@ -1,0 +1,2 @@
+logic/snapshot.lua
+!tests/test_snapshot.lua
