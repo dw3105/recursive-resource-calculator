@@ -19,6 +19,9 @@ local function initialize_module_setups(player_index)
     storage[player_index].module_setups_by_recipe_name = module_setups_by_recipe_name
 end
 
+PlayerData.initialize_chosen_crafting_machines = initialize_chosen_crafting_machines
+PlayerData.initialize_module_setups = initialize_module_setups
+
 function PlayerData.initialize_recipe_bindings(player_index)
     local recipes_by_product_full_name = {}
     local product_full_names_by_recipe_name = {}
