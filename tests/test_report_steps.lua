@@ -36,7 +36,10 @@ local function run_to_done(ReportSteps, state, budget)
     while not state.done do
         ReportSteps.step(state, {ops = budget or 1})
         slices = slices + 1
-        if slices > 10000 then error("report stepper did not finish") end
+        if slices > 10000 then
+            H.equal(state.done, true, "report stepper finishes within the bounded test limit")
+            return slices
+        end
     end
     return slices
 end
