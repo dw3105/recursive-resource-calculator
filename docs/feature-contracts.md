@@ -216,9 +216,12 @@ round 8 keys until translated. A lane names an existing key. `tests/test_locale_
 
 ## 16. Wave bases
 
+A lane is given its base as a SHA in its task file. The table names the tag that SHA comes from; a tag is
+written down here rather than a commit id, because a commit id moves whenever the commit it names is amended.
+
 | Wave | Base tag | SHA |
 | --- | --- | --- |
-| 1 | `wave-0-spine` | `20c7bef2b0421a9721cc7129e7b40fe340076303` |
-| 2 | `wave-1-green` | |
-| 3 | `wave-2-green` | |
-| 4 | `wave-3-green` | |
+| 1 | `wave-0-spine` | resolve with `git rev-parse wave-0-spine` |
+| 2 | `wave-1-green` | `git rev-parse wave-1-green` |
+| 3 | `wave-2-green` | `git rev-parse wave-2-green` |
+| 4 | `wave-3-green` | `git rev-parse wave-3-green` |
