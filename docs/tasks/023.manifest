@@ -1,0 +1,2 @@
+logic/bp/serialize.lua
+!tests/test_serialize.lua
