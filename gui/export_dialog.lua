@@ -16,7 +16,7 @@ local CLOSE_NAME = "hxrrc_export_close_button"
 
 --GUI handles are deliberately kept out of storage. This is only a runtime aid for noticing that the sheet which
 --owns an open window was destroyed; the saved part below contains only the sheet id and the displayed state.
-local opened_sheets = setmetatable({}, {__mode = "v"})
+local opened_sheets = {}
 
 local STATES = {not_computed = true, current = true, pending = true, stale = true, failed = true}
 
@@ -58,9 +58,10 @@ local function live_frame(player_index)
     local player = player_of(player_index)
     local frame = frame_of(player)
     local tracked_sheet = opened_sheets[player_index]
+    local saved_state = storage[player_index] and storage[player_index].export_dialog
 
-    --A sheet can disappear without giving this module an event. The weak runtime reference lets the next honest
-    --query clean up the window, while no LuaObject is ever put into storage.
+    --A sheet can disappear without giving this module an event. The runtime reference lets the next honest query
+    --clean up the window, while no LuaObject is ever put into storage.
     if tracked_sheet and not tracked_sheet.valid then
         clear_saved_state(player_index)
         destroy_frame(frame)
@@ -75,6 +76,31 @@ local function live_frame(player_index)
         clear_saved_state(player_index)
         destroy_frame(frame)
         return nil
+    end
+    --Esc or another GUI can take the focus without this module receiving a close callback. Treat that as closed.
+    if frame and player.opened ~= frame then
+        clear_saved_state(player_index)
+        destroy_frame(frame)
+        return nil
+    end
+    if saved_state and saved_state.sheet_id and not tracked_sheet then
+        local pane = storage[player_index].sheet_section and storage[player_index].sheet_section.sheet_pane
+        if pane then
+            local found = false
+            for _, tab_and_content in ipairs(pane.tabs) do
+                local content = tab_and_content.content
+                local tags = content and content.tags
+                if content and content.valid and tags and tags.hxrrc_sheet_id == saved_state.sheet_id then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                clear_saved_state(player_index)
+                destroy_frame(frame)
+                return nil
+            end
+        end
     end
     if not frame then
         clear_saved_state(player_index)
