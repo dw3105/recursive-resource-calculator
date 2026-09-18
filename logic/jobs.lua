@@ -253,11 +253,13 @@ function Jobs.request_sheet(player_index, sheet_id, context)
 
     local job = make_job(player_index, sheet_id, safe_context)
     if job.kind == "blueprint" then
-        data.blueprint_job = job
+        data.blueprint_job = copy_plain(job) or {}
     else
-        data.calc_jobs[sheet_id] = job
+        data.calc_jobs[sheet_id] = copy_plain(job) or {}
     end
-    return job
+    --Do not hand the caller the table reachable from storage: even an injected caller must not be able to add a
+    --callback or a LuaObject to a saved job after this function returns.
+    return copy_plain(job)
 end
 
 --Every sheet of one player, visible sheet first (used by the reset action and by a configuration change).
