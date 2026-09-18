@@ -47,6 +47,10 @@ Current facts:
 - Red first pasted, green after pasted, planted breach pasted then reverted.
 - `git diff --stat wave-1-green HEAD` pasted.
 
+Run the checks as your **last** action, after your final commit. A commit made after the checks moved the tree
+the proof was taken against, and the supervisor refuses that proof with the reason `tree-moved`, however green
+every check was.
+
 Run the whole suite through the lease: `gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh`, from the worktree root. Wait for the lease however long; never stop because of queue wait. Commit when a step is finished, with the pasted output in the message body.
 
 ## Files this lane owns
