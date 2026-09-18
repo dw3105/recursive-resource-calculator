@@ -7,6 +7,10 @@ event_handlers.on_gui_selection_state_changed = {}
 
 local Calculator = require "gui.calculator"
 local ModulePicker = require "gui.module_picker"
+--Round 8 modules. Requiring them here is what registers their GUI handlers and their remote interface.
+local Jobs = require "logic.jobs"
+local Reset = require "logic.reset"
+local EngineTestApi = require "logic.engine_test_api"
 local Pipette = require "gui.pipette"
 local Sheet = require "gui.sheet"
 local Indexer = require "logic.indexer"
@@ -14,7 +18,8 @@ local PlayerData = require "logic.player_data"
 local PlayerDataUpdater = require "logic.player_data_updater"
 local Updates = require "updates"
 
-async_calls = {Sheet.calculate, Calculator.auto_center}
+--Ids 1 and 2 keep their meaning: a save made by an older version can hold queued entries naming them.
+async_calls = {Sheet.calculate, Calculator.auto_center, Jobs.step}
 
 local function set_up_new_player(player)
     PlayerData.initialize_player_data(player.index)
@@ -40,6 +45,8 @@ script.on_configuration_changed(function(configuration_changed_data)
 
     storage.computation_stack = {}
     storage.opened_restores = nil --the GUIs are rebuilt and recomputed below; pending focus restores are dropped
+    --Prototypes may have changed under any running job, so no result computed before this point may commit
+    Jobs.invalidate_all("configuration_changed")
     for _, player in pairs(game.players) do
         --a picker saved by an older version holds a state this version does not read; closed before anything is repaired
         ModulePicker.close(player.index, false)
@@ -51,11 +58,17 @@ script.on_configuration_changed(function(configuration_changed_data)
     end
 end)
 
+--The in-game test companion calls this candidate rather than imitating it; absent in a source checkout, where
+--EngineTestApi reports packaged = false and the companion refuses to write evidence.
+EngineTestApi.register()
+
 script.on_event(defines.events.on_player_created, function(event)
     set_up_new_player(game.get_player(event.player_index))
 end)
 
 script.on_event(defines.events.on_player_removed, function(event)
+    Jobs.forget_player(event.player_index)
+    Reset.forget_player(event.player_index)
     storage[event.player_index] = nil
     ModulePicker.forget_player(event.player_index)
     --queued computations of the removed player would reach its destroyed GUI
@@ -140,6 +153,8 @@ script.on_event(defines.events.on_tick, function(event)
         end
     end
     ModulePicker.run_restores()
+    --Incremental work runs after the legacy queue, under one budget shared by every player (CALC-06)
+    Jobs.on_tick(event)
 end)
 
 script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)

@@ -561,7 +561,7 @@ H.test("2.0 N1a N1b S1a the controls are one two-column grid: label | drop-down,
     H.equal(controls.style.column_alignments[1], "middle-right", "S1a: first column right")
     H.equal(controls.style.column_alignments[2], "middle-left", "S1a: second column left")
     H.equal(controls.style.horizontal_spacing, 8, "S1a: 8 px apart")
-    H.equal(cell_names(controls), "start_leftovers_label_cell,start_leftovers_dropdown_cell,round_up_cell,compute_cell", "S1a: cell order")
+    H.equal(cell_names(controls), "start_leftovers_label_cell,start_leftovers_dropdown_cell,round_up_cell,compute_cell,export_cell,blueprint_cell,progress_cell,cancel_cell", "S1a: cell order")
     H.equal(controls.start_leftovers_label_cell.children[1].caption[1], "hxrrc.start_leftovers_caption", "label caption")
     H.equal(controls.start_leftovers_label_cell.children[1].tooltip[1], "hxrrc.start_leftovers_tooltip", "label tooltip")
     local keys = {}
@@ -632,23 +632,23 @@ end)
 H.test("2.1 N1f S1b on 2.1 the grid holds only the checkbox and Compute, built or repaired", function()
     tier_world("2.1")
     local sheet_pane, sheet_flow = H.fill_sheet({{item = "X", rate = 1, unit = "/s"}})
-    H.equal(cell_names(controls_of(sheet_flow)), "round_up_cell,compute_cell", "S1b: built")
+    H.equal(cell_names(controls_of(sheet_flow)), "round_up_cell,compute_cell,export_cell,blueprint_cell,progress_cell,cancel_cell", "S1b: built")
     local controls = controls_of(sheet_flow)
     local index = controls.get_index_in_parent()
     controls.destroy()
     sheet_flow.add{type = "checkbox", name = "hxrrc_round_up_machines_checkbox", caption = "r", state = true, index = index}
     sheet_flow.add{type = "button", name = "hxrrc_compute_button", caption = "c", index = index + 1}
     M.Sheet.add_missing_controls(sheet_pane)
-    H.equal(cell_names(controls_of(sheet_flow)), "round_up_cell,compute_cell", "S1b: repaired")
+    H.equal(cell_names(controls_of(sheet_flow)), "round_up_cell,compute_cell,export_cell,blueprint_cell,progress_cell,cancel_cell", "S1b: repaired")
     H.equal(M.Sheet.round_up_checkbox_of(sheet_flow).state, true, "S1b: checkbox kept")
     H.equal(dropdown_of(sheet_flow), nil, "N1f: no choice on 2.1")
 end)
 
-H.test("2.0 N1g N1h S1c the label and drop-down hide for normal items and fluids, show for a target above normal; the four cells always stay", function()
+H.test("2.0 N1g N1h S1c the label and drop-down hide for normal items and fluids, show for a target above normal; the eight cells always stay", function()
     tier_world("2.0")
     local _, sheet_flow = H.fill_sheet({})
     local function shown()
-        H.equal(#controls_of(sheet_flow).children, 4, "S1c: four cells")
+        H.equal(#controls_of(sheet_flow).children, 8, "S1c: eight cells")
         H.equal(label_of(sheet_flow).visible, dropdown_of(sheet_flow).visible, "S1c: label and drop-down together")
         return dropdown_of(sheet_flow).visible
     end

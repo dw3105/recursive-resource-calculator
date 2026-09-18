@@ -5,6 +5,9 @@ local compute_power_and_pollution = require "logic.compute_power_and_pollution"
 local QualityLoops = require "logic.quality_loops"
 local Utils = require "logic.utils"
 local ModulePicker = require "gui.module_picker"
+local ExportDialog = require "gui.export_dialog"
+local BlueprintDialog = require "gui.blueprint_dialog"
+local ProgressPanel = require "gui.progress_panel"
 
 local Sheet = {}
 
@@ -59,8 +62,33 @@ local function add_sheet_controls(sheet_flow, index, state)
         state = state.round_up == true,
     }
     cell("compute_cell").add{type = "button", name = "hxrrc_compute_button", caption = {"hxrrc.compute_button_caption"}}
+    --Round 8. Each control gets its own cell flow: the engine refuses two children of one parent sharing a name,
+    --and a hidden cell would collapse the column, so cells always exist and only their contents are hidden.
+    cell("export_cell").add{type = "button", name = "hxrrc_export_button", caption = {"hxrrc.export_button_caption"},
+        tooltip = {"hxrrc.export_button_tooltip"}}
+    cell("blueprint_cell").add{type = "button", name = "hxrrc_generate_blueprint_button", caption = {"hxrrc.blueprint_button_caption"},
+        tooltip = {"hxrrc.blueprint_button_tooltip"}}
+    cell("progress_cell").add{type = "progressbar", name = "hxrrc_calc_progressbar", value = 0, visible = false}
+    cell("cancel_cell").add{type = "button", name = "hxrrc_cancel_button", caption = {"hxrrc.calc_cancel"}, visible = false}
     return controls
 end
+
+--The round 8 controls, so a sheet saved by an older version can be repaired one cell at a time rather than rebuilt
+local NEW_CELLS = {
+    {cell = "export_cell", build = function(flow)
+        flow.add{type = "button", name = "hxrrc_export_button", caption = {"hxrrc.export_button_caption"}, tooltip = {"hxrrc.export_button_tooltip"}}
+    end},
+    {cell = "blueprint_cell", build = function(flow)
+        flow.add{type = "button", name = "hxrrc_generate_blueprint_button", caption = {"hxrrc.blueprint_button_caption"},
+            tooltip = {"hxrrc.blueprint_button_tooltip"}}
+    end},
+    {cell = "progress_cell", build = function(flow)
+        flow.add{type = "progressbar", name = "hxrrc_calc_progressbar", value = 0, visible = false}
+    end},
+    {cell = "cancel_cell", build = function(flow)
+        flow.add{type = "button", name = "hxrrc_cancel_button", caption = {"hxrrc.calc_cancel"}, visible = false}
+    end},
+}
 
 --The grid of a sheet, found by name among its children (nil on a sheet saved before 1.1.31 until repaired)
 local function controls_of(sheet_flow)
@@ -84,6 +112,36 @@ end
 function Sheet.round_up_checkbox_of(sheet_flow)
     return controls_of(sheet_flow).round_up_cell.hxrrc_round_up_machines_checkbox
 end
+
+--A control of the round 8 cells, or nil on a sheet not yet repaired
+local function cell_child_of(sheet_flow, cell_name)
+    local controls = controls_of(sheet_flow)
+    for _, cell in ipairs(controls and controls.children or {}) do
+        if cell.name == cell_name then return cell.children[1] end
+    end
+end
+
+function Sheet.export_button_of(sheet_flow) return cell_child_of(sheet_flow, "export_cell") end
+function Sheet.blueprint_button_of(sheet_flow) return cell_child_of(sheet_flow, "blueprint_cell") end
+function Sheet.progressbar_of(sheet_flow) return cell_child_of(sheet_flow, "progress_cell") end
+function Sheet.cancel_button_of(sheet_flow) return cell_child_of(sheet_flow, "cancel_cell") end
+
+--The sheet's own identity, stable across a save: what a job, a snapshot and a stored blueprint setting are keyed by
+function Sheet.id_of(sheet_flow)
+    local tags = sheet_flow.tags
+    return tags and tags.hxrrc_sheet_id or nil
+end
+
+--Gives a sheet flow an id if it has none. Tags read back as a copy, so the whole table is assigned, never a field.
+local function ensure_sheet_id(sheet_flow)
+    local tags = sheet_flow.tags or {}
+    if tags.hxrrc_sheet_id then return tags.hxrrc_sheet_id end
+    storage.next_sheet_id = (storage.next_sheet_id or 0) + 1
+    tags.hxrrc_sheet_id = "sheet-" .. storage.next_sheet_id
+    sheet_flow.tags = tags
+    return tags.hxrrc_sheet_id
+end
+Sheet._ensure_sheet_id = ensure_sheet_id
 
 --The base-quality drop-down, or nil on Factorio 2.1, where it is not built
 local function start_leftovers_dropdown_of(sheet_flow)
@@ -124,6 +182,8 @@ function Sheet.new(sheet_pane)
 
     sheet_flow.style.horizontal_align = "center"
 
+    ensure_sheet_id(sheet_flow)
+
     --Input section:
     InputContainer.build_and_add_to(sheet_flow)
     add_sheet_controls(sheet_flow)
@@ -151,36 +211,41 @@ function Sheet.delete_selected_sheet(sheet_pane)
 end
 
 --Performs the calculator computation for the sheet that either owns the passed compute_button or belongs to the given sheet_pane and has the given sheet_index (if compute_button is not nil, the two other arguments are ignored; if it is nil, the other two arguments are used and thus must be specified)
-function Sheet.calculate(compute_button, sheet_pane, sheet_index)
-    local sheet_flow
+--The sheet flow the two calling conventions of Sheet.calculate name
+local function sheet_flow_from(compute_button, sheet_pane, sheet_index)
     if compute_button then
-        sheet_flow = Sheet.sheet_flow_of(compute_button)
-        sheet_pane = sheet_flow.parent
-        sheet_index = sheet_pane.selected_tab_index
-    else
-        local sheet_and_flow = sheet_pane.tabs[sheet_index]
-        sheet_flow = sheet_and_flow.content
+        local sheet_flow = Sheet.sheet_flow_of(compute_button)
+        return sheet_flow, sheet_flow.parent, sheet_flow.parent.selected_tab_index
     end
+    return sheet_pane.tabs[sheet_index].content, sheet_pane, sheet_index
+end
 
-    --the sheet's report is cleared below, on every path, so a picker for one of its slots goes first
-    ModulePicker.close(sheet_flow.player_index, true)
-    update_sheet_title(sheet_pane, sheet_index)
-
-    local production_rates_by_product_full_name, product_parts = InputContainer.get_desired_production_rates_by_full_item_name(sheet_flow.input_container)
-
-    if next(production_rates_by_product_full_name) == nil then --Empty sheet
-        sheet_flow.output_flow.clear()
-        return
-    end
-
+--What a sheet asks for, read out of its controls into plain data. No solving, no writing: a caller that only
+--needs the inputs (the debug export, a blueprint request) must not have to run a calculation to see them.
+function Sheet.read_inputs(sheet_flow)
+    local rates, product_parts = InputContainer.get_desired_production_rates_by_full_item_name(sheet_flow.input_container)
     local dropdown = start_leftovers_dropdown_of(sheet_flow) --absent on 2.1; read whether it is shown or not
-    local mode = dropdown and START_LEFTOVER_MODES[dropdown.selected_index] or "byproduct"
-    local result = Solver.solve_for(production_rates_by_product_full_name, sheet_flow.player_index, product_parts, {start_leftovers = mode})
+    return {
+        sheet_id = Sheet.id_of(sheet_flow),
+        player_index = sheet_flow.player_index,
+        rates = rates,
+        product_parts = product_parts,
+        options = {
+            start_leftovers = dropdown and START_LEFTOVER_MODES[dropdown.selected_index] or "byproduct",
+            round_up = Sheet.round_up_checkbox_of(sheet_flow).state,
+        },
+        empty = next(rates) == nil,
+    }
+end
 
+--Puts a finished result on screen. Separated from solving so the work can arrive from a job that ran across many
+--ticks; the order here is the one the synchronous path always had, and the report is cleared on every path.
+function Sheet.publish_result(sheet_flow, result, inputs)
+    local player_index = sheet_flow.player_index
     --every loop the solve used keeps exactly the configuration it was solved with (new, unchanged or repaired), before power and the report read it
     for _, column in ipairs(result.columns) do
         if column.quality_loop and column.quality_loop.config then
-            QualityLoops.store(sheet_flow.player_index, column.quality_loop.key, column.quality_loop.config)
+            QualityLoops.store(player_index, column.quality_loop.key, column.quality_loop.config)
         end
     end
 
@@ -189,7 +254,7 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     output_flow.clear()
 
     if result.status == "unsolvable" then
-        game.get_player(sheet_flow.player_index).create_local_flying_text{text = {"hxrrc.system_with_no_solution_error"}, create_at_cursor = true}
+        game.get_player(player_index).create_local_flying_text{text = {"hxrrc.system_with_no_solution_error"}, create_at_cursor = true}
     end
 
     if not result.recipe_rates then
@@ -200,9 +265,35 @@ function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     --totals only for a result whose every rate is usable
     local energy_consumption, pollution
     if result.status == "ok" then
-        energy_consumption, pollution = compute_power_and_pollution(sheet_flow.player_index, result.columns, result.recipe_rates)
+        energy_consumption, pollution = compute_power_and_pollution(player_index, result.columns, result.recipe_rates)
     end
-    Report.new(output_flow, result, energy_consumption, pollution, Sheet.round_up_checkbox_of(sheet_flow).state)
+    Report.new(output_flow, result, energy_consumption, pollution, (inputs and inputs.options.round_up) or Sheet.round_up_checkbox_of(sheet_flow).state)
+end
+
+--Solves one sheet and shows the result. Still synchronous, and still what async_calls[1] runs; lane W3-calc
+--replaces the middle of it with a job, which is why reading and publishing are their own functions.
+function Sheet.begin_calculation(compute_button, sheet_pane, sheet_index)
+    local sheet_flow
+    sheet_flow, sheet_pane, sheet_index = sheet_flow_from(compute_button, sheet_pane, sheet_index)
+
+    --the sheet's report is cleared below, on every path, so a picker for one of its slots goes first
+    ModulePicker.close(sheet_flow.player_index, true)
+    update_sheet_title(sheet_pane, sheet_index)
+
+    local inputs = Sheet.read_inputs(sheet_flow)
+    if inputs.empty then --Empty sheet
+        sheet_flow.output_flow.clear()
+        return
+    end
+
+    local result = Solver.solve_for(inputs.rates, inputs.player_index, inputs.product_parts,
+        {start_leftovers = inputs.options.start_leftovers})
+    Sheet.publish_result(sheet_flow, result, inputs)
+end
+
+--Kept as the name control.lua's async_calls[1] holds, so a job queued in a save from an older version still runs
+function Sheet.calculate(compute_button, sheet_pane, sheet_index)
+    return Sheet.begin_calculation(compute_button, sheet_pane, sheet_index)
 end
 
 --The controls older layouts kept directly in the sheet flow: 1.1.23 a flat drop-down, 1.1.25 to 1.1.30 a label and drop-down row, all of them a
@@ -241,7 +332,23 @@ function Sheet.add_missing_controls(sheet_pane)
             end
             for _, child in ipairs(old) do child.destroy() end
             add_sheet_controls(sheet_flow, first_index or sheet_flow.input_container.get_index_in_parent() + 1, state)
+        else
+            --The grid is there but may predate a control: add each missing cell on its own, so an older sheet keeps
+            --its checkbox state and its drop-down choice instead of being rebuilt around them
+            local controls = controls_of(sheet_flow)
+            local present = {}
+            for _, cell in ipairs(controls.children) do present[cell.name] = cell end
+            for _, entry in ipairs(NEW_CELLS) do
+                if not present[entry.cell] then
+                    local flow = controls.add{type = "flow", name = entry.cell, direction = "horizontal"}
+                    flow.style.vertical_align = "center"
+                    entry.build(flow)
+                elseif #present[entry.cell].children == 0 then
+                    entry.build(present[entry.cell])
+                end
+            end
         end
+        ensure_sheet_id(sheet_flow)
         Sheet.update_start_leftovers_visibility(sheet_flow)
     end
 end
@@ -281,6 +388,19 @@ end
 local function recompute_own_sheet(event)
     Sheet.calculate(Sheet.compute_button_of(Sheet.sheet_flow_of(event.element)))
     storage[event.player_index].calculator.force_auto_center()
+end
+
+--Round 8 controls. Each one delegates: the sheet owns where a button sits, the feature module owns what it does.
+event_handlers.on_gui_click["hxrrc_export_button"] = function(event)
+    ExportDialog.on_export_clicked(event)
+end
+
+event_handlers.on_gui_click["hxrrc_generate_blueprint_button"] = function(event)
+    BlueprintDialog.on_generate_clicked(event)
+end
+
+event_handlers.on_gui_click["hxrrc_cancel_button"] = function(event)
+    ProgressPanel.on_cancel_clicked(event)
 end
 
 event_handlers.on_gui_selection_state_changed["hxrrc_start_leftovers_dropdown"] = recompute_own_sheet

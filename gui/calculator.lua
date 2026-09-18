@@ -2,6 +2,7 @@ local Report = require "gui.report"
 local Sheet = require "gui.sheet"
 local ModuleGUI = require "gui.modulegui"
 local ModulePicker = require "gui.module_picker"
+local Reset = require "logic.reset"
 local Calculator = {}
 
 function Calculator.build(player)
@@ -25,6 +26,13 @@ function Calculator.build(player)
     local sheet_buttons_flow = sheet_section.add{type = "flow", direction = "horizontal"}
     sheet_buttons_flow.style.horizontal_align = "right"
     sheet_buttons_flow.style.horizontally_stretchable = true
+    --Round 8: a mod-level action, beside the sheet buttons because it is not about one sheet
+    sheet_buttons_flow.add{
+        type = "button",
+        name = "hxrrc_reset_setups_button",
+        caption = {"hxrrc.reset_setups_button"},
+        tooltip = {"hxrrc.reset_setups_tooltip"},
+    }
     sheet_buttons_flow.add{
         type = "button",
         name = "hxrrc_new_sheet_button",
@@ -179,6 +187,10 @@ event_handlers.on_gui_elem_changed["hxrrc_choose_crafting_machine_button"] = fun
     if Report.handle_crafting_machine_change(event) then
         Calculator.recompute_everything(event.player_index)
     end
+end
+
+event_handlers.on_gui_click["hxrrc_reset_setups_button"] = function(event)
+    Reset.on_reset_clicked(event)
 end
 
 return Calculator
