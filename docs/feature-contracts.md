@@ -58,6 +58,20 @@ printf '%s\n' "$out" | grep -q '^FAIL <case> \[assert\]' && [ "$rc" -ne 0 ] && e
 Every check runs under POSIX `sh`: the lane verifier executes checks with `shell=True`, which is `/bin/sh`. No
 process substitution, and no fixed `/tmp` path, because six lanes run at once.
 
+## 2b. A test that crashes proves less than a test that asserts
+
+A stub returns an empty shape, so `catalog.entity["assembler"].tile_w` is a nil index, not a failed assertion. A
+test written that way fails against the stub with `[error]`, which the gates do not count, and its failure message
+names a nil value rather than the fact that broke. Assert that a thing exists, then read it:
+
+```lua
+local machine = catalog.entity["assembler"]
+H.equal(machine ~= nil, true, "the assembler is in the catalog")
+H.equal(machine.tile_w, 3, "its footprint is three tiles wide")
+```
+
+Lane 003's red proof came back 2 assertions and 18 crashes, which is why this is written down.
+
 ## 3. Units, identities, determinism
 
 Rates per second. Power watts. Pollution per minute. Lengths in tiles. Budgets in ops.
