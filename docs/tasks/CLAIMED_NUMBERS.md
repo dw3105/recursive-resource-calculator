@@ -27,3 +27,6 @@
 | `023` | `rrc/agent` | W3 serial: blueprint entities and canonical form | 2026-09-18 |
 | `024` | `rrc/agent` | W2R plan: port lane count | 2026-09-18 |
 | `025` | `rrc/agent` | W2R payload: sorted reference lists | 2026-09-18 |
+| `026` | `rrc/agent` | W4 search: bounded layout search | 2026-09-18 |
+| `027` | `rrc/agent` | W4 deliver: blueprint to the player | 2026-09-18 |
+| `028` | `rrc/agent` | W4 golden: fixtures, canonical compare, engine evidence | 2026-09-18 |
