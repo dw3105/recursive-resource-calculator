@@ -300,9 +300,11 @@ end
 local function chances_tooltip(chain, chances)
     local tooltip = {"", {"hxrrc.quality_chances_tooltip"}}
     for index, quality in ipairs(chain) do
+        if type(quality) == "string" then quality = prototypes.quality[quality] end
+        if type(quality) == "table" and quality.name and not quality.localised_name then quality = prototypes.quality[quality.name] or quality end
         local share = chances[index]
         if share and share > 0 and #tooltip < 20 then --a localised string takes at most 20 parameters
-            tooltip[#tooltip + 1] = {"", "\n", quality.localised_name, ": ", string.format("%.4g", share * 100) .. "%"}
+            tooltip[#tooltip + 1] = {"", "\n", quality and quality.localised_name or tostring(quality), ": ", string.format("%.4g", share * 100) .. "%"}
         end
     end
     return tooltip
@@ -313,10 +315,18 @@ local function per_tier_tooltip(header, chain_names, counts, pi)
     local tooltip = {"", {header}}
     for index, entry in ipairs(counts) do
         if #tooltip < 20 then --a localised string takes at most 20 parameters
-            tooltip[#tooltip + 1] = {"", "\n", prototypes.quality[entry.quality].localised_name, ": ", format_by_precision(entry.count, pi)}
+            local quality = prototypes.quality[entry.quality]
+            tooltip[#tooltip + 1] = {"", "\n", quality and quality.localised_name or entry.quality, ": ", format_by_precision(entry.count, pi)}
         end
     end
     return tooltip
+end
+
+local function quality_chain_for(info)
+    --A saved job contains quality names, not LuaQualityPrototype objects. The synchronous path still supplies the
+    --prototype chain, while the fallback keeps the same tooltip after a job was copied through storage.
+    if info.chain and #info.chain > 0 then return info.chain end
+    return QualityLoop.chain()
 end
 
 --A loop's machine button: tier nil for the recycler pool
@@ -471,7 +481,7 @@ local function add_assist_row(report, info, first_tier, recipe_rate, round_up_ma
         elseif solved and first_tier.assist_crafts then
             label.caption = count_caption(Utils.machine_amount(stage.recipe, first_tier.assist_crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
                 round_up_machines, pi)
-            label.tooltip = chances_tooltip(info.chain, first_tier.assist_chances or {})
+            label.tooltip = chances_tooltip(quality_chain_for(info), first_tier.assist_chances or {})
         end
     elseif stage then
         wrap(line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
@@ -566,7 +576,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         elseif solved then
             craft_label.caption = count_caption(Utils.machine_amount(stage.recipe, tier.crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
                 round_up_machines, pi)
-            craft_label.tooltip = chances_tooltip(info.chain, tier.craft_chances)
+            craft_label.tooltip = chances_tooltip(quality_chain_for(info), tier.craft_chances)
         end
 
         if recycle and index < #tiers then
@@ -584,7 +594,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
                         idle(recycle_label).caption = {"hxrrc.quality_loop_recycler_idle"}
                     else
                         recycle_label.caption = count_caption(count, round_up_machines, pi)
-                        recycle_label.tooltip = chances_tooltip(info.chain, tier.recycle_chances)
+                        recycle_label.tooltip = chances_tooltip(quality_chain_for(info), tier.recycle_chances)
                     end
                 end
             else
@@ -616,7 +626,7 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
         add_loop_machine_button(pool_line, info, "recycle", recycle)
         local label = pool_line.add{type = "label", caption = ""}
         if solved then
-            local tooltip = per_tier_tooltip("hxrrc.recycler_pool_tooltip", info.chain, recycler_counts, pi)
+            local tooltip = per_tier_tooltip("hxrrc.recycler_pool_tooltip", quality_chain_for(info), recycler_counts, pi)
             --items recycled into themselves: machines from each recipe's own work
             local names = {}
             for name, _ in pairs(tiers[1] and tiers[1].ingredient_recycles or {}) do names[#names + 1] = name end
@@ -648,8 +658,165 @@ local function add_rows_for_quality_loop(report, column, recipe_rate, round_up_m
     add_recycle_recipe_button(recipe_cell, info.key, info.item, config.recycle_recipe_name, {"hxrrc.choose_recycle_recipe_tooltip"})
 end
 
-local function new_table(parent)
-    return parent.add{type = "table", name = "report", column_count = 4, draw_horizontal_lines = true, draw_vertical_lines = true}
+local function new_table(parent, name)
+    return parent.add{type = "table", name = name or "report", column_count = 4, draw_horizontal_lines = true, draw_vertical_lines = true}
+end
+
+--The incremental renderer below shares the row helpers with the synchronous renderer. A quality loop is one
+--column in the solver but several report rows, so its tier cursor is kept separately from the column cursor.
+local function quality_tiers_for(info, recipe_rate, reason)
+    if not info.config then return nil, false end
+    if not reason and recipe_rate and info.tiers then return info.tiers, true end
+    local tiers = {}
+    for _, quality in ipairs(QualityLoops.tier_names(info.config)) do tiers[#tiers + 1] = {quality = quality} end
+    return tiers, false
+end
+
+local function add_incremental_quality_tier(report, column, recipe_rate, round_up_machines, reason, loop_cursor, index)
+    local pi = report.player_index
+    local info = column.quality_loop
+    local config = info.config
+    if not config then
+        local item_cell = report.add{type = "flow"}
+        item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = info.quality,
+            tooltip = prototypes.item[info.item].localised_name, tags = {loop_key = info.key, tier = info.quality}}
+        item_cell.add{type = "label", caption = ""}
+        local machine_cell = report.add{type = "flow", direction = "vertical"}
+        wrap(machine_cell.add{type = "flow", tags = {stage = "craft"}}.add{type = "label", caption = {"hxrrc." .. reason}})
+        report.add{type = "empty-widget"}
+        add_recipe_cell(report, "item/" .. info.item, QualityLoops.producer_of(pi, info.item))
+        return
+    end
+
+    local tiers, solved = quality_tiers_for(info, recipe_rate, reason)
+    local tier = tiers[index]
+    local recycle = QualityLoops.stage(pi, config, "recycle")
+    local item_cell = report.add{type = "flow"}
+    item_cell.style.horizontally_stretchable = true
+    item_cell.add{type = "sprite-button", sprite = "item/" .. info.item, quality = tier.quality ~= "normal" and tier.quality or nil,
+        tooltip = prototypes.item[info.item].localised_name, tags = {loop_key = info.key, tier = tier.quality}}
+    local rate_label = item_cell.add{type = "label", caption = solved and (format_by_precision(tier.x * recipe_rate, pi) .. " /s") or ""}
+    if solved and info.feed and info.feed[tier.quality] then
+        local tooltip = {"", {"hxrrc.quality_loop_external_tooltip"}}
+        for _, taken in ipairs(info.feed[tier.quality]) do
+            if #tooltip < 20 then
+                tooltip[#tooltip + 1] = {"", "\n", prototypes.item[taken.item].localised_name, ": ", format_by_precision(taken.amount * recipe_rate, pi), " /s"}
+            end
+        end
+        rate_label.tooltip = tooltip
+    end
+
+    local stage = not info.recycle_only and QualityLoops.stage(pi, config, "craft", tier.quality) or nil
+    local machine_cell = report.add{type = "flow", direction = "vertical"}
+    machine_cell.style.horizontally_stretchable = true
+    local craft_line = (index == 1 or not info.recycle_only) and machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "craft"}}
+    if stage and stage.machine then add_loop_machine_button(craft_line, info, "craft", stage, tier.quality) end
+    local craft_label = craft_line and craft_line.add{type = "label", caption = ""}
+    if not craft_label then
+        --a recycle-only tier above the first has no craft line
+    elseif index == 1 and reason then
+        craft_label.caption = {"hxrrc." .. reason}
+        wrap(craft_label)
+    elseif info.recycle_only then
+        if solved then
+            craft_label.caption = {"hxrrc.quality_loop_recycle_only_input", format_by_precision(info.input * recipe_rate, pi)}
+            wrap(craft_label)
+        end
+    elseif not (stage and stage.machine) then
+        craft_label.caption = {"hxrrc.not_automatically_craftable"}
+        wrap(craft_label)
+    elseif solved and tier.crafts == 0 then
+        set_idle_stage_caption(craft_label, tier.missing, tier.quality)
+    elseif solved then
+        craft_label.caption = count_caption(Utils.machine_amount(stage.recipe, tier.crafts * recipe_rate, stage.prototype, stage.machine.quality, stage.setup),
+            round_up_machines, pi)
+        craft_label.tooltip = chances_tooltip(quality_chain_for(info), tier.craft_chances)
+    end
+
+    if recycle and index < #tiers then
+        local recycle_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "recycle"}}
+        local recycle_label
+        if recycle.machine then
+            recycle_line.add{type = "sprite-button", sprite = "entity/" .. recycle.machine.name, quality = recycle.machine.quality,
+                tooltip = recycle.prototype.localised_name}
+            recycle_label = recycle_line.add{type = "label", caption = ""}
+            if solved then
+                local count = Utils.machine_amount(recycle.recipe, tier.recycle_crafts * recipe_rate, recycle.prototype, recycle.machine.quality, recycle.setup)
+                loop_cursor.recycler_counts[#loop_cursor.recycler_counts + 1] = {quality = tier.quality, count = count}
+                loop_cursor.recycler_total = loop_cursor.recycler_total + count
+                if count == 0 then
+                    idle(recycle_label).caption = {"hxrrc.quality_loop_recycler_idle"}
+                else
+                    recycle_label.caption = count_caption(count, round_up_machines, pi)
+                    recycle_label.tooltip = chances_tooltip(quality_chain_for(info), tier.recycle_chances)
+                end
+            end
+        else
+            wrap(recycle_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
+        end
+    end
+
+    add_loop_module_cell(report, info, "craft", stage, tier.quality)
+    if index == 1 then
+        add_loop_recipe_cell(report, info)
+    elseif info.recycle_only then
+        report.add{type = "empty-widget"}
+    else
+        add_tier_recipe_cell(report, info, tier.quality)
+    end
+end
+
+local function add_incremental_quality_assist(report, column, recipe_rate, round_up_machines, solved)
+    local info = column.quality_loop
+    local first_tier = info.tiers and info.tiers[1]
+    add_assist_row(report, info, first_tier, recipe_rate, round_up_machines, solved == true)
+end
+
+local function add_incremental_quality_pool(report, column, recipe_rate, round_up_machines, loop_cursor, reason)
+    local pi = report.player_index
+    local info = column.quality_loop
+    local config = info.config
+    local tiers, solved = quality_tiers_for(info, recipe_rate, reason)
+    local recycle = QualityLoops.stage(pi, config, "recycle")
+    local pool_cell = report.add{type = "flow", tags = {loop_key = info.key, pool = true}}
+    pool_cell.style.horizontally_stretchable = true
+    add_recycle_icon(pool_cell, {"hxrrc.recycler_pool"})
+    pool_cell.add{type = "label", caption = ""}
+    local machine_cell = report.add{type = "flow", direction = "vertical"}
+    local pool_line = machine_cell.add{type = "flow", direction = "horizontal", tags = {stage = "recycle"}}
+    if recycle and recycle.machine then
+        add_loop_machine_button(pool_line, info, "recycle", recycle)
+        local label = pool_line.add{type = "label", caption = ""}
+        if solved then
+            local tooltip = per_tier_tooltip("hxrrc.recycler_pool_tooltip", quality_chain_for(info), loop_cursor.recycler_counts, pi)
+            local names = {}
+            for name, _ in pairs(tiers[1] and tiers[1].ingredient_recycles or {}) do names[#names + 1] = name end
+            table.sort(names)
+            for _, name in ipairs(names) do
+                local recycler = info.ingredient_recycles[name]
+                local recipe = prototypes.recipe[recycler.recipe_name]
+                local count = Utils.machine_amount(recipe, tiers[1].ingredient_recycles[name] * recipe_rate, recycle.prototype, recycle.machine.quality, recycler.setup)
+                loop_cursor.recycler_total = loop_cursor.recycler_total + count
+                if #tooltip < 20 then tooltip[#tooltip + 1] = {"", "\n", recipe.localised_name, ": ", format_by_precision(count, pi)} end
+            end
+            for _, name in ipairs(info.kept_ingredients or {}) do
+                if #tooltip < 20 then tooltip[#tooltip + 1] = {"", "\n", {"hxrrc.recycler_pool_ingredient_kept", prototypes.item[name].localised_name}} end
+            end
+            if loop_cursor.recycler_total == 0 then
+                idle(label).caption = {"hxrrc.quality_loop_recycler_idle"}
+            else
+                label.caption = count_caption(loop_cursor.recycler_total, round_up_machines, pi)
+                label.tooltip = tooltip
+            end
+        end
+    elseif recycle then
+        wrap(pool_line.add{type = "label", caption = {"hxrrc.not_automatically_craftable"}})
+    else
+        pool_line.add{type = "label", caption = ""}
+    end
+    add_loop_module_cell(report, info, "recycle", recycle)
+    local recipe_cell = report.add{type = "flow"}
+    add_recycle_recipe_button(recipe_cell, info.key, info.item, config.recycle_recipe_name, {"hxrrc.choose_recycle_recipe_tooltip"})
 end
 
 --A solved result (see Solver.solve_for). energy_consumption and pollution are nil when the result is infeasible, and the header then shows no totals.
@@ -710,6 +877,44 @@ function Report.new_diagnostic(parent, result)
                 column.binding_full_name and result.product_parts[column.product_full_name])
         end
     end
+end
+
+--ReportSteps uses these small, synchronous units while keeping the cursor and staged-container identity outside
+--the GUI object. The old constructors above remain the compatibility path for existing callers.
+function Report.begin_staged(parent, result, energy_consumption, pollution, round_up_machines, diagnostic, name)
+    local report = new_table(parent, name)
+    setup_headers(report, diagnostic and nil or energy_consumption, diagnostic and nil or pollution, diagnostic and result.status == "unsolvable")
+    return report
+end
+
+function Report.add_staged_quality_tier(report, column, recipe_rate, round_up_machines, reason, loop_cursor, index)
+    return add_incremental_quality_tier(report, column, recipe_rate, round_up_machines, reason, loop_cursor, index)
+end
+
+function Report.add_staged_quality_assist(report, column, recipe_rate, round_up_machines, solved)
+    return add_incremental_quality_assist(report, column, recipe_rate, round_up_machines, solved)
+end
+
+function Report.add_staged_quality_pool(report, column, recipe_rate, round_up_machines, loop_cursor, reason)
+    return add_incremental_quality_pool(report, column, recipe_rate, round_up_machines, loop_cursor, reason)
+end
+
+function Report.add_staged_solved(report, column, product_rate, recipe_rate, round_up_machines, reason, parts)
+    return add_row_for_solved_product(report, column, product_rate, recipe_rate, round_up_machines, reason, parts)
+end
+
+function Report.add_staged_unsolved(report, product_full_name, product_rate, parts, loops)
+    return add_row_for_unsolved_product(report, product_full_name, product_rate, parts, loops)
+end
+
+function Report.staged_column_renderable(column, result)
+    if column.quality_loop then return prototypes.item[column.quality_loop.item] ~= nil end
+    local parts = column.binding_full_name and result.product_parts and result.product_parts[column.product_full_name]
+    return prototype_of(column.product_full_name, parts) ~= nil
+end
+
+function Report.staged_product_renderable(product_full_name, parts)
+    return prototype_of(product_full_name, parts) ~= nil
 end
 
 --The recipe a machine button acts on, from its tags, while its row's product is still bound to that recipe; nil for a stale button or one built before rows were tagged
