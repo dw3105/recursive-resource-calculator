@@ -14,3 +14,6 @@
 | `010` | `rrc/agent` | W2 report: power and rows in batches | 2026-09-18 |
 | `011` | `rrc/agent` | W2 plan: sheet numbers to whole machines | 2026-09-18 |
 | `012` | `rrc/agent` | W2 preflight: what this release refuses | 2026-09-18 |
+| `013` | `rrc/agent` | W1R grid: kill the out-of-bounds placement mutant | 2026-09-18 |
+| `014` | `rrc/agent` | W1R progress: kill the negative-progress mutant | 2026-09-18 |
+| `015` | `rrc/agent` | W1R catalog: kill the wire-reach quality mutant | 2026-09-18 |
