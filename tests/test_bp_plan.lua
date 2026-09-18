@@ -30,6 +30,16 @@ local function input(round_up, columns, rates, selections, catalog)
     }
 end
 
+local function item_port(rate, lane_items_per_second)
+    local result = run(input(false,
+        {column("make", rate, 1, {['item/output'] = 1})}, {make = rate},
+        {{recipe_name = "make", machine = {name = "assembler"}}},
+        {belt = {lane_items_per_second = lane_items_per_second}}))
+    local port = result.ports[1]
+    H.equal(port ~= nil, true, "item output port exists")
+    return port
+end
+
 local function plain(value, seen, path)
     local value_type = type(value)
     H.equal(value_type == "userdata" or value_type == "function", false, path .. " is executable or a LuaObject")
@@ -145,6 +155,44 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(result.flows[1].flow_id, "item/a", "flows are sorted")
         H.equal(result.ports[1].port_id, "out:item/a", "ports are sorted")
         plain(result, nil, "plan")
+    end)
+
+    H.test(shape .. " BP7 item port below one belt lane asks for one", function()
+        local port = item_port(9.9, 10)
+        H.equal(port.min_lanes, 1, "a sub-lane item rate needs one lane")
+    end)
+
+    H.test(shape .. " BP8 item port above one belt lane asks for two", function()
+        local port = item_port(12, 10)
+        H.equal(port.min_lanes, 2, "a 1.2-lane item rate needs two lanes")
+    end)
+
+    H.test(shape .. " BP9 item port at one belt lane stays at one within tolerance", function()
+        local port = item_port(10 + 1e-10, 10)
+        H.equal(port.min_lanes, 1, "a rate within tolerance of one lane needs one lane")
+    end)
+
+    H.test(shape .. " BP10 item port needing three belt lanes asks for three", function()
+        local port = item_port(30, 10)
+        H.equal(port.min_lanes, 3, "a three-lane item rate needs three lanes")
+    end)
+
+    H.test(shape .. " BP11 fluid port always asks for one lane", function()
+        local result = run(input(false,
+            {column("make", 100, 1, {['fluid/water'] = 1})}, {make = 100},
+            {{recipe_name = "make", machine = {name = "assembler"}}},
+            {belt = {lane_items_per_second = 10}}))
+        local port = result.ports[1]
+        H.equal(port ~= nil, true, "fluid output port exists")
+        H.equal(port.min_lanes, 1, "fluid rate ignores belt lane capacity")
+    end)
+
+    H.test(shape .. " BP12 selected faster belt family lowers the item lane count", function()
+        local standard = item_port(24, 10)
+        local faster = item_port(24, 20)
+        H.equal(standard.min_lanes, 3, "the standard belt needs three lanes")
+        H.equal(faster.min_lanes, 2, "the faster belt needs two lanes")
+        H.equal(faster.min_lanes < standard.min_lanes, true, "a faster belt lowers the lane count")
     end)
 end
 
