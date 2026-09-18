@@ -1,6 +1,6 @@
 # 003 — prototypes as plain data, at the right quality
 
-Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-003`, branch `lane/003`, base = `feat/round-8-blueprints` `4569c48ca39995d321f26ec11403fb273e7a194a` (tag `wave-0-spine`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-003`, branch `lane/003`, base = `feat/round-8-blueprints`, tag `wave-0-spine` (resolve it with `git rev-parse wave-0-spine`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 ## What is true
 
@@ -41,12 +41,12 @@ Current facts:
 ```checks
 {"name": "catalog-tests", "command": "lua5.2 tests/test_catalog.lua && lua5.4 tests/test_catalog.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base 4569c48ca39995d321f26ec11403fb273e7a194a --manifest docs/tasks/003.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-0-spine --manifest docs/tasks/003.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 {"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout 4569c48ca39995d321f26ec11403fb273e7a194a -- logic/catalog.lua; out=$(cd \"$S\" && lua5.2 tests/test_catalog.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
 ```
 
 - Red first pasted, green after pasted, planted breach pasted then reverted.
-- `git diff --stat 4569c48ca39995d321f26ec11403fb273e7a194a HEAD` pasted.
+- `git diff --stat wave-0-spine HEAD` pasted.
 
 Run the whole suite through the lease: `gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh`, from the worktree root. Wait for the lease however long; never stop because of queue wait. Commit when a step is finished, with the pasted output in the message body.
 
