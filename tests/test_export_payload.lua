@@ -55,6 +55,19 @@ local function build(sheet_flow)
     return payload, state
 end
 
+local function ordered_map(keys, values)
+    local result = {}
+    for _, key in ipairs(keys) do result[key] = values[key] end
+    return result
+end
+
+local function sorted_copy(values)
+    local result = {}
+    for index, value in ipairs(values) do result[index] = value end
+    table.sort(result)
+    return result
+end
+
 local function walk_plain(value, path, seen)
     path = path or "payload"
     H.equal(type(value) ~= "userdata", true, path .. " has no LuaObject")
@@ -211,6 +224,125 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(payload.sheet.player_index, 1, "player one sheet")
         H.equal(payload.sheet.targets[1].full_name, "item/gear", "player one target")
         H.equal(payload.sheet.targets[1].full_name ~= "item/raw", true, "player two target absent")
+    end)
+
+    H.test(shape .. " E11 referenced prototype lists are sorted", function()
+        local world = world_with(shape)
+        world.add_machine({name = "a-entity", categories = {"crafting"}, speed = 1})
+        world.add_machine({name = "z-entity", categories = {"crafting"}, speed = 1})
+        world.add_item("a-item")
+        world.add_item("z-item")
+        world.add_fluid("a-fluid")
+        world.add_fluid("z-fluid")
+        world.add_module("a-module", "speed", {speed = 0.1})
+        world.add_module("z-module", "speed", {speed = 0.1})
+        local _, sheet_flow = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local snapshot = Snapshot.of_sheet(sheet_flow)
+        local result = result_for(snapshot)
+        result.referenced = {
+            entities = ordered_map({"z-entity", "a-entity"}, { ["a-entity"] = true, ["z-entity"] = true }),
+            items = ordered_map({"z-item", "a-item"}, { ["a-item"] = true, ["z-item"] = true }),
+            fluids = ordered_map({"z-fluid", "a-fluid"}, { ["a-fluid"] = true, ["z-fluid"] = true }),
+            modules = ordered_map({"z-module", "a-module"}, { ["a-module"] = true, ["z-module"] = true }),
+        }
+        storage[1].last_calculation = {
+            sheet_id = snapshot.sheet_id, result = result, settings = snapshot, calculation_tick = 17,
+        }
+
+        local Catalog = require "logic.catalog"
+        local original_for_export = Catalog.for_export
+        local requested
+        Catalog.for_export = function(player_index, references)
+            requested = references
+            return original_for_export(player_index, references)
+        end
+        local ok, payload_or_error = pcall(build, sheet_flow)
+        Catalog.for_export = original_for_export
+        if not ok then error(payload_or_error, 0) end
+        local payload = payload_or_error
+        H.equal(type(payload.prototypes), "table", "prototype catalog exists")
+        H.equal(requested ~= nil, true, "catalog references were captured")
+
+        for _, kind in ipairs({"entities", "items", "fluids", "modules"}) do
+            local values = requested[kind]
+            H.equal(values ~= nil, true, kind .. " references exist before reading them")
+            H.equal(type(values), "table", kind .. " references are a list")
+            H.deep_equal(values, sorted_copy(values), kind .. " references are sorted")
+            local known = "a-" .. (kind == "entities" and "entity" or kind == "items" and "item"
+                or kind == "fluids" and "fluid" or "module")
+            H.equal(values[1] ~= nil, true, kind .. " known member exists before reading it")
+            H.equal(values[1], known, kind .. " known member is at sorted index")
+        end
+    end)
+
+    H.test(shape .. " E12 differently ordered reference tables produce one payload string", function()
+        world_with(shape)
+        local _, sheet_flow = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local snapshot = Snapshot.of_sheet(sheet_flow)
+        local names = {entities = {"assembler", "gear-machine"}, items = {"item/gear", "item/raw"},
+            fluids = {"fluid/water", "fluid/steam"}, modules = {"speed-module", "efficiency-module"}}
+        local function result_with(order, reverse_values)
+            local result = result_for(snapshot)
+            local references = {}
+            for _, kind in ipairs(order) do
+                local values = {}
+                local first, second = names[kind][1], names[kind][2]
+                local value_order = reverse_values and {second, first} or {first, second}
+                for _, name in ipairs(value_order) do values[name] = true end
+                references[kind] = values
+            end
+            result.referenced = references
+            local map_order = reverse_values and {"item/raw", "item/gear"} or {"item/gear", "item/raw"}
+            result.solved_rates = ordered_map(map_order, {['item/gear'] = 1, ['item/raw'] = -1})
+            result.product_parts = ordered_map(map_order, {['item/gear'] = {}, ['item/raw'] = {}})
+            return result
+        end
+
+        local first_result = result_with({"entities", "items", "fluids", "modules"}, false)
+        storage[1].last_calculation = {
+            sheet_id = snapshot.sheet_id, result = first_result, settings = snapshot, calculation_tick = 17,
+        }
+        local first = build(sheet_flow)
+
+        local second_result = result_with({"modules", "fluids", "items", "entities"}, true)
+        storage[1].last_calculation.result = second_result
+        local second = build(sheet_flow)
+        H.deep_equal(first, second, "same snapshot gives identical payload tables")
+        H.equal(ExportPayload.encode(first), ExportPayload.encode(second), "same snapshot gives identical payload strings")
+    end)
+
+    H.test(shape .. " E13 targets and module slots keep their meaningful order", function()
+        local world = world_with(shape)
+        world.add_module("slot-a", "speed", {speed = 0.1})
+        world.add_module("slot-b", "speed", {speed = 0.1})
+        world.bind("item/gear", "gear")
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler", quality = "normal"}
+        storage[1].module_setups_by_recipe_name.gear = {
+            modules = {{name = "slot-b"}, {name = "slot-a"}}, beacons = {},
+        }
+        local _, sheet_flow = H.fill_sheet({
+            {item = "raw", rate = 2, unit = "/s"},
+            {item = "gear", rate = 1, unit = "/s"},
+        }, 1)
+        local snapshot = remember(sheet_flow)
+        local payload = build(sheet_flow)
+
+        local targets = payload.sheet.targets
+        H.equal(type(targets), "table", "target list exists")
+        H.equal(targets[1] ~= nil, true, "first target exists before reading it")
+        H.equal(targets[2] ~= nil, true, "second target exists before reading it")
+        H.equal(targets[1].full_name, "item/raw", "first target stays in UI order")
+        H.equal(targets[2].full_name, "item/gear", "second target stays in UI order")
+
+        local selection = payload.selection
+        H.equal(type(selection), "table", "selection exists")
+        H.equal(selection[1] ~= nil, true, "selected recipe exists before reading it")
+        local modules = selection[1].modules
+        H.equal(type(modules), "table", "module slots exist")
+        H.equal(modules[1] ~= nil, true, "first module slot exists before reading it")
+        H.equal(modules[2] ~= nil, true, "second module slot exists before reading it")
+        H.equal(modules[1].name, "slot-b", "first module slot stays first")
+        H.equal(modules[2].name, "slot-a", "second module slot stays second")
     end)
 end
 
