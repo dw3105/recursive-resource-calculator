@@ -1,0 +1,3 @@
+logic/reset.lua
+logic/player_data.lua
+!tests/test_reset.lua

@@ -1,0 +1,2 @@
+logic/export_payload.lua
+!tests/test_export_payload.lua
