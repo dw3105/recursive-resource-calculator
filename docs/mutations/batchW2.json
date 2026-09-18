@@ -1,0 +1,66 @@
+[
+ {
+  "id": "W2-M01",
+  "file": "logic/bp/plan.lua",
+  "old": "    return math.max(1, math.ceil(rate / capacity - tolerance(rate)))",
+  "new": "    return math.max(1, math.floor(rate / capacity + 0.5))",
+  "test": "tests/test_bp_plan.lua",
+  "shapes": "2.0",
+  "expect": "BP",
+  "note": "mutates lane_count, the port lane count, not Plan.machine_count"
+ },
+ {
+  "id": "W2-M02",
+  "file": "logic/bp/plan.lua",
+  "old": "        machine_count = Plan.machine_count(rate, machine_rate),",
+  "new": "        machine_count = math.max(1, Plan.machine_count(rate, machine_rate) - 1),",
+  "test": "tests/test_bp_plan.lua",
+  "shapes": "2.0",
+  "expect": "BP"
+ },
+ {
+  "id": "W2-M03",
+  "file": "logic/reset.lua",
+  "old": "    player_storage.config_revision = (type(player_storage.config_revision) == \"number\" and player_storage.config_revision or 0) + 1",
+  "new": "    player_storage.config_revision = (type(player_storage.config_revision) == \"number\" and player_storage.config_revision or 0)",
+  "test": "tests/test_reset.lua",
+  "shapes": "2.0",
+  "expect": "R"
+ },
+ {
+  "id": "W2-M04",
+  "file": "logic/bp/preflight.lua",
+  "old": "Preflight.MAX_MACHINES = 100",
+  "new": "Preflight.MAX_MACHINES = 1000",
+  "test": "tests/test_bp_preflight.lua",
+  "shapes": "2.0",
+  "expect": "BP_REJ_SIZE_MACHINES"
+ },
+ {
+  "id": "W2-M05",
+  "file": "logic/bp/preflight.lua",
+  "old": "Preflight.MAX_STEPS = 30",
+  "new": "Preflight.MAX_STEPS = 300",
+  "test": "tests/test_bp_preflight.lua",
+  "shapes": "2.0",
+  "expect": "BP_REJ_SIZE_STEPS"
+ },
+ {
+  "id": "W2-M06",
+  "file": "logic/export_payload.lua",
+  "old": "    table.sort(values)",
+  "new": "",
+  "test": "tests/test_export_payload.lua",
+  "shapes": "2.0",
+  "expect": "E"
+ },
+ {
+  "id": "W2-M07",
+  "file": "logic/report_steps.lua",
+  "old": "local function current_revisions(state)",
+  "new": "local function current_revisions(state) if true then return state.revisions end",
+  "test": "tests/test_report_steps.lua",
+  "shapes": "2.0",
+  "expect": "RS-"
+ }
+]

@@ -25,3 +25,5 @@
 | `021` | `rrc/agent` | W3 power: poles and legal wires | 2026-09-18 |
 | `022` | `rrc/agent` | W3 validate: the second opinion | 2026-09-18 |
 | `023` | `rrc/agent` | W3 serial: blueprint entities and canonical form | 2026-09-18 |
+| `024` | `rrc/agent` | W2R plan: port lane count | 2026-09-18 |
+| `025` | `rrc/agent` | W2R payload: sorted reference lists | 2026-09-18 |
