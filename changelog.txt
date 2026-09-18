@@ -1,4 +1,28 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.38
+Date: 2026.09.18
+  Info:
+    - Same code as 1.1.37, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.37
+Date: 2026.09.18
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.38).
+    - Test build of round 8, not a portal release. Blueprint generation is not finished: its button reports
+      that it is unavailable.
+  Features:
+    - Export debug: an action on every sheet that turns the sheet, its calculation and the prototype values
+      behind it into one text string, shown in a selectable box. It works on an empty, failed or stale sheet
+      too, and it never recalculates. The string is compressed JSON in Base64; it decodes offline and is not a
+      blueprint string.
+    - Reset recipe setups: a calculator action that puts recipe bindings, chosen machines, modules, beacon
+      groups and quality loops back to the defaults a new player starts with, on every sheet at once. Target
+      rows, tabs, rates, units and display settings stay. Only the player who presses it is affected, and work
+      already running cannot put the old choices back.
+  Changes:
+    - Sheets carry an identity of their own, so a calculation, an export and a blueprint setting can name the
+      sheet they belong to across a save.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.36
 Date: 2026.09.16
   Info:
