@@ -15,7 +15,7 @@
   "new": "    if rect.x < 0 or rect.y < 0 or rect.x + rect.w > grid.w + 1 or rect.y + rect.h > grid.h then",
   "test": "tests/test_grid.lua",
   "shapes": "2.0",
-  "expect": "G"
+  "expect": "G13"
  },
  {
   "id": "W1-M03",
@@ -51,7 +51,7 @@
   "new": "    return math.floor(value)",
   "test": "tests/test_progress_panel.lua",
   "shapes": "2.0",
-  "expect": "PP"
+  "expect": "PP-08"
  },
  {
   "id": "W1-M07",
@@ -60,7 +60,8 @@
   "new": "Jobs.OPS_PER_TICK = 1",
   "test": "tests/test_jobs.lua",
   "shapes": "2.0",
-  "expect": "J"
+  "expect": "J",
+  "equivalent": "Jobs.OPS_PER_TICK sets how much work one tick does, never what the work returns. Every job still finishes and commits the same result, so no assertion can tell the two trees apart. It is a responsiveness constant, measured by profiling, not by a mutant."
  },
  {
   "id": "W1-M08",
@@ -78,6 +79,6 @@
   "new": "        if type(entity.get_max_wire_distance) == \"function\" then wire = entity.get_max_wire_distance(\"normal\") end",
   "test": "tests/test_catalog.lua",
   "shapes": "2.0",
-  "expect": "C"
+  "expect": "C12"
  }
 ]
