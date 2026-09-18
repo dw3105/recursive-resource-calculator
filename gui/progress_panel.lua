@@ -10,6 +10,8 @@ local ProgressPanel = {}
 
 local UNKNOWN_TOTAL_ESTIMATE = 100
 local CANCEL_LABEL_NAME = "hxrrc_calc_canceled_label"
+local LAST_PHASE_TAG = "hxrrc_progress_phase"
+local LAST_VALUE_TAG = "hxrrc_progress_value"
 
 --Requiring Sheet at module load would recurse: Sheet requires this module to install its handlers.
 local function Sheet()
@@ -67,6 +69,26 @@ local function progress_value(progress)
     return math.min(0.99, done / (done + UNKNOWN_TOTAL_ESTIMATE)), "?"
 end
 
+local function reset_progress_tracking(bar)
+    local tags = bar.tags or {}
+    tags[LAST_PHASE_TAG] = nil
+    tags[LAST_VALUE_TAG] = nil
+    bar.tags = tags
+end
+
+local function nondecreasing_value(bar, key, value)
+    local tags = bar.tags or {}
+    local previous_phase = tags[LAST_PHASE_TAG]
+    local previous_value = tags[LAST_VALUE_TAG]
+    if previous_phase == key and type(previous_value) == "number" then
+        value = math.max(previous_value, value)
+    end
+    tags[LAST_PHASE_TAG] = key
+    tags[LAST_VALUE_TAG] = value
+    bar.tags = tags
+    return value
+end
+
 function ProgressPanel.show(sheet_flow)
     local bar, cancel = controls_of(sheet_flow)
     if not bar or not cancel or bar.valid == false or cancel.valid == false then
@@ -81,6 +103,7 @@ function ProgressPanel.hide(sheet_flow)
     if not bar or not cancel or bar.valid == false or cancel.valid == false then
         return
     end
+    reset_progress_tracking(bar)
     bar.visible = false
     cancel.visible = false
 end
@@ -97,6 +120,7 @@ function ProgressPanel.update(sheet_flow, progress)
 
     local key = phase_key(progress.phase)
     local value, total = progress_value(progress)
+    value = nondecreasing_value(bar, key, value)
     bar.caption = {key}
     bar.tooltip = {"hxrrc.calc_progress_tooltip", {key}, finite_nonnegative_integer(progress.done_units), total}
     bar.value = value

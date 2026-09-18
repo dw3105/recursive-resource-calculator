@@ -22,6 +22,17 @@ local function child_named(parent, name)
     end
 end
 
+local function assert_safe_update(ProgressPanel, sheet_flow, bar, progress, label)
+    H.equal(bar ~= nil, true, label .. ": the progress bar exists")
+    local ok = pcall(function()
+        ProgressPanel.update(sheet_flow, progress)
+    end)
+    H.equal(ok, true, label .. ": update does not raise")
+    H.equal(bar.value ~= nil, true, label .. ": the bar writes a value")
+    H.equal(type(bar.value), "number", label .. ": the value is numeric")
+    H.equal(bar.value >= 0 and bar.value <= 1, true, label .. ": the value stays in range")
+end
+
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " PP-01 controls stay hidden until work starts and appear together", function()
         local _, sheet_flow = panel_world(shape)
@@ -127,6 +138,70 @@ for _, shape in ipairs(H.shapes()) do
             ProgressPanel.update(sheet_flow, {phase = "reading", done_units = 1, total_units = 2})
         end)
         H.equal(ok, true, "missing round 8 controls do not crash the panel")
+    end)
+
+    H.test(shape .. " PP-08 negative done units keep the bar nonnegative", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local bar = require("gui.sheet").progressbar_of(sheet_flow)
+        assert_safe_update(ProgressPanel, sheet_flow, bar,
+            {phase = "reading", done_units = -3, total_units = 10}, "negative done units")
+    end)
+
+    H.test(shape .. " PP-09 negative total units do not escape the bar range", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local bar = require("gui.sheet").progressbar_of(sheet_flow)
+        assert_safe_update(ProgressPanel, sheet_flow, bar,
+            {phase = "reading", done_units = 3, total_units = -10}, "negative total units")
+    end)
+
+    H.test(shape .. " PP-10 done units above total stay capped at one", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local bar = require("gui.sheet").progressbar_of(sheet_flow)
+        assert_safe_update(ProgressPanel, sheet_flow, bar,
+            {phase = "reading", done_units = 12, total_units = 5}, "done above total")
+    end)
+
+    H.test(shape .. " PP-11 nonnumeric done units do not raise", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local bar = require("gui.sheet").progressbar_of(sheet_flow)
+        assert_safe_update(ProgressPanel, sheet_flow, bar,
+            {phase = "reading", done_units = "many", total_units = 10}, "nonnumeric done units")
+    end)
+
+    H.test(shape .. " PP-12 NaN done units do not raise", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local bar = require("gui.sheet").progressbar_of(sheet_flow)
+        assert_safe_update(ProgressPanel, sheet_flow, bar,
+            {phase = "reading", done_units = 0 / 0, total_units = 10}, "NaN done units")
+    end)
+
+    H.test(shape .. " PP-13 infinite done units do not raise", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local bar = require("gui.sheet").progressbar_of(sheet_flow)
+        assert_safe_update(ProgressPanel, sheet_flow, bar,
+            {phase = "reading", done_units = math.huge, total_units = 10}, "infinite done units")
+    end)
+
+    H.test(shape .. " PP-14 progress in one phase never moves backwards", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local bar = require("gui.sheet").progressbar_of(sheet_flow)
+        assert_safe_update(ProgressPanel, sheet_flow, bar,
+            {phase = "solving", done_units = 8, total_units = 10}, "first phase update")
+        local first = bar.value
+        local ok = pcall(function()
+            ProgressPanel.update(sheet_flow, {phase = "solving", done_units = 3, total_units = 10})
+        end)
+        H.equal(ok, true, "a backwards report does not raise")
+        H.equal(bar.value ~= nil, true, "the second update leaves a value")
+        H.equal(bar.value >= first, true, "the bar does not move backwards")
+        H.equal(bar.value, first, "the prior phase value is retained")
     end)
 end
 
