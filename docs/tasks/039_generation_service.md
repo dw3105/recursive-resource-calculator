@@ -1,6 +1,6 @@
 # 039 — Generate actually generates, and one service owns the job
 
-Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-039`, branch `lane/039`, base = `feat/round-8-blueprints`, tag `recovery-base-039b` (resolve it with `git rev-parse recovery-base-039b`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-039`, branch `lane/039`, base = `feat/round-8-blueprints`, tag `recovery-base-039c` (resolve it with `git rev-parse recovery-base-039c`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 Stream A of the recovery plan. This is the biggest missing player workflow: the dialog validates and stops.
 
@@ -8,7 +8,7 @@ Stream A of the recovery plan. This is the biggest missing player workflow: the 
 
 **PRESERVE:**
 - You own `gui/blueprint_dialog.lua`, new `logic/bp/generation.lua`, `logic/engine_test_api.lua`, new `tests/test_blueprint_pipeline.lua`, new `tests/test_engine_test_api.lua`, and `tests/test_bp_settings.lua`. Everything else is frozen; if you need a change elsewhere, stop and report.
-- Lane 037 owns `control.lua`, `gui/sheet.lua`, `logic/calc_pipeline.lua` and six older test files **right now**. Never touch them. If registration in `control.lua` is needed, say so in your report and expose `Generation.register()` so the integrator can wire it.
+- `control.lua`, `gui/sheet.lua` and `logic/calc_pipeline.lua` are the integrator's and stay frozen. If registration in `control.lua` is needed, say so in your report and expose `Generation.register()` so the integrator wires it.
 - Every existing case stays. You add; you never weaken or delete. An asynchronous path gains bounded ticks, never fewer assertions.
 - `require` runs only while `control.lua` is parsed. Never call it inside a function; `tests/test_no_runtime_require.lua` fails the suite on an indented `require`. Use `logic/registry.lua` for a late edge.
 - `prototypes`, `game`, `settings` and prototype lists are **userdata**; ask `rawget(_G, "prototypes")`.
@@ -22,18 +22,25 @@ Current facts:
 - `docs/feature-contracts.md` §17 freezes what you build: `Generation.register/start/status/cancel`, `GenerationInput`, `PreparedInput`, `TerminalResult`, and the rules for supersession, revisions, cancellation and a deleted sheet.
 - `Jobs` already services jobs from `Jobs.on_tick` under one shared budget, and the progress panel refreshes from `Registry.progress_refresh`.
 
-## What attempt 1 found, and what changed under you
+## What the earlier attempts found, and what changed under you
 
-Attempt 1 stopped and reported rather than faking a pass, which was right. It reached
-`logic/bp/grid.lua:73: attempt to compare number with nil` from `Grid.free_regions` on the first layout tick,
-because `logic/bp/search.lua` handed `{rect, owner}` records to `Pack.begin`, which documents bare rectangles.
+Both earlier attempts stopped and reported rather than faking a pass, which was right. Both stop points are now
+fixed in this base, by lanes that owned the files you may not touch.
 
-Lane 043 fixed exactly that and is merged into this base: the search now passes bare rectangles to the packer and
-keeps owner-bearing records for the power stage and the router, with three cases covering all three consumers.
+- Attempt 1 reached `logic/bp/grid.lua:73: attempt to compare number with nil` from `Grid.free_regions`, because
+  `logic/bp/search.lua` handed `{rect, owner}` records to `Pack.begin`, which documents bare rectangles. Lane 043
+  fixed it: the search passes bare rectangles to the packer and keeps owner-bearing records for the power stage
+  and the router.
+- Attempt 2 built the service, queued a real job from a real calculated sheet, and ended
+  `failure/search BP_FAIL_NO_LAYOUT_GRID_LIMIT`, reproduced as `perimeter=(-1,2) ok=false code=BP_R_PORT_BLOCKED`
+  against `perimeter=(0,2) ok=true code=nil`: the factory's own perimeter ports sat one tile outside the grid,
+  where the router blocks every cell. Lane 044 fixed it per `docs/feature-contracts.md` §18 — a perimeter port
+  sits on the grid's own edge cell, `travel_dir` out for an output and in for an input — and proved a small real
+  plan reaches `state.ok == true` with a serialized result.
 
-Your worktree still holds your own uncommitted work from attempt 1. Keep it, rebuild on this base, and carry on
-from where the defect stopped you. If the positive case now fails at a **different** stage, stop and report that
-stage the same way; do not turn a positive case into a rejection.
+Your worktree still holds your own uncommitted work from attempt 2, rebuilt on this base. Keep it and carry on
+from where routing stopped you. If the positive case now fails at a **different** stage, stop and report that
+stage the same way; never turn a positive case into a rejection.
 
 ## What to build
 
@@ -51,11 +58,11 @@ stage the same way; do not turn a positive case into a rejection.
 {"name": "pipeline-tests", "command": "lua5.2 tests/test_blueprint_pipeline.lua && lua5.4 tests/test_blueprint_pipeline.lua && lua5.2 tests/test_engine_test_api.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "delivery-and-settings", "command": "lua5.2 tests/test_blueprint_delivery.lua && lua5.2 tests/test_bp_settings.lua && lua5.2 tests/test_no_runtime_require.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base recovery-base-039b --manifest docs/tasks/039.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base recovery-base-039c --manifest docs/tasks/039.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
 - Paste the end-to-end case failing before the service exists and passing after.
-- `git diff --stat recovery-base-039b HEAD` pasted.
+- `git diff --stat recovery-base-039c HEAD` pasted.
 
 Run the checks as your **last** action, after your final commit: a commit afterwards moves the tree the proof was
 taken against, and the supervisor refuses it with the reason `tree-moved`.
