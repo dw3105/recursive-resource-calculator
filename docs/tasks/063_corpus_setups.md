@@ -51,4 +51,4 @@ source kind and source SHA.
 
 `tests/golden/setup/`, `tests/golden/cases/base-only-crafting-smelting/`, `tests/golden/cases/shared-intermediate-multi-target/`, `tests/golden/cases/fluid-byproduct-chain/`, `tests/golden/cases/assembler-chain-example/`, `tests/golden/cases/repeatability/`, `tests/test_corpus_setups.lua`, `docs/golden-case-authoring.md`.
 
-# bound: 2400s
+# bound: 1918s

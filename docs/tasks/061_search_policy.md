@@ -72,4 +72,4 @@ Replace the unsupported assumption with a stopping rule that is tested.
 
 `logic/bp/search.lua`, `tests/test_search.lua`, `tests/test_search_budget.lua`.
 
-# bound: 2400s
+# bound: 1918s

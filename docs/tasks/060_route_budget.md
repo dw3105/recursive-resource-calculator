@@ -70,4 +70,4 @@ finishes. The cost is in the candidates that fail, not in the one that succeeds.
 
 `logic/bp/route.lua`, `tests/test_route.lua`, `tests/test_route_budget.lua`, `tests/fixtures/routing/`.
 
-# bound: 2400s
+# bound: 1918s

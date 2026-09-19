@@ -53,4 +53,4 @@ against memory.
 
 `tests/golden/engine/mod/`, `tests/test_engine_runtime_adapter.lua`, `tests/test_engine_scenario.lua`, `tests/test_companion_api_shapes.lua`, `docs/engine-evidence/runner.md`.
 
-# bound: 2400s
+# bound: 1918s
