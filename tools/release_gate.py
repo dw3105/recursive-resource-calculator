@@ -151,10 +151,15 @@ def _first(mapping: Mapping[str, Any], *keys: str) -> Any:
 
 
 def _outcome(observation: Mapping[str, Any]) -> Mapping[str, Any]:
+    kind = observation.get("outcome_kind")
+    if isinstance(kind, str):
+        value = observation.get(kind)
+        if isinstance(value, Mapping):
+            return value
     value = observation.get("outcome")
     if isinstance(value, Mapping):
         return value
-    return observation
+    return {}
 
 
 def _observed_kind(observation: Mapping[str, Any]) -> Optional[str]:
@@ -313,7 +318,7 @@ def _check_rates(case: Mapping[str, Any], manifest: Mapping[str, Any], observati
         return
     outcome = _outcome(observation)
     rates = _first(outcome, "rates", "measured_rates", "actual_rates")
-    if not isinstance(rates, Mapping):
+    if not isinstance(rates, Mapping) or not rates:
         raise ReleaseGateError(f"rates below target: case {_case_id(case)} has no measured rates")
     tolerance = _number(_first(scenario, "allowed_discrete_error", "allowed_rate_error"))
     tolerance = 0.0 if tolerance is None else max(0.0, tolerance)
@@ -326,10 +331,13 @@ def _check_rates(case: Mapping[str, Any], manifest: Mapping[str, Any], observati
             raise ReleaseGateError(
                 f"rates below target: {name} measured {actual:g}, target {target:g}"
             )
-        if actual > target + tolerance:
-            raise ReleaseGateError(
-                f"rates mismatch: {name} measured {actual:g}, target {target:g}"
-            )
+
+
+def _window_ticks(outcome: Mapping[str, Any], nested_name: str, flat_name: str) -> Any:
+    if nested_name in outcome:
+        window = outcome[nested_name]
+        return window.get("ticks") if isinstance(window, Mapping) else None
+    return outcome.get(flat_name)
 
 
 def _check_timing(case: Mapping[str, Any], manifest: Mapping[str, Any], observation: Mapping[str, Any]) -> None:
@@ -347,23 +355,51 @@ def _check_timing(case: Mapping[str, Any], manifest: Mapping[str, Any], observat
         number = _number(value)
         if number is None or number < 0:
             raise ReleaseGateError(f"invalid timing: {case.get('case_id')} has non-finite {name}")
+
     timeout = _number(scenario.get("timeout_seconds"))
-    if timeout is not None:
-        for key in ("elapsed_seconds", "total_seconds", "wall_seconds", "generation_seconds"):
-            value = _number(timings.get(key))
-            if value is not None and value > timeout:
-                raise ReleaseGateError(
-                    f"invalid timing: case {_case_id(case)} took {value:g}s, timeout is {timeout:g}s"
-                )
-    for key in ("warm_up_ticks", "sampling_window_ticks"):
-        expected = _number(scenario.get(key))
-        observed = _number(_first(outcome, key))
-        if expected is not None and observed is not None and observed != expected:
+    generation_ticks = _number(timings.get("generation_ticks"))
+    if timeout is not None and generation_ticks is not None and generation_ticks > timeout * 60:
+        raise ReleaseGateError(
+            f"invalid timing: case {_case_id(case)} took {generation_ticks:g} engine ticks, "
+            f"timeout is {timeout:g}s"
+        )
+
+    wall_clock_target = _first(
+        scenario, "wall_clock_seconds", "wall_clock_target_seconds", "max_wall_clock_seconds"
+    )
+    if wall_clock_target is not None:
+        target = _number(wall_clock_target)
+        measured = _number(timings.get("wall_clock_seconds"))
+        if target is None or target < 0:
+            raise ReleaseGateError(f"invalid timing: case {_case_id(case)} has invalid wall-clock target")
+        if measured is None:
             raise ReleaseGateError(
-                f"invalid timing: case {_case_id(case)} has {key}={observed:g}, expected {expected:g}"
+                f"invalid timing: case {_case_id(case)} has no wall_clock_seconds measurement"
             )
-        if expected is not None and expected > 0 and observed is None:
-            raise ReleaseGateError(f"invalid timing: case {_case_id(case)} has no {key}")
+        if measured > target:
+            raise ReleaseGateError(
+                f"invalid timing: case {_case_id(case)} took {measured:g}s, wall-clock target is {target:g}s"
+            )
+
+    for nested_name, flat_name, expected_name, minimum in (
+        ("warm_up", "warm_up_ticks", "warm_up_ticks", 0.0),
+        ("window", "sampling_window_ticks", "sampling_window_ticks", 1.0),
+    ):
+        expected = _number(scenario.get(expected_name))
+        raw_observed = _window_ticks(outcome, nested_name, flat_name)
+        observed = _number(raw_observed)
+        if observed is None:
+            raise ReleaseGateError(
+                f"invalid timing: case {_case_id(case)} has no {flat_name}"
+            )
+        if observed < minimum or observed != math.floor(observed):
+            raise ReleaseGateError(
+                f"invalid timing: case {_case_id(case)} has invalid {nested_name}.ticks"
+            )
+        if expected is not None and observed != expected:
+            raise ReleaseGateError(
+                f"invalid timing: case {_case_id(case)} has {expected_name}={observed:g}, expected {expected:g}"
+            )
 
 
 def _expected_canonical(expected: Any) -> Any:
@@ -415,7 +451,9 @@ def _check_outcome(case: Mapping[str, Any], manifest: Mapping[str, Any], expecte
         expected_digest = manifest.get("export_sha256", manifest.get("expected_export_sha256"))
         if expected_digest is None and isinstance(expected, Mapping):
             expected_digest = expected.get("digest", expected.get("export_sha256"))
-        actual_digest = _first(outcome, "digest", "export_sha256", "canonical_sha256")
+        actual_digest = _first(
+            outcome, "digest", "content_sha256", "export_sha256", "canonical_sha256"
+        )
         if expected_digest is not None and actual_digest != expected_digest:
             raise ReleaseGateError(f"export mismatch: case {_case_id(case)} digest is not the offline result")
     else:

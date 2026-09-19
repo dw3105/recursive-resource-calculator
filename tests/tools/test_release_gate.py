@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import copy
 import sys
 import tempfile
 import unittest
@@ -30,6 +31,9 @@ def load_module(path: Path, name: str):
 
 GATE = load_module(ROOT / "tools" / "release_gate.py", "rrc_test_release_gate")
 RECEIPT = load_module(ROOT / "tools" / "evidence_receipt.py", "rrc_test_release_receipt")
+PRODUCTION_EXAMPLE = json.loads(
+    (ROOT / "docs" / "engine-evidence" / "examples" / "production.json").read_text(encoding="utf-8")
+)
 
 
 def write_json(path: Path, value) -> None:
@@ -85,38 +89,47 @@ class ReleaseGateFixture:
 
     def make_archive(self):
         build_id = (
-            'return {candidate_sha = "fixture-candidate-sha", mod_version = "1.1.99", '
-            'factorio_branch = "2.0", packaged = true}\n'
+            f'return {{candidate_sha = "{self.candidate}", mod_version = "{self.version}", '
+            f'factorio_branch = "{self.branch}", packaged = true}}\n'
         )
         with zipfile.ZipFile(self.archive, "w", compression=zipfile.ZIP_STORED) as package:
-            package.writestr("RRC-Fork_1.1.99/logic/build_id.lua", build_id)
+            package.writestr(f"RRC-Fork_{self.version}/logic/build_id.lua", build_id)
             package.writestr("RRC-Fork_1.1.99/TEST_BUILD.txt", "fixture test build\n")
 
     def observation(self, **changes):
-        outcome = {
+        production = copy.deepcopy(PRODUCTION_EXAMPLE["production"])
+        production.update({
             "canonical_sha256": GATE.canonical_sha256(self.expected),
             "canonical_version": 1,
             "rates": {"item/stone-brick": 1.0},
-            "warm_up_ticks": 5,
-            "sampling_window_ticks": 10,
-            "timings": {"generation_seconds": 1.0, "elapsed_seconds": 2.0},
-        }
+            "warm_up": {"ticks": 5, "start_tick": 100, "end_tick": 104},
+            "window": {"ticks": 10, "start_tick": 105, "end_tick": 114},
+            "timings": {
+                "generation_ticks": 18,
+                "sampling_ticks": 10,
+                "warm_up_ticks": 5,
+                "wall_clock_seconds": 2.0,
+            },
+        })
         observation = {
             "schema_version": 1,
             "case_id": self.case_id,
             "outcome_kind": "production",
+            "factorio_branch": self.branch,
+            "factorio_version": f"{self.branch}.77",
             "candidate_sha": self.candidate,
             "runner_revision": "fixture-runner",
-            "engine_version": "2.0.77",
-            "active_mods": ["base"],
-            "force_research": [],
+            "engine_version": f"{self.branch}.77",
+            "active_mods": [{"name": "base", "version": f"{self.branch}.77"}],
+            "mods": [{"name": "base", "version": f"{self.branch}.77"}],
+            "force": "player",
             "surface": "nauvis",
             "environment": {
                 "factorio_branch": self.branch,
                 "mod_version": self.version,
                 "active_mods": ["base"],
             },
-            "outcome": outcome,
+            "production": production,
         }
         observation.update(changes)
         return observation
@@ -240,7 +253,7 @@ class ReleaseGateTests(unittest.TestCase):
             fixture.prepare()
             observation = fixture.observation(
                 outcome_kind="rejection",
-                outcome={"stage": "preflight", "reason_codes": ["BP_REJ_FIXTURE"]},
+                rejection={"stage": "preflight", "reason_codes": ["BP_REJ_FIXTURE"]},
             )
             fixture.file_evidence(observation)
             with self.assertRaisesRegex(GATE.ReleaseGateError, "unexpected rejection"):
@@ -251,17 +264,140 @@ class ReleaseGateTests(unittest.TestCase):
         with temp:
             fixture.prepare()
             observation = fixture.observation()
-            observation["outcome"]["rates"]["item/stone-brick"] = 0.1
+            observation["production"]["rates"]["item/stone-brick"] = 0.1
             fixture.file_evidence(observation)
             with self.assertRaisesRegex(GATE.ReleaseGateError, "rates below target"):
                 fixture.run()
+
+    def test_surplus_rate_is_accepted(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            observation = fixture.observation()
+            observation["production"]["rates"]["item/stone-brick"] = 1.5
+            fixture.file_evidence(observation)
+            self.assertEqual(fixture.run()[0]["status"], "accepted")
+
+    def test_every_simultaneous_target_has_its_own_lower_bound(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.manifest["engine_scenario"]["expected_rates"] = {
+                "item/stone-brick": 1.0,
+                "item/iron-gear-wheel": 2.0,
+            }
+            fixture.prepare()
+            observation = fixture.observation()
+            observation["production"]["rates"] = {
+                "item/stone-brick": 1.0,
+                "item/iron-gear-wheel": 1.5,
+            }
+            fixture.file_evidence(observation)
+            with self.assertRaisesRegex(
+                GATE.ReleaseGateError,
+                r"rates below target: item/iron-gear-wheel measured 1\.5, target 2",
+            ):
+                fixture.run()
+
+    def test_missing_or_empty_rate_data_is_refused(self):
+        for empty_rates in (None, {}):
+            temp, fixture = self.fixture()
+            with temp:
+                fixture.prepare()
+                observation = fixture.observation()
+                if empty_rates is None:
+                    del observation["production"]["rates"]
+                else:
+                    observation["production"]["rates"] = empty_rates
+                fixture.file_evidence(observation)
+                with self.subTest(empty_rates=empty_rates):
+                    with self.assertRaisesRegex(GATE.ReleaseGateError, "has no measured rates"):
+                        fixture.run()
+
+    def test_missing_or_invalid_window_is_refused(self):
+        mutations = (
+            lambda production: production.pop("window"),
+            lambda production: production.update(window={"ticks": "not-a-number"}),
+            lambda production: production.update(warm_up={"ticks": -1}),
+        )
+        for mutate in mutations:
+            temp, fixture = self.fixture()
+            with temp:
+                fixture.prepare()
+                observation = fixture.observation()
+                mutate(observation["production"])
+                fixture.file_evidence(observation)
+                with self.subTest(mutate=mutate):
+                    with self.assertRaisesRegex(GATE.ReleaseGateError, "invalid timing"):
+                        fixture.run()
+
+    def test_wall_clock_target_requires_wall_clock_measurement(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.manifest["engine_scenario"]["wall_clock_seconds"] = 3
+            fixture.prepare()
+            observation = fixture.observation()
+            del observation["production"]["timings"]["wall_clock_seconds"]
+            fixture.file_evidence(observation)
+            with self.assertRaisesRegex(GATE.ReleaseGateError, "wall_clock_seconds"):
+                fixture.run()
+
+    def test_flat_window_names_remain_accepted_as_synonyms(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            observation = fixture.observation()
+            production = observation["production"]
+            production["warm_up_ticks"] = production.pop("warm_up")["ticks"]
+            production["sampling_window_ticks"] = production.pop("window")["ticks"]
+            fixture.file_evidence(observation)
+            self.assertEqual(fixture.run()[0]["status"], "accepted")
+
+    def test_outcome_is_kept_as_a_legacy_synonym(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            observation = fixture.observation()
+            observation["outcome"] = observation.pop("production")
+            fixture.file_evidence(observation)
+            self.assertEqual(fixture.run()[0]["status"], "accepted")
+
+    def test_canonical_digest_mismatch_has_its_own_refusal(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            observation = fixture.observation()
+            observation["production"]["canonical_sha256"] = "wrong-digest"
+            fixture.file_evidence(observation)
+            with self.assertRaisesRegex(GATE.ReleaseGateError, "canonical mismatch"):
+                fixture.run()
+
+    def test_missing_21_evidence_blocks_readiness(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.branch = "2.1"
+            fixture.version = "1.1.99"
+            fixture.prepare(branches=["2.1"])
+            evidence_path = fixture.evidence / fixture.candidate / fixture.branch
+            (evidence_path / f"{fixture.case_id}.observation.json").unlink()
+            with self.assertRaisesRegex(GATE.ReleaseGateError, "missing observation"):
+                fixture.run()
+
+    def test_examples_use_one_named_producer_outcome_block(self):
+        for name in ("production", "rejection", "export"):
+            example = json.loads(
+                (ROOT / "docs" / "engine-evidence" / "examples" / f"{name}.json")
+                .read_text(encoding="utf-8")
+            )
+            self.assertEqual(example["outcome_kind"], name)
+            self.assertIn(name, example)
+            self.assertIn("Synthetic example", example["note"])
 
     def test_invalid_timing_has_its_own_refusal(self):
         temp, fixture = self.fixture()
         with temp:
             fixture.prepare()
             observation = fixture.observation()
-            observation["outcome"]["timed_out"] = True
+            observation["production"]["timed_out"] = True
             fixture.file_evidence(observation)
             with self.assertRaisesRegex(GATE.ReleaseGateError, "invalid timing"):
                 fixture.run()
