@@ -1,0 +1,17 @@
+{
+  "note": "Synthetic example in the producer's shape. Never engine evidence; never filed as an observation.",
+  "schema_version": 1,
+  "case_id": "example-rejection",
+  "outcome_kind": "rejection",
+  "candidate_sha": "0000000000000000000000000000000000000000",
+  "runner_revision": "example",
+  "factorio_version": "2.0.77",
+  "factorio_branch": "2.0",
+  "mods": [{"name": "base", "version": "2.0.77"}],
+  "force": "player",
+  "surface": "nauvis",
+  "rejection": {
+    "reason_codes": ["BP_REJ_SPOILAGE"],
+    "stage": "preflight"
+  }
+}

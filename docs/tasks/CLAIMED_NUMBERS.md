@@ -49,3 +49,8 @@
 | `045` | `rrc/agent` | Recovery E golden coverage matrix | 2026-09-19 |
 | `046` | `rrc/agent` | Repair: draft cases say what they are | 2026-09-19 |
 | `047` | `rrc/agent` | Repair: block ports name their step | 2026-09-19 |
+| `048` | `rrc/agent` | unblock S | 2026-09-19 |
+| `049` | `rrc/agent` | unblock C | 2026-09-19 |
+| `050` | `rrc/agent` | unblock E | 2026-09-19 |
+| `051` | `rrc/agent` | unblock R | 2026-09-19 |
+| `052` | `rrc/agent` | unblock G | 2026-09-19 |

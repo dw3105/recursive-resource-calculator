@@ -346,3 +346,76 @@ The rule, from here on:
   `"__outside__"` keeps meaning blocked.
 - A block port keeps §5.8 unchanged: its attach tile is outside its block and inside the grid.
 - The belt or pipe standing on a perimeter cell is what the player connects to; the blueprint carries it.
+
+## 19. Calculation result record (2026-09-19, frozen for lanes S and C)
+
+The sliced calculation publishes its solver result where preparation can read it. Nothing downstream ever solves
+again to fill a gap: a synchronous `Solver.solve_for` inside a job step is a stall, not a fallback.
+
+```lua
+CalculationResult = {
+    schema_version = 1,
+    player_index, sheet_id,
+    sheet_revision, config_revision,       -- the revisions the calculation ran against
+    input_fingerprint,                     -- the snapshot's input half
+    result,                                -- plain solver result: numbers, strings, booleans, tables only
+    published_tick,
+}
+```
+
+Rules:
+
+- One record per `(player_index, sheet_id)`, stored under `storage[player_index].calc_results[sheet_id]`.
+- A record is written **only** on a successful publication, in the same step that commits the staged report. A
+  failed, cancelled or superseded calculation never overwrites the previous record.
+- A reader treats a record as current only when `sheet_revision`, `config_revision` **and** `input_fingerprint`
+  all match what it holds now. Any mismatch is `stale`, and the reader reports `BP_REJ_SNAPSHOT_STALE` instead of
+  recalculating.
+- Reset, configuration change and sheet deletion drop that sheet's record. A player leaving drops theirs.
+- `Calculation.get(player_index, sheet_id)` returns a copy or nil; `Calculation.publish(record)` writes one;
+  `Calculation.forget(player_index, sheet_id)` drops one. Copying is bounded work and respects the job budget.
+
+## 20. Prepared capture, kept whether or not generation succeeds (2026-09-19, frozen for lanes S and G)
+
+`PreparedInput` (§17.2) is built before Search starts. The capture of it therefore never waits for a layout.
+
+- `Generation.capture(player_index, generation_id)` returns the prepared input of a job that reached preparation,
+  including one that later failed in search, was cancelled, or is still running.
+- A capture carries `source_kind`: `"runtime"` when it came from the real preparation path inside the game,
+  `"harness"` when it came from the offline test harness, `"handwritten_fixture"` when a person wrote it. Only
+  `"runtime"` is engine evidence. The field is written by the producer and never edited afterwards.
+- A capture carries `provenance`: `candidate_sha`, `mod_version`, `factorio_branch`, `packaged`, the sheet and
+  config revisions, and the terminal outcome known at capture time (`pending`, `success`, `failure`, `cancelled`)
+  with its reason codes and stage when it has them.
+- `source_export` names the debug export the capture came from and never contains that export's own text, so a
+  capture can never nest inside itself.
+- A capture of a failed generation makes a **draft** golden case whose supported outcome and observed outcome are
+  separate fields. A failure is never filed as an accepted rejection.
+
+## 21. Observation v1: one spelling, producer first (2026-09-19, frozen for lanes E and R)
+
+The companion in `tests/golden/engine/mod/scenario.lua` is the producer; `tools/release_gate.py` is the consumer.
+Today they disagree, and no test drives one into the other:
+
+- The companion writes `observation.outcome_kind` plus a block named for that kind — `observation.production`
+  (`tests/golden/engine/mod/scenario.lua:324-326`). The gate reads `observation.outcome`, else the whole
+  observation (`tools/release_gate.py:152-156`), so it finds no rates and reports
+  `rates below target: ... has no measured rates`.
+- The companion writes `warm_up = {ticks, start_tick, end_tick}` and `window = {ticks, start_tick, end_tick}`
+  (`tests/golden/engine/mod/scenario.lua:318-320`); the gate wants flat `warm_up_ticks` and
+  `sampling_window_ticks` (`tools/release_gate.py:358`).
+
+The frozen shape is the producer's, because it is what the game can actually write:
+
+- `observation.outcome_kind` is `"production"`, `"rejection"` or `"export"`, and exactly one block of that name
+  carries the outcome. The gate reads `observation[observation.outcome_kind]` and accepts the older
+  `observation.outcome` only as a synonym.
+- Windows keep the producer's spelling: `warm_up.ticks`, `window.ticks`, both counted in engine ticks. Engine
+  ticks are simulation time and are never read as wall-clock seconds; a wall-clock measurement lives under
+  `timings.wall_clock_seconds` and is absent when nothing measured it. A missing wall-clock measurement never
+  counts as meeting a time target.
+- Measured rates satisfy a **lower bound**: a case passes when every expected rate is met within the declared
+  discrete error, and surplus production is never a failure. Conservation, capacity and simultaneity assertions
+  stay exactly as they are; surplus is never permission for impossible arithmetic.
+- `docs/engine-evidence/examples/` carries one synthetic example per outcome kind, in the producer's shape. They
+  are examples, never engine evidence, and every file in that directory says so in its own `note` field.

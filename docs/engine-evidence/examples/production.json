@@ -1,0 +1,32 @@
+{
+  "note": "Synthetic example in the producer's shape. Never engine evidence; never filed as an observation.",
+  "schema_version": 1,
+  "case_id": "example-production",
+  "outcome_kind": "production",
+  "candidate_sha": "0000000000000000000000000000000000000000",
+  "runner_revision": "example",
+  "factorio_version": "2.0.77",
+  "factorio_branch": "2.0",
+  "mods": [{"name": "base", "version": "2.0.77"}],
+  "force": "player",
+  "surface": "nauvis",
+  "production": {
+    "canonical_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+    "canonical_version": 1,
+    "blueprint_string": "0eNexample",
+    "blueprint_string_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "rates": {"item/iron-gear-wheel": 1.02},
+    "accepted_supply": {"counts": {"item/iron-plate": 120}, "rates": {"item/iron-plate": 2}},
+    "drained_outputs": {"counts": {"item/iron-gear-wheel": 61}, "rates": {"item/iron-gear-wheel": 1.02}},
+    "warm_up": {"ticks": 60, "start_tick": 100, "end_tick": 159},
+    "window": {"ticks": 600, "start_tick": 160, "end_tick": 759},
+    "timings": {
+      "setup_ticks": 12,
+      "generation_ticks": 240,
+      "build_ticks": 18,
+      "warm_up_ticks": 60,
+      "sampling_ticks": 600,
+      "wall_clock_seconds": 4.5
+    }
+  }
+}
