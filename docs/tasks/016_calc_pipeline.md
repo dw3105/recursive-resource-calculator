@@ -37,6 +37,25 @@ Current facts:
 6. Red-first cases in `tests/test_calc_pipeline.lua`: a sheet calculated through the pipeline gives the same report as the synchronous path, compared through `H.parse_report`; a tiny budget spreads one calculation over many ticks and still commits the same report; an edit during the run stops the old result from publishing; a cancel mid-run leaves the old report and no partial rows; two sheets of one player both finish; a quality-loop sheet and an infeasible sheet both come through unchanged; no partial report is ever visible between ticks.
 7. Planted breach, pasted red then reverted: publish without comparing revisions, and the edit case must go red.
 
+## Amendment after attempt 1
+
+Attempt 1 ran out of its deadline with no check run. Its tree is at `39c1da8`, and
+`lua5.2 tests/test_calc_pipeline.lua` does not finish: every case spins its wait loop to the cap because the job
+it is waiting for never reports done. The waits were bounded at 10000 and 20000 ticks, which is far past useful
+and turns a stuck job into a hang rather than a failure.
+
+Two rules for this attempt:
+
+1. **Bound every wait at 600 ticks.** A job that has not finished by then fails the case with a message naming the
+   phase and the cursor it is stuck on. A test that hangs proves nothing and cannot be read.
+2. **Prove one job finishes before writing the rest.** Start with the smallest case: one sheet, one target,
+   default budget; assert the job reaches `done` within 600 ticks and publishes a report. Everything else builds
+   on that.
+
+Read the merged wave 1 and wave 2 modules before writing: `logic/jobs.lua` decides when a job is advanced and what
+`done` means, `logic/solver_steps.lua` and `logic/report_steps.lua` each own their own `begin`, `step` and
+terminal state. A phase that never sets `done` leaves the scheduler looping forever.
+
 ## What done mean
 
 ```checks
