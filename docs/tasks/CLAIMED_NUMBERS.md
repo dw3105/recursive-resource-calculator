@@ -44,3 +44,4 @@
 | `040` | `rrc/agent` | Recovery B engine scenario runner | 2026-09-19 |
 | `041` | `rrc/agent` | Recovery C release gate | 2026-09-19 |
 | `042` | `rrc/agent` | Recovery D golden generates from this candidate | 2026-09-19 |
+| `043` | `rrc/agent` | Repair: search hands pack bare rects | 2026-09-19 |
