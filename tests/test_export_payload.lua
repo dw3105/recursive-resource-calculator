@@ -344,6 +344,57 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(modules[1].name, "slot-b", "first module slot stays first")
         H.equal(modules[2].name, "slot-a", "second module slot stays second")
     end)
+
+    H.test(shape .. " E14 prepared capture keeps provenance and precision through the envelope", function()
+        world_with(shape)
+        local Registry = require "logic.registry"
+        local _, sheet_flow = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local snapshot = Snapshot.of_sheet(sheet_flow)
+        local prepared = {
+            schema_version = 1,
+            snapshot = {sheet_id = snapshot.sheet_id, nested = {rate = 1.2345678901234567}},
+            solver_result = {residual = 0.00000000012345678},
+            catalog = {entity = {assembler = {tile_w = 1}}},
+            settings = {input_edge = "left"}, options = {round_up = true},
+            revisions = {sheet = 7, config = 3}, surface = "nauvis", force = "player-force",
+            source_export = "prepared-before-debug-export",
+        }
+        local previous_generation = Registry.generation
+        local called_player, called_generation
+        Registry.generation = {
+            capture = function(player_index, generation_id)
+                called_player, called_generation = player_index, generation_id
+                return {
+                    prepared_input = prepared,
+                    source_kind = "runtime",
+                    provenance = {candidate_sha = "candidate", terminal_outcome = "failure", stage = "search",
+                        reason_codes = {"BP_FAIL_NO_LAYOUT_GRID_LIMIT"}},
+                    source_export = "prepared-before-debug-export",
+                }
+            end,
+        }
+        storage[1].generation_id = "generation-14"
+        local ok, payload_or_error = pcall(build, sheet_flow)
+        Registry.generation = previous_generation
+        storage[1].generation_id = nil
+        if not ok then error(payload_or_error, 0) end
+        local payload = payload_or_error
+        H.equal(called_player, 1, "capture receives player index")
+        H.equal(called_generation, "generation-14", "capture receives generation identity")
+        H.equal(payload.source_kind, "runtime", "capture source kind")
+        H.equal(payload.source_export, "prepared-before-debug-export", "capture source export is a name")
+        H.equal(type(payload.prepared_input.source_export), "string", "prepared source export is a name")
+        H.near_relative(payload.prepared_input.snapshot.nested.rate, 1.2345678901234567, "prepared number before encode")
+        H.near_relative(payload.prepared_input.solver_result.residual, 0.00000000012345678, "prepared residual before encode")
+        local encoded = assert(ExportPayload.encode(payload))
+        local decoded = assert(H.decode_export(encoded))
+        H.equal(decoded.source_kind, "runtime", "decoded capture source kind")
+        H.equal(decoded.source_export, "prepared-before-debug-export", "decoded source export stays a name")
+        H.equal(decoded.provenance.terminal_outcome, "failure", "decoded capture terminal outcome")
+        H.equal(decoded.provenance.stage, "search", "decoded capture stage")
+        H.near_relative(decoded.prepared_input.snapshot.nested.rate, 1.2345678901234567, "prepared number after round trip")
+        H.near_relative(decoded.prepared_input.solver_result.residual, 0.00000000012345678, "prepared residual after round trip")
+    end)
 end
 
 H.done("test_export_payload")

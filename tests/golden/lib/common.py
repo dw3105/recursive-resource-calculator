@@ -78,6 +78,99 @@ def copy_value(value: Any) -> Any:
     return copy.deepcopy(value)
 
 
+CAPTURE_SOURCE_KINDS = {"runtime", "harness", "handwritten_fixture"}
+
+
+def prepared_capture(export: Mapping[str, Any]) -> Optional[dict[str, Any]]:
+    """Return the prepared input and its producer metadata, if this is a capture.
+
+    The old ``prepared_input``-only spelling is retained for already-created tool
+    fixtures. New in-game captures carry their source metadata beside the input,
+    and that value is copied rather than inferred from the presence of a table.
+    """
+    prepared = export.get("prepared_input")
+    if not isinstance(prepared, Mapping):
+        prepared = export.get("prepared")
+    if not isinstance(prepared, Mapping):
+        return None
+
+    source_kind = export.get("source_kind")
+    if source_kind is None:
+        source_kind = prepared.get("source_kind")
+    provenance = export.get("provenance")
+    if provenance is None:
+        provenance = prepared.get("provenance")
+    source_export = export.get("source_export")
+    if source_export is None:
+        source_export = prepared.get("source_export")
+    return {
+        "prepared_input": copy_value(prepared),
+        "source_kind": source_kind,
+        "provenance": copy_value(provenance) if isinstance(provenance, Mapping) else provenance,
+        "source_export": source_export,
+    }
+
+
+def _looks_like_export_text(value: str, encoded: Optional[str]) -> bool:
+    compact = "".join(value.split())
+    if encoded is not None and compact == "".join(encoded.split()):
+        return True
+    if value.lstrip().startswith(("{", "[")):
+        try:
+            json.loads(value)
+            return True
+        except json.JSONDecodeError:
+            pass
+    try:
+        decoded = decode_zlib_base64(value)
+    except CaseInputError:
+        return False
+    return isinstance(decoded, Mapping) and decoded.get("format") == "rrc-sheet-debug"
+
+
+def validate_capture(export: Mapping[str, Any], encoded: Optional[str]) -> Optional[dict[str, Any]]:
+    """Validate and return capture metadata without allowing the export to nest itself."""
+    capture = prepared_capture(export)
+    if capture is None:
+        return None
+    source_kind = capture["source_kind"]
+    if source_kind is not None:
+        if not isinstance(source_kind, str) or source_kind not in CAPTURE_SOURCE_KINDS:
+            raise CaseInputError(f"capture source_kind is not supported: {source_kind!r}")
+    source_export = capture["source_export"]
+    if source_export is not None:
+        if not isinstance(source_export, str) or not source_export.strip():
+            raise CaseInputError("capture source_export must be a name, not export text")
+        if _looks_like_export_text(source_export, encoded):
+            raise CaseInputError("capture source_export must name an export, not carry its text")
+    return capture
+
+
+def observed_outcome(export: Mapping[str, Any], capture: Optional[Mapping[str, Any]]) -> dict[str, Any]:
+    """Make the observed generation result explicit while leaving support policy separate."""
+    if capture is None:
+        return {"state": "not_captured"}
+    provenance = capture.get("provenance") if isinstance(capture, Mapping) else None
+    if not isinstance(provenance, Mapping):
+        return {"state": "unknown"}
+
+    outcome = first(provenance, "terminal_outcome", "terminal_state", "outcome", "state")
+    stage = provenance.get("stage")
+    reason_codes = first(provenance, "reason_codes", "reasons", "codes")
+    if isinstance(outcome, Mapping):
+        stage = stage or outcome.get("stage")
+        reason_codes = reason_codes or first(outcome, "reason_codes", "reasons", "codes")
+        outcome = first(outcome, "state", "outcome", "status")
+    if outcome is None:
+        outcome = "unknown"
+    result: dict[str, Any] = {"state": outcome}
+    if stage is not None:
+        result["stage"] = stage
+    if reason_codes is not None:
+        result["reason_codes"] = copy_value(reason_codes)
+    return result
+
+
 def branch_of(value: Mapping[str, Any]) -> Optional[str]:
     versions = value.get("versions")
     environment = value.get("environment")
