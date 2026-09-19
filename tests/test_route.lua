@@ -409,6 +409,90 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(explicit.work.max_expansions, 25, "an explicit limit still wins")
     end)
 
+    --Two belts that must cross cannot both stay on the surface. The second one dives under the first, and the
+    --tiles it dives under keep the segment that already owns them.
+    H.test(shape .. " R16 a belt that must cross another one goes under it", function()
+        local input = {
+            grid = Grid.new(11, 11),
+            catalog = {belt = {belt = "basic-belt", underground = "basic-underground", items_per_second = 10,
+                lane_items_per_second = 5, underground_max_distance = 5}},
+            blocks = {
+                {block_id = "west", machines = {{step_id = "west"}}, x = 0, y = 5, w = 1, h = 1, ports = {
+                    {port_id = "a-out", role = "out", kind = "item", flow_id = "item/a", rate_per_second = 5,
+                        attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST},
+                }},
+                {block_id = "east", machines = {{step_id = "east"}}, x = 10, y = 5, w = 1, h = 1, ports = {
+                    {port_id = "a-in", role = "in", kind = "item", flow_id = "item/a", rate_per_second = 5,
+                        attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.EAST},
+                }},
+                {block_id = "north", machines = {{step_id = "north"}}, x = 5, y = 0, w = 1, h = 1, ports = {
+                    {port_id = "b-out", role = "out", kind = "item", flow_id = "item/b", rate_per_second = 5,
+                        attach_dx = 0, attach_dy = 1, normal_dir = Grid.NORTH, travel_dir = Grid.SOUTH},
+                }},
+                {block_id = "south", machines = {{step_id = "south"}}, x = 5, y = 10, w = 1, h = 1, ports = {
+                    {port_id = "b-in", role = "in", kind = "item", flow_id = "item/b", rate_per_second = 5,
+                        attach_dx = 0, attach_dy = -1, normal_dir = Grid.SOUTH, travel_dir = Grid.SOUTH},
+                }},
+            },
+            flows = {
+                {flow_id = "item/a", is_fluid = false, producers = {{step_id = "west", share_per_second = 5}},
+                    consumers = {{step_id = "east", share_per_second = 5}}},
+                {flow_id = "item/b", is_fluid = false, producers = {{step_id = "north", share_per_second = 5}},
+                    consumers = {{step_id = "south", share_per_second = 5}}},
+            },
+        }
+        local state = run(input)
+        H.equal(state.ok, true, "both belts route; neither crossing flow is refused")
+        local pairs_found, undergrounds = 0, {}
+        for _, entity in ipairs(state.result.entities) do
+            if entity.ug_pair_id ~= nil then
+                pairs_found = pairs_found + 1
+                undergrounds[#undergrounds + 1] = entity
+                H.equal(entity.name, "basic-underground", "a crossing uses the family's underground belt")
+            end
+        end
+        H.equal(pairs_found, 2, "the crossing is one pair: an entrance and an exit")
+        H.equal(undergrounds[1].ug_pair_id, undergrounds[2].id, "the pair points forward")
+        H.equal(undergrounds[2].ug_pair_id, undergrounds[1].id, "the pair points back")
+        local gap = math.abs(undergrounds[1].position.x - undergrounds[2].position.x)
+            + math.abs(undergrounds[1].position.y - undergrounds[2].position.y)
+        H.equal(gap >= 2, true, "the pair spans the tile it dives under")
+    end)
+
+    --A port is useless without the tile its transport reaches it from. Routing one demand across the approach
+    --tile of a port it does not serve leaves that port with no path at all.
+    H.test(shape .. " R17 one demand never takes the approach tile of another port", function()
+        local input = {
+            grid = Grid.new(9, 9),
+            catalog = {belt = {belt = "basic-belt", items_per_second = 10, lane_items_per_second = 5}},
+            blocks = {
+                {block_id = "stack", machines = {{step_id = "stack"}}, x = 0, y = 4, w = 1, h = 2, ports = {
+                    {port_id = "top-in", role = "in", kind = "item", flow_id = "item/top", rate_per_second = 5,
+                        attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.WEST},
+                    {port_id = "low-in", role = "in", kind = "item", flow_id = "item/low", rate_per_second = 5,
+                        attach_dx = 1, attach_dy = 1, normal_dir = Grid.WEST, travel_dir = Grid.WEST},
+                }},
+            },
+            perimeter_ports = {
+                {port_id = "top-src", role = "in", kind = "item", flow_id = "item/top", rate_per_second = 5,
+                    x = 8, y = 0, travel_dir = Grid.WEST},
+                {port_id = "low-src", role = "in", kind = "item", flow_id = "item/low", rate_per_second = 5,
+                    x = 8, y = 4, travel_dir = Grid.WEST},
+            },
+            flows = {
+                {flow_id = "item/top", is_fluid = false, producers = {{step_id = "$external", share_per_second = 5}},
+                    consumers = {{step_id = "stack", share_per_second = 5}}},
+                {flow_id = "item/low", is_fluid = false, producers = {{step_id = "$external", share_per_second = 5}},
+                    consumers = {{step_id = "stack", share_per_second = 5}}},
+            },
+        }
+        local state = run(input)
+        H.equal(state.ok, true, "both stacked ports keep a path of their own")
+        local reserved = state.work.port_cells["2:4"]
+        H.equal(reserved ~= nil and reserved["top-in"] == true, true, "the tile the top port is entered from belongs to it")
+        H.equal(reserved["low-in"], nil, "the low port never owns the tile the top port needs")
+    end)
+
 end
 
 H.done("test_route")

@@ -93,7 +93,17 @@ local function coordinate_key(x, y)
 end
 
 local function direction_from_step(x1, y1, x2, y2)
-    return Grid.dir_from_vector(x2 - x1, y2 - y1)
+    local dx, dy = x2 - x1, y2 - y1
+    --An underground crossing steps over the tiles it dives under, so the step is longer than one tile while the
+    --direction is still one of the four.
+    if dx ~= 0 then dx = dx > 0 and 1 or -1 end
+    if dy ~= 0 then dy = dy > 0 and 1 or -1 end
+    return Grid.dir_from_vector(dx, dy)
+end
+
+local function is_crossing_step(from, to)
+    if type(from) ~= "table" or type(to) ~= "table" then return false end
+    return math.abs(to.x - from.x) + math.abs(to.y - from.y) > 1
 end
 
 local function add_rect_cells(cells, rect, owner)
@@ -625,10 +635,48 @@ local function entity_position(x, y)
     return {x = x + 0.5, y = y + 0.5}
 end
 
+--The tile a path dives on and the tile it surfaces on become one underground pair.  Both carry the segment; the
+--tiles between them carry nothing, so the belt they cross keeps them.
+local function append_crossing(work, demand, entry, exit_cell, amount)
+    local capacity, kind = capacity_for(work, demand.flow)
+    if amount > capacity + tolerance(capacity) then return false, "capacity" end
+    local direction = direction_from_step(entry.x, entry.y, exit_cell.x, exit_cell.y)
+    local family = kind == "pipe" and work.pipe or work.belt
+    local name = (family and family.underground) or infrastructure(work, kind)
+    local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
+        capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction}
+    local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
+    local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
+        direction = direction, dir = direction, flow_id = demand.flow_id,
+        ug_role = "output", type = "output", ug_pair_id = second_id}
+    local second = {id = second_id, name = name, position = entity_position(exit_cell.x, exit_cell.y),
+        direction = direction, dir = direction, flow_id = demand.flow_id,
+        ug_role = "input", type = "input", ug_pair_id = first_id}
+    work.entities[#work.entities + 1] = first
+    work.entities[#work.entities + 1] = second
+    work.segments[#work.segments + 1] = segment
+    work.entity_by_segment[segment.segment_id] = first
+    work.segments_by_cell[coordinate_key(entry.x, entry.y)] = segment
+    work.segments_by_cell[coordinate_key(exit_cell.x, exit_cell.y)] = segment
+    work.underground_cells[coordinate_key(entry.x, entry.y)] = true
+    work.underground_cells[coordinate_key(exit_cell.x, exit_cell.y)] = true
+    add_allocation(segment, demand.flow_id, sink_key(demand.sink), amount)
+    return true, nil, segment
+end
+
 local function append_normal_path(work, demand, path, amount)
     local sink = sink_key(demand.sink)
     local first_segment
-    for index, cell in ipairs(path) do
+    local index = 0
+    while index < #path do
+        index = index + 1
+        local cell = path[index]
+        if is_crossing_step(cell, path[index + 1]) then
+            local crossed, reason, segment = append_crossing(work, demand, cell, path[index + 1], amount)
+            if not crossed then return false, reason end
+            first_segment = first_segment or segment
+            index = index + 1
+        else
         local next_cell = path[index + 1] or path[index - 1] or cell
         local direction = direction_from_step(cell.x, cell.y, next_cell.x, next_cell.y)
         if index == #path and #path > 1 then direction = direction_from_step(path[index - 1].x, path[index - 1].y, cell.x, cell.y) end
@@ -658,6 +706,7 @@ local function append_normal_path(work, demand, path, amount)
         end
         add_allocation(segment, demand.flow_id, sink, amount)
         first_segment = first_segment or segment
+        end
     end
     if first_segment then
         work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
@@ -694,6 +743,15 @@ end
 local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
     local owner = static_owner(work, x, y)
     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
+    local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+    if reserved ~= nil then
+        local source_id = demand.source and demand.source.port_id
+        local sink_id = demand.sink and demand.sink.port_id
+        if not (reserved[source_id] or reserved[sink_id] or reserved["flow:" .. tostring(demand.flow_id)]) then
+            search.saw_blocked = true
+            return false
+        end
+    end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     if segment then
         if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
@@ -747,6 +805,39 @@ local function reconstruct(search, target_key)
     return path
 end
 
+--Two belts that must cross cannot both stay on the surface.  A player builds an underground pair there, and so
+--does the search: when the next tile in a direction is taken, it dives under and surfaces on the first free tile
+--within the family's underground distance.  The tiles in between keep no segment, which is exactly what lets the
+--belt that took them keep them.
+local function underground_reach(work, demand)
+    local family = demand.kind == "pipe" and work.pipe or work.belt
+    if type(family) ~= "table" or family.underground == nil then return 0 end
+    return math.max(0, math.floor(finite(family.underground_max_distance, 0)))
+end
+
+local function crossing_target(work, demand, search, current, direction, amount)
+    local reach = underground_reach(work, demand)
+    if reach < 2 then return nil end
+    local current_key = coordinate_key(current.x, current.y)
+    if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return nil end
+    local dx, dy = Grid.dir_vector(direction)
+    for distance = 2, reach do
+        local x, y = current.x + dx * distance, current.y + dy * distance
+        if not inside_grid(work, x, y) then return nil end
+        --A pair may not run under another pair of its own family: in the engine the two would connect to each
+        --other instead of passing.
+        if work.underground_cells[coordinate_key(current.x + dx * (distance - 1), current.y + dy * (distance - 1))] then
+            return nil
+        end
+        local key = coordinate_key(x, y)
+        if not search.visited[key] and not work.segments_by_cell[key] and not work.underground_cells[key]
+            and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
+            return {x = x, y = y}
+        end
+    end
+    return nil
+end
+
 local function search_step(work, search)
     if not search.points then
         search.points = {[coordinate_key(search.demand.source.x, search.demand.source.y)] = search.queue[1]}
@@ -766,9 +857,25 @@ local function search_step(work, search)
     if first and search.demand.source.travel_dir ~= nil and search.demand.source.travel_dir ~= direction then return "continue" end
     if target and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then return "continue" end
     local key = coordinate_key(nx, ny)
-    if not search.visited[key] and path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search) then
+    --A tile already reached on the surface needs no crossing: diving over it would spend an underground pair on
+    --a tile the search can simply walk.
+    if search.visited[key] then return "continue" end
+    if path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search) then
         search.visited[key], search.parent[key], search.points[key] = true, current_key, {x = nx, y = ny}
         search.queue[search.tail + 1], search.tail = {x = nx, y = ny}, search.tail + 1
+        return "continue"
+    end
+    --A port tile is an entity, never an underground entrance, so a crossing never starts on the source.
+    if first then return "continue" end
+    local crossing = crossing_target(work, search.demand, search, current, direction, search.amount)
+    if crossing then
+        local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
+        if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
+            local crossing_key = coordinate_key(crossing.x, crossing.y)
+            search.visited[crossing_key], search.parent[crossing_key], search.points[crossing_key] =
+                true, current_key, {x = crossing.x, y = crossing.y}
+            search.queue[search.tail + 1], search.tail = {x = crossing.x, y = crossing.y}, search.tail + 1
+        end
     end
     return "continue"
 end
@@ -788,6 +895,37 @@ local function result_for(work)
     return result
 end
 
+--A port is useless without the tile its transport reaches it from: an input needs the tile it is entered from,
+--an output needs the tile it leaves into.  Routing one demand used to lay a belt straight across the approach
+--tile of a port it does not serve, and every later demand for that port then had no path at all.  Those tiles
+--are claimed by the ports that own them before any demand is routed, so another belt goes around instead.  A
+--belt already carrying the same flow may still pass: one trunk feeding two consumers of one item is the shape
+--the allocation rules are written for, and claiming against it would forbid sharing outright.
+local function reserve_port_cells(work)
+    local reserved = {}
+    local function claim(x, y, endpoint)
+        if endpoint.port_id == nil or not inside_grid(work, x, y) then return end
+        local key = coordinate_key(x, y)
+        reserved[key] = reserved[key] or {}
+        reserved[key][endpoint.port_id] = true
+        if endpoint.flow_id ~= nil then reserved[key]["flow:" .. tostring(endpoint.flow_id)] = true end
+    end
+    local function claim_endpoint(endpoint)
+        if type(endpoint) ~= "table" or endpoint.x == nil or endpoint.y == nil then return end
+        claim(endpoint.x, endpoint.y, endpoint)
+        local dx, dy = Grid.dir_vector(endpoint.travel_dir or Grid.NORTH)
+        if endpoint.role == "in" then claim(endpoint.x - dx, endpoint.y - dy, endpoint)
+        else claim(endpoint.x + dx, endpoint.y + dy, endpoint) end
+    end
+    for _, by_role in pairs(work.endpoint_index or {}) do
+        for _, role in ipairs({"in", "out"}) do
+            for _, endpoint in ipairs(by_role[role] or {}) do claim_endpoint(endpoint) end
+        end
+    end
+    for _, endpoint in ipairs(work.perimeter or {}) do claim_endpoint(endpoint) end
+    return reserved
+end
+
 local function normalize_input(input)
     input = input or {}
     local placements, blocks = map_placements(input), map_blocks(input)
@@ -798,6 +936,7 @@ local function normalize_input(input)
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
+        underground_cells = {},
         --A path search visits cells, so the whole routing run is bounded by the grid it runs on. The old default
         --of one million let a single demand burn 1.2 million expansions on a 54 by 54 grid (2916 cells) without
         --finishing, which is a hang the player sees as a frozen Generate. Sixteen visits per cell is generous for
@@ -824,6 +963,7 @@ local function normalize_input(input)
     end
     work.flows = flow_list(input)
     work.demands = build_demands(work, work.flows)
+    work.port_cells = reserve_port_cells(work)
     return work
 end
 
