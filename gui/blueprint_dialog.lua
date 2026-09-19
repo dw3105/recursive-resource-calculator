@@ -321,13 +321,29 @@ function BlueprintDialog.on_generate_clicked(event)
     return true, job_id
 end
 
+--A code alone never explains a refusal. `job_step_failed` is a raised Lua error whose message names the file and
+--the line; `BP_R_PORT_BLOCKED` carries the cell and its owner. Both live in `detail`, and both are shown.
+local function failure_caption(terminal)
+    local reasons = (type(terminal) == "table" and terminal.reason_codes) or {}
+    local stage = (type(terminal) == "table" and (terminal.stage or terminal.phase)) or "search"
+    local caption = table.concat(reasons, ", ") .. " [" .. tostring(stage) .. "]"
+    local details, seen = {}, {}
+    for _, reason in ipairs((type(terminal) == "table" and terminal.reason_details) or {}) do
+        local detail = type(reason) == "table" and reason.detail or (type(reason) == "string" and reason)
+        if type(detail) == "string" and detail ~= "" and not seen[detail] then
+            seen[detail] = true
+            details[#details + 1] = detail
+        end
+    end
+    if #details > 0 then caption = caption .. ": " .. table.concat(details, "; ") end
+    return caption
+end
+
 function BlueprintDialog.show_generation_failure(player_index, terminal)
     local frame = frame_of(player_of(player_index))
     local label = frame and frame[ERROR_NAME]
     if not label then return end
-    local reasons = terminal and terminal.reason_codes or {}
-    local stage = terminal and terminal.stage or terminal and terminal.phase or "search"
-    label.caption = table.concat(reasons, ", ") .. " [" .. tostring(stage) .. "]"
+    label.caption = failure_caption(terminal)
     label.visible = true
 end
 
