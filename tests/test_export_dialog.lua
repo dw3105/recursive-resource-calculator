@@ -46,8 +46,8 @@ local function world_with_export(shape, result)
     return world, sheet_pane, sheet_flow, ExportDialog
 end
 
-local function close_button(frame)
-    return find(frame, function(element) return element.name == "hxrrc_export_close_button" end)
+local function select_all_button(frame)
+    return find(frame, function(element) return element.name == "hxrrc_export_select_all_button" end)
 end
 
 for _, shape in ipairs(H.shapes()) do
@@ -74,15 +74,17 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(#world.flying_texts, 0, "nothing draws itself over the window")
     end)
 
-    H.test(shape .. " E2 Close destroys the frame and clears dialog state", function()
+    H.test(shape .. " E2 Esc destroys the frame and clears dialog state", function()
         local _, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = "debug-string"})
         local frame = ExportDialog.open(1, sheet_flow)
         H.equal(frame ~= nil, true, "dialog opens")
-        event_handlers.on_gui_click.hxrrc_export_close_button({element = close_button(frame), player_index = 1})
+        --Esc is what closes this window now: the engine clears player.opened, and the module treats that as closed.
+        game.players[1].opened = nil
+        ExportDialog.close(1)
 
-        H.equal(frame.valid, false, "Close destroys the frame")
+        H.equal(frame.valid, false, "Esc destroys the frame")
         H.equal(ExportDialog.is_open(1), false, "closed dialog is not open")
-        H.equal(storage[1].export_dialog, nil, "Close clears dialog state")
+        H.equal(storage[1].export_dialog, nil, "closing clears dialog state")
     end)
 
     H.test(shape .. " E3 opening twice keeps one frame", function()
@@ -224,16 +226,20 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(decoded.note, payload.note, "wrapped text keeps the complete payload")
     end)
 
-    H.test(shape .. " E13 one button closes, and nothing pretends to copy", function()
+    H.test(shape .. " E13 one button selects, and nothing pretends to copy", function()
         local world, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = "debug-string"})
         local frame = ExportDialog.open(1, sheet_flow)
         local box = find(frame, function(element) return element.type == "text-box" end)
 
         H.equal(find(frame, function(element) return element.name == "hxrrc_export_copy_button" end), nil,
             "no Copy button: LuaPlayer.add_to_clipboard takes a blueprint stack, never text")
-        H.equal(find(frame, function(element) return element.name == "hxrrc_export_select_all_button" end), nil,
-            "no Select all button either")
-        H.equal(close_button(frame) ~= nil, true, "Close is the one button")
+        local select_all = select_all_button(frame)
+        H.equal(select_all ~= nil, true, "Select all is present")
+        event_handlers.on_gui_click.hxrrc_export_select_all_button({element = select_all, player_index = 1})
+        H.equal(H.text_selected(box), true, "Select all marks the whole string again")
+        H.equal(select_all_button(frame) ~= nil, true, "Select all is the one button")
+        H.equal(find(frame, function(element) return element.name == "hxrrc_export_close_button" end), nil,
+            "no Close button: Esc closes the window")
         H.equal(H.text_selected(box), true, "the string is already selected, so CTRL + C works at once")
         H.equal(H.text_focused(box), true, "and the box already holds the focus")
         H.equal(#world.flying_texts, 0, "nothing draws itself over the window")

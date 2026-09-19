@@ -11,7 +11,7 @@ ExportDialog.FRAME_NAME = "hxrrc_export_dialog"
 local TEXT_NAME = "hxrrc_export_text"
 local STATE_NAME = "hxrrc_export_state"
 local CLOSE_ONLY_NOTE = "hxrrc_export_explanation"
-local CLOSE_NAME = "hxrrc_export_close_button"
+local SELECT_ALL_NAME = "hxrrc_export_select_all_button"
 local FRAME_MIN_WIDTH = 600
 local TEXT_WIDTH = 600
 local TEXT_HEIGHT = 240
@@ -210,7 +210,9 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     --One button only. A mod cannot write text to the system clipboard: LuaPlayer.add_to_clipboard takes a
     --blueprint stack and feeds the game's own blueprint clipboard. So the window selects the string itself and
     --the player presses CTRL + C, and no button pretends to copy.
-    footer.add{type = "button", name = CLOSE_NAME, caption = {"hxrrc.export_close"}}
+    --Esc closes the window: player.opened holds the frame, and open() treats a lost focus as closed. No close
+    --sprite is invented here, because a sprite name the branch does not have crashes the game on open.
+    footer.add{type = "button", name = SELECT_ALL_NAME, caption = {"hxrrc.export_select_all"}}
     return frame
 end
 
@@ -254,8 +256,8 @@ function ExportDialog.on_export_clicked(event)
     return ExportDialog.open(event.player_index, sheet_flow_of(event.element)) ~= nil
 end
 
-event_handlers.on_gui_click[CLOSE_NAME] = function(event)
-    ExportDialog.close(event.player_index)
+event_handlers.on_gui_click[SELECT_ALL_NAME] = function(event)
+    select_and_focus(frame_of(player_of(event.player_index)))
 end
 
 return ExportDialog
