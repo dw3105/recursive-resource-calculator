@@ -589,6 +589,15 @@ function Power.begin(input)
     return state
 end
 
+function Power.cancel(state)
+    if type(state) ~= "table" or state.done then return state end
+    state.cancelled, state.done, state.ok, state.result = true, true, false, nil
+    state.errors = {{code = "BP_FAIL_CANCELLED"}}
+    state.cursor = {phase = "cancelled"}
+    state.progress.phase = "cancelled"
+    return state
+end
+
 function Power.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
     if type(budget) ~= "table" then return state end

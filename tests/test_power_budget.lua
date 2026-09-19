@@ -90,18 +90,15 @@ end)
 
 H.test("a scheduler can observe cancellation between two charged steps", function()
     local state = Power.begin(fixture())
-    local cancelled = false
-    for _ = 1, 2 do
-        Power.step(state, {ops = 1})
-        if not state.done then
-            --Cancellation belongs to the job scheduler: it drops this state
-            --at the next boundary.  No inner candidate scan can delay that
-            --observation.
-            cancelled = true
-            break
-        end
-    end
-    H.equal(cancelled, true, "cancellation is observable within two steps")
+    Power.step(state, {ops = 1})
+    H.equal(state.done, false, "the first charged step leaves work cancellable")
+    Power.cancel(state)
+    H.equal(state.done, true, "cancellation is observed at the next boundary")
+    H.equal(state.ok, false, "cancelled power never succeeds")
+    H.equal(state.result, nil, "cancelled power never publishes")
+    H.equal(state.errors[1].code, "BP_FAIL_CANCELLED", "cancellation has a stable reason")
+    Power.step(state, {ops = 1})
+    H.equal(state.cursor.phase, "cancelled", "a cancelled state stays terminal")
 end)
 
 H.done("test_power_budget")
