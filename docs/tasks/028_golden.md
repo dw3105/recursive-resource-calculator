@@ -1,6 +1,6 @@
 # 028 — fixtures, canonical comparison, and evidence from the game
 
-Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-028`, branch `lane/028`, base = `feat/round-8-blueprints`, tag `wave-3-complete` (resolve it with `git rev-parse wave-3-complete`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-028`, branch `lane/028`, base = `feat/round-8-blueprints`, tag `wave-4-golden-base` (resolve it with `git rev-parse wave-4-golden-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 ## What is true
 
@@ -26,6 +26,23 @@ Current facts:
 - `logic/export_payload.lua` produces the debug envelope a fixture is authored from, and `H.decode_export` reads one back.
 - The supplied reference case is `/home/dev_zaigraev_gmail_com/codex-reviews/rrc-feature-requirements-2026-09-18/`: a blueprint string, its decoded JSON, a summary of its 104 entities, and the sheet screenshots it came from.
 
+## What attempt 1 left undone
+
+Attempt 1 wrote `tests/golden/run`, `logic/engine_test_api.lua` and `tools/evidence_receipt.py`, and its ownership
+audit and the whole suite passed. It failed on two checks that were wrong in this task, both now corrected:
+
+- The check ran `lua5.2 tests/test_golden.lua`, a file this task never asks for. The tooling tests live in
+  `tests/tools/test_golden_tools.py`, and the corpus runs through `tests/golden/run`. Both are checked now.
+- The red proof restored `tools/evidence_receipt.py` from the base, where that file does not exist, so git refused
+  with `error: pathspec 'tools/evidence_receipt.py' did not match any file(s) known to git`. There is no red proof
+  for a file that is born in this lane; paste the red-then-green transcript in your report instead.
+
+Still missing from attempt 1, and required: `tests/golden/add_case`, `tests/golden/accept`, at least one case
+under `tests/golden/cases/`, the shared code under `tests/golden/lib/`, the companion mod under
+`tests/golden/engine/mod/`, `tests/tools/test_golden_tools.py`, and the three documents. Keep what attempt 1 built
+and add the rest. `logic/engine_test_api.lua` changed under you in the meantime: the packaged build id is now read
+at load, because Factorio refuses `require` inside a handler. Never move it back into a function.
+
 ## What to build
 
 1. `tests/golden/run` walks the case directories, compares canonical structure, checks the independent invariants, and writes failure artifacts: expected and actual canonical JSON, a readable diff, the blueprint string when valid, the inputs, and timings. It never rewrites an expectation.
@@ -40,14 +57,14 @@ Current facts:
 ## What done mean
 
 ```checks
-{"name": "golden-tests", "command": "lua5.2 tests/test_golden.lua && lua5.4 tests/test_golden.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
+{"name": "golden-tooling-tests", "command": "python3 -m unittest discover -s tests/tools -p 'test_golden*.py' -t .", "expect_exit": 0, "expect_regex": "OK", "timeout_s": 900}
+{"name": "golden-corpus", "command": "sh tests/golden/run --branch 2.0", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 1800}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-3-complete --manifest docs/tasks/028.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
-{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-complete -- logic/engine_test_api.lua; git -C \"$S\" checkout wave-3-complete -- tools/evidence_receipt.py; out=$(cd \"$S\" && lua5.2 tests/test_golden.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-4-golden-base --manifest docs/tasks/028.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
 - Red first pasted, green after pasted, planted breach pasted then reverted.
-- `git diff --stat wave-3-complete HEAD` pasted.
+- `git diff --stat wave-4-golden-base HEAD` pasted.
 
 Run the checks as your **last** action, after your final commit. A commit made after the checks moved the tree the
 proof was taken against, and the supervisor refuses that proof with the reason `tree-moved`, however green every

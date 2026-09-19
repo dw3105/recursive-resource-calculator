@@ -1,3 +1,12 @@
 logic/engine_test_api.lua
 tools/evidence_receipt.py
 !tests/golden/run
+!tests/golden/add_case
+!tests/golden/accept
+!tests/golden/cases/
+!tests/golden/lib/
+!tests/golden/engine/mod/
+!tests/tools/test_golden_tools.py
+!docs/export-format.md
+!docs/golden-workflow.md
+!docs/engine-evidence/README.md

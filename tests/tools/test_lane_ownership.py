@@ -70,6 +70,53 @@ class LaneOwnership(unittest.TestCase):
             result = self.run_tool(directory, base, manifest)
             self.assertEqual(result.returncode, 0, result.stdout)
 
+    def test_a_directory_line_owns_the_tree_below_it(self):
+        """A lane that creates a tree of case directories cannot list every file in its manifest in advance."""
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            base = self.build(directory)
+            (directory / "golden").mkdir()
+            (directory / "golden" / "cases").mkdir()
+            (directory / "golden" / "run").write_text("#!/bin/sh\n")
+            (directory / "golden" / "cases" / "one.json").write_text("{}\n")
+            (directory / "golden" / "cases" / "two.json").write_text("{}\n")
+            git(directory, "add", ".")
+            git(directory, "commit", "-q", "-m", "lane work")
+            manifest = self.manifest(directory, ["!golden/run", "!golden/cases/"])
+
+            result = self.run_tool(directory, base, manifest)
+            self.assertEqual(result.returncode, 0, result.stdout)
+            self.assertIn("owned-only", result.stdout)
+
+    def test_an_empty_required_directory_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            base = self.build(directory)
+            (directory / "golden").mkdir()
+            (directory / "golden" / "run").write_text("#!/bin/sh\n")
+            git(directory, "add", ".")
+            git(directory, "commit", "-q", "-m", "lane work")
+            manifest = self.manifest(directory, ["!golden/run", "!golden/cases/"])
+
+            result = self.run_tool(directory, base, manifest)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("required directory holds no changed file: golden/cases/", result.stdout)
+
+    def test_a_file_outside_every_owned_directory_still_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            base = self.build(directory)
+            (directory / "golden").mkdir()
+            (directory / "golden" / "run").write_text("#!/bin/sh\n")
+            (directory / "control.lua").write_text("-- a lane edited a frozen file\n")
+            git(directory, "add", ".")
+            git(directory, "commit", "-q", "-m", "lane work")
+            manifest = self.manifest(directory, ["!golden/"])
+
+            result = self.run_tool(directory, base, manifest)
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertIn("not owned by this lane: control.lua", result.stdout)
+
     def test_touching_a_frozen_file_fails(self):
         with tempfile.TemporaryDirectory() as temp:
             directory = Path(temp)
