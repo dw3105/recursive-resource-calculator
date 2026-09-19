@@ -253,6 +253,19 @@ function Calculation.forget_player(player_index)
     return true
 end
 
+--A configuration change rewrites the prototypes every stored result was computed from, so every record of every
+--player goes at once. Walking storage is the only way to reach players who are offline right now.
+function Calculation.forget_all()
+    local dropped = 0
+    for key, data in pairs(storage) do
+        if type(key) == "number" and type(data) == "table" and data.calc_results ~= nil then
+            data.calc_results = nil
+            dropped = dropped + 1
+        end
+    end
+    return dropped
+end
+
 Registry.calculation = Calculation
 
 return Calculation

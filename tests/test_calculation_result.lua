@@ -112,6 +112,21 @@ for _, shape in ipairs(H.shapes()) do
         Calculation.publish(record(1, 2, "plain", {status = "ok", nested = {number = 1, flag = true, callback = function() end}}))
         walk_plain(storage[1].calc_results, "storage[1].calc_results")
     end)
+
+    --control.lua calls this from on_configuration_changed: new prototypes, so every stored result describes a
+    --world that is gone, including the results of players who are offline right now.
+    H.test(shape .. " CR-09 a configuration change drops every player's records", function()
+        local Calculation = fresh(shape)
+        storage[2] = {other_data = true}
+        Calculation.publish(record(1, 2, "first"))
+        local second = record(1, 2, "second")
+        second.player_index = 2
+        Calculation.publish(second)
+        H.equal(Calculation.forget_all(), 2, "both players' records go")
+        H.equal(storage[1].calc_results, nil, "the first player keeps no record")
+        H.equal(storage[2].calc_results, nil, "the second player keeps no record")
+        H.equal(storage[2].other_data, true, "and the rest of that player's data stays")
+    end)
 end
 
 H.done("test_calculation_result")

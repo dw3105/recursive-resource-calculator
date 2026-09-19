@@ -24,6 +24,8 @@ local PlayerDataUpdater = require "logic.player_data_updater"
 local Updates = require "updates"
 --Load the calculation job kind while control.lua is parsed; handlers may never require it at runtime.
 local CalcPipeline = require "logic.calc_pipeline"
+--Publishes Registry.calculation: the record preparation reads instead of solving again (contracts §19)
+local Calculation = require "logic.calculation_result"
 
 --Ids 1 and 2 keep their meaning: a save made by an older version can hold queued entries naming them.
 async_calls = {Sheet.calculate, Calculator.auto_center, Jobs.step}
@@ -54,6 +56,8 @@ script.on_configuration_changed(function(configuration_changed_data)
     storage.opened_restores = nil --the GUIs are rebuilt and recomputed below; pending focus restores are dropped
     --Prototypes may have changed under any running job, so no result computed before this point may commit
     Jobs.invalidate_all("configuration_changed")
+    --Prototypes changed, so every stored solver result describes a world that no longer exists
+    Calculation.forget_all()
     for _, player in pairs(game.players) do
         --a picker saved by an older version holds a state this version does not read; closed before anything is repaired
         ModulePicker.close(player.index, false)
@@ -76,6 +80,7 @@ end)
 script.on_event(defines.events.on_player_removed, function(event)
     Jobs.forget_player(event.player_index)
     Reset.forget_player(event.player_index)
+    Calculation.forget_player(event.player_index)
     storage[event.player_index] = nil
     ModulePicker.forget_player(event.player_index)
     --queued computations of the removed player would reach its destroyed GUI
