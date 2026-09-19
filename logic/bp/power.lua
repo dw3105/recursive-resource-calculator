@@ -587,13 +587,26 @@ function Power.begin(input)
     end
     grid_w, grid_h = math.max(0, grid_w), math.max(0, grid_h)
 
+    --The old defaults were one pole per tile per spec and 256 search seeds. On the smallest grid the search
+    --offers, one roboport block of 54 by 54 tiles, that is 2916 poles chosen out of 2916 candidates, 256 times
+    --over, inside a single op that never yields. A player sees a frozen Generate, and a watchdog caught this
+    --run still inside the first seed after 25 seconds of it.
+    --A pole is worth placing only to cover a consumer or to relay between poles, so the counts come from the
+    --problem: one pole per consumer, plus enough relays to cross the grid twice.
     local max_poles = integer(limits.max_poles, nil)
-    if max_poles == nil then max_poles = math.max(0, grid_w * grid_h * math.max(1, #specs)) end
+    if max_poles == nil then
+        --Relays are counted in wire reaches, never in tiles: crossing the grid twice needs
+        --2 * (w + h) / reach poles, not 2 * (w + h) of them.
+        local reach = 1
+        for _, spec in ipairs(specs) do reach = math.max(reach, finite(spec.wire_reach, 1)) end
+        local relays = math.ceil((grid_w + grid_h) / reach) * 2
+        max_poles = math.max(1, math.min(grid_w * grid_h * math.max(1, #specs), #consumers + relays))
+    end
     local candidate_limit = integer(limits.max_candidates, nil)
     if candidate_limit == nil then
         candidate_limit = math.max(1, math.min(1000000, grid_w * grid_h * math.max(1, #specs)))
     end
-    local search_limit = integer(limits.max_search_seeds, 256)
+    local search_limit = integer(limits.max_search_seeds, 8)
     search_limit = math.max(1, search_limit)
 
     local total_units = candidate_limit + search_limit + 1
@@ -652,7 +665,13 @@ function Power.step(state, budget)
                         for consumer_index, consumer in ipairs(work.consumers) do
                             if consumer_covered(candidate, consumer) then candidate.covers[#candidate.covers + 1] = consumer_index end
                         end
-                        work.candidates[#work.candidates + 1] = candidate
+                        --A pole that covers nothing is only ever a relay, and a relay chain needs one position
+                        --every half wire reach, never one per tile. Keeping every empty tile made the selection
+                        --scan thousands of candidates that can never improve it.
+                        local step = math.max(1, math.floor(finite(spec.wire_reach, 2) / 2))
+                        if #candidate.covers > 0 or (x % step == 0 and y % step == 0) then
+                            work.candidates[#work.candidates + 1] = candidate
+                        end
                     end
                 end
             end
