@@ -281,7 +281,11 @@ local function occupied_rects(entities, roboports, obstacles)
     local result = {}
     for _, entry in ipairs(obstacles or {}) do result[#result + 1] = copy(entry) end
     for _, entity in ipairs(entities or {}) do
-        result[#result + 1] = {rect = {x = entity.x, y = entity.y, w = entity.w, h = entity.h}, owner = entity.id}
+        local position = entity.position or {}
+        result[#result + 1] = {rect = {
+            x = finite(entity.x, finite(position.x, 0) - 0.5), y = finite(entity.y, finite(position.y, 0) - 0.5),
+            w = finite(entity.w, 1), h = finite(entity.h, 1),
+        }, owner = entity.id}
     end
     for _, entity in ipairs(roboports or {}) do
         result[#result + 1] = {rect = {x = entity.x, y = entity.y, w = entity.w, h = entity.h}, owner = entity.id}
@@ -327,31 +331,116 @@ local function perimeter_slots(grid, edge, pitch)
     return slots
 end
 
+local function perimeter_cell_key(x, y)
+    return tostring(x) .. ":" .. tostring(y)
+end
+
+local function perimeter_port_needs_route(port)
+    local rate = port.rate_per_second
+    if rate == nil then rate = port.rate end
+    return rate == nil or rate > 0
+end
+
+local function has_active_perimeter_ports(state)
+    for _, port in ipairs(state.work.plan_result.ports or {}) do
+        if perimeter_port_needs_route(port) then return true end
+    end
+    return false
+end
+
+local function can_stop_implicit_perimeter_search(state, score)
+    local input = state.work.input
+    return has_active_perimeter_ports(state) and finite(score and score.beacon_count, 0) == 0
+        and input.grids == nil and input.grid_sizes == nil and input.grid == nil
+end
+
+local function perimeter_blocked_cells(blocks, obstacles)
+    local result = {}
+    local function add_rect(raw)
+        local rect = type(raw) == "table" and (raw.rect or raw)
+        if type(rect) ~= "table" then return end
+        for y = rect.y, rect.y + rect.h - 1 do
+            for x = rect.x, rect.x + rect.w - 1 do result[perimeter_cell_key(x, y)] = true end
+        end
+    end
+    for _, block in ipairs(blocks or {}) do add_rect(block) end
+    for _, obstacle in ipairs(obstacles or {}) do add_rect(obstacle) end
+    return result
+end
+
+local function generated_perimeter_ports(state, grid, input_edge, output_edge, pitch, blocked)
+    local slots = {
+        ["in"] = perimeter_slots(grid, input_edge, pitch),
+        ["out"] = perimeter_slots(grid, output_edge, pitch),
+    }
+    local next_slot = {["in"] = 1, ["out"] = 1}
+    local occupied = {}
+    local external = {}
+    for _, port in ipairs(state.work.plan_result.ports or {}) do
+        local role = port.role == "in" and "in" or "out"
+        local index = next_slot[role]
+        while index <= #slots[role] do
+            local slot = slots[role][index]
+            local key = perimeter_cell_key(slot.x, slot.y)
+            if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then break end
+            index = index + 1
+        end
+        if role == "out" and perimeter_port_needs_route(port) and index > 1
+            and blocked[perimeter_cell_key(slots[role][index - 1].x, slots[role][index - 1].y)] then
+            index = index + 1
+            while index <= #slots[role] do
+                local slot = slots[role][index]
+                local key = perimeter_cell_key(slot.x, slot.y)
+                if not occupied[key] and not blocked[key] then break end
+                index = index + 1
+            end
+        end
+        next_slot[role] = index + 1
+        if index > #slots[role] then
+            return external, false
+        end
+
+        local slot = slots[role][index]
+        occupied[perimeter_cell_key(slot.x, slot.y)] = true
+        local point = copy(port) or {}
+        point.x, point.y = slot.x, slot.y
+        point.travel_dir = role == "in" and Grid.dir_opposite(slot.dir) or slot.dir
+        external[#external + 1] = point
+    end
+    return external, true
+end
+
+local function perimeter_roboport_clearance(state, grid)
+    for _, port in ipairs(state.work.plan_result.ports or {}) do
+        if perimeter_port_needs_route(port) then
+            local result = {}
+            for _, obstacle in ipairs(state.work.robo_obstacles or {}) do
+                local rect = obstacle.rect or obstacle
+                local x, y = math.max(0, rect.x - 1), math.max(0, rect.y - 1)
+                local right = math.min(grid.w, rect.x + rect.w + 1)
+                local bottom = math.min(grid.h, rect.y + rect.h + 1)
+                if right > x and bottom > y then
+                    result[#result + 1] = {x = x, y = y, w = right - x, h = bottom - y}
+                end
+            end
+            return result
+        end
+    end
+    return {}
+end
+
 local function make_route_input(state, grid, blocks, ports, obstacles)
     local external = state.work.input.perimeter_ports or state.work.input.perimeter
     if type(external) ~= "table" then
-        external = {}
         local settings = state.work.input.settings or {}
         local input_edge = settings.input_edge or state.work.input.input_edge or "left"
         local output_edge = settings.output_edge or state.work.input.output_edge or "top"
         local pitch = finite(state.work.input.port_pitch, 1)
-        local slots = {
-            ["in"] = perimeter_slots(grid, input_edge, pitch),
-            ["out"] = perimeter_slots(grid, output_edge, pitch),
-        }
-        local used = {input = 0, output = 0}
-        for _, port in ipairs(state.work.plan_result.ports or {}) do
-            local role = port.role == "in" and "in" or "out"
-            local key = role == "in" and "input" or "output"
-            used[key] = used[key] + 1
-            local slot = slots[role][used[key]] or slots[role][#slots[role]]
-            if slot then
-                local point = copy(port) or {}
-                point.x, point.y = slot.x, slot.y
-                point.travel_dir = role == "in" and Grid.dir_opposite(slot.dir) or slot.dir
-                external[#external + 1] = point
-            end
-        end
+        local complete
+        external, complete = generated_perimeter_ports(state, grid, input_edge, output_edge, pitch,
+            perimeter_blocked_cells(blocks, obstacles))
+        state.work.perimeter_ports = external
+        if not complete then return nil end
     else
         external = list_copy(external)
     end
@@ -365,10 +454,18 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
 end
 
 local function make_candidate(state, grid, blocks, entities, ports, route_result, power_result, roboports)
+    local segments = {}
+    for _, segment in ipairs(route_result and route_result.segments or {}) do
+        local copy_segment = copy(segment) or {}
+        copy_segment.id = copy_segment.id or copy_segment.segment_id
+        segments[#segments + 1] = copy_segment
+    end
+    local external_ports = list_copy(state.work.perimeter_ports)
+    for _, port in ipairs(external_ports) do port.id = port.id or port.port_id end
     local candidate = {
         grid = {w = grid.w, h = grid.h, cols = grid.cols, rows = grid.rows}, grid_w = grid.w, grid_h = grid.h,
-        blocks = blocks, placements = state.work.pack.result.placements, entities = {}, ports = ports,
-        external_ports = state.work.perimeter_ports,
+        blocks = blocks, placements = state.work.pack.result.placements, entities = {}, ports = {},
+        external_ports = external_ports,
         flows = state.work.plan_result.flows, plan = state.work.plan_result, route = route_result, power = power_result,
         settings = state.work.input.settings, infrastructure = state.work.input.settings,
     }
@@ -379,7 +476,7 @@ local function make_candidate(state, grid, blocks, entities, ports, route_result
     candidate.wires = {}
     append_all(candidate.wires, power_result and power_result.wires)
     append_all(candidate.wires, route_result and route_result.wires)
-    candidate.segments = route_result and route_result.segments or {}
+    candidate.segments = segments
     candidate.bindings = route_result and (route_result.port_bindings or route_result.bindings) or {}
     return candidate
 end
@@ -537,6 +634,7 @@ local function prepare_candidate(state)
     local obstacles = bare_rects(state.work.robo_obstacles)
     append_all(obstacles, bare_rects(state.work.input.obstacles))
     append_all(obstacles, bare_rects(state.work.input.occupied))
+    append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
         blocks = ordering.blocks, limits = state.work.input.limits or {}})
     set_phase(state, "pack")
@@ -606,9 +704,13 @@ function Search.step(container, budget)
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
                         state.work.pack.result and state.work.pack.result.placements)
                     state.work.materialized = {blocks = blocks, entities = entities, ports = ports}
-                    state.work.route = Route.begin(make_route_input(state, state.work.grid, blocks, ports,
-                        state.work.robo_obstacles))
-                    set_phase(state, "route")
+                    local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
+                    if route_input then
+                        state.work.route = Route.begin(route_input)
+                        set_phase(state, "route")
+                    else
+                        discard_candidate(state)
+                    end
                 end
             end
         elseif state.phase == "route" then
@@ -616,7 +718,9 @@ function Search.step(container, budget)
             if stage_done(state.work.route) then
                 if not state.work.route.ok then discard_candidate(state)
                 else
-                    state.work.power = Power.begin(make_power_input(state, state.work.grid, state.work.materialized.entities,
+                    local power_entities = list_copy(state.work.materialized.entities)
+                    append_all(power_entities, state.work.route.result and state.work.route.result.entities)
+                    state.work.power = Power.begin(make_power_input(state, state.work.grid, power_entities,
                         state.work.roboports, state.work.robo_obstacles))
                     set_phase(state, "power")
                 end
@@ -645,6 +749,12 @@ function Search.step(container, budget)
                     if state.incumbent == nil or Validate.compare(score, state.incumbent.score) < 0 then
                         state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
                             validation = copy(state.work.validate.result)}
+                    end
+                    if can_stop_implicit_perimeter_search(state, score) then
+                        local candidates = state.work.groups.result.candidates or {}
+                        state.cursor.grid_index = #state.work.grid_specs
+                        state.cursor.candidate_index = #candidates
+                        state.cursor.order_index = #state.work.orderings
                     end
                     discard_candidate(state)
                 end

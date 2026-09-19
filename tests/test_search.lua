@@ -67,6 +67,14 @@ local function perimeter_plan()
         ports = {{port_id = "out:item/plate", role = "out", kind = "item", flow_id = "item/plate", rate_per_second = 0}}}
 end
 
+local function perimeter_pair_plan()
+    return {steps = {{step_id = "one", machine = "assembler", machine_count = 1, power_w = 1, modules = {},
+        beacon_groups = {}, inputs = {}, outputs = {}}}, flows = {}, ports = {
+        {port_id = "in:item/raw", role = "in", kind = "item", flow_id = "item/raw", rate_per_second = 0},
+        {port_id = "out:item/gear", role = "out", kind = "item", flow_id = "item/gear", rate_per_second = 0},
+    }}
+end
+
 local function shared_plan()
     local group = {signature = "shared", name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {}}
     return {steps = {
@@ -161,6 +169,36 @@ local function comparison_order(first, second)
     return {{first, second}, {second, first}}
 end
 
+local function port_by_role(ports, role)
+    for _, port in ipairs(ports or {}) do
+        if port.role == role then return port end
+    end
+end
+
+local function on_edge(port, edge, width, height)
+    if edge == "top" then return port.y == 0 end
+    if edge == "bottom" then return port.y == height - 1 end
+    if edge == "left" then return port.x == 0 end
+    if edge == "right" then return port.x == width - 1 end
+    return false
+end
+
+local function travel_for(edge, role)
+    local outward = {top = Grid.NORTH, right = Grid.EAST, bottom = Grid.SOUTH, left = Grid.WEST}
+    local direction = outward[edge]
+    return role == "in" and Grid.dir_opposite(direction) or direction
+end
+
+local function distinct_port_cells(ports)
+    local seen = {}
+    for _, port in ipairs(ports or {}) do
+        local key = tostring(port.x) .. ":" .. tostring(port.y)
+        if seen[key] then return false end
+        seen[key] = true
+    end
+    return true
+end
+
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " BP-15 a small feasible plan publishes a validated blueprint", function()
         local state = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
@@ -191,6 +229,53 @@ for _, shape in ipairs(H.shapes()) do
             H.equal(port.y, input.grids[1].h - 1, "the output sits on the grid's bottom edge cell")
             H.equal(port.travel_dir, Grid.SOUTH, "the output travel direction leaves the grid")
         end
+    end)
+
+    H.test(shape .. " BP-15 default perimeter edges never share their corner cell", function()
+        local input = input_for(perimeter_pair_plan(), {grids = {{w = 3, h = 3}}})
+        local state = finish(input)
+        H.equal(state.ok, true, "the default perimeter search succeeds")
+        local ports = state.incumbent.candidate.external_ports
+        local input_port, output_port = port_by_role(ports, "in"), port_by_role(ports, "out")
+        H.equal(#ports, 2, "the default perimeter has both ports")
+        H.equal(distinct_port_cells(ports), true, "the default perimeter ports use distinct cells")
+        H.equal(input_port.x, 0, "the default input stays on the left edge")
+        H.equal(input_port.travel_dir, Grid.EAST, "the default input travels into the grid")
+        H.equal(output_port.y, 0, "the default output stays on the top edge")
+        H.equal(output_port.travel_dir, Grid.NORTH, "the default output travels out of the grid")
+    end)
+
+    H.test(shape .. " BP-15 every differing perimeter edge pair avoids a shared corner", function()
+        local edges = {"top", "right", "bottom", "left"}
+        for _, input_edge in ipairs(edges) do
+            for _, output_edge in ipairs(edges) do
+                if input_edge ~= output_edge then
+                    local input = input_for(perimeter_pair_plan(), {
+                        grids = {{w = 4, h = 4}},
+                        settings = {input_edge = input_edge, output_edge = output_edge},
+                    })
+                    local state = finish(input)
+                    local label = input_edge .. " input / " .. output_edge .. " output"
+                    H.equal(state.ok, true, label .. " perimeter search succeeds")
+                    local ports = state.incumbent.candidate.external_ports
+                    local input_port, output_port = port_by_role(ports, "in"), port_by_role(ports, "out")
+                    H.equal(distinct_port_cells(ports), true, label .. " ports use distinct cells")
+                    H.equal(on_edge(input_port, input_edge, 4, 4), true, label .. " input stays on its edge")
+                    H.equal(on_edge(output_port, output_edge, 4, 4), true, label .. " output stays on its edge")
+                    H.equal(input_port.travel_dir, travel_for(input_edge, "in"), label .. " input travel direction")
+                    H.equal(output_port.travel_dir, travel_for(output_edge, "out"), label .. " output travel direction")
+                end
+            end
+        end
+    end)
+
+    H.test(shape .. " BP-15 a perimeter grid with no free port slot fails without stacking", function()
+        local input = input_for(perimeter_pair_plan(), {grids = {{w = 1, h = 1}}})
+        local state = finish(input)
+        H.equal(state.ok, false, "the undersized perimeter search fails")
+        H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", "slot exhaustion reports no layout")
+        H.equal(distinct_port_cells(state.work.perimeter_ports), true, "slot exhaustion never stacks ports")
+        H.equal(#state.work.perimeter_ports, 1, "slot exhaustion keeps only the available perimeter slot")
     end)
 
     H.test(shape .. " BP-15 a roboport grid reaches a placement without raising", function()
