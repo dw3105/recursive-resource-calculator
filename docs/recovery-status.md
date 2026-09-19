@@ -1,6 +1,6 @@
 # Round 8 board — one list, replaces every older "next step"
 
-Updated 2026-09-19 11:00 UTC, HEAD d412c38, by the integrator on host `legalcopilot-dev`. Branch
+Updated 2026-09-19 11:55 UTC, HEAD 5ac8dcc, by the integrator on host `legalcopilot-dev`. Branch
 `feat/round-8-blueprints`, never pushed, never merged to `main`. Dispatch follows
 `~/codex-reviews/rrc-parallel-execution-unblock-plan-2026-09-19-1014.md`: five disjoint lanes run beside every
 physical repair, and no lane waits on the blueprint pipeline for work it can finish alone.
@@ -11,7 +11,11 @@ physical repair, and no lane waits on the blueprint pipeline for work it can fin
 |---|---|---|---|---|---|
 | Repair: block port binding | 047 | no | binding-base 835a66e | `logic/bp/groups.lua`, `logic/bp/route.lua`, `tests/test_groups.lua`, `tests/test_route.lua` | **merged** 93fcfe3 |
 | S service lifecycle and capture | 048 | no | unblock-base 93fcfe3 | `gui/blueprint_dialog.lua`, `logic/bp/generation.lua`, `logic/engine_test_api.lua`, two new test files, `tests/test_bp_settings.lua` | **merged**; 20 lifecycle cases green, real-sheet gate red on purpose |
-| Repair: perimeter port collision | 053 | **yes** | collision-base d412c38 | `logic/bp/search.lua`, `tests/test_search.lua` | running; target is the red real-sheet gate |
+| Repair: perimeter port collision | 053 | no | collision-base d412c38 | `logic/bp/search.lua`, `tests/test_search.lua` | **merged**; the real-sheet gate is green |
+| D dispatch preflight | 054 | **yes** | queue-base 29c5aa9 | `tools/lane_ownership.py`, new `tools/check_dispatch.py`, their tests | running |
+| A API coverage | 055 | **yes** | queue-base 29c5aa9 | `tools/extract_api.py`, `docs/api/*.members.json`, `tests/test_api_shapes.lua`, new companion shapes test | running |
+| L generation reload | 056 | **yes** | queue-base 29c5aa9 | `logic/bp/generation.lua`, `logic/engine_test_api.lua`, its test, two new tests | running |
+| F capture case setup | 057 | **yes** | queue-base 29c5aa9 | new `tests/golden/capture_case.lua`, `tests/golden/setup/`, new `tests/test_case_capture.lua`, `docs/golden-case-authoring.md` | running |
 | C calculation result record | 049 | no | unblock-base 93fcfe3 | `logic/calc_pipeline.lua`, `logic/calculation_result.lua`, their two test files | **merged**; wired into `control.lua` by the integrator |
 | E real engine adapter | 050 | no | unblock-base 93fcfe3 | `tests/golden/engine/mod/`, `tests/test_engine_scenario.lua`, `tests/test_engine_runtime_adapter.lua`, `docs/engine-evidence/runner.md` | **merged**; 16 adapter cases drive the shipped adapter |
 | R evidence contract and release gate | 051 | no | unblock-base 93fcfe3 | `tools/release_gate.py`, its tests, new `tests/tools/test_evidence_contract.py`, `docs/release-preparation.md` | **merged**; verdict FAIL was my broken manifest, verified by hand |
@@ -29,7 +33,7 @@ producer's own spelling. `docs/engine-evidence/examples/` holds one synthetic ex
 
 Waves 1 to 4 merged and sealed: snapshot, jobs, catalog, grid, export dialog, progress panel, payload, solver
 steps, reset, report steps, plan, preflight, calc pipeline, settings, pack, groups, route, power, validate,
-serialize, search, delivery, golden skeleton. Suite 2680 case runs, 0 failed, both interpreters, plus 27 Python
+serialize, search, delivery, golden skeleton. Suite 2768 case runs, 0 failed, both interpreters, plus 27 Python
 tooling tests and the golden corpus. Mutation batches: W1 8 of 9 with one recorded equivalent, W2 7 of 7,
 W3 12 of 12, W3b 6 of 6, W4 6 of 6.
 
@@ -39,11 +43,12 @@ per-category pickers are accepted. Two window defects reached the game first: `a
 `read_only`, and an invented style name (`draggable_space_with_no_left_margin`) crashed on open. Both classes now
 fail offline — `docs/api/2.0.77.styles.json` pins 582 core style names.
 
-## The suite is red on purpose right now
+## Generate delivers, offline (2026-09-19 11:55 UTC)
 
-`tests/test_blueprint_pipeline.lua` carries the mandatory real-sheet case, and it fails with
-`BP_FAIL_NO_LAYOUT_GRID_LIMIT`. That case is the gate for the whole feature and is never weakened to make the
-suite green. Lane 053 fixes the defect underneath it; when 053 merges, the suite goes green again.
+`tests/test_blueprint_pipeline.lua` is 22 of 22, the mandatory real-sheet case included: a real calculated sheet
+runs through the real modules to a delivered blueprint, with no stubbed Search and no precomputed plan. Whole
+suite 2768 case runs, 0 failed, plus 70 Python tests. Test zips 1.1.47 and 1.1.48 built from `5ac8dcc`.
+In game this is untested; the player's click is the next evidence.
 
 ## Four real defects found by running a real sheet
 
