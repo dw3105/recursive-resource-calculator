@@ -78,3 +78,5 @@
 | `067` | `rrc/agent` | power semantics | 2026-09-19 |
 | `068` | `rrc/agent` | fluid smoke case | 2026-09-19 |
 | `069` | `rrc/agent` | resumable power | 2026-09-19 |
+| `070` | `rrc/agent` | port edge and collision | 2026-09-19 |
+| `071` | `rrc/agent` | pole wires legal | 2026-09-19 |
