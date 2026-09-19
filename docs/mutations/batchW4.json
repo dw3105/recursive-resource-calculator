@@ -16,7 +16,7 @@
   "new": "    tell(player_of(player_index), \"blueprint_delivered\")",
   "test": "tests/test_blueprint_delivery.lua",
   "shapes": "2.0",
-  "expect": "BP-18",
+  "expect": "a successful retry refuses a second handover",
   "note": "a retried blueprint stays pending and can be delivered twice"
  },
  {
@@ -26,7 +26,7 @@
   "new": "",
   "test": "tests/test_blueprint_delivery.lua",
   "shapes": "2.0",
-  "expect": "BP-18",
+  "expect": "a cursor setup refusal clears the hand",
   "note": "an unset-up cursor blueprint is handed to the player"
  }
 ]
