@@ -8,11 +8,13 @@ local ExportPayload = require "logic.export_payload"
 local ExportDialog = {}
 
 ExportDialog.FRAME_NAME = "hxrrc_export_dialog"
-local SCROLL_NAME = "hxrrc_export_scroll"
 local TEXT_NAME = "hxrrc_export_text"
 local STATE_NAME = "hxrrc_export_state"
 local SELECT_ALL_NAME = "hxrrc_export_select_all_button"
 local CLOSE_NAME = "hxrrc_export_close_button"
+local FRAME_MIN_WIDTH = 600
+local TEXT_WIDTH = 600
+local TEXT_HEIGHT = 240
 
 --GUI handles are deliberately kept out of storage. This is only a runtime aid for noticing that the sheet which
 --owns an open window was destroyed; the saved part below contains only the sheet id and the displayed state.
@@ -145,6 +147,7 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
         tags = {hxrrc_sheet_id = sheet_id},
     }
     frame.auto_center = true
+    frame.style.minimal_width = FRAME_MIN_WIDTH
 
     frame.add{
         type = "label",
@@ -153,9 +156,7 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     }
 
     if type(encoded) == "string" and encode_error == nil then
-        local scroll = frame.add{type = "scroll-pane", name = SCROLL_NAME}
-        scroll.style.maximal_height = 400
-        scroll.add{
+        local text_box = frame.add{
             type = "text-box",
             name = TEXT_NAME,
             text = encoded,
@@ -163,6 +164,8 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
             selectable = true,
             word_wrap = true,
         }
+        text_box.style.width = TEXT_WIDTH
+        text_box.style.height = TEXT_HEIGHT
     else
         frame.add{
             type = "label",
