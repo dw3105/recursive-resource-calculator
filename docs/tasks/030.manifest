@@ -1,0 +1,3 @@
+logic/bp/settings.lua
+gui/blueprint_dialog.lua
+!tests/test_bp_settings.lua

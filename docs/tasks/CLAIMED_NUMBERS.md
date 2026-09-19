@@ -30,3 +30,6 @@
 | `026` | `rrc/agent` | W4 search: bounded layout search | 2026-09-18 |
 | `027` | `rrc/agent` | W4 deliver: blueprint to the player | 2026-09-18 |
 | `028` | `rrc/agent` | W4 golden: fixtures, canonical compare, engine evidence | 2026-09-18 |
+| `029` | `rrc/agent` | W3R pack: BSSF tightness and both-axis fit | 2026-09-19 |
+| `030` | `rrc/agent` | W3R settings: half a belt family | 2026-09-19 |
+| `031` | `rrc/agent` | W3R calc: the job carries the sheet's revisions | 2026-09-19 |

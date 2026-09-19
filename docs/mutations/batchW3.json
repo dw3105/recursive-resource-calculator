@@ -1,0 +1,120 @@
+[
+ {
+  "id": "W3-M01",
+  "file": "logic/calc_pipeline.lua",
+  "old": "    local revisions = snapshot.revisions or {sheet = 0, config = 0}",
+  "new": "    local revisions = {sheet = 0, config = 0}",
+  "test": "tests/test_calc_pipeline.lua",
+  "shapes": "2.0",
+  "expect": "CP-01",
+  "note": "a job that carries constant revisions can never match the sheet at publication"
+ },
+ {
+  "id": "W3-M02",
+  "file": "logic/calc_pipeline.lua",
+  "old": "    cancel_report(job, player_index, sheet_id)\n    return Jobs.cancel(player_index, sheet_id)",
+  "new": "    return Jobs.cancel(player_index, sheet_id)",
+  "test": "tests/test_calc_pipeline.lua",
+  "shapes": "2.0",
+  "expect": "CP-04",
+  "note": "cancelling the job without cancelling the report leaves staged rows behind"
+ },
+ {
+  "id": "W3-M03",
+  "file": "logic/bp/settings.lua",
+  "old": "    if settings.input_edge == settings.output_edge then",
+  "new": "    if settings.input_edge ~= settings.output_edge then",
+  "test": "tests/test_bp_settings.lua",
+  "shapes": "2.0",
+  "expect": "BP_REJ_EDGES_EQUAL"
+ },
+ {
+  "id": "W3-M04",
+  "file": "logic/bp/settings.lua",
+  "old": "    if not underground or not splitter then return nil end",
+  "new": "    if not underground and not splitter then return nil end",
+  "test": "tests/test_bp_settings.lua",
+  "shapes": "2.0",
+  "expect": "BP_REJ_BELT_FAMILY_MISSING",
+  "note": "half a belt family would be accepted as a family"
+ },
+ {
+  "id": "W3-M05",
+  "file": "logic/bp/pack.lua",
+  "old": "    if candidate.short_side ~= best.short_side then return candidate.short_side < best.short_side end",
+  "new": "    if candidate.short_side ~= best.short_side then return candidate.short_side > best.short_side end",
+  "test": "tests/test_pack.lua",
+  "shapes": "2.0",
+  "expect": "P9",
+  "note": "BSSF turned into worst short side fit"
+ },
+ {
+  "id": "W3-M06",
+  "file": "logic/bp/pack.lua",
+  "old": "        if region.w >= w and region.h >= h then",
+  "new": "        if region.w >= w or region.h >= h then",
+  "test": "tests/test_pack.lua",
+  "shapes": "2.0",
+  "expect": "P2",
+  "note": "one satisfied axis is enough to place, so blocks leave the area"
+ },
+ {
+  "id": "W3-M07",
+  "file": "logic/bp/groups.lua",
+  "old": "        return a.physical_beacon_count < b.physical_beacon_count",
+  "new": "        return a.physical_beacon_count > b.physical_beacon_count",
+  "test": "tests/test_groups.lua",
+  "shapes": "2.0",
+  "expect": "G8"
+ },
+ {
+  "id": "W3-M08",
+  "file": "logic/bp/groups.lua",
+  "old": "                if not machine or not machine.forbids_speed_beacon then safe[#safe + 1] = machine_id end",
+  "new": "                safe[#safe + 1] = machine_id",
+  "test": "tests/test_groups.lua",
+  "shapes": "2.0",
+  "expect": "G4",
+  "note": "a speed beacon keeps a quality machine"
+ },
+ {
+  "id": "W3-M09",
+  "file": "logic/bp/route.lua",
+  "old": "    if connection_direction(source) ~= travel or connection_direction(sink) ~= reverse then return nil, \"reversed\" end",
+  "new": "",
+  "test": "tests/test_route.lua",
+  "shapes": "2.0",
+  "expect": "R3",
+  "note": "pairing stops checking which way each underground connection faces"
+ },
+ {
+  "id": "W3-M10",
+  "file": "logic/bp/route.lua",
+  "old": "    if segment_total(segment) + amount > segment.capacity_per_second + tolerance(segment.capacity_per_second) then return false, \"capacity\" end",
+  "new": "    if segment_total(segment) + amount > segment.capacity_per_second * 2 + tolerance(segment.capacity_per_second) then return false, \"capacity\" end",
+  "test": "tests/test_route.lua",
+  "shapes": "2.0",
+  "expect": "R6",
+  "note": "a belt carries twice what it can carry"
+ },
+ {
+  "id": "W3-M11",
+  "file": "logic/bp/power.lua",
+  "old": "    local reach = math.min(a.wire_reach, b.wire_reach)",
+  "new": "    local reach = math.max(a.wire_reach, b.wire_reach)",
+  "test": "tests/test_power.lua",
+  "shapes": "2.0",
+  "expect": "BP4",
+  "note": "a mixed-quality edge takes the longer reach"
+ },
+ {
+  "id": "W3-M12",
+  "file": "logic/bp/power.lua",
+  "old": "        if not covered[index] then uncovered[#uncovered + 1] = consumer.id end",
+  "new": "",
+  "test": "tests/test_power.lua",
+  "shapes": "2.0",
+  "expect": "BP8",
+  "note": "an uncovered consumer is never named"
+ }
+]
