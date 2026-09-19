@@ -99,6 +99,16 @@ local function search_limits(input)
     return limits, maximum
 end
 
+local function grid_trial_limit(input, limits, grid_count)
+    local maximum = input.max_search_grids or input.max_grid_trials
+        or limits.max_search_grids or limits.max_grid_trials
+    --A sheet may describe the familiar 7x7 grid matrix, but a search job must not turn that
+    --description into 49 full pack/route/power searches by default.  Callers with a deliberate
+    --larger bound can opt in explicitly; the operation budget still remains authoritative.
+    maximum = integer(maximum, 12)
+    return math.max(1, math.min(grid_count, maximum))
+end
+
 local function ordered_grid_specs(input)
     local explicit = input.grids or input.grid_sizes
     if type(explicit) == "table" and #explicit > 0 then return list_copy(explicit) end
@@ -544,6 +554,7 @@ end
 local function start_grid(state)
     local raw = state.work.grid_specs[state.cursor.grid_index]
     if not raw then return false end
+    state.work.grid_trials = state.work.grid_trials + 1
     local grid = grid_model(state.work.input, raw)
     local robo_obstacles, roboports = roboport_obstacles(grid, state.work.input)
     state.work.grid = grid
@@ -559,6 +570,11 @@ local function start_grid(state)
 end
 
 local function next_grid(state)
+    if state.cursor.grid_index >= #state.work.grid_specs then return false end
+    if state.work.grid_trials >= state.work.grid_trial_limit then
+        state.work.grid_limit_hit = true
+        return false
+    end
     state.cursor.grid_index = state.cursor.grid_index + 1
     return start_grid(state)
 end
@@ -571,6 +587,61 @@ local function fail_budget(state)
     failure(state, "BP_FAIL_SEARCH_BUDGET")
 end
 
+local function candidate_beacon_count(candidate)
+    if type(candidate) ~= "table" then return nil end
+    local value = candidate.physical_beacon_count
+        or candidate.beacon_count
+        or (type(candidate.score) == "table" and candidate.score.beacon_count)
+    return finite(value, nil)
+end
+
+local function record_candidate_bound(state)
+    local candidates = state.work.groups and state.work.groups.result
+        and state.work.groups.result.candidates
+    if type(candidates) ~= "table" then return end
+    local lower_bound
+    for _, candidate in ipairs(candidates) do
+        local count = candidate_beacon_count(candidate)
+        if count ~= nil and (lower_bound == nil or count < lower_bound) then lower_bound = count end
+    end
+    if lower_bound ~= nil then
+        local previous = state.work.candidate_beacon_lower_bound
+        state.work.candidate_beacon_lower_bound = previous == nil and lower_bound
+            or math.min(previous, lower_bound)
+    end
+end
+
+--Groups enumerates the complete candidate set for a sheet.  A candidate's physical beacon count is
+--a lower bound on the validated score: packing, routing and power can add infrastructure, but none
+--of those stages can remove a beacon from the candidate.  Once the incumbent reaches that bound,
+--no unvisited grid can improve the first (beacon) objective, so compactness and pole tie-breaks do
+--not justify another expensive grid.  A larger grid is still visited whenever a lower-beacon
+--candidate has not yet been made feasible and validated.
+local function can_improve_beacons(state)
+    if state.incumbent == nil then return true end
+    local bound = state.work.candidate_beacon_lower_bound
+    if bound == nil then return false end
+    return finite(state.incumbent.score and state.incumbent.score.beacon_count, math.huge) > bound
+end
+
+local function begin_serialization(state)
+    if state.phase == "serialize" then return true end
+    if not revisions_match(nil, state) then fail_revision(state); return false end
+    state.work.serializing_candidate = state.incumbent and state.incumbent.candidate
+    if state.work.serializing_candidate == nil then return false end
+    --Publication is a reserved phase.  Search work is allowed to consume the exploration budget
+    --right up to its limit; once a validated incumbent exists, subsequent ticks are reserved for
+    --Serialize so a partial search never discards its best complete layout.
+    state.work.publication_reserved = true
+    state.work.serialize = Serialize.begin(state.work.serializing_candidate)
+    set_phase(state, "serialize")
+    return true
+end
+
+local function finish_search_budget(state)
+    if state.incumbent then begin_serialization(state) else fail_budget(state) end
+end
+
 function Search.begin(input)
     input = copy(type(input) == "table" and input or {}) or {}
     local limits, max_ops = search_limits(input)
@@ -581,8 +652,11 @@ function Search.begin(input)
         progress = {phase = "planning", done_units = 0, total_units = nil},
         work = {input = input, limits = limits, grid_specs = ordered_grid_specs(input), plan_state = nil,
             plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil, orderings = nil,
-            pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil},
+            pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
+            grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false,
+            candidate_beacon_lower_bound = nil, publication_reserved = false},
     }
+    state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
     state.initial_revisions = copy(state.revisions)
     local supplied_plan = input.plan_result or (type(input.plan) == "table" and input.plan.steps and input.plan)
     if supplied_plan then
@@ -595,20 +669,11 @@ function Search.begin(input)
     return state
 end
 
---Growing the grid can never beat a layout that already fits a smaller one: the candidates a grid is offered are
---the same at every size, so a bigger grid ties or loses on footprint and never lowers a beacon count. Once a
---grid has produced an incumbent, the search stops growing and serializes it instead of walking every remaining
---size, which on a five-step sheet is forty-nine of them.
 local function finish_grid_or_search(state)
-    if state.incumbent == nil and next_grid(state) then return end
-    if state.incumbent then
-        if not revisions_match(nil, state) then fail_revision(state); return end
-        state.work.serializing_candidate = state.incumbent.candidate
-        state.work.serialize = Serialize.begin(state.work.serializing_candidate)
-        set_phase(state, "serialize")
-    else
-        failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT")
-    end
+    if not can_improve_beacons(state) then begin_serialization(state); return end
+    if next_grid(state) then return end
+    if state.work.grid_limit_hit then finish_search_budget(state); return end
+    if state.incumbent then begin_serialization(state) else failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT") end
 end
 
 --A grid too small to hold the blocks and the rows their ports need can never produce a layout, and packing it
@@ -680,15 +745,19 @@ function Search.step(container, budget)
     if state.done then sync_job(container, state); return container end
     budget = type(budget) == "table" and budget or {ops = 1}
     budget.ops = math.max(0, integer(budget.ops, 1) or 0)
-    if state.max_ops ~= nil then budget.ops = math.min(budget.ops, math.max(0, state.max_ops - state.ops_used)) end
+    if state.max_ops ~= nil and state.phase ~= "serialize" then
+        budget.ops = math.min(budget.ops, math.max(0, state.max_ops - state.ops_used))
+    end
     if budget.ops <= 0 then
-        if state.max_ops ~= nil and budget_limit_reached(state) then fail_budget(state) end
+        if state.max_ops ~= nil and budget_limit_reached(state) and state.phase ~= "serialize" then
+            finish_search_budget(state)
+        end
         sync_job(container, state)
         return container
     end
 
     while not state.done and budget.ops > 0 do
-        if budget_limit_reached(state) then fail_budget(state); break end
+        if state.phase ~= "serialize" and budget_limit_reached(state) then finish_search_budget(state); break end
         if state.phase == "plan" then
             run_stage(state, "plan_state", Plan, budget)
             if stage_done(state.work.plan_state) then
@@ -710,8 +779,9 @@ function Search.step(container, budget)
         elseif state.phase == "groups" then
             run_stage(state, "groups", Groups, budget)
             if stage_done(state.work.groups) then
+                record_candidate_bound(state)
                 if state.work.groups.ok == false and not (state.work.groups.result and state.work.groups.result.candidates) then
-                    next_grid(state)
+                    if not next_grid(state) then finish_grid_or_search(state) end
                 else
                     state.cursor.candidate_index, state.cursor.order_index = 1, 1
                     prepare_candidate(state)
@@ -800,7 +870,7 @@ function Search.step(container, budget)
         end
     end
 
-    if not state.done and budget_limit_reached(state) then fail_budget(state) end
+    if not state.done and state.phase ~= "serialize" and budget_limit_reached(state) then finish_search_budget(state) end
     sync_job(container, state)
     return container
 end
