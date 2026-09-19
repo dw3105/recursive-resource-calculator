@@ -407,7 +407,17 @@ local GUI_MEMBERS = set_of({"type", "name", "caption", "tooltip", "children", "p
     "allow_decimal", "allow_negative", "lose_focus_on_confirm", "direction", "column_count", "draw_horizontal_lines", "draw_vertical_lines",
     "sprite", "valid", "auto_center", "state", "quality", "locked", "toggled",
     --round 8: the progress bar's value, and the export box's reading keys
-    "value", "read_only", "selectable", "word_wrap", "vertical_scroll_policy", "horizontal_scroll_policy"})
+    "value", "read_only", "selectable", "word_wrap", "vertical_scroll_policy", "horizontal_scroll_policy",
+    --a window's own title bar: the drag handle and the close button's three sprites
+    "drag_target", "hovered_sprite", "clicked_sprite", "mouse_button_filter"})
+
+--2.0.77 LuaGuiElement::add takes only the documented per-type parameters. For a text-box those are "text" and
+--"icon_selector"; read_only, selectable and word_wrap are attributes, written after the element exists. The
+--engine drops them from an add{} table without a word, which is how 1.1.47 shipped an editable export box.
+local ADD_IGNORES = set_of({"read_only", "selectable", "word_wrap"})
+
+--What a fresh text-box carries before the mod writes anything
+local TEXT_BOX_DEFAULTS = {read_only = false, selectable = true, word_wrap = false}
 
 --Members only some element types carry; reading or writing one elsewhere is what the engine refuses
 local GUI_TYPE_GATES = {
@@ -436,7 +446,7 @@ end
 local gui_methods = {}
 
 --Utility sprites the mod uses, each checked in 2.0.77 core/prototypes/utility-sprites.lua; any other utility path is refused
-local UTILITY_SPRITES = set_of({"check_mark_green", "empty_module_slot", "trash"})
+local UTILITY_SPRITES = set_of({"check_mark_green", "close", "close_black", "empty_module_slot", "trash"})
 
 --A typed sprite path ("item/…", "fluid/…", "entity/…", "quality/…", "utility/…") checked against what exists: true or false; nil for an untyped name
 function H.typed_sprite_valid(path)
@@ -597,7 +607,8 @@ end
 local function new_gui_element(params, parent, player_index)
     local element = {children = {}, tabs = {}, valid = true, enabled = true, visible = true, tags = {}, _values = {style = new_style(params.type)}}
     for key, value in pairs(params) do
-        if key ~= "index" and key ~= "quality" and key ~= "elem_type" and key ~= "style" and GUI_MEMBERS[key] and not VALUE_KEYS[key] then element[key] = value end
+        if key ~= "index" and key ~= "quality" and key ~= "elem_type" and key ~= "style" and GUI_MEMBERS[key]
+            and not VALUE_KEYS[key] and not ADD_IGNORES[key] then element[key] = value end
     end
     --a style given by name (add{style = "slot_button"}) reads back as a style table carrying that name, so style.width = ... still works
     if type(params.style) == "string" then element._values.style = new_style(params.type, {name = params.style}) end
@@ -616,6 +627,9 @@ local function new_gui_element(params, parent, player_index)
             if key == "value" then check_progress_value(params[key]) end
             element._values[key] = params[key]
         end
+    end
+    if params.type == "text-box" then
+        for key, value in pairs(TEXT_BOX_DEFAULTS) do element[key] = value end
     end
     if params.type == "progressbar" and element._values.value == nil then element._values.value = 0 end
     element._values.state = params.state
@@ -700,8 +714,10 @@ function gui_methods.add(self, params)
         end
     end
     --typed sprites need their prototype, utility sprites must be one core defines (see H.typed_sprite_valid)
-    if params.sprite and H.typed_sprite_valid(params.sprite) == false then
-        error("Unknown sprite " .. params.sprite, 3)
+    for _, key in ipairs({"sprite", "hovered_sprite", "clicked_sprite"}) do
+        if params[key] and H.typed_sprite_valid(params[key]) == false then
+            error("Unknown sprite " .. params[key], 3)
+        end
     end
     check_elem_filters(params)
     local child = new_gui_element(params, self)

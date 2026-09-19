@@ -237,12 +237,41 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(select_all ~= nil, true, "Select all is present")
         event_handlers.on_gui_click.hxrrc_export_select_all_button({element = select_all, player_index = 1})
         H.equal(H.text_selected(box), true, "Select all marks the whole string again")
-        H.equal(select_all_button(frame) ~= nil, true, "Select all is the one button")
-        H.equal(find(frame, function(element) return element.name == "hxrrc_export_close_button" end), nil,
-            "no Close button: Esc closes the window")
+        H.equal(select_all_button(frame) ~= nil, true, "Select all is the one footer button")
+        local footer = find(frame, function(element) return element.name == "hxrrc_export_footer" end)
+        local footer_buttons = 0
+        for _, child in ipairs(footer.children) do
+            if child.type == "button" or child.type == "sprite-button" then footer_buttons = footer_buttons + 1 end
+        end
+        H.equal(footer_buttons, 1, "the footer carries exactly one button")
         H.equal(H.text_selected(box), true, "the string is already selected, so CTRL + C works at once")
         H.equal(H.text_focused(box), true, "and the box already holds the focus")
         H.equal(#world.flying_texts, 0, "nothing draws itself over the window")
+    end)
+
+    H.test(shape .. " E15 the box is selectable and never editable, and the title bar closes it", function()
+        local world, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = "debug-string"})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local box = find(frame, function(element) return element.type == "text-box" end)
+
+        --add{} carries "text" only; the engine drops read_only, selectable and word_wrap from that table, so the
+        --module writes them afterwards. Passing them to add{} shipped an editable box in 1.1.47.
+        H.equal(box.read_only, true, "the string cannot be typed over")
+        H.equal(box.selectable, true, "the string can still be selected")
+        H.equal(box.word_wrap, true, "the string wraps inside the box")
+
+        local titlebar = find(frame, function(element) return element.name == "hxrrc_export_titlebar" end)
+        H.equal(titlebar ~= nil, true, "the window carries its own title bar")
+        H.equal(titlebar.drag_target == frame, true, "the title bar drags the window")
+        local title = find(frame, function(element) return element.name == "hxrrc_export_title" end)
+        H.equal(title ~= nil and title.type, "label", "the title bar carries the title")
+        local close = find(frame, function(element) return element.name == "hxrrc_export_close_button" end)
+        H.equal(close ~= nil and close.type, "sprite-button", "the title bar carries an X button")
+        H.equal(close.sprite, "utility/close", "the X uses the core close sprite of 2.0")
+
+        event_handlers.on_gui_click.hxrrc_export_close_button({element = close, player_index = 1})
+        H.equal(ExportDialog.is_open(1), false, "the X shuts the window")
+        H.equal(game.players[1].opened, nil, "and hands the focus back")
     end)
 
     H.test(shape .. " E14 keeps the state line and explanation", function()

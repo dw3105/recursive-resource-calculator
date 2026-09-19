@@ -12,6 +12,8 @@ local TEXT_NAME = "hxrrc_export_text"
 local STATE_NAME = "hxrrc_export_state"
 local CLOSE_ONLY_NOTE = "hxrrc_export_explanation"
 local SELECT_ALL_NAME = "hxrrc_export_select_all_button"
+local CLOSE_NAME = "hxrrc_export_close_button"
+local TITLEBAR_NAME = "hxrrc_export_titlebar"
 local FRAME_MIN_WIDTH = 600
 local TEXT_WIDTH = 600
 local TEXT_HEIGHT = 240
@@ -163,11 +165,27 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
         type = "frame",
         name = ExportDialog.FRAME_NAME,
         direction = "vertical",
-        caption = {"hxrrc.export_dialog_title"},
         tags = {hxrrc_sheet_id = sheet_id},
     }
     frame.auto_center = true
     frame.style.minimal_width = FRAME_MIN_WIDTH
+
+    --The game's own string windows carry their title, a draggable gap and a close button in one bar. The three
+    --close sprites are core utility sprites of 2.0 ("close" and "close_black"); "close_white" does not exist.
+    local titlebar = frame.add{type = "flow", name = TITLEBAR_NAME, direction = "horizontal"}
+    titlebar.drag_target = frame
+    titlebar.add{type = "label", name = "hxrrc_export_title", caption = {"hxrrc.export_dialog_title"},
+        style = "frame_title"}
+    local drag_space = titlebar.add{type = "empty-widget", name = "hxrrc_export_drag",
+        style = "draggable_space_with_no_left_margin"}
+    drag_space.style.horizontally_stretchable = true
+    drag_space.style.height = 24
+    drag_space.drag_target = frame
+    titlebar.add{
+        type = "sprite-button", name = CLOSE_NAME, style = "frame_action_button",
+        sprite = "utility/close", hovered_sprite = "utility/close_black", clicked_sprite = "utility/close_black",
+        tooltip = {"hxrrc.export_close"}, mouse_button_filter = {"left"},
+    }
 
     frame.add{
         type = "label",
@@ -180,10 +198,13 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
             type = "text-box",
             name = TEXT_NAME,
             text = display_text(encoded),
-            read_only = true,
-            selectable = true,
-            word_wrap = true,
         }
+        --LuaGuiElement::add takes "text" and "icon_selector" for a text-box and drops anything else without a
+        --word. read_only, selectable and word_wrap are attributes, so they are written here, after the box
+        --exists. 1.1.47 passed them to add{} and shipped a box the player could type in, which ate the E key.
+        text_box.read_only = true
+        text_box.selectable = true
+        text_box.word_wrap = true
         text_box.style.width = TEXT_WIDTH
         text_box.style.height = TEXT_HEIGHT
         --Fill the frame the way the game's own string window does, and never grow a sideways scrollbar.
@@ -210,8 +231,8 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     --One button only. A mod cannot write text to the system clipboard: LuaPlayer.add_to_clipboard takes a
     --blueprint stack and feeds the game's own blueprint clipboard. So the window selects the string itself and
     --the player presses CTRL + C, and no button pretends to copy.
-    --Esc closes the window: player.opened holds the frame, and open() treats a lost focus as closed. No close
-    --sprite is invented here, because a sprite name the branch does not have crashes the game on open.
+    --Esc and the close key shut the window: player.opened holds the frame, control.lua answers on_gui_closed,
+    --and the title bar's X does the same thing by hand.
     footer.add{type = "button", name = SELECT_ALL_NAME, caption = {"hxrrc.export_select_all"}}
     return frame
 end
@@ -258,6 +279,10 @@ end
 
 event_handlers.on_gui_click[SELECT_ALL_NAME] = function(event)
     select_and_focus(frame_of(player_of(event.player_index)))
+end
+
+event_handlers.on_gui_click[CLOSE_NAME] = function(event)
+    ExportDialog.close(event.player_index)
 end
 
 return ExportDialog
