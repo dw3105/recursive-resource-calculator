@@ -665,7 +665,8 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     local family = kind == "pipe" and work.pipe or work.belt
     local name = (family and family.underground) or infrastructure(work, kind)
     local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
-        capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction}
+        capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
+        underground = true}
     local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
     local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
         direction = direction, dir = direction, flow_id = demand.flow_id,
@@ -708,12 +709,18 @@ local function append_normal_path(work, demand, path, amount)
             local allowed = segment_allows(segment, demand, amount)
             if not allowed then return false, "capacity" end
             if segment.direction ~= direction then
-                if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return false, "occupied" end
-                local entity = work.entity_by_segment[segment.segment_id]
-                entity.name = work.belt.splitter
-                entity.splitter = true
-                entity.direction = direction
-                entity.dir = direction
+                --An underground segment owns two coupled endpoints.  It cannot become a splitter: changing
+                --the mapped first entity here would leave its partner carrying a different direction.  The
+                --allocation may still share the segment, but its published pair keeps the direction it was built
+                --for.  Surface belts retain their existing splitter behaviour.
+                if not segment.underground then
+                    if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return false, "occupied" end
+                    local entity = work.entity_by_segment[segment.segment_id]
+                    entity.name = work.belt.splitter
+                    entity.splitter = true
+                    entity.direction = direction
+                    entity.dir = direction
+                end
             end
         else
             local capacity, kind = capacity_for(work, demand.flow)
