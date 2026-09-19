@@ -303,6 +303,94 @@ for _, shape in ipairs(H.shapes()) do
         wait_for(world, sheet_id)
         H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "infeasible status and rows are unchanged")
     end)
+
+    H.test(shape .. " CP-08 sheet revision above zero still publishes the synchronous report", function()
+        local world = base_world(shape)
+        local Sheet, _, sheet_flow = prepared_sheet({{item = "plate", rate = 3, unit = "/s"}})
+        local sheet_id = Sheet.id_of(sheet_flow)
+        local player_storage = storage[1]
+        H.equal(player_storage ~= nil, true, "player storage exists")
+        player_storage.sheet_revision = player_storage.sheet_revision or {}
+        local sheet_revisions = player_storage.sheet_revision
+        H.equal(sheet_revisions ~= nil, true, "sheet revisions exist")
+        sheet_revisions[sheet_id] = 4
+        player_storage.config_revision = 0
+        local sheet_revision = sheet_revisions[sheet_id]
+        local config_revision = player_storage.config_revision
+        H.equal(sheet_revision ~= nil, true, "sheet revision exists before start")
+        H.equal(config_revision ~= nil, true, "config revision exists before start")
+        local expected = synchronous_report(Sheet, sheet_flow)
+        local CalcPipeline = require "logic.calc_pipeline"
+        local Jobs = require "logic.jobs"
+        Jobs.OPS_PER_TICK = 1
+        CalcPipeline.start(sheet_flow)
+        local job = running_job(sheet_id)
+        H.equal(job ~= nil, true, "the sheet-revision job is stored")
+        local revisions = job.revisions
+        H.equal(revisions ~= nil, true, "the running job stores revisions")
+        H.equal(revisions.sheet, sheet_revision, "the job carries the sheet revision from start")
+        H.equal(revisions.config, config_revision, "the job carries the config revision from start")
+        wait_for(world, sheet_id)
+        local report = child_named(sheet_flow.output_flow, "report")
+        H.equal(report ~= nil, true, "a non-zero sheet revision publishes a report")
+        H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "the report equals the synchronous report")
+    end)
+
+    H.test(shape .. " CP-09 config revision above zero still publishes the synchronous report", function()
+        local world = base_world(shape)
+        local Sheet, _, sheet_flow = prepared_sheet({{item = "plate", rate = 3, unit = "/s"}})
+        local sheet_id = Sheet.id_of(sheet_flow)
+        local player_storage = storage[1]
+        H.equal(player_storage ~= nil, true, "player storage exists")
+        player_storage.config_revision = 3
+        local config_revision = player_storage.config_revision
+        H.equal(config_revision ~= nil, true, "config revision exists before start")
+        local expected = synchronous_report(Sheet, sheet_flow)
+        local CalcPipeline = require "logic.calc_pipeline"
+        local Jobs = require "logic.jobs"
+        Jobs.OPS_PER_TICK = 1
+        CalcPipeline.start(sheet_flow)
+        local job = running_job(sheet_id)
+        H.equal(job ~= nil, true, "the config-revision job is stored")
+        local revisions = job.revisions
+        H.equal(revisions ~= nil, true, "the running job stores revisions")
+        H.equal(revisions.config, config_revision, "the job carries the config revision from start")
+        wait_for(world, sheet_id)
+        local report = child_named(sheet_flow.output_flow, "report")
+        H.equal(report ~= nil, true, "a non-zero config revision publishes a report")
+        H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "the report equals the synchronous report")
+    end)
+
+    H.test(shape .. " CP-10 config revision raised during a run drops the result and keeps the old report", function()
+        local world = base_world(shape)
+        local Sheet, _, sheet_flow = prepared_sheet({{item = "plate", rate = 3, unit = "/s"}})
+        local expected = synchronous_report(Sheet, sheet_flow)
+        local old_report = child_named(sheet_flow.output_flow, "report")
+        H.equal(old_report ~= nil, true, "the previous report exists")
+        local player_storage = storage[1]
+        H.equal(player_storage ~= nil, true, "player storage exists")
+        player_storage.config_revision = 5
+        local starting_config_revision = player_storage.config_revision
+        H.equal(starting_config_revision ~= nil, true, "config revision exists before start")
+        local CalcPipeline = require "logic.calc_pipeline"
+        local Jobs = require "logic.jobs"
+        Jobs.OPS_PER_TICK = 1
+        local sheet_id = Sheet.id_of(sheet_flow)
+        CalcPipeline.start(sheet_flow)
+        local job = running_job(sheet_id)
+        H.equal(job ~= nil, true, "the config-revision job is stored")
+        local revisions = job.revisions
+        H.equal(revisions ~= nil, true, "the running job stores revisions")
+        H.equal(revisions.config, starting_config_revision, "the job carries the starting config revision")
+        H.run_ticks(world, 3)
+        player_storage.config_revision = starting_config_revision + 1
+        local current_config_revision = player_storage.config_revision
+        H.equal(current_config_revision ~= nil, true, "the raised config revision exists")
+        wait_for(world, sheet_id)
+        H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "a config edit keeps the previous report")
+        H.equal(child_named(sheet_flow.output_flow, "report"), old_report, "a config edit keeps the previous report container")
+        H.equal(no_staging(sheet_flow.output_flow), true, "stale config staging is removed")
+    end)
 end
 
 H.done("test_calc_pipeline")
