@@ -1,6 +1,6 @@
 # 026 — a bounded search that keeps the best valid layout
 
-Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-026`, branch `lane/026`, base = `feat/round-8-blueprints`, tag `wave-3-green` (resolve it with `git rev-parse wave-3-green`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-026`, branch `lane/026`, base = `feat/round-8-blueprints`, tag `wave-3-complete` (resolve it with `git rev-parse wave-3-complete`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 ## What is true
 
@@ -42,12 +42,12 @@ Current facts:
 ```checks
 {"name": "search-tests", "command": "lua5.2 tests/test_search.lua && lua5.4 tests/test_search.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-3-green --manifest docs/tasks/026.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
-{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-green -- logic/bp/search.lua; out=$(cd \"$S\" && lua5.2 tests/test_search.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-3-complete --manifest docs/tasks/026.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-complete -- logic/bp/search.lua; out=$(cd \"$S\" && lua5.2 tests/test_search.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
 ```
 
 - Red first pasted, green after pasted, planted breach pasted then reverted.
-- `git diff --stat wave-3-green HEAD` pasted.
+- `git diff --stat wave-3-complete HEAD` pasted.
 
 Run the checks as your **last** action, after your final commit. A commit made after the checks moved the tree the
 proof was taken against, and the supervisor refuses that proof with the reason `tree-moved`, however green every

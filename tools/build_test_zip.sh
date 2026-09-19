@@ -10,7 +10,7 @@ cd "$WORK"
 git -C "$R" archive "$SHA" | tar -x
 for pair in "$V20 2.0" "$V21 2.1"; do
   set -- $pair
-  bash ./generate_release.sh "$1" "$2"
+  RRC_CANDIDATE_SHA="$SHA" bash ./generate_release.sh "$1" "$2"
   python3 -m zipfile -c "RRC-Fork_$1.zip" "RRC-Fork_$1"
   cp "RRC-Fork_$1.zip" /home/dev_zaigraev_gmail_com/share/
   printf '%s  RRC-Fork_%s.zip  (Factorio %s)\n' "$(sha256sum "RRC-Fork_$1.zip" | cut -d' ' -f1)" "$1" "$2"

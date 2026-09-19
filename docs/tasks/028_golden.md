@@ -1,6 +1,6 @@
 # 028 — fixtures, canonical comparison, and evidence from the game
 
-Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-028`, branch `lane/028`, base = `feat/round-8-blueprints`, tag `wave-3-green` (resolve it with `git rev-parse wave-3-green`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-028`, branch `lane/028`, base = `feat/round-8-blueprints`, tag `wave-3-complete` (resolve it with `git rev-parse wave-3-complete`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 ## What is true
 
@@ -20,7 +20,7 @@ Current facts:
 - Version-dependent cases go in `for _, shape in ipairs(H.shapes()) do ... end` with case names starting `<shape> <clause id> ...`. The clause id matters: the mutation runner matches a mutant to a case by substring.
 - Assertions are `H.equal`, `H.near`, `H.near_relative`, `H.deep_equal`, `H.errors(fn, substring, what)`. They tag their failures `[assert]`; anything else prints `[error]` and does not count as a red proof.
 - `logic/engine_test_api.lua` carries the interface sketch and `EngineTestApi.build_id()`, which reads `logic/build_id.lua` through a guarded `pcall` and reports `{candidate_sha = "dev", packaged = false}` when it is absent. `control.lua` already calls `EngineTestApi.register()`; `control.lua` is frozen.
-- `generate_release.sh` is frozen and does not yet write `logic/build_id.lua`. Say so in your report; the integrator adds it.
+- `generate_release.sh` is frozen and **does** write `logic/build_id.lua` into the packaged copy, taking the commit from `RRC_CANDIDATE_SHA` when the builder sets it, else `git rev-parse HEAD`, else `unknown`. The working tree never holds that file, so a source checkout reports `packaged = false`.
 - `remote.call` returns inside its own tick, so generation is a job: `start_generation(context)`, `generation_status(job_id)`, `cancel_generation(job_id)`, beside `build_id()`, `preflight(case)`, `export(sheet_id)` and `canonical(blueprint_string)` (`docs/feature-contracts.md` §14).
 - `logic/bp/serialize.lua` owns `Serialize.canonical` and `CANONICAL_VERSION`; compare canonical structure, never the compressed string, because equal factories can compress to different bytes.
 - `logic/export_payload.lua` produces the debug envelope a fixture is authored from, and `H.decode_export` reads one back.
@@ -42,12 +42,12 @@ Current facts:
 ```checks
 {"name": "golden-tests", "command": "lua5.2 tests/test_golden.lua && lua5.4 tests/test_golden.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-3-green --manifest docs/tasks/028.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
-{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-green -- logic/engine_test_api.lua; git -C \"$S\" checkout wave-3-green -- tools/evidence_receipt.py; out=$(cd \"$S\" && lua5.2 tests/test_golden.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-3-complete --manifest docs/tasks/028.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-complete -- logic/engine_test_api.lua; git -C \"$S\" checkout wave-3-complete -- tools/evidence_receipt.py; out=$(cd \"$S\" && lua5.2 tests/test_golden.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
 ```
 
 - Red first pasted, green after pasted, planted breach pasted then reverted.
-- `git diff --stat wave-3-green HEAD` pasted.
+- `git diff --stat wave-3-complete HEAD` pasted.
 
 Run the checks as your **last** action, after your final commit. A commit made after the checks moved the tree the
 proof was taken against, and the supervisor refuses that proof with the reason `tree-moved`, however green every
