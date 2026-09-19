@@ -54,9 +54,24 @@ local function assert_adapter_api(shape)
         {"LuaInventory", "insert"}, {"LuaInventory", "remove"},
         {"LuaHelpers", "decode_string"}, {"LuaHelpers", "json_to_table"},
         {"LuaHelpers", "table_to_json"}, {"LuaHelpers", "encode_string"},
+        {"LuaHelpers", "write_file"},
     }
     for _, entry in ipairs(attributes) do assert_pinned(spec, entry[1], entry[2], "attributes") end
     for _, entry in ipairs(methods) do assert_pinned(spec, entry[1], entry[2], "methods") end
+
+    for _, member in ipairs({"name", "type", "valid", "position", "quality", "power_production"}) do
+        assert_pinned(spec, "LuaEntity", member, "attributes")
+    end
+    for _, member in ipairs({"get_inventory", "destroy", "get_wire_connector", "revive"}) do
+        assert_pinned(spec, "LuaEntity", member, "methods")
+    end
+    if shape == "2.0" then
+        assert_pinned(spec, "LuaEntity", "fluidbox", "attributes")
+    else
+        for _, member in ipairs({"get_fluid", "add_fluid", "remove_fluid"}) do
+            assert_pinned(spec, "LuaEntity", member, "methods")
+        end
+    end
 
     local blueprint_entity = spec.concepts.BlueprintEntity
     H.equal(blueprint_entity ~= nil, true, "BlueprintEntity is pinned")
@@ -66,15 +81,21 @@ local function assert_adapter_api(shape)
     end
 end
 
-local ENTITY_ATTRIBUTES = {
-    "name", "type", "valid", "position", "force", "direction", "recipe", "items", "quality", "wires",
-    "fluidbox", "power_production", "network_id",
-}
-local ENTITY_METHODS = {"get_inventory", "connect_neighbour", "destroy"}
-local ENTITY_MEMBERS = members(ENTITY_ATTRIBUTES, ENTITY_METHODS)
+local function entity_members(shape)
+    local attributes = {
+        "name", "type", "valid", "position", "force", "direction", "recipe", "items", "quality", "wires",
+        "power_production", "network_id",
+    }
+    if shape == "2.0" then attributes[#attributes + 1] = "fluidbox" end
+    local methods = {"get_inventory", "get_wire_connector", "destroy", "revive"}
+    if shape == "2.1" then
+        for _, name in ipairs({"get_fluid", "add_fluid", "remove_fluid"}) do methods[#methods + 1] = name end
+    end
+    return members(attributes, methods)
+end
 
-local function blueprint_entities()
-    return {
+local function blueprint_entities(two_poles)
+    local result = {
         {entity_number = 1, name = "assembling-machine-1", position = {x = 0, y = 0},
             recipe = "iron-gear-wheel", quality = "rare",
             items = {{name = "speed-module", quality = "uncommon", count = 2}},
@@ -82,10 +103,15 @@ local function blueprint_entities()
         {entity_number = 2, name = "medium-electric-pole", position = {x = 1, y = 0},
             quality = "uncommon", wires = {{1, 5, 2, 1}}},
     }
+    if two_poles then
+        result[#result + 1] = {entity_number = 3, name = "medium-electric-pole", position = {x = 2, y = 0},
+            quality = "rare", wires = {{2, 5, 3, 1}}}
+    end
+    return result
 end
 
-local function encoded_blueprint()
-    local payload = {blueprint = {entities = blueprint_entities()}}
+local function encoded_blueprint(two_poles)
+    local payload = {blueprint = {entities = blueprint_entities(two_poles)}}
     return "0" .. helpers.encode_string(helpers.table_to_json(payload))
 end
 
@@ -109,6 +135,24 @@ local function runtime_world(shape)
     local inventory_attributes = spec.classes.LuaInventory.attributes
     local inventory_methods = spec.classes.LuaInventory.methods
     local records, files, printed, created_surfaces = {}, {}, {}, {}
+    local revived_count = 0
+    local helper_attributes = spec.classes.LuaHelpers.attributes
+    local helper_methods = spec.classes.LuaHelpers.methods
+
+    local original_helpers = helpers
+    local helper_fields = {
+        compare_versions = original_helpers.compare_versions,
+        is_valid_sprite_path = original_helpers.is_valid_sprite_path,
+        table_to_json = original_helpers.table_to_json,
+        json_to_table = original_helpers.json_to_table,
+        encode_string = original_helpers.encode_string,
+        decode_string = original_helpers.decode_string,
+        write_file = function(path, text, append)
+            files[path] = (append and files[path] or "") .. text
+        end,
+    }
+    _G.helpers = H.lua_object("LuaHelpers", helper_fields,
+        members(helper_attributes, helper_methods), nil, nil)
 
     local function position_copy(position)
         return {x = position.x, y = position.y}
@@ -143,6 +187,10 @@ local function runtime_world(shape)
         local record = {name = params.name, type = entity_type, position = position_copy(params.position), destroyed = false}
         local initial = params.name == "iron-chest" and 100000 or 0
         local inventory, inserted, available = make_inventory(record, initial)
+        local fluid
+        local fluidbox = {[1] = nil}
+        local entity
+        local connectors = {}
         local fields
         fields = {
             name = params.name, type = entity_type, valid = true, position = position_copy(params.position),
@@ -150,18 +198,58 @@ local function runtime_world(shape)
             quality = params.quality, wires = params.wires, power_production = params.power_production,
             network_id = params.name == "medium-electric-pole" and "factory-network" or params.network_id,
             get_inventory = function() return inventory end,
-            connect_neighbour = function(connection)
-                record.connection = connection
-                if connection.target_entity and connection.target_entity.network_id then
-                    fields.network_id = connection.target_entity.network_id
-                end
+            get_wire_connector = function(id)
+                return connectors[id]
+            end,
+            revive = function()
+                fields.type = params.revive_type or entity_type
+                record.type = fields.type
+                record.revived = true
+                revived_count = revived_count + 1
+                return {}, entity
             end,
             destroy = function()
                 fields.valid = false
                 record.destroyed = true
             end,
         }
-        local entity = H.lua_object("LuaEntity", fields, ENTITY_MEMBERS, nil, nil)
+        if shape == "2.0" then
+            fields.fluidbox = fluidbox
+        else
+            fields.get_fluid = function(index)
+                return index == 1 and fluid or nil
+            end
+            fields.add_fluid = function(index, value)
+                if index ~= 1 or (fluid and fluid.name ~= value.name) then return 0 end
+                local amount = value.amount or 0
+                fluid = {name = value.name, amount = (fluid and fluid.amount or 0) + amount}
+                return amount
+            end
+            fields.remove_fluid = function(index, amount)
+                if index ~= 1 or not fluid then return nil end
+                local removed = math.min(fluid.amount, amount or 0)
+                if removed <= 0 then return nil end
+                local result = {name = fluid.name, amount = removed}
+                fluid.amount = fluid.amount - removed
+                if fluid.amount <= 0 then fluid = nil end
+                return result
+            end
+        end
+        entity = H.lua_object("LuaEntity", fields, entity_members(shape), nil, nil)
+        local connector_members = {"connect_to", "disconnect_from", "is_connected_to", "can_wire_reach",
+            "owner", "wire_type", "wire_connector_id", "valid", "object_name", "connection_count",
+            "connections", "real_connection_count", "real_connections", "network_id"}
+        if entity_type == "electric-pole" or entity_type == "electric-energy-interface" then
+            connectors[defines.wire_connector_id.pole_copper] = H.lua_object("LuaWireConnector", {
+                owner = entity, wire_type = defines.wire_type.copper,
+                wire_connector_id = defines.wire_connector_id.pole_copper, valid = true,
+                connect_to = function(target)
+                    record.connection = {wire = defines.wire_type.copper, target_entity = target.owner}
+                    fields.network_id = target.owner.network_id or "factory-network"
+                    return true
+                end,
+            }, connector_members, nil, nil)
+        end
         record.entity, record.inserted, record.available = entity, inserted, available
         records[#records + 1] = record
         return entity
@@ -177,6 +265,8 @@ local function runtime_world(shape)
         if name == "assembling-machine-1" then return "assembling-machine" end
         if name == "electric-energy-interface" then return "electric-energy-interface" end
         if name == "wooden-chest" or name == "iron-chest" then return "container" end
+        if name == "storage-tank" then return "storage-tank" end
+        if name == "pipe" then return "pipe" end
         if name == "inserter" then return "inserter" end
         return "simple-entity"
     end
@@ -196,8 +286,10 @@ local function runtime_world(shape)
                 for _, blueprint_entity in ipairs(root.entities or {}) do
                     local position = {x = blueprint_entity.position.x + params.position.x,
                         y = blueprint_entity.position.y + params.position.y}
+                    local is_first = #created == 0
                     created[#created + 1] = make_entity({name = blueprint_entity.name,
-                        type = entity_type(blueprint_entity.name), position = position, force = params.force,
+                        type = is_first and "entity-ghost" or entity_type(blueprint_entity.name),
+                        revive_type = entity_type(blueprint_entity.name), position = position, force = params.force,
                         recipe = blueprint_entity.recipe, items = blueprint_entity.items,
                         quality = blueprint_entity.quality, wires = blueprint_entity.wires})
                 end
@@ -211,14 +303,9 @@ local function runtime_world(shape)
     local force = H.lua_object("LuaForce", {name = "player", valid = true, technologies = {}},
         members(force_attributes, force_methods), nil, nil)
     local surface = make_surface("nauvis")
-    local game_methods_with_capture = {}
-    for _, member in ipairs(game_methods) do game_methods_with_capture[#game_methods_with_capture + 1] = member end
-    --write_file is the documented Factorio capture operation but is absent from
-    --the reduced pinned extract; it remains strict here as an explicit member.
-    game_methods_with_capture[#game_methods_with_capture + 1] = "write_file"
     local surfaces, forces = {nauvis = surface}, {player = force}
     local game = H.lua_object("LuaGameScript", {tick = 0, speed = 1, surfaces = surfaces, forces = forces},
-        members(game_attributes, game_methods_with_capture), nil, nil)
+        members(game_attributes, game_methods), nil, nil)
     game.create_surface = function(name)
         local value = make_surface(name)
         surfaces[name] = value
@@ -233,12 +320,13 @@ local function runtime_world(shape)
     end
     game.delete_surface = function(name) surfaces[name] = nil end
     game.print = function(line) printed[#printed + 1] = line end
-    game.write_file = function(path, text) files[path] = text end
     _G.game = game
 
     return {
         world = world, game = game, force = force, surface = surface, records = records,
-        files = files, printed = printed, created_surfaces = created_surfaces,
+        files = files, printed = printed, created_surfaces = created_surfaces, revived_count = function()
+            return revived_count
+        end,
     }
 end
 
@@ -272,6 +360,16 @@ local function adapter_case()
             supply = supply, drain = drain, factory_demand_per_second = 1,
         },
     }
+end
+
+local function fluid_adapter_case()
+    local result = adapter_case()
+    result.case_id = "adapter-fluid-runtime"
+    result.engine_scenario.supply = {{full_name = "fluid/water", rate_per_second = 120,
+        position = {x = -5, y = -5}, travel_dir = 0, port_id = "fluid-supply"}}
+    result.engine_scenario.drain = {{full_name = "fluid/water", rate_per_second = 120,
+        position = {x = 5, y = 5}, travel_dir = 8, port_id = "fluid-drain"}}
+    return result
 end
 
 local function assert_shape(actual, exemplar, path)
@@ -357,6 +455,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(built.entities[1].items[1].quality, "uncommon", "module quality")
         H.equal(built.entities[1].quality, "rare", "machine quality")
         H.equal(#built.entities[1].wires, 1, "machine wire data")
+        H.equal(fixture.revived_count(), 1, "ghost entity was revived")
         H.equal(built.entities[2].type, "electric-pole", "pole is a real electric pole")
         H.equal(#fixture.records, 2, "the strict surface created the two entities")
     end)
@@ -421,12 +520,28 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(#fixture.records, 18, "feed and drain used real perimeter entities")
     end)
 
+    H.test(shape .. " RA5b uses the pinned branch-specific fluid boundary", function()
+        local fixture = runtime_world(shape)
+        assert_adapter_api(shape)
+        local adapter, case = Scenario.runtime_adapter(), fluid_adapter_case()
+        local environment = adapter.setup_environment(case, {factorio_branch = shape})
+        local built = adapter.build_blueprint(encoded_blueprint(), {}, environment, case)
+        local supplies = adapter.prepare_supply(built, case, environment)
+        local drains = adapter.prepare_drain(built, case, environment)
+        local accepted = adapter.supply(supplies)
+        adapter.supply(drains)
+        local drained = adapter.drain(drains)
+        H.equal(accepted["fluid/water"] > 0, true, "fluid source accepted water")
+        H.equal(drained["fluid/water"] > 0, true, "fluid sink released water")
+        H.equal(#fixture.records, 6, "fluid perimeter uses only its buffer and pipe entities")
+    end)
+
     H.test(shape .. " RA6 connects power production to the pole network", function()
         local fixture = runtime_world(shape)
         assert_adapter_api(shape)
         local adapter, case = Scenario.runtime_adapter(), adapter_case()
         local environment = adapter.setup_environment(case, {factorio_branch = shape})
-        local built = adapter.build_blueprint(encoded_blueprint(), {}, environment, case)
+        local built = adapter.build_blueprint(encoded_blueprint(true), {}, environment, case)
         H.equal(adapter.provide_power(built, case, environment), true, "power setup succeeds")
         H.equal(built.power.power_production, "100MW", "power source produces energy")
         H.equal(built.power.network_id, "factory-network", "power source joins the pole network")
@@ -437,6 +552,18 @@ for _, shape in ipairs(H.shapes()) do
             end
         end
         H.equal(connected, true, "copper wire reaches the blueprint pole")
+        local first_pole, second_pole = built.entities[2], built.entities[3]
+        local first_connector = first_pole.get_wire_connector(defines.wire_connector_id.pole_copper, true)
+        local second_connector = second_pole.get_wire_connector(defines.wire_connector_id.pole_copper, true)
+        H.equal(first_connector.connect_to(second_connector), true, "copper wire connects the two poles")
+        local poles_connected = false
+        for _, record in ipairs(fixture.records) do
+            if record.entity == first_pole and record.connection
+                and record.connection.target_entity == second_pole then
+                poles_connected = true
+            end
+        end
+        H.equal(poles_connected, true, "two poles share the electrical connection")
     end)
 
     H.test(shape .. " RA7 production observation follows the frozen example shape", function()
@@ -457,6 +584,8 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(observation.production.drained_outputs.counts["item/iron-plate"], nil, "feed is absent from output")
         H.equal(fixture.files["rrc-engine-evidence/adapter-runtime.observation.json"] ~= nil, true,
             "runtime adapter wrote the captured observation")
+        H.equal(helpers.json_to_table(fixture.files["rrc-engine-evidence/adapter-runtime.observation.json"]).outcome_kind,
+            "production", "observation file contains the terminal outcome")
     end)
 
     H.test(shape .. " RA8 rejection and export observations follow their example shapes", function()

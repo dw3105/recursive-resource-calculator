@@ -748,6 +748,13 @@ function Scenario.runtime_adapter()
             raise_built = true, create_build_effect_smoke = false,
         }
         if type(created) ~= "table" or #created == 0 then error("blueprint created no entities", 2) end
+        for index, entity in ipairs(created) do
+            if entity.type == "entity-ghost" then
+                local _, revived = entity.revive{raise_revive = true}
+                if not revived then error("blueprint entity ghost could not be revived", 2) end
+                created[index] = revived
+            end
+        end
         local port_positions = {}
         local ok_decoded, decoded_text = pcall(helpers.decode_string,
             blueprint_string:sub(1, 1) == "0" and blueprint_string:sub(2) or blueprint_string)
@@ -796,7 +803,7 @@ function Scenario.runtime_adapter()
         local far = {x = position.x + dx * (side == "supply" and -2 or 2), y = position.y + dy * (side == "supply" and -2 or 2)}
         local near = {x = position.x + dx * (side == "supply" and -1 or 1), y = position.y + dy * (side == "supply" and -1 or 1)}
         local facts = environment.facts
-        local result = {entry = entry, kind = kind, name = name, accumulator = 0}
+        local result = {entry = entry, kind = kind, name = name, accumulator = 0, branch = environment.branch}
         if kind == "fluid" then
             result.buffer = make_entity(environment.surface, {name = facts.fluid_buffer, position = far, force = environment.force})
             result.pipe = make_entity(environment.surface, {name = facts.pipe, position = near, force = environment.force})
@@ -829,8 +836,11 @@ function Scenario.runtime_adapter()
         local source = make_entity(environment.surface, {name = environment.facts.power_source,
             position = position, force = environment.force})
         source.power_production = "100MW"
-        local wire_type = rawget(_G, "defines") and defines.wire_type and defines.wire_type.copper or "copper"
-        source.connect_neighbour{wire = wire_type, target_entity = poles[1]}
+        local connector_id = defines.wire_connector_id.pole_copper
+        local source_connector = source.get_wire_connector(connector_id, true)
+        local pole_connector = poles[1].get_wire_connector(connector_id, true)
+        if not source_connector or not pole_connector then error("power entities have no copper connector", 2) end
+        source_connector.connect_to(pole_connector)
         built.power = source
         return true
     end
@@ -849,6 +859,36 @@ function Scenario.runtime_adapter()
         return entity.get_inventory(inventory_id)
     end
 
+    local function fluid_at(port)
+        if port.branch == "2.0" then
+            return port.buffer.fluidbox[1]
+        end
+        return port.buffer.get_fluid(1)
+    end
+
+    local function add_fluid(port, name, amount, existing)
+        if port.branch == "2.0" then
+            port.buffer.fluidbox[1] = {name = name, amount = existing + amount}
+            return amount
+        end
+        return port.buffer.add_fluid(1, {name = name, amount = amount})
+    end
+
+    local function remove_fluid(port, amount)
+        if port.branch == "2.0" then
+            local current = port.buffer.fluidbox[1]
+            local removed = math.min(current and current.amount or 0, amount)
+            if removed > 0 then
+                local remaining = current.amount - removed
+                port.buffer.fluidbox[1] = remaining > 0
+                    and {name = current.name, amount = remaining} or nil
+            end
+            return removed
+        end
+        local removed = port.buffer.remove_fluid(1, amount)
+        return removed and removed.amount or 0
+    end
+
     local function stack_for(port, count)
         local stack = {name = port.name, count = count}
         if port.quality and port.quality ~= "normal" then stack.quality = port.quality end
@@ -863,15 +903,16 @@ function Scenario.runtime_adapter()
             local whole = math.floor(port.accumulator)
             port.accumulator = port.accumulator - whole
             if port.kind == "fluid" then
-                local current = port.buffer.fluidbox[1]
+                local current = fluid_at(port)
                 local amount = whole + port.accumulator
                 if amount > 0 then
                     local existing = current and current.name == port.name and current.amount or 0
                     local added = math.max(0, amount)
                     if added > 0 then
-                        port.buffer.fluidbox[1] = {name = port.name, amount = existing + added}
-                        port.accumulator = math.max(0, amount - added)
-                        accepted[port.entry.full_name] = (accepted[port.entry.full_name] or 0) + added
+                        local accepted_amount = add_fluid(port, port.name, added, existing)
+                        accepted_amount = math.max(0, math.min(added, accepted_amount or 0))
+                        port.accumulator = math.max(0, amount - accepted_amount)
+                        accepted[port.entry.full_name] = (accepted[port.entry.full_name] or 0) + accepted_amount
                     end
                 end
             elseif whole > 0 then
@@ -890,12 +931,10 @@ function Scenario.runtime_adapter()
             local whole = math.floor(port.accumulator)
             port.accumulator = port.accumulator - whole
             if port.kind == "fluid" then
-                local current = port.buffer.fluidbox[1]
+                local current = fluid_at(port)
                 local amount = current and current.name == port.name and current.amount or 0
-                local removed = math.min(amount, whole + port.accumulator)
+                local removed = remove_fluid(port, math.min(amount, whole + port.accumulator))
                 if removed > 0 then
-                    local remaining = amount - removed
-                    port.buffer.fluidbox[1] = remaining > 0 and {name = port.name, amount = remaining} or nil
                     port.accumulator = math.max(0, whole + port.accumulator - removed)
                     drained[port.entry.full_name] = (drained[port.entry.full_name] or 0) + removed
                 end
@@ -925,10 +964,10 @@ function Scenario.runtime_adapter()
     end
 
     adapter.write_observation = function(observation, case)
-        local game = game_object()
+        game_object()
         local case_id = case_id_of(case):gsub("[^%w_.-]", "_")
         local path = "rrc-engine-evidence/" .. case_id .. ".observation.json"
-        game.write_file(path, helpers.table_to_json(observation), false)
+        helpers.write_file(path, helpers.table_to_json(observation), false)
     end
 
     adapter.announce = function(observation)

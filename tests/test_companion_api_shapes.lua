@@ -66,14 +66,16 @@ local ENGINE_MEMBERS = {
     {"tests/golden/engine/mod/scenario.lua", "entity.valid", "LuaEntity", "valid", "attribute"},
     {"tests/golden/engine/mod/scenario.lua", "entity.type", "LuaEntity", "type", "attribute"},
     {"tests/golden/engine/mod/scenario.lua", "source.power_production", "LuaEntity", "power_production", "attribute"},
-    {"tests/golden/engine/mod/scenario.lua", "source.connect_neighbour", "LuaEntity", "connect_neighbour", "method"},
-    {"tests/golden/engine/mod/scenario.lua", "port.buffer.fluidbox", "LuaEntity", "fluidbox", "attribute"},
+    {"tests/golden/engine/mod/scenario.lua", "source.get_wire_connector", "LuaEntity", "get_wire_connector", "method"},
+    {"tests/golden/engine/mod/scenario.lua", "entity.revive", "LuaEntity", "revive", "method"},
+    {"tests/golden/engine/mod/scenario.lua", "port.buffer.fluidbox", "LuaEntity", "fluidbox", "attribute", {"2.0"}},
+    {"tests/golden/engine/mod/scenario.lua", "port.buffer.get_fluid", "LuaEntity", "get_fluid", "method", {"2.1"}},
+    {"tests/golden/engine/mod/scenario.lua", "port.buffer.add_fluid", "LuaEntity", "add_fluid", "method", {"2.1"}},
+    {"tests/golden/engine/mod/scenario.lua", "port.buffer.remove_fluid", "LuaEntity", "remove_fluid", "method", {"2.1"}},
     {"tests/golden/engine/mod/scenario.lua", "inventory(port.buffer).insert", "LuaInventory", "insert", "method"},
     {"tests/golden/engine/mod/scenario.lua", "inventory(port.buffer).remove", "LuaInventory", "remove", "method"},
     {"tests/golden/engine/mod/scenario.lua", "script.active_mods", "LuaBootstrap", "active_mods", "attribute"},
-    --This is intentionally a real companion call: the pinned correction is
-    --helpers.write_file, not a made-up LuaGameScript.write_file member.
-    {"tests/golden/engine/mod/scenario.lua", "game.write_file", "LuaGameScript", "write_file", "method"},
+    {"tests/golden/engine/mod/scenario.lua", "helpers.write_file", "LuaHelpers", "write_file", "method"},
     {"tests/golden/engine/mod/scenario.lua", "game.print", "LuaGameScript", "print", "method"},
     {"tests/golden/engine/mod/scenario.lua", "rcon.print", "LuaRCON", "print", "method"},
     {"tests/golden/engine/mod/scenario.lua", "game.delete_surface", "LuaGameScript", "delete_surface", "method"},
@@ -89,10 +91,18 @@ local ENGINE_MEMBERS = {
     {"tests/golden/engine/mod/scenario.lua", "entity.destroy", "LuaEntity", "destroy", "method"},
 }
 
-local REQUIRED_CLASSES = {"LuaEntity", "LuaTechnology", "LuaRemote", "LuaRCON"}
+local REQUIRED_CLASSES = {"LuaEntity", "LuaTechnology", "LuaRemote", "LuaRCON", "LuaHelpers"}
 
-local function assert_member(spec, sources, entry)
+local function assert_member(spec, sources, entry, shape)
     local file, needle, class_name, member, kind = table.unpack(entry)
+    local shapes = entry[6]
+    if shapes then
+        local applicable = false
+        for _, supported_shape in ipairs(shapes) do
+            if supported_shape == shape then applicable = true; break end
+        end
+        if not applicable then return end
+    end
     local label = file .. ": " .. class_name .. "." .. member
     H.equal(sources[file] ~= nil, true, label .. " source file exists")
     H.equal(sources[file] and sources[file]:find(needle, 1, true) ~= nil, true,
@@ -124,7 +134,7 @@ for _, shape in ipairs(H.shapes()) do
         end
         local errors = {}
         for _, entry in ipairs(ENGINE_MEMBERS) do
-            local ok, message = pcall(assert_member, spec, sources, entry)
+            local ok, message = pcall(assert_member, spec, sources, entry, shape)
             if not ok then errors[#errors + 1] = tostring(message) end
         end
         H.equal(#errors, 0, table.concat(errors, "\n"))
