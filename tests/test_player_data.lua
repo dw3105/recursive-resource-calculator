@@ -1,6 +1,24 @@
 --Player data kept across configuration changes
 local H = require "tests.harness"
 
+local function run_sheet(world, targets, player_index)
+    local Sheet = require "gui.sheet"
+    local pane, sheet_flow = H.fill_sheet(targets, player_index)
+    Sheet.calculate(Sheet.compute_button_of(sheet_flow))
+    player_index = player_index or 1
+    local sheet_id = Sheet.id_of(sheet_flow)
+    for _ = 1, 600 do
+        local data = storage[player_index]
+        local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+        if not job then return H.parse_report(sheet_flow.output_flow), pane end
+        H.run_ticks(world, 1)
+    end
+    local data = storage[player_index]
+    local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+    H.equal(job, nil, "calculation stopped after 600 ticks in phase " .. tostring(job and job.phase))
+    return H.parse_report(sheet_flow.output_flow), pane
+end
+
 local EFFECTS = {"consumption", "speed", "productivity", "pollution", "quality"}
 
 local GEAR = {name = "gear", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}}}
@@ -137,7 +155,7 @@ for _, shape in ipairs(H.shapes()) do
         world.remove_module("gone-module")
         world.handlers.on_configuration_changed({mod_changes = {}})
 
-        local report = H.run_sheet({{item = "gear", rate = 10, unit = "/s"}})
+        local report = run_sheet(world, {{item = "gear", rate = 10, unit = "/s"}})
         --two speed modules and two productivity modules: speed +40% -10% = +30%, productivity +20%
         H.near(report.rows["item/gear"].machines, 10 / 1.2 / 1.3, "machines")
         H.equal(stored("gear"), "speed-module,speed-module,productivity-module,productivity-module", "slots")

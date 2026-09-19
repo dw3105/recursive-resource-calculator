@@ -271,8 +271,8 @@ function Sheet.publish_result(sheet_flow, result, inputs)
     Report.new(output_flow, result, energy_consumption, pollution, (inputs and inputs.options.round_up) or Sheet.round_up_checkbox_of(sheet_flow).state)
 end
 
---Solves one sheet and shows the result. Still synchronous, and still what async_calls[1] runs; lane W3-calc
---replaces the middle of it with a job, which is why reading and publishing are their own functions.
+--Solves one sheet and shows the result. When the pipeline is loaded, Compute only snapshots and queues it; the
+--same sliced path is used by async_calls[1] recomputes, so a player's click never runs a large solve inline.
 function Sheet.begin_calculation(compute_button, sheet_pane, sheet_index)
     local sheet_flow
     sheet_flow, sheet_pane, sheet_index = sheet_flow_from(compute_button, sheet_pane, sheet_index)
@@ -287,12 +287,21 @@ function Sheet.begin_calculation(compute_button, sheet_pane, sheet_index)
         return
     end
 
+    --The source checkout and stripped builds have no pipeline entry, so retain the old synchronous path below.
+    local calc_pipeline = Registry.calc_pipeline
+    if calc_pipeline then
+        local job = calc_pipeline.start(sheet_flow)
+        if job then ProgressPanel.show(sheet_flow) end
+        return job
+    end
+
     local result = Solver.solve_for(inputs.rates, inputs.player_index, inputs.product_parts,
         {start_leftovers = inputs.options.start_leftovers})
     Sheet.publish_result(sheet_flow, result, inputs)
 end
 
---Kept as the name control.lua's async_calls[1] holds, so a job queued in a save from an older version still runs
+--Kept as the name control.lua's async_calls[1] holds, so a job queued in a save from an older version still runs.
+--Both direct Compute clicks and queued recomputes deliberately enter the sliced path above when it is available.
 function Sheet.calculate(compute_button, sheet_pane, sheet_index)
     return Sheet.begin_calculation(compute_button, sheet_pane, sheet_index)
 end
@@ -401,6 +410,15 @@ event_handlers.on_gui_click["hxrrc_generate_blueprint_button"] = function(event)
 end
 
 event_handlers.on_gui_click["hxrrc_cancel_button"] = function(event)
+    local sheet_flow = Sheet.sheet_flow_of(event.element)
+    local sheet_id = Sheet.id_of(sheet_flow)
+    local player_data = storage[event.player_index]
+    local running = player_data and player_data.calc_jobs and player_data.calc_jobs[sheet_id]
+    if running and Registry.calc_pipeline then
+        --The panel owns the visible cancel UX; the calculation pipeline also tears down staging and marks the
+        --last published report stale before the panel hides itself and adds its canceled label.
+        Registry.calc_pipeline.cancel(event.player_index, sheet_id)
+    end
     ProgressPanel.on_cancel_clicked(event)
 end
 

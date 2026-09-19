@@ -1,6 +1,45 @@
 --Sheet inputs: empty sheets, the same item entered in several rows, fluid targets
 local H = require "tests.harness"
 
+local function wait_for_calculation(world, sheet_flow, player_index)
+    local Sheet = require "gui.sheet"
+    player_index = player_index or 1
+    local sheet_id = Sheet.id_of(sheet_flow)
+    for _ = 1, 600 do
+        local data = storage[player_index]
+        local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+        if not job then return end
+        H.run_ticks(world, 1)
+    end
+    local data = storage[player_index]
+    local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+    H.equal(job, nil, "calculation stopped after 600 ticks in phase " .. tostring(job and job.phase))
+end
+
+local function wait_for_player_calculations(world, player_index)
+    player_index = player_index or 1
+    for _ = 1, 600 do
+        local data = storage[player_index]
+        local jobs = data and data.calc_jobs
+        if not storage.computation_stack[1] and not (jobs and next(jobs)) then return end
+        H.run_ticks(world, 1)
+    end
+    local data = storage[player_index]
+    local jobs = data and data.calc_jobs
+    local key = jobs and next(jobs)
+    local job = key and jobs[key]
+    H.equal(job, nil, "calculation queue stopped after 600 ticks in phase " .. tostring(job and job.phase))
+end
+
+local function run_sheet(world, targets, player_index, options)
+    local Sheet = require "gui.sheet"
+    local sheet_pane, sheet_flow = H.fill_sheet(targets, player_index)
+    if options and options.round_up then Sheet.round_up_checkbox_of(sheet_flow).state = true end
+    Sheet.calculate(Sheet.compute_button_of(sheet_flow))
+    wait_for_calculation(world, sheet_flow, player_index)
+    return H.parse_report(sheet_flow.output_flow), sheet_pane
+end
+
 local function gear_world(shape)
     local world = H.new_world(shape)
     world.add_item("raw")
@@ -14,14 +53,14 @@ end
 
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " B5 a sheet with no targets clears its output", function()
-        gear_world(shape)
-        local report = H.run_sheet({})
+        local world = gear_world(shape)
+        local report = run_sheet(world, {})
         H.equal(report, nil, "report on empty sheet")
     end)
 
     H.test(shape .. " B13 V9 the same item in two rows is summed across time units", function()
-        gear_world(shape)
-        local report = H.run_sheet({{item = "gear", rate = 60, unit = "/m"}, {item = "gear", rate = 2, unit = "/s"}})
+        local world = gear_world(shape)
+        local report = run_sheet(world, {{item = "gear", rate = 60, unit = "/m"}, {item = "gear", rate = 2, unit = "/s"}})
         H.near(report.rows["item/gear"].rate, 3, "gear rate")
         H.near(report.rows["item/raw"].rate, 3, "raw demand")
     end)
@@ -59,8 +98,8 @@ end
 
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " G1a a fluid target is solved like an item target", function()
-        lube_world(shape)
-        local report = H.run_sheet({{fluid = "lube", rate = 20, unit = "/s"}})
+        local world = lube_world(shape)
+        local report = run_sheet(world, {{fluid = "lube", rate = 20, unit = "/s"}})
         assert(report, "no report")
         H.near(report.rows["fluid/lube"].rate, 20, "lube rate")
         H.near(report.rows["fluid/lube"].machines, 2, "lube crafts")
@@ -89,13 +128,14 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " G1c a target whose fluid was removed by a mod is left out", function()
-        lube_world(shape)
+        local world = lube_world(shape)
         local sheet_pane, sheet_flow = H.fill_sheet({{fluid = "lube", rate = 20, unit = "/s"}, {item = "gear", rate = 1, unit = "/s"}})
         prototypes.fluid.lube = nil
         local rates = require("gui.input_container").get_desired_production_rates_by_full_item_name(sheet_flow.input_container)
         H.equal(rates["fluid/lube"], nil, "removed fluid rate")
         H.near(rates["item/gear"], 1, "gear rate kept")
         require("gui.sheet").calculate(require("gui.sheet").compute_button_of(sheet_flow))
+        wait_for_calculation(world, sheet_flow)
         local report = H.parse_report(sheet_flow.output_flow)
         assert(report, "no report")
         assert(report.rows["item/gear"], "gear row missing")
@@ -103,8 +143,8 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " G1d a sheet whose first target is a fluid is titled after the fluid", function()
-        lube_world(shape)
-        local _, sheet_pane = H.run_sheet({{fluid = "lube", rate = 20, unit = "/s"}})
+        local world = lube_world(shape)
+        local _, sheet_pane = run_sheet(world, {{fluid = "lube", rate = 20, unit = "/s"}})
         H.equal(sheet_pane.tabs[1].tab.caption[1], "fluid-name.lube", "tab title")
     end)
 
@@ -122,7 +162,7 @@ for _, shape in ipairs(H.shapes()) do
         end
         for _ = 1, 2 do
             world.handlers.on_configuration_changed({mod_changes = {}})
-            while storage.computation_stack[1] do world.handlers.events[defines.events.on_tick]({tick = 0}) end
+            wait_for_player_calculations(world)
         end
         H.equal(#input_container.children, 2, "rows")
         for row_index, row in ipairs(input_container.children) do
@@ -136,6 +176,7 @@ for _, shape in ipairs(H.shapes()) do
         last_row.hxrrc_desired_fluid_button.elem_value = "lube"
         local sheet_flow = storage[1].sheet_section.sheet_pane.tabs[1].content
         require("gui.sheet").calculate(require("gui.sheet").compute_button_of(sheet_flow))
+        wait_for_calculation(world, sheet_flow)
         local report = H.parse_report(sheet_flow.output_flow)
         assert(report and report.rows["fluid/lube"], "no lube row after repair")
         H.near(report.rows["fluid/lube"].rate, 20, "repaired row computes")
