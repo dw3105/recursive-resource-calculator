@@ -28,8 +28,7 @@ local DEV_ERROR = "rrc-engine-test requires a packaged release candidate"
 --Every dependency is loaded while control.lua is being parsed. Factorio refuses require from a remote
 --interface handler, even though an offline Lua interpreter permits it. Keep these references out of the
 --runtime callbacks below; the module registry is already populated by control.lua before this file loads.
-local Jobs = require "logic.jobs"
-local Search = require "logic.bp.search"
+local Generation = require "logic.bp.generation"
 local Preflight = require "logic.bp.preflight"
 local ExportPayload = require "logic.export_payload"
 local Serialize = require "logic.bp.serialize"
@@ -228,29 +227,16 @@ local function start_generation(context)
     local player_index = context.player_index or 1
     local sheet_id = context.sheet_id
     if sheet_id == nil then error("generation context needs sheet_id", 2) end
-    --The search lane owns the algorithm; this registration only connects the public companion to that same job
-    --scheduler. It never invents a candidate or runs a private copy of the search.
-    Jobs.register("blueprint", {begin = Search.begin, step = Search.step, cancel = Search.cancel,
-        publish = function(job)
-            for id, handle in pairs(engine_jobs) do
-                if handle.player_index == job.player_index and handle.sheet_id == job.sheet_id
-                    and handle.state == "pending" then
-                    handle.state = job.ok == false and "failure" or "success"
-                    handle.result = copy_plain(job.result) or {}
-                    handle.errors = copy_plain(job.errors)
-                    handle.progress = copy_plain(job.progress) or {}
-                    handle.phase = job.phase
-                    handle.reason_codes = reason_codes(handle.errors or handle.result and handle.result.reason_codes)
-                end
-            end
-        end})
+    --The player and engine paths share the service and its one registered blueprint kind.
+    context.schema_version = 1
+    context.player_index, context.sheet_id, context.deliver = player_index, sheet_id, false
+    context.source_kind, context.provenance = "runtime", copy_plain(EngineTestApi.build_id())
+    local generation_id, reason = Generation.start(context)
+    if not generation_id then error(reason or "generation request refused", 2) end
     next_job_id = next_job_id + 1
     local id = next_job_id
     engine_jobs[id] = {state = "pending", player_index = player_index, sheet_id = sheet_id,
-        progress = {done_units = 0, total_units = nil}, phase = "queued", context = context}
-    context.kind = "blueprint"
-    local job = Jobs.request_sheet(player_index, sheet_id, context)
-    if not job then engine_jobs[id].state = "failure"; engine_jobs[id].reason_codes = {"BP_FAIL_REVISION_CHANGED"} end
+        generation_id = generation_id, progress = {done_units = 0, total_units = nil}, phase = "queued"}
     return id
 end
 
@@ -258,27 +244,23 @@ local function generation_status(id)
     packaged_or_error()
     local handle = engine_jobs[id]
     if not handle then error("unknown generation job " .. tostring(id), 2) end
-    if handle.state == "pending" and type(storage) == "table" then
-        local data = storage[handle.player_index]
-        local job = data and data.blueprint_job
-        if job and job.sheet_id == handle.sheet_id then
-            handle.progress = copy_plain(job.progress) or handle.progress
-            handle.phase = job.phase or handle.phase
-        end
+    if handle.terminal then return copy_plain(handle.terminal) end
+    local terminal = Generation.status(handle.player_index, handle.generation_id)
+    if not terminal then error("unknown generation job " .. tostring(id), 2) end
+    handle.state, handle.progress, handle.phase = terminal.state, copy_plain(terminal.progress) or handle.progress,
+        terminal.phase or handle.phase
+    local result = {
+        state = terminal.state, progress = handle.progress, phase = handle.phase,
+    }
+    if terminal.state == "success" then
+        result.blueprint_string = terminal.blueprint_string
+        result.canonical_sha256 = terminal.canonical_sha256
+        result.canonical_version = terminal.canonical_version
+    elseif terminal.state == "failure" then
+        result.reason_codes = copy_plain(terminal.reason_codes) or {}
+        result.stage = terminal.stage
     end
-    local result = {state = handle.state, progress = handle.progress, phase = handle.phase}
-    if handle.state == "success" then
-        local blueprint = handle.result and (handle.result.blueprint_string or handle.result.string)
-        if blueprint then
-            result.blueprint_string = blueprint
-            local ok, canonical = pcall(canonical_from_string, blueprint)
-            if ok then
-                result.canonical_sha256, result.canonical_version = canonical.canonical_sha256, canonical.canonical_version
-            end
-        end
-    elseif handle.state == "failure" then
-        result.reason_codes = handle.reason_codes or reason_codes(handle.errors)
-    end
+    if terminal.state ~= "pending" then handle.terminal = copy_plain(result) end
     return result
 end
 
@@ -287,10 +269,24 @@ local function cancel_generation(id)
     local handle = engine_jobs[id]
     if not handle then error("unknown generation job " .. tostring(id), 2) end
     if handle.state == "pending" then
-        Jobs.cancel(handle.player_index, handle.sheet_id)
-        handle.state = "cancelled"
+        local cancelled = Generation.cancel(handle.player_index, handle.generation_id)
+        if cancelled then
+            handle.state = "cancelled"
+            handle.phase = "cancelled"
+            handle.terminal = {state = "cancelled", progress = copy_plain(handle.progress) or {done_units = 0, total_units = nil}, phase = "cancelled"}
+        else
+            --A terminal service result wins a late cancel call.  Do not overwrite success or failure merely
+            --because this interface handle had not polled it yet.
+            local terminal = Generation.status(handle.player_index, handle.generation_id)
+            if terminal and terminal.state ~= "pending" then
+                handle.state = terminal.state
+                handle.phase = terminal.phase or handle.phase
+                handle.progress = copy_plain(terminal.progress) or handle.progress
+                handle.terminal = copy_plain(generation_status(id))
+            end
+        end
     end
-    return {state = "cancelled"}
+    return copy_plain(handle.terminal) or {state = "cancelled", phase = "cancelled", progress = handle.progress}
 end
 
 local function preflight(case)
@@ -320,6 +316,7 @@ local function canonical(blueprint_string)
 end
 
 function EngineTestApi.register()
+    if not EngineTestApi.build_id().packaged then return false end
     if registered then return true end
     local remote = rawget(_G, "remote")
     if not remote then return false end
