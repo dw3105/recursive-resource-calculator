@@ -1,0 +1,42 @@
+{
+  "blueprint": {
+    "entities": [
+      {
+        "entity_number": 1,
+        "items": [
+          {
+            "id": {
+              "name": "speed-module-2",
+              "quality": "legendary"
+            },
+            "items": {
+              "in_inventory": [
+                {
+                  "inventory": 4,
+                  "stack": 0
+                }
+              ]
+            }
+          }
+        ],
+        "name": "assembling-machine-2",
+        "position": {
+          "x": 0,
+          "y": 0
+        },
+        "recipe": "iron-gear-wheel",
+        "recipe_quality": "normal"
+      },
+      {
+        "direction": 4,
+        "entity_number": 2,
+        "name": "transport-belt",
+        "position": {
+          "x": 0.5,
+          "y": 0.5
+        }
+      }
+    ],
+    "label": "basic-canonical"
+  }
+}

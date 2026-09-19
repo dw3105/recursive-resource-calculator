@@ -1,0 +1,5 @@
+#!/bin/sh
+# The release corpus is intentionally runnable through POSIX sh as required by the gate.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$root/lib/runner.py" "$@"

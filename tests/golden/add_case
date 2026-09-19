@@ -1,0 +1,67 @@
+#!/usr/bin/env python3
+"""Create a draft golden case from a debug export.
+
+The export supplies snapshot-derived facts; it never becomes an accepted
+expectation automatically.  Reviewers choose or write the expected result and
+then use the separate ``accept`` command when replacing one.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+LIB = Path(__file__).resolve().parent / "lib"
+if str(LIB) not in sys.path:
+    sys.path.insert(0, str(LIB))
+
+from common import CaseInputError, build_manifest, read_export, read_json, write_json  # noqa: E402
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description=__doc__)
+    result.add_argument("case", help="stable case directory name")
+    result.add_argument("--export", required=True, help="debug export string or decoded JSON file")
+    result.add_argument("--options", help="JSON generation options, including engine_scenario")
+    result.add_argument("--cases", default=str(Path(__file__).resolve().parent / "cases"), help="case root")
+    result.add_argument("--force", action="store_true", help="replace an existing draft case")
+    return result
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parser().parse_args(argv)
+    case_id = args.case.strip()
+    if not case_id or case_id in {".", ".."} or "/" in case_id or "\\" in case_id:
+        parser().error("case must be one directory name")
+    case = Path(args.cases) / case_id
+    try:
+        if case.exists() and not args.force:
+            raise CaseInputError(f"case already exists: {case} (use --force only for a draft)" )
+        export, encoded = read_export(Path(args.export))
+        if not isinstance(export, dict):
+            raise CaseInputError("debug export must decode to an object")
+        options = read_json(Path(args.options), "generation options") if args.options else {}
+        if not isinstance(options, dict):
+            raise CaseInputError("generation options must be a JSON object")
+        manifest = build_manifest(case_id, export, options)
+        case.mkdir(parents=True, exist_ok=True)
+        write_json(case / "manifest.json", manifest)
+        # Retain both forms when the source was an in-game encoded export. The
+        # JSON form makes review and offline reproduction straightforward.
+        write_json(case / "export.json", export)
+        if encoded is not None:
+            (case / "export.txt").write_text(encoded + "\n", encoding="utf-8")
+        (case / "candidate.json").write_text("{\n  \"TODO\": \"capture candidate and review before accepting\"\n}\n",
+                                               encoding="utf-8")
+        print(f"DRAFT {case}")
+        print("Fill candidate.json and review manifest.json; no expectation was accepted.")
+        return 0
+    except CaseInputError as exc:
+        print(f"add_case refused: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
