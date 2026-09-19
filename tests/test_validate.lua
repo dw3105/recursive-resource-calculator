@@ -48,6 +48,13 @@ local function has_code(state, code)
     return false
 end
 
+local function error_with_code(state, code)
+    for _, error in ipairs(state.errors or {}) do
+        if error.code == code then return error end
+    end
+    return nil
+end
+
 local function entity(id, name, x, extra)
     local result = {id = id, kind = "machine", name = name, x = x, y = 0, w = 1, h = 1}
     for key, value in pairs(extra or {}) do result[key] = value end
@@ -177,6 +184,40 @@ for _, shape in ipairs(H.shapes()) do
             "footprint is second")
         H.equal(Validate.compare({beacon_count = 2, footprint_area = 2, pole_count = 1}, {beacon_count = 2, footprint_area = 2, pole_count = 2}), -1,
             "pole count is third")
+    end)
+
+    H.test(shape .. " V14 a mixed-reach wire beyond the shorter pole is illegal and disconnected", function()
+        local state = finish({grid = {w = 7, h = 2}, catalog = catalog(), entities = {
+            {id = "p-long", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1, wire_reach = 5},
+            {id = "p-short", kind = "pole", name = "pole", x = 4, y = 0, w = 1, h = 1},
+        }, wires = {{a_id = "p-long", a_connector = 0, b_id = "p-short", b_connector = 0}}})
+        H.equal(state.ok, false, "a wire beyond the shorter reach is rejected")
+        local illegal = error_with_code(state, "BP_V_WIRE_ILLEGAL")
+        H.equal(illegal ~= nil, true, "the mixed-reach edge is illegal")
+        local detail = illegal and illegal.detail
+        H.equal(detail ~= nil, true, "the illegal edge reports detail")
+        H.equal(detail and detail.reason, "over range", "the illegal edge reports the range reason")
+        H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), true, "the illegal edge is excluded from connectivity")
+    end)
+
+    H.test(shape .. " V15 a mixed-reach wire inside the shorter pole reach connects the poles", function()
+        local state = finish({grid = {w = 4, h = 2}, catalog = catalog(), entities = {
+            {id = "p-long", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1, wire_reach = 5},
+            {id = "p-short", kind = "pole", name = "pole", x = 1, y = 0, w = 1, h = 1},
+        }, wires = {{a_id = "p-long", a_connector = 0, b_id = "p-short", b_connector = 0}}})
+        H.equal(state.ok, true, "a wire inside the shorter reach is legal")
+        H.equal(has_code(state, "BP_V_WIRE_ILLEGAL"), false, "the inside-range edge is not illegal")
+        H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), false, "the poles form one component")
+    end)
+
+    H.test(shape .. " V16 a mixed-reach wire at the shorter pole boundary is legal", function()
+        local state = finish({grid = {w = 5, h = 2}, catalog = catalog(), entities = {
+            {id = "p-long", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1, wire_reach = 5},
+            {id = "p-short", kind = "pole", name = "pole", x = 2, y = 0, w = 1, h = 1},
+        }, wires = {{a_id = "p-long", a_connector = 0, b_id = "p-short", b_connector = 0}}})
+        H.equal(state.ok, true, "a wire at the shorter reach boundary is legal")
+        H.equal(has_code(state, "BP_V_WIRE_ILLEGAL"), false, "the boundary edge is not illegal")
+        H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), false, "the boundary edge connects the poles")
     end)
 end
 
