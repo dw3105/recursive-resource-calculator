@@ -9,6 +9,7 @@ then use the separate ``accept`` command when replacing one.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import sys
 from pathlib import Path
@@ -37,8 +38,18 @@ def main(argv: list[str] | None = None) -> int:
         parser().error("case must be one directory name")
     case = Path(args.cases) / case_id
     try:
-        if case.exists() and not args.force:
-            raise CaseInputError(f"case already exists: {case} (use --force only for a draft)" )
+        if case.exists():
+            existing_manifest = case / "manifest.json"
+            existing = read_json(existing_manifest, "existing manifest") if existing_manifest.exists() else {}
+            existing_state = existing.get("state", existing.get("status")) if isinstance(existing, dict) else None
+            accepted_expectation = any((case / name).exists() for name in
+                                       ("expected.json", "expected_canonical.json", "expected_blueprint.txt", "expected.blueprint"))
+            if existing_state == "accepted" or (accepted_expectation and existing_state != "draft"):
+                raise CaseInputError(f"refusing to overwrite accepted baseline: {case}")
+            if not args.force:
+                raise CaseInputError(f"case already exists: {case} (use --force only for a draft)")
+            if existing_state != "draft":
+                raise CaseInputError(f"--force is allowed only for a draft case: {case}")
         export, encoded = read_export(Path(args.export))
         if not isinstance(export, dict):
             raise CaseInputError("debug export must decode to an object")
@@ -46,6 +57,17 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(options, dict):
             raise CaseInputError("generation options must be a JSON object")
         manifest = build_manifest(case_id, export, options)
+        prepared = export.get("prepared_input") if isinstance(export.get("prepared_input"), dict) else export.get("prepared")
+        if not isinstance(prepared, dict):
+            prepared = None
+        captured = prepared is not None
+        manifest["source_kind"] = "captured" if captured else "handwritten_fixture"
+        manifest["state"] = "draft"
+        manifest["source_export"] = "export.json"
+        if captured:
+            manifest["prepared_input"] = "prepared_input.json"
+            # The generated result is intentionally not a checked-in actual.
+            manifest["actual"] = None
         case.mkdir(parents=True, exist_ok=True)
         write_json(case / "manifest.json", manifest)
         # Retain both forms when the source was an in-game encoded export. The
@@ -53,6 +75,22 @@ def main(argv: list[str] | None = None) -> int:
         write_json(case / "export.json", export)
         if encoded is not None:
             (case / "export.txt").write_text(encoded + "\n", encoding="utf-8")
+        write_json(case / "options.json", options)
+        if prepared is not None:
+            write_json(case / "prepared_input.json", prepared)
+        provenance = {
+            "case_id": case_id,
+            "state": "draft",
+            "source_kind": manifest["source_kind"],
+            "source_export": "export.json",
+            "export_sha256": hashlib.sha256((case / "export.json").read_bytes()).hexdigest(),
+            "options_file": "options.json",
+            "options_sha256": hashlib.sha256((case / "options.json").read_bytes()).hexdigest(),
+            "prepared_input_file": "prepared_input.json" if prepared is not None else None,
+            "prepared_input_sha256": hashlib.sha256((case / "prepared_input.json").read_bytes()).hexdigest()
+                if prepared is not None else None,
+        }
+        write_json(case / "provenance.json", provenance)
         (case / "candidate.json").write_text("{\n  \"TODO\": \"capture candidate and review before accepting\"\n}\n",
                                                encoding="utf-8")
         print(f"DRAFT {case}")
