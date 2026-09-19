@@ -113,7 +113,7 @@ local function module_effect(module_name, quality, catalog)
 
     --This fallback is used only while building the plain-data boundary.  No prototype is retained in the
     --state or in the result.
-    local item_prototype = type(prototypes) == "table" and prototypes.item and prototypes.item[module_name]
+    local item_prototype = rawget(_G, "prototypes") and prototypes.item and prototypes.item[module_name]
     if item_prototype and type(item_prototype.get_module_effects) == "function" then
         return copy_effects(item_prototype.get_module_effects(quality == "normal" and nil or quality) or {})
     end
@@ -135,7 +135,7 @@ local function machine_projection(machine_name, machine_quality, catalog)
         }
     end
 
-    local prototype = type(prototypes) == "table" and prototypes.entity and prototypes.entity[machine_name]
+    local prototype = rawget(_G, "prototypes") and prototypes.entity and prototypes.entity[machine_name]
     if not prototype then
         return {name = machine_name, quality = machine_quality, energy_usage_w = 0, pollution_per_min = 0}
     end
@@ -161,7 +161,7 @@ local function beacon_projection(beacon_name, beacon_quality, catalog)
     projected = projected and (projected.beacon and projected or projected)
     local beacon = projected and projected.beacon
     if not beacon and catalog and catalog.beacon then beacon = catalog.beacon[beacon_name] end
-    local prototype = type(prototypes) == "table" and prototypes.entity and prototypes.entity[beacon_name]
+    local prototype = rawget(_G, "prototypes") and prototypes.entity and prototypes.entity[beacon_name]
     local energy = projected and projected.energy_usage_w
     if energy == nil and prototype then
         energy = prototype.energy_usage
@@ -185,7 +185,7 @@ local function recipe_data(recipe_name, input)
     if recipe then return recipe end
     local catalog_recipe = input and input.catalog and input.catalog.recipe
     if type(catalog_recipe) == "table" and catalog_recipe[recipe_name] then return catalog_recipe[recipe_name] end
-    if type(prototypes) == "table" and prototypes.recipe then return prototypes.recipe[recipe_name] end
+    if rawget(_G, "prototypes") and prototypes.recipe then return prototypes.recipe[recipe_name] end
 end
 
 local function product_amount(product)
@@ -331,7 +331,7 @@ local function stage_descriptor(column, stage, rate, stage_id, input, selections
             beacon_pollution = beacon_pollution + weight * finite_number(effects.pollution, 0)
         end
         local power_multiplier = 1
-        local qualities = type(prototypes) == "table" and prototypes.quality
+        local qualities = rawget(_G, "prototypes") and prototypes.quality
         local quality = qualities and qualities[group.quality]
         if quality then power_multiplier = finite_number(quality.beacon_power_usage_multiplier, 1) end
         beacon_power = beacon_power + group.count_per_machine / group.sharing * projection.energy_usage_w * power_multiplier

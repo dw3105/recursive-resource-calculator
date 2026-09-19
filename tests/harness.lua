@@ -884,6 +884,10 @@ function H.new_world(shape)
     build_quality_chain({{name = "normal", level = 0}, {name = "uncommon", level = 1}, {name = "rare", level = 2}, {name = "epic", level = 3},
         {name = "legendary", level = 5}})
 
+    --2.0 runtime-api.json lists prototypes as the global object of class LuaPrototypes, so in the game
+    --type(prototypes) is "userdata", never "table". Code guarding itself with type(prototypes) == "table"
+    --therefore refuses every prototype in the game while passing offline: exactly how 1.1.27 shipped a broken
+    --paste. The table below is registered as a LuaObject so its type reads the way the engine reads.
     _G.prototypes = {
         recipe = {}, item = {}, fluid = {}, entity = {}, recipe_category = {},
         quality = qualities,
@@ -908,6 +912,9 @@ function H.new_world(shape)
             error("harness does not support item filter " .. tostring(filter.filter))
         end,
     }
+    lua_objects[_G.prototypes] = true --the engine's prototypes is a LuaPrototypes object, so type() must say userdata
+    lua_objects[_G.settings] = true --LuaSettings, likewise
+
     _G.game = {players = {}, get_player = function(index) return game.players[index] end}
 
     --A staging inventory, so a finished blueprint can be built without touching whatever the player already holds:

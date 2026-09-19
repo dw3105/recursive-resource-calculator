@@ -103,7 +103,7 @@ end
 
 local function entity_value(choice)
     if type(choice) ~= "table" or not choice.name then return nil end
-    if type(prototypes) ~= "table" or type(prototypes.entity) ~= "table" or not prototypes.entity[choice.name] then return nil end
+    if not rawget(_G, "prototypes") or not prototypes.entity[choice.name] then return nil end
     return {name = choice.name, quality = choice.quality or "normal"}
 end
 

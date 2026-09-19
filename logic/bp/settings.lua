@@ -68,13 +68,13 @@ local function entity_is(prototype, entity_type)
 end
 
 local function prototype_named(name, entity_type)
-    if type(prototypes) ~= "table" or type(prototypes.entity) ~= "table" then return nil end
+    if not rawget(_G, "prototypes") then return nil end
     local prototype = prototypes.entity[name]
     return entity_is(prototype, entity_type) and prototype or nil
 end
 
 local function related_underground(belt_name)
-    if type(prototypes) ~= "table" or type(prototypes.entity) ~= "table" then return nil end
+    if not rawget(_G, "prototypes") then return nil end
     local names = {}
     for name, _ in pairs(prototypes.entity) do names[#names + 1] = name end
     table.sort(names)
@@ -161,7 +161,7 @@ local function defaults()
 end
 
 local function normalized_settings(settings)
-    settings = type(settings) == "table" and settings or {}
+    settings = rawget(_G, "settings") and settings or {}
     local infrastructure = type(settings.infrastructure) == "table" and settings.infrastructure or settings
     local result = {}
     for _, definition in ipairs(INFRASTRUCTURE) do
@@ -238,11 +238,11 @@ local function quality_available(catalog, quality, player_index)
         local data = catalog.quality[quality]
         if data == nil then return false end
         if data.unlocked == false or data.available == false then return false end
-    elseif type(prototypes) == "table" and prototypes.quality and not prototypes.quality[quality] then
+    elseif rawget(_G, "prototypes") and prototypes.quality and not prototypes.quality[quality] then
         return false
     end
 
-    local player = type(game) == "table" and game.players and game.players[player_index or 1]
+    local player = rawget(_G, "game") and game.players and game.players[player_index or 1]
     local force = player and player.force
     if force and type(force.is_quality_unlocked) == "function" then
         local ok, unlocked = pcall(force.is_quality_unlocked, quality)

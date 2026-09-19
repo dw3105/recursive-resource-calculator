@@ -304,7 +304,7 @@ local function stored_calculation(player_data, sheet_id)
 end
 
 local function setting_fingerprint(settings)
-    if type(settings) ~= "table" then return nil end
+    if not rawget(_G, "settings") then return nil end
     local fingerprint = settings.fingerprint
     if type(fingerprint) == "string" then return fingerprint end
     if type(fingerprint) == "table" then return fingerprint.input or fingerprint.result end
@@ -345,7 +345,7 @@ end
 
 local function settings_copy(source, fingerprint)
     local settings = type(source) == "table" and copy_json(source) or {}
-    if type(settings) ~= "table" then settings = {} end
+    if not rawget(_G, "settings") then settings = {} end
     if type(source) == "table" and type(source.fingerprint) == "table" then
         settings.fingerprint = fingerprint
     elseif fingerprint ~= nil then
@@ -417,7 +417,7 @@ local function environment_of(player_index, references)
     end
 
     local mod_settings = {}
-    if type(settings) == "table" and type(settings.get_player_settings) == "function" then
+    if rawget(_G, "settings") and settings.get_player_settings then
         local ok, player_settings = pcall(settings.get_player_settings, player_index)
         if ok and type(player_settings) == "table" then
             for name, setting in pairs(player_settings) do
@@ -431,7 +431,7 @@ local function environment_of(player_index, references)
     end
 
     local research, quality_unlocks = {}, {}
-    local player = type(game) == "table" and game.get_player and game.get_player(player_index) or nil
+    local player = rawget(_G, "game") and game.get_player and game.get_player(player_index) or nil
     local force = player and player.force
     if force ~= nil then
         for recipe_name, _ in pairs(references.recipes or {}) do

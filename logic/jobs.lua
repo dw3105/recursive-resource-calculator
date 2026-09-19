@@ -329,14 +329,14 @@ function Jobs.step(job, budget)
 end
 
 local function active_player(index)
-    if type(game) ~= "table" or type(game.players) ~= "table" then return false end
+    if not rawget(_G, "game") or not game.players then return false end
     local player = game.players[index]
     return player ~= nil and player.valid ~= false
 end
 
 local function live_player_indices()
     local indices = {}
-    if type(game) ~= "table" or type(game.players) ~= "table" then return indices end
+    if not rawget(_G, "game") or not game.players then return indices end
     for index, _ in pairs(game.players) do
         if type(index) == "number" and active_player(index) then indices[#indices + 1] = index end
     end
