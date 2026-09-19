@@ -33,6 +33,16 @@ Two separate defects, both about where a block port attaches:
 
 Two steps that share one block (`block:cable+circuit`) still exchange `item/cable` through ports on that block's outside. That is the contract's rule and it stays; the ports simply have to land on free cells inside the grid.
 
+## What attempt 1 left behind
+
+Attempt 1 ran out of its deadline and committed `WIP: 058_block_port_placement`, which is in your branch. On that
+tree `lua5.2 docs/tasks/058_reproducer.lua` **never finishes**: it was still running after 120 seconds and had
+printed nothing. A hang is worse than the failure it replaced, so the first thing you do is bound every loop you
+touched and make that command finish, pass or fail, well inside its 900-second check.
+
+Its one useful piece is the failure detail: `endpoint_block_detail` now names the blocked cell and its owner in
+`BP_R_PORT_BLOCKED`. Keep that.
+
 ## What to build
 
 1. A block port's attach tile is always a free cell inside the grid: never outside the grid, never inside a machine, a beacon or an inserter, and never the same cell as another port.
