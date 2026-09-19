@@ -250,6 +250,29 @@ for _, shape in ipairs(H.shapes()) do
             end
         end
     end)
+    --A port list wider than its block used to spill onto the side column at attach_dx = -1, which is outside the
+    --world whenever the block touches the grid edge, and routing then refuses it.
+    H.test(shape .. " G12 every attach tile stays on the row above or below the block", function()
+        H.new_world(shape)
+        local plan_input = real_one_step_plan()
+        for index = 1, 6 do
+            plan_input.steps[1].inputs[#plan_input.steps[1].inputs + 1] =
+                {flow_id = "item/extra" .. index, rate_per_second = 0.1}
+            plan_input.flows[#plan_input.flows + 1] = {flow_id = "item/extra" .. index,
+                producers = {{step_id = "$external", share_per_second = 0.1}},
+                consumers = {{step_id = "gear", share_per_second = 0.1}}}
+        end
+        plan_input.catalog = catalog()
+        local state = finish(plan_input)
+        local block = candidates(state)[1].blocks[1]
+        for _, port in ipairs(block.ports) do
+            H.equal(port.attach_dy == -1 or port.attach_dy == block.h, true,
+                tostring(port.port_id) .. " attaches above or below, never beside")
+            H.equal(port.attach_dx >= 0 and port.attach_dx < block.w, true,
+                tostring(port.port_id) .. " attaches within the block's width")
+        end
+        H.equal(type(block.port_sides), "table", "the block names the sides its ports use")
+    end)
 end
 
 H.done("test_groups")

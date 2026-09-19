@@ -300,11 +300,48 @@ local function add_input_obstacles(work, input, blocks)
     end
 end
 
-local function endpoint_position(block, placement, port)
+--A block packed flush with the grid edge puts the tile above it, or beside it, outside the world, and routing
+--refuses every cell outside the grid. The port then moves to the block's opposite side, which is the same
+--distance from its machine and is still a tile outside the block, as §5.8 requires.
+local function mirrored_port(block, port)
+    local w = finite(block._w, finite(block.w, 1))
+    local h = finite(block._h, finite(block.h, 1))
+    local mirrored = {}
+    for key, value in pairs(port) do mirrored[key] = value end
+    if port.attach_dy == -1 then
+        mirrored.attach_dy = h
+    elseif port.attach_dy == h then
+        mirrored.attach_dy = -1
+    elseif port.attach_dx == -1 then
+        mirrored.attach_dx = w
+    elseif port.attach_dx == w then
+        mirrored.attach_dx = -1
+    else
+        return nil
+    end
+    mirrored.normal_dir = port.normal_dir ~= nil and Grid.dir_opposite(port.normal_dir) or nil
+    mirrored.travel_dir = port.travel_dir ~= nil and Grid.dir_opposite(port.travel_dir) or nil
+    return mirrored
+end
+
+local function inside_grid(work, x, y)
+    local grid = work and work.grid
+    if type(grid) ~= "table" then return true end
+    return x >= 0 and y >= 0 and x < finite(grid.w, 0) and y < finite(grid.h, 0)
+end
+
+local function endpoint_position(block, placement, port, work)
     local point = port.position or ((port.x ~= nil or port.y ~= nil) and port) or nil
     local x, y = point_from(point)
     if x ~= nil and y ~= nil then return x, y end
     local placed = Grid.place_port(block, placement, port)
+    if work ~= nil and not inside_grid(work, placed.x, placed.y) then
+        local mirrored = mirrored_port(block, port)
+        if mirrored then
+            local other = Grid.place_port(block, placement, mirrored)
+            if inside_grid(work, other.x, other.y) then return other.x, other.y, mirrored end
+        end
+    end
     return placed.x, placed.y
 end
 
@@ -318,10 +355,11 @@ local function endpoint_direction(port, placement, role)
     return Grid.rotate_dir(direction, placement.dir)
 end
 
-local function normalize_endpoint(block, placement, port, catalog)
+local function normalize_endpoint(block, placement, port, catalog, work)
     local role = role_of(port)
     if role ~= "in" and role ~= "out" then return nil end
-    local x, y = endpoint_position(block, placement, port)
+    local x, y, mirrored = endpoint_position(block, placement, port, work)
+    if mirrored then port = mirrored end
     local endpoint = {
         port_id = port.port_id or port.id or ((block.block_id or block.id or "block") .. ":" .. tostring(port.flow_id or port.full_name)),
         block_id = block.block_id or block.id,
@@ -622,6 +660,14 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     return true
 end
 
+local function default_expansion_limit(input)
+    local grid = type(input) == "table" and input.grid or nil
+    local w = type(grid) == "table" and finite(grid.w, nil) or nil
+    local h = type(grid) == "table" and finite(grid.h, nil) or nil
+    if type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then return 100000 end
+    return math.max(4096, math.floor(w * h * 16))
+end
+
 local function begin_search(work, demand, amount)
     local search = {demand = demand, amount = amount, queue = {{x = demand.source.x, y = demand.source.y}}, head = 1, tail = 1,
         visited = {[coordinate_key(demand.source.x, demand.source.y)] = true}, parent = {}, neighbor_index = 1,
@@ -699,13 +745,19 @@ local function normalize_input(input)
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
-        max_expansions = finite(input.limits and input.limits.max_expansions, finite(input.max_expansions, 1000000)), expansions = 0,
+        --A path search visits cells, so the whole routing run is bounded by the grid it runs on. The old default
+        --of one million let a single demand burn 1.2 million expansions on a 54 by 54 grid (2916 cells) without
+        --finishing, which is a hang the player sees as a frozen Generate. Sixteen visits per cell is generous for
+        --four directions and both transport kinds, and a hopeless search now fails fast enough for the search to
+        --try the next ordering instead of the next hour.
+        max_expansions = finite(input.limits and input.limits.max_expansions,
+            finite(input.max_expansions, default_expansion_limit(input))), expansions = 0,
     }
     for _, block in ipairs(blocks) do
         local placement = placement_for(block, placements)
         block._placement, block._w, block._h = placement, dimension_for(block, placement, "w", 1), dimension_for(block, placement, "h", 1)
         for _, port in ipairs(block.ports or block.block_ports or {}) do
-            local endpoint = normalize_endpoint(block, placement, port, input.catalog or {})
+            local endpoint = normalize_endpoint(block, placement, port, input.catalog or {}, work)
             if endpoint and endpoint.flow_id then
                 work.endpoint_index[endpoint.flow_id] = work.endpoint_index[endpoint.flow_id] or {["in"] = {}, ["out"] = {}}
                 work.endpoint_index[endpoint.flow_id][endpoint.role][#work.endpoint_index[endpoint.flow_id][endpoint.role] + 1] = endpoint

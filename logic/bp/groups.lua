@@ -306,18 +306,22 @@ local function block_ports(block, steps, ports, flows)
         local role = selected_port.port.role == "out" and "out" or "in"
         if role == "out" then outputs[#outputs + 1] = selected_port else inputs[#inputs + 1] = selected_port end
     end
+    --Every attach tile sits one row above the block or one row below it, never on the left or the right. A port
+    --pushed onto a side column used to land at x = -1, which is outside the grid whenever the block touches the
+    --left edge, and routing then refuses it. A block whose port list is wider than the block is widened instead,
+    --so the row always has room, and the packer only has to keep those two rows free (see block.port_sides).
     local function place_side(list, role, side, normal, travel)
+        if #list > block.w then
+            block.w = #list
+            block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
+        end
+        if #list > 0 then
+            block.port_sides = block.port_sides or {}
+            block.port_sides[side] = true
+        end
         for index, selected_port in ipairs(list) do
-            local x, y
-            if index <= block.w then
-                x = index - 1
-                y = side == "top" and -1 or block.h
-            else
-                -- Expanding the envelope is already done by the caller for ordinary top/bottom ports.  This
-                -- fallback keeps the contract true for an unusually wide port list.
-                x = side == "left" and -1 or block.w
-                y = index - block.w - 1
-            end
+            local x = index - 1
+            local y = side == "top" and -1 or block.h
             local source = selected_port.port
             block.ports[#block.ports + 1] = {
                 port_id = source.port_id or source.id or ((role or "port") .. ":" .. tostring(index)),

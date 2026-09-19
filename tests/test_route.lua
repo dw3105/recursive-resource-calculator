@@ -397,6 +397,18 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.ok, false, "an unowned port fails")
         H.equal(error_code(state), "BP_R_PORT_BLOCKED", "an unowned port reports blocked")
     end)
+    --A path search visits cells, so a routing run is bounded by its own grid. One million expansions let a single
+    --demand burn 1.2 million steps on a 54 by 54 grid without finishing, which the player sees as a frozen
+    --Generate.
+    H.test(shape .. " R15 the expansion limit follows the grid, never a fixed million", function()
+        local state = Route.begin(belt_input({grid = Grid.new(40, 30)}))
+        H.equal(state.work.max_expansions, 40 * 30 * 16, "a large grid allows sixteen visits per cell")
+        local small = Route.begin(belt_input({grid = Grid.new(4, 4)}))
+        H.equal(small.work.max_expansions, 4096, "a tiny grid keeps a floor that still finds a path")
+        local explicit = Route.begin(belt_input({grid = Grid.new(40, 30), max_expansions = 25}))
+        H.equal(explicit.work.max_expansions, 25, "an explicit limit still wins")
+    end)
+
 end
 
 H.done("test_route")

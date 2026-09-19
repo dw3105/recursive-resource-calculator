@@ -607,11 +607,38 @@ local function finish_grid_or_search(state)
     end
 end
 
+--A grid too small to hold the blocks and the rows their ports need can never produce a layout, and packing it
+--anyway costs a full pack plus a full route before it says so. The area check is exact about what it counts and
+--cheap: the five-step fixture spends its whole budget on such grids without it.
+local function candidate_fits_grid(state, candidate)
+    local grid = state.work.grid
+    if type(grid) ~= "table" or type(grid.w) ~= "number" or type(grid.h) ~= "number" then return true end
+    local needed, widest, tallest = 0, 0, 0
+    for _, block in ipairs(candidate.blocks or {}) do
+        local sides = type(block.port_sides) == "table" and block.port_sides or {}
+        local w = (block.w or 0) + (sides.left and 1 or 0) + (sides.right and 1 or 0)
+        local h = (block.h or 0) + (sides.top and 1 or 0) + (sides.bottom and 1 or 0)
+        needed = needed + w * h
+        widest = math.max(widest, math.min(w, h))
+        tallest = math.max(tallest, math.max(w, h))
+    end
+    if needed > grid.w * grid.h then return false end
+    --A block fits in one orientation or the other, so its shorter side must fit the shorter side of the grid.
+    if widest > math.min(grid.w, grid.h) then return false end
+    if tallest > math.max(grid.w, grid.h) then return false end
+    return true
+end
+
 local function prepare_candidate(state)
     local candidate = state.work.groups.result.candidates[state.cursor.candidate_index]
     if not candidate then
         finish_grid_or_search(state)
         return false
+    end
+    if not candidate_fits_grid(state, candidate) then
+        state.cursor.candidate_index = state.cursor.candidate_index + 1
+        state.cursor.order_index = 1
+        return prepare_candidate(state)
     end
     state.work.candidate = candidate
     state.work.orderings = candidate_orders(state, candidate)

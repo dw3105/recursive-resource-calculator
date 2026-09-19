@@ -87,8 +87,10 @@ for _, shape in ipairs({"2.0"}) do
                         .. " ports=" .. tostring(#(block.ports or {})))
                     for _, port in ipairs(block.ports or {}) do
                         print("    port " .. tostring(port.port_id) .. " role=" .. tostring(port.role)
-                            .. " flow=" .. tostring(port.flow_id) .. " step=" .. tostring(port.step_id))
+                            .. " flow=" .. tostring(port.flow_id) .. " step=" .. tostring(port.step_id)
+                            .. " attach=(" .. tostring(port.attach_dx) .. "," .. tostring(port.attach_dy) .. ")")
                     end
+                    print("    sides=" .. tostring(block.port_sides and (tostring(block.port_sides.top) .. "/" .. tostring(block.port_sides.bottom))))
                 end
             end
             return state
