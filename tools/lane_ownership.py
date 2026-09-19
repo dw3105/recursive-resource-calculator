@@ -45,6 +45,26 @@ def read_manifest(path):
     return owned, required
 
 
+def ownership_overlaps(left, right):
+    """Return whether two manifest entries can own the same changed path.
+
+    A trailing slash is part of the manifest language: it makes the entry a
+    directory owner.  Keeping this small predicate here lets the dispatch
+    preflight use exactly the same directory boundary rule as the post-commit
+    ownership check without changing that check's permissive manifest reader.
+    """
+    left_directory = left.endswith("/")
+    right_directory = right.endswith("/")
+    left = left.rstrip("/")
+    right = right.rstrip("/")
+    if not left_directory and not right_directory:
+        return left == right
+    if left_directory and right_directory:
+        return left == right or left.startswith(right + "/") or right.startswith(left + "/")
+    directory, path = (left, right) if left_directory else (right, left)
+    return path.startswith(directory + "/")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Check a lane's diff against the files it owns.")
     parser.add_argument("--base", required=True, help="the lane's own base commit (its wave tag)")
