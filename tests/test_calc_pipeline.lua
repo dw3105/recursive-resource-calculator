@@ -1,6 +1,7 @@
 --A calculation sliced across ticks commits exactly the synchronous report, or no report when stale or cancelled.
 local H = require "tests.harness"
 local Registry
+local Calculation
 
 local function report_line(line)
     if not line then return nil end
@@ -116,6 +117,7 @@ local function base_world(shape)
     require "control"
     world.handlers.on_init()
     Registry = require "logic.registry"
+    Calculation = require "logic.calculation_result"
     return world
 end
 
@@ -186,6 +188,28 @@ local function infeasible_world(shape)
     return world
 end
 
+local function finished_calculation(shape, budget)
+    local world = base_world(shape)
+    local Sheet, _, sheet_flow = prepared_sheet({{item = "plate", rate = 3, unit = "/s"}})
+    local Solver = require "logic.solver"
+    local original_solve = Solver._solve_for_sync
+    local solve_calls = 0
+    Solver._solve_for_sync = function(...)
+        solve_calls = solve_calls + 1
+        return original_solve(...)
+    end
+    local Jobs = require "logic.jobs"
+    Jobs.OPS_PER_TICK = budget
+    local sheet_id = Sheet.id_of(sheet_flow)
+    local CalcPipeline = require "logic.calc_pipeline"
+    CalcPipeline.start(sheet_flow)
+    wait_for(world, sheet_id)
+    local before_read = solve_calls
+    local calculation = Calculation.get(1, sheet_id)
+    local after_read = solve_calls
+    return calculation, before_read, after_read
+end
+
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " CP-01 one default-budget job finishes and publishes a report", function()
         local world = base_world(shape)
@@ -204,6 +228,19 @@ for _, shape in ipairs(H.shapes()) do
         H.run_ticks(world, 1)
         H.equal(running_job(sheet_id), nil, "the smallest default-budget job finishes within one tick")
         H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "the report is published")
+    end)
+
+    H.test(shape .. " CP-13 a finished sliced solve is readable without a second solve at any budget", function()
+        local one, one_before, one_after = finished_calculation(shape, 1)
+        H.equal(one ~= nil, true, "budget-one calculation is readable")
+        H.equal(one_before, 1, "the sliced pipeline solves once")
+        H.equal(one_after, one_before, "reading the result does not solve again")
+
+        local huge, huge_before, huge_after = finished_calculation(shape, 1000000)
+        H.equal(huge ~= nil, true, "large-budget calculation is readable")
+        H.equal(huge_before, 1, "the large-budget pipeline solves once")
+        H.equal(huge_after, huge_before, "large-budget read does not solve again")
+        H.deep_equal(one.result, huge.result, "budget changes timing, not the stored solver result")
     end)
 
     H.test(shape .. " CP-11 Compute enqueues instead of publishing and the panel follows the run", function()
@@ -310,6 +347,26 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "cancellation leaves the old report")
         H.equal(child_named(sheet_flow.output_flow, "report").tags.hxrrc_report_stale, true, "cancellation marks the old report stale")
         H.equal(no_staging(sheet_flow.output_flow), true, "cancellation leaves no partial rows")
+    end)
+
+    H.test(shape .. " CP-14 cancel after a finished calculation never overwrites its record", function()
+        local world = base_world(shape)
+        local Sheet, _, sheet_flow = prepared_sheet({{item = "plate", rate = 3, unit = "/s"}})
+        local CalcPipeline = require "logic.calc_pipeline"
+        local Jobs = require "logic.jobs"
+        Jobs.OPS_PER_TICK = 1
+        local sheet_id = Sheet.id_of(sheet_flow)
+        CalcPipeline.start(sheet_flow)
+        wait_for(world, sheet_id)
+        local previous = storage[1].calc_results[sheet_id]
+        H.equal(previous ~= nil, true, "the first calculation leaves a record")
+
+        sheet_flow.input_container.children[1].rate_textfield.text = "4"
+        CalcPipeline.start(sheet_flow)
+        H.run_ticks(world, 3)
+        H.equal(CalcPipeline.cancel(1, sheet_id), true, "the replacement calculation is cancelled")
+        H.run_ticks(world, 2)
+        H.deep_equal(storage[1].calc_results[sheet_id], previous, "cancelled work leaves the previous record untouched")
     end)
 
     H.test(shape .. " CP-05 two sheets of one player both finish", function()

@@ -7,6 +7,7 @@ local Snapshot = require "logic.snapshot"
 local Sheet = require "gui.sheet"
 local Jobs = require "logic.jobs"
 local Registry = require "logic.registry"
+local Calculation = require "logic.calculation_result"
 local SolverSteps = require "logic.solver_steps"
 local ReportSteps = require "logic.report_steps"
 local QualityLoops = require "logic.quality_loops"
@@ -186,6 +187,20 @@ local function finish_solve(job, state)
     state.phase = "power"
 end
 
+local function calculation_record(job, state)
+    local snapshot = type(state.snapshot) == "table" and state.snapshot or {}
+    local fingerprint = snapshot.fingerprint
+    return {
+        schema_version = Calculation.SCHEMA_VERSION,
+        player_index = job.player_index,
+        sheet_id = job.sheet_id,
+        sheet_revision = job.revisions and job.revisions.sheet or 0,
+        config_revision = job.revisions and job.revisions.config or 0,
+        input_fingerprint = type(fingerprint) == "table" and fingerprint.input or nil,
+        result = state.result,
+    }
+end
+
 local function seed_unconfigured_quality_loop(report)
     if report.phase ~= "report" or report.cursor.loop or report.cursor.section ~= "columns" then return end
     local column = report.result.columns and report.result.columns[report.cursor.column]
@@ -296,8 +311,13 @@ function CalcPipeline.step(job, budget)
             if not state.report or state.published then
                 fail(job, "publish_state_missing", "the publish phase has no report state")
             else
-                state.published = true
                 local published = ReportSteps.publish(state.report)
+                if published then
+                    --The record is written only after the staged report has passed the same revision check and
+                    --swapped into view.  A stale, cancelled, failed or superseded run never reaches this call.
+                    Calculation.publish(calculation_record(job, state), budget)
+                end
+                state.published = true
                 job.done = true
                 job.ok = published == true
                 job.phase = published and "done" or "stale"
