@@ -54,3 +54,5 @@
 | `050` | `rrc/agent` | unblock E | 2026-09-19 |
 | `051` | `rrc/agent` | unblock R | 2026-09-19 |
 | `052` | `rrc/agent` | unblock G | 2026-09-19 |
+| `053` | `rrc/agent` | Repair perimeter port collision | 2026-09-19 |
+| `053` | `rrc/agent` | Repair: perimeter ports never share a cell | 2026-09-19 |
