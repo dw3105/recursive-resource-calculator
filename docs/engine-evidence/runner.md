@@ -16,7 +16,7 @@ export first. This is the exact Factorio console command; it writes the encoded
 export to `script-output/rrc-engine-capture/<sheet-id>.txt`:
 
 ```text
-/c game.write_file("rrc-engine-capture/<sheet-id>.txt", remote.call("rrc-engine-test", "export", "<sheet-id>"), false)
+/c helpers.write_file("rrc-engine-capture/<sheet-id>.txt", remote.call("rrc-engine-test", "export", "<sheet-id>"), false)
 ```
 
 Decode that file and make the reviewed case inputs with the implemented host
