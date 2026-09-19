@@ -77,3 +77,4 @@
 | `066` | `rrc/agent` | R3 route cost cached | 2026-09-19 |
 | `067` | `rrc/agent` | power semantics | 2026-09-19 |
 | `068` | `rrc/agent` | fluid smoke case | 2026-09-19 |
+| `069` | `rrc/agent` | resumable power | 2026-09-19 |
