@@ -341,6 +341,9 @@ local function result_fingerprint(result, wrapper)
         add(result.input)
     end
     if wrapper then
+        --A contracts §19 record keeps the fingerprint it was computed against on the record itself, beside the
+        --result. Without this the export finds the numbers and still calls the sheet not calculated.
+        add(wrapper.input_fingerprint)
         add(wrapper.settings)
         add(wrapper.snapshot)
         add(wrapper.inputs)
