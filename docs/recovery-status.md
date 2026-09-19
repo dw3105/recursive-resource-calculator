@@ -1,6 +1,6 @@
 # Round 8 board — one list, replaces every older "next step"
 
-Updated 2026-09-19, HEAD a3f74f4, by the integrator on host `legalcopilot-dev`. Branch `feat/round-8-blueprints`, never pushed,
+Updated 2026-09-19, HEAD c171fcf, by the integrator on host `legalcopilot-dev`. Branch `feat/round-8-blueprints`, never pushed,
 never merged to `main`. This board supersedes the "next three steps" of `~/.claude/plans/rrc-round-8-handoff.md`.
 
 ## Streams
@@ -14,7 +14,8 @@ never merged to `main`. This board supersedes the "next three steps" of `~/.clau
 | D golden generates from this candidate | 042 | `tests/golden/run`, `add_case`, `accept`, `lib/`, `generate.lua`, `tests/tools/test_golden_tools.py`, `docs/golden-workflow.md` | **merged** |
 | Repair: obstacle shape | 043 | `logic/bp/search.lua`, `tests/test_search.lua` | **merged** |
 | Repair: perimeter ports | 044 | `logic/bp/search.lua`, `logic/bp/route.lua`, `tests/test_search.lua`, `tests/test_route.lua` | **merged** aba5d15 |
-| E coverage and scenarios | 045 | `tests/golden/cases/`, `tests/golden/required-matrix.json`, `tests/golden/lib/runner.py`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **running**, base `coverage-base` = a3f74f4 |
+| E coverage and scenarios | 045 | `tests/golden/cases/`, `tests/golden/required-matrix.json`, `tests/golden/lib/runner.py`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **merged**; 17 GOLD-09 rows, 19 draft cases, `--drafts report` |
+| Repair: draft case honesty | 046 | `tests/golden/cases/`, `required-matrix.json`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **running**, base `draft-honesty-base` = c171fcf |
 | Integrator | — | `tests/harness.lua`, `tests/run.sh`, locale files, `docs/feature-contracts.md`, `logic/registry.lua`, `control.lua` since 037 merged, `gui/export_dialog.lua`, task files, merges | active |
 
 ## What is done
@@ -48,7 +49,11 @@ Expect more of these. A unit-green module set says nothing about the path a play
 
 - Generate queues a real job and reached routing; lane 044 cleared that stop, and lane 039 attempt 3 is proving
   whether a click now ends with a blueprint in the player's hand. Nothing delivered yet.
-- One case in the matrix is accepted; six are drafts, and GOLD-09 categories have no rows at all (lane 045).
+- One case in the matrix is accepted; 19 are drafts, every GOLD-09 category has a row, and `sh tests/golden/run
+  --branch 2.0 --drafts report` names every gap and exits 1. `--branch 2.1` matches zero accepted cases.
+- Lane 045's 19 draft manifests copy the baseline's iron-gear-wheel sheet, and `belt-inserter-bottleneck` declares
+  `BP_R_CAPACITY`, which `logic/bp/reason_codes.lua:7` says the player never sees. Lane 046 repairs both and adds
+  the checks that keep them out.
 - Engine evidence: none, on either branch. 2.1 has no runtime here at all.
 
 ## Tag rule, learned the hard way
