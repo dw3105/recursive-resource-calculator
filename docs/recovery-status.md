@@ -36,6 +36,13 @@ accepted by the user.
 - One case in the matrix is accepted; six are drafts (stream E).
 - Engine evidence: none, on either branch. 2.1 has no runtime here at all.
 
+## Tag rule, learned the hard way
+
+A lane's base tag is frozen the moment a worktree forks it. Repointing `recovery-base` after lanes 039 to 042
+had forked it made `tools/lane_ownership.py` report `HEAD does not descend from the lane base`, and lane 042 took
+a FAIL for work that was entirely inside its own five files. Every new dispatch gets its **own** tag, named for
+that dispatch, and no tag is ever moved.
+
 ## Rules that still bind
 
 One file has one owner. A lane never edits a locale file, `tests/harness.lua`, `tests/run.sh` or
