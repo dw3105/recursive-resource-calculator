@@ -115,6 +115,28 @@ for _, shape in ipairs(H.shapes()) do
         drain_ticks(world)
         H.equal(storage.computation_stack[1], nil, "queue drained")
     end)
+    --1.1.47 shipped an export window that neither Esc nor the close key would shut: the engine cleared
+    --player.opened and raised on_gui_closed, and control.lua handled only the picker and the calculator, so the
+    --frame stayed on screen.
+    H.test(shape .. " C1 the engine's close event shuts the export window and the blueprint window", function()
+        local world = control_world(shape, {1})
+        local ExportDialog = require "gui.export_dialog"
+        local BlueprintDialog = require "gui.blueprint_dialog"
+        local pane = storage[1].sheet_section.sheet_pane
+        local sheet_flow = pane.tabs[1].content
+
+        local export_frame = ExportDialog.open(1, sheet_flow)
+        H.equal(export_frame ~= nil and export_frame.valid, true, "the export window opens")
+        world.handlers.events[defines.events.on_gui_closed]({element = export_frame, player_index = 1})
+        H.equal(export_frame.valid, false, "the engine's close destroys the export window")
+        H.equal(ExportDialog.is_open(1), false, "and the module knows it is closed")
+
+        local blueprint_frame = BlueprintDialog.open(1, sheet_flow)
+        H.equal(blueprint_frame ~= nil and blueprint_frame.valid, true, "the blueprint window opens")
+        world.handlers.events[defines.events.on_gui_closed]({element = blueprint_frame, player_index = 1})
+        H.equal(blueprint_frame.valid, false, "the engine's close destroys the blueprint window")
+        H.equal(BlueprintDialog.is_open(1), false, "and that module knows it too")
+    end)
 end
 
 H.test("R2 info.json marks the original mod incompatible and lists every mod data.lua checks as an optional dependency", function()

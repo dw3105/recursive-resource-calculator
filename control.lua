@@ -16,6 +16,8 @@ local Reset = require "logic.reset"
 local EngineTestApi = require "logic.engine_test_api"
 local Pipette = require "gui.pipette"
 local Sheet = require "gui.sheet"
+local ExportDialog = require "gui.export_dialog"
+local BlueprintDialog = require "gui.blueprint_dialog"
 local Indexer = require "logic.indexer"
 local PlayerData = require "logic.player_data"
 local PlayerDataUpdater = require "logic.player_data_updater"
@@ -109,6 +111,12 @@ script.on_event(defines.events.on_gui_closed, function(event)
     end
     if element.name == "hxrrc_module_picker" then
         ModulePicker.on_engine_closed(event.player_index)
+    --Esc and the close key reach the window through player.opened. The engine clears player.opened and fires
+    --this event; without these two branches the frame stayed on screen and neither key closed it.
+    elseif element.name == ExportDialog.FRAME_NAME then
+        ExportDialog.close(event.player_index)
+    elseif element.name == BlueprintDialog.FRAME_NAME then
+        BlueprintDialog.close(event.player_index)
     elseif element.name == "hxrrc_calculator" and element.visible and not (storage[event.player_index] and storage[event.player_index].module_picker) then
         --a picker taking the focus from the calculator must not close it
         Calculator.toggle(game.get_player(event.player_index))
