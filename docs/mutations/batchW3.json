@@ -6,7 +6,7 @@
   "new": "    local revisions = {sheet = 0, config = 0}",
   "test": "tests/test_calc_pipeline.lua",
   "shapes": "2.0",
-  "expect": "CP-01",
+  "expect": "CP-08",
   "note": "a job that carries constant revisions can never match the sheet at publication"
  },
  {
@@ -45,7 +45,7 @@
   "new": "    if candidate.short_side ~= best.short_side then return candidate.short_side > best.short_side end",
   "test": "tests/test_pack.lua",
   "shapes": "2.0",
-  "expect": "P9",
+  "expect": "P10",
   "note": "BSSF turned into worst short side fit"
  },
  {
@@ -55,7 +55,7 @@
   "new": "        if region.w >= w or region.h >= h then",
   "test": "tests/test_pack.lua",
   "shapes": "2.0",
-  "expect": "P2",
+  "expect": "P12",
   "note": "one satisfied axis is enough to place, so blocks leave the area"
  },
  {
