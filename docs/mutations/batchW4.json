@@ -36,7 +36,7 @@
   "new": "                    if state.incumbent == nil or Validate.compare(score, state.incumbent.score) > 0 then",
   "test": "tests/test_search.lua",
   "shapes": "2.0",
-  "expect": "BP-20",
+  "expect": "the better candidate found second wins",
   "note": "the worse layout becomes the incumbent"
  },
  {
