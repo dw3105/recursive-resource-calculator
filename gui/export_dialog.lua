@@ -177,7 +177,7 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     titlebar.add{type = "label", name = "hxrrc_export_title", caption = {"hxrrc.export_dialog_title"},
         style = "frame_title"}
     local drag_space = titlebar.add{type = "empty-widget", name = "hxrrc_export_drag",
-        style = "draggable_space_with_no_left_margin"}
+        style = "draggable_space_header"}
     drag_space.style.horizontally_stretchable = true
     drag_space.style.height = 24
     drag_space.drag_target = frame

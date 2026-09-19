@@ -14,6 +14,23 @@ local function pinned_spec(shape)
     return assert(helpers.json_to_table(text), "pinned extract is not JSON: " .. PINNED[shape])
 end
 
+--The core style names, pinned from wube/factorio-data. A style the game has not got crashes add{} at once.
+local function pinned_styles()
+    local file = assert(io.open("docs/api/2.0.77.styles.json"), "missing pinned style list")
+    local text = file:read("*a")
+    file:close()
+    return assert(helpers.json_to_table(text), "pinned style list is not JSON")
+end
+
+--Every Lua file the release script copies, so a style named in any of them is checked
+local function shipped_lua_files()
+    local paths = {"control.lua"}
+    local listing = io.popen("ls gui/*.lua logic/*.lua logic/bp/*.lua 2>/dev/null")
+    for line in listing:lines() do paths[#paths + 1] = line end
+    listing:close()
+    return paths
+end
+
 local function set_of(list)
     local set = {}
     for _, name in ipairs(list or {}) do set[name] = true end
@@ -158,6 +175,24 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(connectors.pole_copper, true, "pole_copper carries power")
         H.equal(connectors.circuit_red, true, "circuit_red exists and never carries power")
         H.equal(defines.wire_connector_id.pole_copper ~= nil, true, "the harness serves the same define")
+    end)
+    H.test(shape .. " A7 every style the mod names exists in the pinned core styles", function()
+        H.new_world(shape)
+        local pinned = set_of(pinned_styles().styles)
+        H.equal(pinned.frame_action_button, true, "the pin carries the vanilla title bar button style")
+        local checked = 0
+        for _, path in ipairs(shipped_lua_files()) do
+            local file = assert(io.open(path))
+            local source = file:read("*a")
+            file:close()
+            for name in source:gmatch('style%s*=%s*"([A-Za-z_0-9]+)"') do
+                --1.1.47 crashed on open with "Unknown style draggable_space_with_no_left_margin": the mock took
+                --any string, so an invented style reached the game. The pin is what refuses one here.
+                H.equal(pinned[name], true, path .. " names style " .. name)
+                checked = checked + 1
+            end
+        end
+        H.equal(checked > 0, true, "at least one style name was checked")
     end)
 end
 

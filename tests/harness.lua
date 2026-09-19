@@ -448,6 +448,25 @@ local gui_methods = {}
 --Utility sprites the mod uses, each checked in 2.0.77 core/prototypes/utility-sprites.lua; any other utility path is refused
 local UTILITY_SPRITES = set_of({"check_mark_green", "close", "close_black", "empty_module_slot", "trash"})
 
+--Core style names, read once from docs/api/2.0.77.styles.json. nil when the pin is unreadable, so a caller
+--outside the repository is never blocked; false only for a name the pin does not carry.
+local pinned_styles = nil
+function H.style_valid(name)
+    if pinned_styles == nil then
+        local file = io.open("docs/api/2.0.77.styles.json")
+        if not file then pinned_styles = false
+        else
+            local text = file:read("*a")
+            file:close()
+            pinned_styles = {}
+            local list = text:match('"styles"%s*:%s*%[(.-)%]')
+            for entry in tostring(list):gmatch('"([^"]+)"') do pinned_styles[entry] = true end
+        end
+    end
+    if pinned_styles == false then return nil end
+    return pinned_styles[name] == true
+end
+
 --A typed sprite path ("item/…", "fluid/…", "entity/…", "quality/…", "utility/…") checked against what exists: true or false; nil for an untyped name
 function H.typed_sprite_valid(path)
     local sprite_type, sprite_name = tostring(path):match("^(%a+)/(.+)$")
@@ -718,6 +737,11 @@ function gui_methods.add(self, params)
         if params[key] and H.typed_sprite_valid(params[key]) == false then
             error("Unknown sprite " .. params[key], 3)
         end
+    end
+    --2.0.77 refuses a style the core prototypes never defined: 1.1.47 crashed on open with
+    --"Unknown style draggable_space_with_no_left_margin". The pinned list is what refuses one here.
+    if type(params.style) == "string" and H.style_valid(params.style) == false then
+        error("Unknown style " .. params.style, 3)
     end
     check_elem_filters(params)
     local child = new_gui_element(params, self)
