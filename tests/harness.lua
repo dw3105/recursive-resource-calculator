@@ -493,7 +493,16 @@ local FILTER_NAMES_BY_ELEM_TYPE = {
     ["recipe"] = set_of({"has-product-item", "has-product-fluid", "has-ingredient-item", "has-ingredient-fluid", "hidden", "category"}),
     --not documented for with-quality types (P12); modelled as the recipe filters
     ["recipe-with-quality"] = set_of({"has-product-item", "has-product-fluid", "has-ingredient-item", "has-ingredient-fluid", "hidden", "category"}),
-    ["entity-with-quality"] = set_of({"crafting-category", "name"}),
+    --2.0.77 EntityPrototypeFilter, every filter name the page lists; "type" is what a picker needs to offer one
+    --category alone, and the harness refused it until a player saw every entity in the game in one picker.
+    ["entity-with-quality"] = set_of({
+        "flying-robot", "robot-with-logistics-interface", "rail", "ghost", "explosion", "vehicle",
+        "crafting-machine", "rolling-stock", "turret", "transport-belt-connectable", "wall-connectable",
+        "buildable", "placable-in-editor", "clonable", "selectable", "hidden", "entity-with-health", "building",
+        "fast-replaceable", "uses-direction", "minable", "circuit-connectable", "autoplace", "blueprintable",
+        "item-to-place", "name", "type", "collision-mask", "flag", "build-base-evolution-requirement",
+        "selection-priority", "emissions-per-second", "crafting-category",
+    }),
     ["item-with-quality"] = set_of({"name"}),
 }
 --Nested item and fluid filters of has-product/has-ingredient filters match by name here
