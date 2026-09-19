@@ -76,11 +76,11 @@ end
 local function finish(input, operations)
     local state = Search.begin(input)
     local ticks = 0
-    while not state.done and ticks < 10000 do
+    while not state.done and ticks < 600 do
         ticks = ticks + 1
         Search.step(state, {ops = operations or 100000})
     end
-    H.equal(state.done, true, "search finishes within the test bound")
+    H.equal(state.done, true, "search finishes within the test bound; stopped in phase " .. tostring(state.phase))
     return state
 end
 
@@ -132,10 +132,11 @@ for _, shape in ipairs(H.shapes()) do
         }))
         state.current_revisions.sheet = 5
         local ticks = 0
-        while not state.done and ticks < 10000 do
+        while not state.done and ticks < 600 do
             ticks = ticks + 1
             Search.step(state, {ops = 100000})
         end
+        H.equal(state.done, true, "revision search finishes within the test bound; stopped in phase " .. tostring(state.phase))
         H.equal(state.errors[1].code, "BP_FAIL_REVISION_CHANGED", "the changed revision drops the result")
         H.equal(state.result, nil, "a stale result is never published")
     end)
@@ -146,8 +147,17 @@ for _, shape in ipairs(H.shapes()) do
         plain(state, "search")
         local resumed = clone(state)
         local first, second = state, resumed
-        while not first.done do Search.step(first, {ops = 100000}) end
-        while not second.done do Search.step(second, {ops = 100000}) end
+        local first_ticks, second_ticks = 0, 0
+        while not first.done and first_ticks < 600 do
+            first_ticks = first_ticks + 1
+            Search.step(first, {ops = 100000})
+        end
+        H.equal(first.done, true, "copied first cursor finishes within the test bound; stopped in phase " .. tostring(first.phase))
+        while not second.done and second_ticks < 600 do
+            second_ticks = second_ticks + 1
+            Search.step(second, {ops = 100000})
+        end
+        H.equal(second.done, true, "copied second cursor finishes within the test bound; stopped in phase " .. tostring(second.phase))
         H.deep_equal(first.result, second.result, "a copied cursor resumes the same layout")
     end)
 
@@ -155,11 +165,14 @@ for _, shape in ipairs(H.shapes()) do
         local state = Search.begin(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
         local fraction = Search.progress(state)
         H.equal(fraction < 1, true, "initial progress is below one")
-        while not state.done do
+        local ticks = 0
+        while not state.done and ticks < 600 do
+            ticks = ticks + 1
             Search.step(state, {ops = 1})
             local current = Search.progress(state)
             if not state.done then H.equal(current < 1, true, "live progress stays below one") end
         end
+        H.equal(state.done, true, "progress search finishes within the test bound; stopped in phase " .. tostring(state.phase))
         H.equal(Search.progress(state), 1, "committed progress reaches one")
     end)
 end
