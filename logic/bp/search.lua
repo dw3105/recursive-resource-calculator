@@ -191,6 +191,15 @@ local function append_all(target, source)
     for _, value in ipairs(source or {}) do target[#target + 1] = copy(value) end
 end
 
+local function bare_rects(entries)
+    local result = {}
+    for _, entry in ipairs(entries or {}) do
+        local rect = type(entry) == "table" and (entry.rect or entry)
+        if rect then result[#result + 1] = copy(rect) end
+    end
+    return result
+end
+
 local function stage_input(state, extra)
     local result = copy(state.work.input) or {}
     for key, value in pairs(extra or {}) do result[key] = copy(value) end
@@ -500,9 +509,9 @@ local function prepare_candidate(state)
         return prepare_candidate(state)
     end
     local ordering = state.work.orderings[state.cursor.order_index]
-    local obstacles = list_copy(state.work.robo_obstacles)
-    append_all(obstacles, state.work.input.obstacles)
-    append_all(obstacles, state.work.input.occupied)
+    local obstacles = bare_rects(state.work.robo_obstacles)
+    append_all(obstacles, bare_rects(state.work.input.obstacles))
+    append_all(obstacles, bare_rects(state.work.input.occupied))
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
         blocks = ordering.blocks, limits = state.work.input.limits or {}})
     set_phase(state, "pack")

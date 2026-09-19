@@ -1,6 +1,10 @@
 --The bounded blueprint search keeps the best complete candidate, grows grids deterministically, and distinguishes budget from impossibility.
 local H = require "tests.harness"
 
+local Grid = require "logic.bp.grid"
+local Pack = require "logic.bp.pack"
+local Power = require "logic.bp.power"
+local Route = require "logic.bp.route"
 local Search = require "logic.bp.search"
 local Validate = require "logic.bp.validate"
 
@@ -72,6 +76,16 @@ local function input_for(plan, extra)
     }
     for key, value in pairs(extra or {}) do input[key] = value end
     return input
+end
+
+local function roboport_input()
+    return input_for(one_step_plan(), {
+        include_roboports = true,
+        grids = {{w = 6, h = 4, roboports = {
+            {x = 0, y = 0, w = 1, h = 1},
+            {x = 2, y = 2, w = 1, h = 1},
+        }}},
+    })
 end
 
 local function finish(input, operations)
@@ -148,6 +162,91 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.result ~= nil, true, "a complete result is published")
         H.equal(state.incumbent ~= nil, true, "a validated incumbent was retained")
         H.equal(state.incumbent.validation ~= nil, true, "the incumbent includes validation output")
+    end)
+
+    H.test(shape .. " BP-15 a roboport grid reaches a placement without raising", function()
+        local input = roboport_input()
+        local packed_obstacles
+        local original_begin = Pack.begin
+        Pack.begin = function(stage_input)
+            packed_obstacles = clone(stage_input.obstacles)
+            return original_begin(stage_input)
+        end
+        local ok, state_or_error = pcall(function() return finish(input) end)
+        Pack.begin = original_begin
+        H.equal(ok, true, "a roboport search reaches placement without raising: " .. tostring(state_or_error))
+        if not ok then return end
+
+        local state = state_or_error
+        for index, roboport in ipairs(input.grids[1].roboports) do
+            local obstacle = packed_obstacles and packed_obstacles[index]
+            H.equal(obstacle ~= nil, true, "the packer receives roboport " .. tostring(index))
+            if obstacle then
+                H.equal(obstacle.rect, nil, "the packer receives a bare rectangle for roboport " .. tostring(index))
+                H.deep_equal(obstacle, roboport, "the packer receives roboport rectangle " .. tostring(index))
+            end
+        end
+        H.equal(state.ok, true, "the roboport search succeeds")
+        H.equal(state.incumbent ~= nil, true, "the roboport search retains a candidate")
+        local placements = state.incumbent and state.incumbent.candidate and state.incumbent.candidate.placements or {}
+        H.equal(#placements > 0, true, "the roboport search has a placement")
+        for _, placement in ipairs(placements) do
+            for _, roboport in ipairs(input.grids[1].roboports) do
+                H.equal(Grid.intersects(placement, roboport), false,
+                    "placement avoids roboport at " .. tostring(roboport.x) .. "," .. tostring(roboport.y))
+            end
+        end
+    end)
+
+    H.test(shape .. " BP-20 the power stage keeps owners for roboport obstacles", function()
+        local input = roboport_input()
+        local occupied
+        local original_begin = Power.begin
+        Power.begin = function(stage_input)
+            occupied = clone(stage_input.occupied)
+            return original_begin(stage_input)
+        end
+        local ok, state_or_error = pcall(function() return finish(input) end)
+        Power.begin = original_begin
+        H.equal(ok, true, "the power-owner search finishes without raising: " .. tostring(state_or_error))
+        if not ok then return end
+        H.equal(state_or_error.ok, true, "the power-owner search succeeds")
+        for index, roboport in ipairs(input.grids[1].roboports) do
+            local owner = "k:" .. tostring(index)
+            local found
+            for _, entry in ipairs(occupied or {}) do
+                if entry.owner == owner then found = entry.rect; break end
+            end
+            H.equal(found ~= nil, true, "the power stage receives owner " .. owner)
+            if found then H.deep_equal(found, roboport, "the power stage receives rectangle for " .. owner) end
+        end
+    end)
+
+    H.test(shape .. " BP-20 the router receives owner-bearing roboport obstacles", function()
+        local input = roboport_input()
+        local obstacles
+        local original_begin = Route.begin
+        Route.begin = function(stage_input)
+            obstacles = clone(stage_input.obstacles)
+            return original_begin(stage_input)
+        end
+        local ok, state_or_error = pcall(function() return finish(input) end)
+        Route.begin = original_begin
+        H.equal(ok, true, "the router-shape search finishes without raising: " .. tostring(state_or_error))
+        if not ok then return end
+        H.equal(state_or_error.ok, true, "the router-shape search succeeds")
+        for index, roboport in ipairs(input.grids[1].roboports) do
+            local owner = "k:" .. tostring(index)
+            local found
+            for _, entry in ipairs(obstacles or {}) do
+                if entry.owner == owner then found = entry; break end
+            end
+            H.equal(found ~= nil, true, "the router receives owner " .. owner)
+            if found then
+                H.equal(found.rect ~= nil, true, "the router receives a nested rectangle for " .. owner)
+                H.deep_equal(found.rect, roboport, "the router receives rectangle for " .. owner)
+            end
+        end
     end)
 
     H.test(shape .. " BP-15 the same input searched twice is deterministic", function()
