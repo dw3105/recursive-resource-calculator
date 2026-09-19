@@ -304,8 +304,11 @@ end
 --refuses every cell outside the grid. The port then moves to the block's opposite side, which is the same
 --distance from its machine and is still a tile outside the block, as §5.8 requires.
 local function mirrored_port(block, port)
-    local w = finite(block._w, finite(block.w, 1))
-    local h = finite(block._h, finite(block.h, 1))
+    --The attach coordinates are written in the block's own frame, so the mirror is computed there too. Reading
+    --the rotated size here made a rotated block never mirror, and its port stayed one tile outside the world.
+    local envelope = type(block.envelope) == "table" and block.envelope or block
+    local w = finite(block.w, finite(envelope.w, 1))
+    local h = finite(block.h, finite(envelope.h, 1))
     local mirrored = {}
     for key, value in pairs(port) do mirrored[key] = value end
     if port.attach_dy == -1 then
