@@ -662,6 +662,11 @@ local function reason_details(errors)
             end
         end
         for _, child in ipairs(record) do add(child) end
+        --A stage may carry its own breakdown under a named field rather than as array children.  Search puts the
+        --validator rejection counts there, and without this they never reach the failure caption or the export.
+        if type(record.reason_details) == "table" then
+            for _, child in ipairs(record.reason_details) do add(child) end
+        end
     end
     add(errors)
     return details
