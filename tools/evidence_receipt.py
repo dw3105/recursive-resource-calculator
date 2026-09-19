@@ -27,6 +27,11 @@ def _json(value: Any) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+def observation_sha256(observation: Mapping[str, Any]) -> str:
+    """Hash the exact observation object before host-owned receipt fields are added."""
+    return hashlib.sha256(_json(observation).encode("utf-8")).hexdigest()
+
+
 def zip_sha256(archive: Path) -> str:
     digest = hashlib.sha256()
     try:
@@ -181,12 +186,18 @@ def make_receipt(
 
     # Keep the original observation intact for auditability, but add the host-owned
     # facts at the top level.  The archive hash is always computed above.
+    outcome_kind = observation.get("outcome_kind")
+    if outcome_kind is None and isinstance(observation.get("outcome"), Mapping):
+        outcome_kind = observation["outcome"].get("kind")
     return {
         "schema_version": 1,
         "case": observed_case,
+        "case_id": observed_case,
+        "outcome_kind": outcome_kind,
         "candidate_sha": build["candidate_sha"],
         "environment": observed_environment,
         "zip_sha256": computed_hash,
+        "observation_sha256": observation_sha256(observation),
         "build_id": dict(build),
         "observation": dict(observation),
     }
