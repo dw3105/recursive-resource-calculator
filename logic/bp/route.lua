@@ -1023,14 +1023,20 @@ local function restart_with_priority(state, work, demand)
     for _, entry in ipairs(ordered) do entry.remaining = entry.amount end
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
-    work.attempt_generation, work.expansions, work.current = work.attempt_generation + 1, 0, nil
+    work.attempt_generation, work.current = work.attempt_generation + 1, nil
     state.cursor.demand_index, state.progress.done_units = 1, 0
     state.progress.phase = "routing"
     return true
 end
 
+local function clear_route_work(work)
+    work.entities, work.segments, work.bindings = {}, {}, {}
+    work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
+    work.current = nil
+end
+
 local function fail_demand(state, work, demand, code, detail)
-    if restart_with_priority(state, work, demand) then return false end
+    if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
     local record = {code = code, flow_id = demand and demand.flow_id}
     if detail ~= nil then record.detail = detail end
     state.errors, state.done, state.ok = {record}, true, false
@@ -1045,8 +1051,18 @@ function Route.begin(input)
         counters = work.counters, work = work}
 end
 
+function Route.cancel(state)
+    if type(state) ~= "table" or state.done then return state end
+    clear_route_work(state.work)
+    state.cancelled, state.done, state.ok, state.result = true, true, false, nil
+    state.errors = {{code = "BP_FAIL_CANCELLED"}}
+    state.progress.phase = "cancelled"
+    return state
+end
+
 function Route.step(state, budget)
     if state.done then return state end
+    if state.cancelled then return Route.cancel(state) end
     budget = budget or {ops = 1}
     local ops = finite(budget.ops, 1)
     if ops < 0 then ops = 0 end
@@ -1103,13 +1119,13 @@ function Route.step(state, budget)
                 end
                 end
             else
-                work.expansions = work.expansions + 1
-                work.counters.expansions = work.counters.expansions + 1
-                if work.expansions > work.max_expansions then
+                if work.expansions >= work.max_expansions then
                     work.current, ops = nil, ops - 1
                     abandon_search(work, "expansions")
                     if fail_demand(state, work, demand, "BP_R_EXPANSIONS") then break end
                 else
+                work.expansions = work.expansions + 1
+                work.counters.expansions = work.counters.expansions + 1
                 local outcome = search_step(work, work.current)
                 ops = ops - 1
                 if type(outcome) == "table" then
@@ -1125,7 +1141,6 @@ function Route.step(state, budget)
                     abandon_search(work, reason)
                     if search.saw_blocked and not search.saw_capacity and not search.saw_fluid_mix
                         and search.order_index < #DIRECTION_ORDERS then
-                        work.expansions = 0
                         work.current = begin_search(work, demand, amount, search.order_index + 1)
                     else
                         local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
