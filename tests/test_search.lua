@@ -2,6 +2,7 @@
 local H = require "tests.harness"
 
 local Search = require "logic.bp.search"
+local Validate = require "logic.bp.validate"
 
 local function clone(value, seen)
     if type(value) ~= "table" then return value end
@@ -84,6 +85,62 @@ local function finish(input, operations)
     return state
 end
 
+local function finish_with_validation_scores(input, label)
+    local scores = {}
+    local original_step = Validate.step
+    Validate.step = function(stage, budget)
+        original_step(stage, budget)
+        if stage.done and stage.ok then scores[#scores + 1] = clone(stage.result.score) end
+    end
+
+    local ok, state_or_error = pcall(function()
+        local state = Search.begin(input)
+        local ticks = 0
+        while not state.done and ticks < 600 do
+            ticks = ticks + 1
+            Search.step(state, {ops = 100000})
+        end
+        H.equal(state.done, true, label .. " finishes within the test bound; stopped in phase " .. tostring(state.phase))
+        return state
+    end)
+    Validate.step = original_step
+    if not ok then error(state_or_error) end
+    return state_or_error, scores
+end
+
+local function comparison_catalog()
+    local catalog = base_catalog()
+    catalog.entity["wide-assembler"] = {
+        name = "wide-assembler", tile_w = 2, tile_h = 1, energy_usage_w = 1,
+        collision_box = box(), collision_mask = {"item-layer"},
+    }
+    return catalog
+end
+
+local function comparison_group(signature)
+    return {signature = signature, name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {}}
+end
+
+local function comparison_plan()
+    return {steps = {
+        {step_id = "a", machine = "assembler", machine_count = 1, power_w = 1, modules = {},
+            beacon_groups = {comparison_group("group-a")}},
+        {step_id = "b", machine = "wide-assembler", machine_count = 1, power_w = 1, modules = {},
+            beacon_groups = {comparison_group("group-b")}},
+    }, flows = {}, ports = {}}
+end
+
+local function comparison_input(orderings, grid)
+    return {
+        plan = comparison_plan(), catalog = comparison_catalog(), pole = pole(), include_roboports = false,
+        grids = {grid or {w = 3, h = 4}}, block_orderings = clone(orderings),
+    }
+end
+
+local function comparison_order(first, second)
+    return {{first, second}, {second, first}}
+end
+
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " BP-15 a small feasible plan publishes a validated blueprint", function()
         local state = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
@@ -105,6 +162,40 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.ok, true, "the multi-grid search succeeds")
         H.equal(state.incumbent.score.beacon_count, 1, "the larger grid admits the one-beacon grouping")
         H.equal(state.result ~= nil, true, "the best complete candidate is serialized")
+    end)
+
+    H.test(shape .. " BP-20 the better candidate found second wins", function()
+        local state, scores = finish_with_validation_scores(
+            comparison_input(comparison_order("block:a", "block:b")), "second-candidate comparison search")
+        H.equal(state.ok, true, "the comparison search succeeds")
+        H.equal(#scores, 2, "exactly two candidates were validated")
+        H.equal(Validate.compare(scores[2], scores[1]), -1, "the second candidate ranks ahead of the first")
+        H.equal(Validate.compare(state.incumbent.score, scores[2]), 0,
+            "the incumbent is the candidate Validate.compare ranks first")
+    end)
+
+    H.test(shape .. " BP-20 the better first candidate survives a worse follow-up", function()
+        local state, scores = finish_with_validation_scores(
+            comparison_input(comparison_order("block:b", "block:a")), "first-candidate comparison search")
+        H.equal(state.ok, true, "the mirror comparison search succeeds")
+        H.equal(#scores, 2, "exactly two candidates were validated")
+        H.equal(Validate.compare(scores[1], scores[2]), -1, "the first candidate ranks ahead of the second")
+        H.equal(Validate.compare(state.incumbent.score, scores[1]), 0,
+            "the incumbent never changes to the worse follow-up")
+    end)
+
+    H.test(shape .. " BP-20 equal beacon counts defer to footprint area", function()
+        local state, scores = finish_with_validation_scores(
+            comparison_input(comparison_order("block:a", "block:b"), {w = 3, h = 5}),
+            "footprint tie-break search")
+        H.equal(state.ok, true, "the tie-break search succeeds")
+        H.equal(#scores, 2, "two candidates were validated for the tie-break")
+        H.equal(scores[1].beacon_count, scores[2].beacon_count, "the candidates tie on beacon count")
+        H.equal(scores[1].footprint_area < scores[2].footprint_area, true,
+            "the first candidate has the smaller footprint")
+        H.equal(Validate.compare(scores[1], scores[2]), -1, "footprint area decides the beacon-count tie")
+        H.equal(Validate.compare(state.incumbent.score, scores[1]), 0,
+            "the incumbent keeps the smaller-footprint candidate")
     end)
 
     H.test(shape .. " BP-15 exhausting the search budget is not no-layout", function()
