@@ -395,6 +395,27 @@ for _, shape in ipairs(H.shapes()) do
         H.near_relative(decoded.prepared_input.snapshot.nested.rate, 1.2345678901234567, "prepared number after round trip")
         H.near_relative(decoded.prepared_input.solver_result.residual, 0.00000000012345678, "prepared residual after round trip")
     end)
+    --The record contracts §19 freezes lives at storage[pi].calc_results[sheet_id]. 1.1.47 shipped an export that
+    --never read it, so a calculated sheet exported as state "not_computed" with no columns at all.
+    H.test(shape .. " E24 the export reads the published calculation record", function()
+        world_with(shape)
+        local Calculation = require "logic.calculation_result"
+        local _, sheet_flow = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local snapshot = Snapshot.of_sheet(sheet_flow)
+        H.equal(Calculation.publish({
+            schema_version = 1, player_index = 1, sheet_id = snapshot.sheet_id,
+            sheet_revision = snapshot.revisions.sheet, config_revision = snapshot.revisions.config,
+            input_fingerprint = snapshot.fingerprint.input, result = result_for(snapshot), published_tick = 11,
+        }), true, "the record publishes")
+
+        local payload, state = build(sheet_flow)
+        H.equal(state, "current", "a published record makes the sheet current")
+        H.equal(payload.state, "current", "and the payload says so")
+        H.equal(#payload.calculation.columns, 1, "the export carries the calculated columns")
+        H.equal(payload.calculation.columns[1].recipe_name, "gear", "with the recipe of the step")
+        H.equal(payload.calculation.columns[1].machine.name, "assembler", "and the machine it was computed with")
+    end)
+
 end
 
 H.done("test_export_payload")

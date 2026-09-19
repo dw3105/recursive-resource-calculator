@@ -19,7 +19,10 @@ ExportPayload.FORMAT = "rrc-sheet-debug"
 ExportPayload.SCHEMA_VERSION = 1
 ExportPayload.ENCODING = "zlib+base64"
 
+--`calc_results` is where contracts §19 says a finished calculation publishes its record. It is listed first, and
+--the rest are older spellings kept so an export taken on a save from an older build still finds its numbers.
 local RESULT_MAP_KEYS = {
+    "calc_results",
     "calculation_results", "last_calculations", "results_by_sheet", "sheet_results", "last_results",
     "calculation_by_sheet_id", "last_calculation_by_sheet_id", "calculation_results_by_sheet_id",
 }
