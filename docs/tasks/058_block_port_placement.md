@@ -33,15 +33,24 @@ Two separate defects, both about where a block port attaches:
 
 Two steps that share one block (`block:cable+circuit`) still exchange `item/cable` through ports on that block's outside. That is the contract's rule and it stays; the ports simply have to land on free cells inside the grid.
 
-## What attempt 1 left behind
+## What the two earlier attempts left behind
 
-Attempt 1 ran out of its deadline and committed `WIP: 058_block_port_placement`, which is in your branch. On that
-tree `lua5.2 docs/tasks/058_reproducer.lua` **never finishes**: it was still running after 120 seconds and had
-printed nothing. A hang is worse than the failure it replaced, so the first thing you do is bound every loop you
-touched and make that command finish, pass or fail, well inside its 900-second check.
+Attempt 1 timed out and left `WIP: 058_block_port_placement`. Attempt 2 built on it and committed
+`828309c Fix block port attachment placement`, then hit `engine-timeout`, exit 124. Both commits are in your
+branch. Keep the good parts; the approach itself is what has to change.
 
-Its one useful piece is the failure detail: `endpoint_block_detail` now names the blocked cell and its owner in
-`BP_R_PORT_BLOCKED`. Keep that.
+What attempt 2 did: every block with ports now demands a free region of `w + 2` by `h + 2` in
+`logic/bp/pack.lua`, a margin ring on all four sides, and `logic/bp/groups.lua` spills ports onto whichever edge
+still has a free slot. Its own new cases pass, and the blocked-cell detail it added to `BP_R_PORT_BLOCKED` is
+right and stays.
+
+What that costs, measured on this base: `lua5.2 docs/tasks/058_reproducer.lua` ran **past 300 seconds** and was
+killed, where the same command on the tree before the change finishes in a few seconds with
+`REPRO state=failure`. A ring on all four sides makes every small grid too small, so the search grows the grid
+again and again and the player waits forever. `PERF-02` asks a feasible fixture to finish well under 10 seconds.
+
+So: reserve only what a port actually needs. A block's port sits on one edge; only the cells that port uses have
+to stay free, not a ring. Say in your report which cells you reserve and why the count is small.
 
 ## What to build
 
@@ -56,14 +65,15 @@ Its one useful piece is the failure detail: `endpoint_block_detail` now names th
 ## What done mean
 
 ```checks
-{"name": "reproducer", "command": "lua5.2 docs/tasks/058_reproducer.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
+{"name": "reproducer", "command": "timeout 60 lua5.2 docs/tasks/058_reproducer.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 120}
 {"name": "owned-tests", "command": "lua5.2 tests/test_groups.lua && lua5.2 tests/test_pack.lua && lua5.2 tests/test_route.lua && lua5.4 tests/test_groups.lua && lua5.4 tests/test_pack.lua && lua5.4 tests/test_route.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "algorithm-neighbours", "command": "lua5.2 tests/test_search.lua && lua5.2 tests/test_validate.lua && lua5.2 tests/test_blueprint_pipeline.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
 {"name": "owned-only", "command": "python3 tools/lane_ownership.py --base port-tile-base --manifest docs/tasks/058.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
-- Paste the reproducer failing before and passing after.
+- Paste the reproducer failing before and passing after, with the wall-clock time of the passing run.
+- The passing run finishes inside 60 seconds. A run that needs longer is a failure, however correct its layout.
 - `git diff --stat port-tile-base HEAD` pasted.
 
 Run the checks as your **last** action, after your final commit.
