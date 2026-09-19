@@ -1,10 +1,16 @@
 # Golden workflow
 
-Golden cases are reviewed, deterministic comparisons of the blueprint path.
-The comparator canonicalizes the blueprint structure with the rules owned by
-`logic/bp/serialize.lua`: entity numbers and translation are normalized, while
-directions, module quality, recipes, connections and wires remain meaningful.
-Compressed blueprint bytes are never compared.
+Golden cases compare the candidate's own blueprint path. A captured case has a
+`prepared_input.json` in the shape frozen by `docs/feature-contracts.md` §17.2.
+`tests/golden/run` invokes `tests/golden/generate.lua`, which drives the real
+Lua `logic.bp.search` state machine and its `logic/bp/serialize.lua` canonical
+form. Python only performs the independent comparison; it never constructs a
+candidate blueprint.
+
+The Lua result contains the canonical structure, `canonical_version`, a digest,
+the raw result, stage diagnostics and a fresh `logic/bp/validate.lua` receipt.
+The Python side checks the canonical structure and digest again. Canonical
+versions must match. Compressed blueprint strings are never compared.
 
 ## Add a case
 
@@ -15,29 +21,20 @@ engine scenario:
 tests/golden/add_case iron-gear --export export.txt --options options.json
 ```
 
-The tool fills versions, targets and setup from the snapshot and creates a
-draft `candidate.json`; it does not create an expectation. Reviewers then add
-the expected result and the small human-owned fields in `manifest.json`, such
-as `expected_outcome`, `engine_scenario.expected_rates`, and any independent
-entity-count assertions. A case manifest records at least:
+The tool preserves `export.json` (and the original `export.txt` when supplied),
+`options.json`, a captured `prepared_input.json` when the export contains one,
+and `provenance.json`. The manifest is marked `state: "draft"` and the
+candidate placeholder is intentionally unfilled. A draft or placeholder cannot
+satisfy the release corpus; handwritten fixtures are supported only when an
+existing manifest explicitly has no captured input.
 
-```json
-{
-  "engine_scenario": {
-    "initial_state": {},
-    "supply": [],
-    "drain": [],
-    "warm_up_ticks": 600,
-    "sampling_window_ticks": 3600,
-    "expected_rates": {"item/example": 1.0},
-    "allowed_discrete_error": 0.01,
-    "timeout_seconds": 60
-  }
-}
-```
+A captured input and a handwritten fixture are different provenance classes.
+The existing small canonical case is the latter because its frozen manifest has
+no prepared input; it exercises canonical comparison only. New production
+cases should be captured inputs.
 
-The candidate is a draft until reviewed. A generator or a game capture is not
-proof by itself.
+`--force` may replace a draft case only. It cannot replace a case with an
+accepted expectation, and it never changes an expectation.
 
 ## Run and accept
 
@@ -46,22 +43,23 @@ sh tests/golden/run --branch 2.0
 tests/golden/accept iron-gear
 ```
 
-`run` discovers case directories, compares canonical structures or sorted
-reason codes for rejection cases, and checks independent invariants. On a
-failure it writes diagnostics under `.golden-failures/` (expected/actual
-canonical JSON, a readable diff, candidate string, inputs and timings).
+For a captured case, `run` refuses any checked-in `actual`/`candidate` file as
+stale or foreign and generates a fresh result. A normal run never writes an
+expectation. On failure it writes expected and actual canonical JSON, a diff,
+inputs, provenance, validator/stage diagnostics, timings, and a production
+layout overlay under `.golden-failures/`.
 
-The normal run has no code path that writes `expected*` files. It may write
-failure diagnostics, but never rewrites an expectation. Only the explicit
-`accept` command replaces one expectation, after independent checks pass, and
-it leaves a reviewable old/new/diff/provenance record under the artifact
-directory.
+Independent assertions are declared in `independent_assertions` (for example
+`conservation`, `simultaneous_demand`, `transport_capacity`,
+`beacon_coverage`, `power_connectivity`, or `grid_containment`). They are
+proved by a fresh call to `logic/bp/validate.lua`; a stored `ok: true` or an
+entity count is not proof.
 
-That separation is also the release rule: a development checkout may produce
-drafts and offline comparison results, but it cannot turn either into accepted
-engine evidence or a reviewed release baseline by merely running the normal
-command.
+`accept` is the only expectation-changing path. It first runs the same
+generation and validation checks, then writes the named expectation and a
+reviewable old/new/diff/provenance receipt. Branch selection reports cases that
+do not apply, and fails when it has no accepted required case.
 
 Run the fast suite with `sh tests/run.sh`; it does not invoke this corpus or
 start a game. Run the corpus during release preparation, with the engine
-companion and the packaged candidate when in-game evidence is required.
+companion and packaged candidate when in-game evidence is required.

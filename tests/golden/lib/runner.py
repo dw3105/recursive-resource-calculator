@@ -1,14 +1,10 @@
 #!/usr/bin/env python3
-"""Run the release-only golden comparator without modifying a case baseline.
+"""Run the release-only golden corpus without modifying a baseline.
 
-The runner is intentionally a file comparator: an engine harness may place a
-generated blueprint/result in a case's ``actual`` file, or pass one with
-``--candidate``.  It never invokes Factorio implicitly and never accepts a
-candidate merely because the generator produced it.
-
-``run accept CASE`` is provided as a convenience for this lane's explicit
-accept operation.  A normal invocation has no code path that writes an
-expectation.
+Captured cases are generated afresh by the Lua bridge over their recorded
+PreparedInput.  Cases without a prepared input are explicitly supported as
+handwritten canonical fixtures.  A normal invocation never writes an
+expectation; ``run accept CASE`` is the explicit replacement path.
 """
 
 from __future__ import annotations
@@ -22,7 +18,9 @@ import json
 import math
 import os
 import re
+import shutil
 import sys
+import subprocess
 import time
 import zlib
 from pathlib import Path
@@ -33,6 +31,15 @@ class GoldenError(Exception):
     pass
 
 
+REPO_ROOT = Path(__file__).resolve().parents[3]
+GENERATOR = REPO_ROOT / "tests" / "golden" / "generate.lua"
+SEMANTIC_ASSERTIONS = {
+    "conservation", "flow_conservation", "simultaneous_demand", "transport_capacity", "belt_capacity",
+    "beacon_coverage", "power_connectivity", "grid_containment", "machine_counts", "capacities",
+    "wire_legality", "port_edges", "collisions",
+}
+
+
 def read_json(path: Path) -> Any:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
@@ -40,6 +47,30 @@ def read_json(path: Path) -> Any:
         raise GoldenError(f"cannot read {path}: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise GoldenError(f"{path} is not valid JSON: {exc}") from exc
+
+
+def is_placeholder(value: Any) -> bool:
+    """Return true for the deliberately unfilled draft marker add_case writes."""
+    if not isinstance(value, dict):
+        return False
+    if value.get("TODO"):
+        return True
+    return any(isinstance(item, str) and "TODO" in item.upper() for item in value.values())
+
+
+def sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise GoldenError(f"cannot hash {path}: {exc}") from exc
+    return digest.hexdigest()
+
+
+def sha256_value(value: Any) -> str:
+    return hashlib.sha256(stable_json(value).encode("utf-8")).hexdigest()
 
 
 def write_json(path: Path, value: Any) -> None:
@@ -63,6 +94,17 @@ def finite(value: Any, fallback: Optional[float] = None) -> Optional[float]:
 
 def deep_copy(value: Any) -> Any:
     return copy.deepcopy(value)
+
+
+def canonical_numbers(value: Any) -> Any:
+    """Match Serialize.lua's JSON boundary: integral numbers are written whole."""
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    if isinstance(value, list):
+        return [canonical_numbers(item) for item in value]
+    if isinstance(value, dict):
+        return {key: canonical_numbers(item) for key, item in value.items()}
+    return value
 
 
 def list_or_map(value: Any) -> List[Any]:
@@ -395,7 +437,7 @@ def canonical(value: Any) -> Dict[str, Any]:
     wires = normalize_wires(source.get("wires"), references)
     if wires:
         result["wires"] = wires
-    return {"blueprint": result} if wrapped else result
+    return canonical_numbers({"blueprint": result} if wrapped else result)
 
 
 def decode_blueprint_string(value: str) -> Dict[str, Any]:
@@ -418,8 +460,13 @@ def decode_blueprint_string(value: str) -> Dict[str, Any]:
 def load_value(path: Path) -> Tuple[Any, Optional[str]]:
     if path.suffix.lower() in (".txt", ".blueprint", ".bp"):
         text = path.read_text(encoding="utf-8")
-        return decode_blueprint_string(text), text.strip()
+        value = decode_blueprint_string(text)
+        if is_placeholder(value):
+            raise GoldenError(f"{path} is an unfilled draft placeholder")
+        return value, text.strip()
     value = read_json(path)
+    if is_placeholder(value):
+        raise GoldenError(f"{path} is an unfilled draft placeholder")
     if isinstance(value, str):
         return decode_blueprint_string(value), value
     if isinstance(value, dict):
@@ -494,6 +541,102 @@ def actual_path(case: Path, manifest: Mapping[str, Any], override: Optional[Path
         case, ("actual_blueprint.txt", "actual.blueprint", "actual.json", "candidate.blueprint", "candidate.json",
                "generated.blueprint", "generated.json", "output.json", "result.json")
     )
+
+
+def prepared_input_path(case: Path, manifest: Mapping[str, Any]) -> Optional[Path]:
+    declared = path_from_manifest(case, manifest, ("prepared_input", "prepared", "input"))
+    return declared or first_existing(case, ("prepared_input.json", "prepared.json", "input.json"))
+
+
+def provenance_path(case: Path) -> Optional[Path]:
+    path = case / "provenance.json"
+    return path if path.exists() and path.is_file() else None
+
+
+def case_provenance(case: Path, manifest: Mapping[str, Any], input_path: Optional[Path]) -> Dict[str, Any]:
+    result: Dict[str, Any] = {}
+    path = provenance_path(case)
+    if path:
+        try:
+            value = read_json(path)
+            if isinstance(value, dict):
+                result.update(value)
+        except GoldenError as exc:
+            result["error"] = str(exc)
+    result.setdefault("case_id", manifest.get("case_id", case.name))
+    result.setdefault("source_kind", manifest.get("source_kind", "captured" if input_path else "handwritten_fixture"))
+    if input_path and input_path.exists():
+        result.setdefault("prepared_input", input_path.name)
+        result.setdefault("prepared_input_sha256", sha256_file(input_path))
+    return result
+
+
+def lua_interpreter() -> str:
+    candidates = [os.environ.get("GOLDEN_LUA"), "lua5.2", "lua"]
+    for candidate in candidates:
+        if candidate and shutil.which(candidate):
+            return candidate
+    raise GoldenError("no Lua interpreter found (tried GOLDEN_LUA, lua5.2 and lua)")
+
+
+def generator_path() -> Path:
+    override = os.environ.get("GOLDEN_GENERATOR")
+    return Path(override).resolve() if override else GENERATOR
+
+
+def run_lua_generator(input_path: Path) -> Dict[str, Any]:
+    command = [lua_interpreter(), str(generator_path()), "--input", str(input_path)]
+    try:
+        result = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
+    except OSError as exc:
+        raise GoldenError(f"could not start Lua generator: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise GoldenError(f"Lua generator failed for {input_path}: {detail}")
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise GoldenError(f"Lua generator did not emit JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise GoldenError("Lua generator emitted a non-object result")
+    return value
+
+
+def run_lua_validation(candidate_path: Path, input_path: Path) -> Dict[str, Any]:
+    command = [lua_interpreter(), str(generator_path()), "--input", str(input_path), "--validate", str(candidate_path)]
+    try:
+        result = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
+    except OSError as exc:
+        raise GoldenError(f"could not start Lua validator: {exc}") from exc
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise GoldenError(f"Lua validator failed: {detail}")
+    try:
+        value = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        raise GoldenError(f"Lua validator did not emit JSON: {exc}") from exc
+    if not isinstance(value, dict):
+        raise GoldenError("Lua validator emitted a non-object result")
+    return value
+
+
+def semantic_assertions(manifest: Mapping[str, Any]) -> List[str]:
+    assertions = manifest.get("independent_assertions", manifest.get("assertions", manifest.get("invariants", {})))
+    if not isinstance(assertions, dict):
+        return []
+    return sorted(key for key, value in assertions.items() if key in SEMANTIC_ASSERTIONS and value is not False)
+
+
+def actual_from_generator(payload: Mapping[str, Any]) -> Any:
+    result = payload.get("result")
+    return result if isinstance(result, dict) else payload
+
+
+def canonical_version_of(manifest: Mapping[str, Any], value: Any) -> int:
+    if isinstance(value, dict) and isinstance(value.get("canonical_version"), int):
+        return value["canonical_version"]
+    declared = manifest.get("canonical_version", 1)
+    return declared if isinstance(declared, int) else 1
 
 
 def reason_codes(value: Any) -> List[str]:
@@ -600,58 +743,170 @@ def independent_checks(manifest: Mapping[str, Any], value: Any) -> List[str]:
     return failures
 
 
+def write_failure_artifacts(case: Path, manifest: Mapping[str, Any], artifact_root: Path, expected_canonical: Any,
+                            actual_canonical: Any, expected_codes: Sequence[str], actual_codes: Sequence[str],
+                            validation: Sequence[str], actual_string: Optional[str], actual_payload: Any,
+                            input_path: Optional[Path], timings: Mapping[str, Any], stage: Any) -> None:
+    failure_dir = artifact_root / case.name
+    failure_dir.mkdir(parents=True, exist_ok=True)
+    expected_for_diff = expected_canonical if expected_canonical is not None else {"reason_codes": sorted(set(expected_codes))}
+    actual_for_diff = actual_canonical if actual_canonical is not None else {"reason_codes": sorted(set(actual_codes))}
+    if expected_canonical is not None:
+        write_json(failure_dir / "expected_canonical.json", expected_canonical)
+    if actual_canonical is not None:
+        write_json(failure_dir / "actual_canonical.json", actual_canonical)
+    diff = difflib.unified_diff(pretty_json(expected_for_diff).splitlines(True), pretty_json(actual_for_diff).splitlines(True),
+                                fromfile="expected", tofile="actual")
+    (failure_dir / "diff.txt").write_text("".join(diff), encoding="utf-8")
+    if actual_string:
+        (failure_dir / "blueprint_string.txt").write_text(actual_string + "\n", encoding="utf-8")
+    inputs: Dict[str, Any] = {}
+    for name in ("inputs.json", "input.json", "prepared_input.json", "prepared.json", "snapshot.json", "export.json", "options.json"):
+        source = case / name
+        if source.exists():
+            try:
+                inputs[name] = read_json(source)
+            except GoldenError as exc:
+                inputs[name] = {"error": str(exc)}
+    write_json(failure_dir / "inputs.json", inputs)
+    write_json(failure_dir / "provenance.json", case_provenance(case, manifest, input_path))
+    diagnostics: Dict[str, Any] = {"failures": list(validation), "stage": stage}
+    if isinstance(actual_payload, dict):
+        if actual_payload.get("errors") is not None:
+            diagnostics["generator_errors"] = actual_payload["errors"]
+        if actual_payload.get("validation") is not None:
+            diagnostics["validation"] = actual_payload["validation"]
+    write_json(failure_dir / "diagnostics.json", diagnostics)
+    write_json(failure_dir / "timings.json", dict(timings))
+    if isinstance(actual_payload, dict) and actual_payload.get("result") is not None:
+        write_json(failure_dir / "generated_result.json", actual_payload["result"])
+    if str(manifest.get("expected_outcome", manifest.get("outcome", "production"))).lower() not in {
+        "failure", "failed", "rejection", "rejected", "negative"
+    }:
+        source = actual_payload.get("result", actual_payload) if isinstance(actual_payload, dict) else actual_payload
+        overlay = source.get("blueprint", source) if isinstance(source, dict) else {}
+        overlay_value = {
+            "entities": [
+                {"entity_number": entity.get("entity_number"), "name": entity.get("name"),
+                 "position": entity.get("position"), "direction": entity.get("direction")}
+                for entity in overlay.get("entities", []) if isinstance(entity, dict)
+            ],
+            "wires": overlay.get("wires", []) if isinstance(overlay, dict) else [],
+        }
+        write_json(failure_dir / "layout_overlay.json", overlay_value)
+
+
 def compare_case(case: Path, manifest: Mapping[str, Any], candidate_override: Optional[Path], artifact_root: Path) -> Tuple[bool, Dict[str, Any]]:
     started = time.monotonic()
+    generation_started = time.monotonic()
     expected_raw, expected_string, expected_path = expected_value(case, manifest)
+    input_path = prepared_input_path(case, manifest)
+    generated = input_path is not None
     actual_file = actual_path(case, manifest, candidate_override)
-    if not actual_file:
-        raise GoldenError(f"{case} has no generated candidate; provide actual.json or --candidate")
-    actual_raw, actual_string = load_value(actual_file)
+    actual_string: Optional[str] = None
+    actual_payload: Any
+    actual_source: str
+    if generated:
+        if candidate_override:
+            message = f"{case.name} refused: --candidate is foreign to a captured PreparedInput; generate this candidate"
+            expected_negative, expected_failure_codes = expected_rejection(manifest, expected_raw)
+            write_failure_artifacts(case, manifest, artifact_root,
+                                    None if expected_negative else canonical(expected_raw), None,
+                                    expected_failure_codes, [], [message], None, {"error": message}, input_path,
+                                    {"generation_seconds": 0, "comparison_seconds": 0,
+                                     "elapsed_seconds": time.monotonic() - started}, "input")
+            raise GoldenError(message)
+        if actual_file and actual_file.exists():
+            message = f"{case.name} refused: {actual_file.name} is a stale/foreign actual file; the corpus must run the Lua generator"
+            expected_negative, expected_failure_codes = expected_rejection(manifest, expected_raw)
+            write_failure_artifacts(case, manifest, artifact_root,
+                                    None if expected_negative else canonical(expected_raw), None,
+                                    expected_failure_codes, [], [message], None, {"error": message}, input_path,
+                                    {"generation_seconds": 0, "comparison_seconds": 0,
+                                     "elapsed_seconds": time.monotonic() - started}, "input")
+            raise GoldenError(message)
+        try:
+            actual_payload = run_lua_generator(input_path)
+        except GoldenError as exc:
+            expected_negative, expected_failure_codes = expected_rejection(manifest, expected_raw)
+            write_failure_artifacts(
+                case, manifest, artifact_root,
+                None if expected_negative else canonical(expected_raw), None,
+                expected_failure_codes, [], [str(exc)], None, {"error": str(exc)}, input_path,
+                {"generation_seconds": time.monotonic() - generation_started,
+                 "comparison_seconds": 0, "elapsed_seconds": time.monotonic() - started}, "generator",
+            )
+            raise
+        actual_raw = actual_from_generator(actual_payload)
+        actual_source = "lua-generator"
+    else:
+        if not actual_file:
+            raise GoldenError(f"{case} has no candidate; a captured case needs prepared_input.json, a fixture needs candidate.json")
+        actual_raw, actual_string = load_value(actual_file)
+        actual_payload = actual_raw
+        actual_source = "handwritten-fixture"
+    generation_elapsed = time.monotonic() - generation_started
+
     negative, expected_codes = expected_rejection(manifest, expected_raw)
-    actual_codes = reason_codes(actual_raw)
-    # A rejection has no blueprint to validate. Its independent contract is the
-    # stable reason-code set, never entity geometry or message text.
+    actual_codes = reason_codes(actual_payload)
     validation = [] if negative else independent_checks(manifest, actual_raw)
+    semantic = semantic_assertions(manifest)
+    stage = actual_payload.get("stage") if isinstance(actual_payload, dict) else None
+    if semantic:
+        if generated:
+            receipt = actual_payload.get("validation") if isinstance(actual_payload, dict) else None
+            if not isinstance(receipt, dict) or receipt.get("ok") is not True:
+                validation.append("independent assertions were not proven by logic/bp/validate.lua")
+            elif receipt.get("errors"):
+                validation.extend(f"validator {error.get('code', error)}" for error in receipt["errors"] if isinstance(error, dict))
+        elif input_path:
+            receipt = run_lua_validation(actual_file, input_path)
+            stage = receipt.get("stage", stage)
+            if receipt.get("ok") is not True:
+                validation.extend(f"validator {error.get('code', error)}" for error in receipt.get("errors", [])
+                                  if isinstance(error, dict))
+        else:
+            validation.append("semantic independent assertions require a captured PreparedInput")
+
     expected_canonical = None
     actual_canonical = None
     equal = False
+    expected_version = canonical_version_of(manifest, expected_raw)
+    actual_version = canonical_version_of(manifest, actual_payload)
     if negative:
         equal = actual_codes == sorted(set(expected_codes))
         if not equal:
             validation.append(f"reason codes differ: expected {sorted(set(expected_codes))}, got {actual_codes}")
     else:
         expected_canonical = canonical(expected_raw)
-        actual_canonical = canonical(actual_raw)
-        equal = expected_canonical == actual_canonical
-        if not equal:
+        if generated and isinstance(actual_payload.get("canonical"), dict):
+            actual_canonical = actual_payload["canonical"]
+            # The Python comparator is a second opinion on the exact structure
+            # emitted by Serialize.canonical; it is not a candidate generator.
+            if canonical(actual_raw) != actual_canonical:
+                validation.append("Lua canonical structure disagrees with the Python canonical comparator")
+            lua_digest = actual_payload.get("canonical_sha256")
+            if isinstance(lua_digest, str) and lua_digest != sha256_value(actual_canonical):
+                validation.append("Lua canonical digest disagrees with the Python canonical digest")
+        else:
+            actual_canonical = canonical(actual_raw)
+        equal = expected_canonical == actual_canonical and expected_version == actual_version
+        if expected_version != actual_version:
+            validation.append(f"canonical version differs: expected {expected_version}, got {actual_version}")
+        if expected_canonical != actual_canonical:
             validation.append("canonical blueprint differs")
     ok = equal and not validation
     elapsed = time.monotonic() - started
     details = {"case": case.name, "ok": ok, "negative": negative, "expected_path": str(expected_path) if expected_path else None,
-               "actual_path": str(actual_file), "expected_reason_codes": sorted(set(expected_codes)),
-               "actual_reason_codes": actual_codes, "validation_failures": validation, "elapsed_seconds": elapsed}
+               "actual_path": str(actual_file) if actual_file else "generated by tests/golden/generate.lua",
+               "actual_source": actual_source, "expected_reason_codes": sorted(set(expected_codes)),
+               "actual_reason_codes": actual_codes, "validation_failures": validation, "stage": stage,
+               "canonical_version": actual_version, "elapsed_seconds": elapsed}
     if not ok:
-        failure_dir = artifact_root / case.name
-        failure_dir.mkdir(parents=True, exist_ok=True)
-        if expected_canonical is not None:
-            write_json(failure_dir / "expected_canonical.json", expected_canonical)
-        if actual_canonical is not None:
-            write_json(failure_dir / "actual_canonical.json", actual_canonical)
-        expected_for_diff = expected_canonical if expected_canonical is not None else {"reason_codes": sorted(set(expected_codes))}
-        actual_for_diff = actual_canonical if actual_canonical is not None else {"reason_codes": actual_codes}
-        diff = difflib.unified_diff(pretty_json(expected_for_diff).splitlines(True), pretty_json(actual_for_diff).splitlines(True),
-                                    fromfile="expected", tofile="actual")
-        (failure_dir / "diff.txt").write_text("".join(diff), encoding="utf-8")
-        if actual_string:
-            (failure_dir / "blueprint_string.txt").write_text(actual_string + "\n", encoding="utf-8")
-        inputs = {}
-        for name in ("inputs.json", "input.json", "snapshot.json", "export.json", "options.json"):
-            source = case / name
-            if source.exists():
-                inputs[name] = read_json(source)
-        write_json(failure_dir / "inputs.json", inputs)
-        write_json(failure_dir / "validation.json", {"failures": validation})
-        write_json(failure_dir / "timings.json", {"elapsed_seconds": elapsed})
+        write_failure_artifacts(case, manifest, artifact_root, expected_canonical, actual_canonical, expected_codes,
+                                actual_codes, validation, actual_string, actual_payload, input_path,
+                                {"generation_seconds": generation_elapsed, "comparison_seconds": max(0, elapsed - generation_elapsed),
+                                 "elapsed_seconds": elapsed}, stage)
     return ok, details
 
 
@@ -681,12 +936,32 @@ def expected_write_path(case: Path, existing: Optional[Path]) -> Path:
 
 def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Optional[Path], artifact_root: Path) -> None:
     expected_raw, _, old_path = expected_value(case, manifest)
+    input_path = prepared_input_path(case, manifest)
     actual_file = actual_path(case, manifest, candidate_override)
-    if not actual_file:
-        raise GoldenError(f"{case} has no generated candidate")
-    actual_raw, _ = load_value(actual_file)
+    if input_path:
+        if candidate_override:
+            raise GoldenError(f"{case.name} refused: --candidate is foreign to a captured PreparedInput")
+        if actual_file and actual_file.exists():
+            raise GoldenError(f"{case.name} refused: {actual_file.name} is a stale/foreign actual file")
+        actual_payload = run_lua_generator(input_path)
+        actual_raw = actual_from_generator(actual_payload)
+        actual_label = "generated by tests/golden/generate.lua"
+    else:
+        if not actual_file:
+            raise GoldenError(f"{case} has no candidate")
+        actual_raw, _ = load_value(actual_file)
+        actual_payload = actual_raw
+        actual_label = str(actual_file)
     negative, old_codes = expected_rejection(manifest, expected_raw)
     failures = [] if negative else independent_checks(manifest, actual_raw)
+    semantic = semantic_assertions(manifest)
+    if semantic:
+        if input_path:
+            receipt = actual_payload.get("validation") if isinstance(actual_payload, dict) else None
+            if not isinstance(receipt, dict) or receipt.get("ok") is not True:
+                failures.append("independent assertions were not proven by logic/bp/validate.lua")
+        else:
+            failures.append("semantic independent assertions require a captured PreparedInput")
     if failures:
         raise GoldenError("candidate failed independent checks: " + "; ".join(failures))
     if negative:
@@ -696,7 +971,7 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
         new_value = {"reason_codes": new_codes}
         old_value = {"reason_codes": sorted(set(old_codes))}
     else:
-        new_value = canonical(actual_raw)
+        new_value = actual_payload.get("canonical") if input_path and isinstance(actual_payload.get("canonical"), dict) else canonical(actual_raw)
         old_value = canonical(expected_raw)
     review = artifact_root / "accept" / case.name
     write_json(review / "old.json", old_value)
@@ -704,7 +979,13 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
     diff = difflib.unified_diff(pretty_json(old_value).splitlines(True), pretty_json(new_value).splitlines(True),
                                 fromfile="old", tofile="new")
     (review / "diff.txt").write_text("".join(diff), encoding="utf-8")
-    write_json(review / "provenance.json", {"case": case.name, "candidate": str(actual_file), "validation_failures": failures})
+    write_json(review / "provenance.json", {"case": case.name, "candidate": actual_label,
+                                              "source": "lua-generator" if input_path else "handwritten-fixture",
+                                              "prepared_input": str(input_path) if input_path else None,
+                                              "prepared_input_sha256": sha256_file(input_path) if input_path else None,
+                                              "canonical_version": canonical_version_of(manifest, actual_payload),
+                                              "canonical_sha256": sha256_value(new_value) if not negative else None,
+                                              "validation_failures": failures})
     target = expected_write_path(case, old_path)
     # Preserve a wrapper manifest if expected.json stores more than the canonical value.
     if target.name == "expected.json":
@@ -716,6 +997,10 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
             write_json(target, new_value)
     else:
         write_json(target, new_value)
+    manifest_file = manifest_path(case)
+    updated_manifest = dict(manifest)
+    updated_manifest["state"] = "accepted"
+    write_json(manifest_file, updated_manifest)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -726,6 +1011,44 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--artifacts", help="failure/accept artifact directory")
     result.add_argument("--branch", help="only run cases declared for this Factorio branch")
     return result
+
+
+def required_matrix(root: Path) -> Optional[Dict[str, Any]]:
+    default_root = Path(__file__).resolve().parent.parent / "cases"
+    candidates = [root.parent / "required-matrix.json"]
+    if root.resolve() == default_root.resolve():
+        candidates.append(REPO_ROOT / "tests" / "golden" / "required-matrix.json")
+    for path in candidates:
+        if path.exists():
+            value = read_json(path)
+            return value if isinstance(value, dict) else None
+    return None
+
+
+def check_branch_requirements(root: Path, cases: Sequence[Path], branch: Optional[str]) -> Optional[str]:
+    if not branch:
+        return None
+    matrix = required_matrix(root)
+    if matrix is None:
+        return None
+    entries = [entry for entry in matrix.get("cases", []) if isinstance(entry, dict) and branch in entry.get("branches", [])]
+    accepted = 0
+    for entry in entries:
+        if entry.get("state") != "accepted":
+            continue
+        for case in cases:
+            try:
+                manifest = read_json(manifest_path(case))
+            except GoldenError:
+                continue
+            if (manifest.get("case_id", case.name) == entry.get("case_id")
+                    and case_branch(manifest) == branch
+                    and manifest.get("state", manifest.get("status", "accepted")) != "draft"):
+                accepted += 1
+                break
+    if accepted == 0:
+        return f"branch {branch} matches zero accepted required cases"
+    return None
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:
@@ -751,8 +1074,15 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     artifact_root = Path(args.artifacts) if args.artifacts else root.parent / ".golden-failures"
     cases = discover(root, selected)
     if not cases:
+        if args.branch:
+            print(f"FAIL branch {args.branch}: matches zero required cases", file=sys.stderr)
+            return 1
         print("golden: no cases")
         return 0
+    requirement_failure = check_branch_requirements(root, cases, args.branch)
+    if requirement_failure:
+        print("FAIL " + requirement_failure, file=sys.stderr)
+        return 1
     failures = 0
     processed = 0
     for case in cases:
@@ -760,10 +1090,13 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             manifest = read_json(manifest_path(case))
             if not isinstance(manifest, dict):
                 raise GoldenError("manifest is not an object")
-            if args.branch and case_branch(manifest) not in (None, args.branch):
-                print(f"SKIP {case.name} (branch {case_branch(manifest)})")
+            declared_branch = case_branch(manifest)
+            if args.branch and declared_branch not in (None, args.branch):
+                print(f"NOT_APPLICABLE {case.name} (declared branch {declared_branch}, selected {args.branch})")
                 continue
             processed += 1
+            if manifest.get("state", manifest.get("status")) == "draft":
+                raise GoldenError("draft case cannot satisfy the release corpus")
             if explicit_accept:
                 if len(cases) != 1:
                     raise GoldenError("accept names exactly one case")
@@ -779,6 +1112,9 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             print(f"FAIL {case.name}: {exc}", file=sys.stderr)
     if explicit_accept:
         return 0 if failures == 0 else 1
+    if args.branch and processed == 0:
+        print(f"FAIL branch {args.branch}: matches zero applicable cases", file=sys.stderr)
+        return 1
     print(f"golden: {processed - failures} passed, {failures} failed")
     return 0 if failures == 0 else 1
 
