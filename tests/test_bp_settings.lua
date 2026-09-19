@@ -41,12 +41,12 @@ for _, shape in ipairs(H.shapes()) do
         local _, _, sheet, _, Settings = fixture(shape)
         local BlueprintDialog = require "gui.blueprint_dialog"
         local frame = BlueprintDialog.open(1, sheet)
-        local pole = frame.hxrrc_blueprint_pole_row.hxrrc_blueprint_pole_button
+        local pole = frame.hxrrc_blueprint_edges.hxrrc_blueprint_pole_button
         pole.elem_value = {name = "medium-electric-pole", quality = "rare"}
         event_handlers.on_gui_elem_changed[pole.name]({element = pole, player_index = 1})
         BlueprintDialog.close(1)
         local reopened = BlueprintDialog.open(1, sheet)
-        H.equal(reopened.hxrrc_blueprint_pole_row.hxrrc_blueprint_pole_button.elem_value.quality, "rare",
+        H.equal(reopened.hxrrc_blueprint_edges.hxrrc_blueprint_pole_button.elem_value.quality, "rare",
             "pole quality survives close and reopen")
         BlueprintDialog.close(1)
         H.equal(BlueprintDialog.is_open(1), false, "dialog closes")
@@ -224,6 +224,55 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(sheet.valid, true, "sheet remains valid")
         H.equal(sheet.tags.hxrrc_sheet_id, before, "sheet is untouched")
         H.equal(Settings.of_sheet(1, "sheet-1").input_edge, "left", "closing does not change settings")
+    end)
+
+    H.test(shape .. " BP11 the shared grid keeps names and filters each picker by infrastructure type", function()
+        local _, _, sheet = fixture(shape)
+        local BlueprintDialog = require "gui.blueprint_dialog"
+        local frame = BlueprintDialog.open(1, sheet)
+        local grid = frame.hxrrc_blueprint_edges
+        H.equal(grid.type, "table", "shared infrastructure and edge grid")
+        H.equal(grid.column_count, 2, "shared grid has two columns")
+
+        local expected = {
+            roboport = "roboport",
+            pole = "electric-pole",
+            belt = "transport-belt",
+            inserter = "inserter",
+            pipe = "pipe",
+            underground_pipe = "pipe-to-ground",
+        }
+        for key, entity_type in pairs(expected) do
+            local label = grid["hxrrc_blueprint_" .. key .. "_label"]
+            local button = grid["hxrrc_blueprint_" .. key .. "_button"]
+            H.equal(label.name, "hxrrc_blueprint_" .. key .. "_label", key .. " label name")
+            H.equal(button.name, "hxrrc_blueprint_" .. key .. "_button", key .. " button name")
+            H.equal(#button.elem_filters, 1, key .. " has one picker filter")
+            H.equal(button.elem_filters[1].filter, "type", key .. " filter kind")
+            H.equal(button.elem_filters[1].type, entity_type, key .. " filter type")
+        end
+        H.equal(grid.hxrrc_blueprint_input_edge_label.name, "hxrrc_blueprint_input_edge_label", "input edge name")
+        H.equal(grid.hxrrc_blueprint_output_edge_label.name, "hxrrc_blueprint_output_edge_label", "output edge name")
+        H.equal(grid.hxrrc_blueprint_input_edge_dropdown.name, "hxrrc_blueprint_input_edge_dropdown", "input edge picker name")
+        H.equal(grid.hxrrc_blueprint_output_edge_dropdown.name, "hxrrc_blueprint_output_edge_dropdown", "output edge picker name")
+        BlueprintDialog.close(1)
+    end)
+
+    H.test(shape .. " BP12 a filtered orphan belt is refused and leaves the dialog open", function()
+        local world, _, sheet = fixture(shape)
+        world.add_transport_belt({name = "orphan-belt", items_per_second = 15})
+        local BlueprintDialog = require "gui.blueprint_dialog"
+        local frame = BlueprintDialog.open(1, sheet)
+        local belt = frame.hxrrc_blueprint_edges.hxrrc_blueprint_belt_button
+        belt.elem_value = {name = "orphan-belt", quality = "normal"}
+        event_handlers.on_gui_elem_changed[belt.name]({element = belt, player_index = 1})
+        local generate = frame.hxrrc_blueprint_footer.hxrrc_blueprint_generate_button
+        local ok, code, subject = event_handlers.on_gui_click[generate.name]({element = generate, player_index = 1})
+        H.equal(ok, false, "filtered orphan belt blocks generation")
+        H.equal(code, "BP_REJ_BELT_FAMILY_MISSING", "filtered orphan belt reason")
+        H.equal(subject.name, "orphan-belt", "filtered orphan belt subject")
+        H.equal(BlueprintDialog.is_open(1), true, "filtered invalid dialog remains open")
+        BlueprintDialog.close(1)
     end)
 end
 

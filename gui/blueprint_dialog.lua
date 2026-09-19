@@ -17,12 +17,12 @@ local INPUT_EDGE_NAME = "hxrrc_blueprint_input_edge_dropdown"
 local OUTPUT_EDGE_NAME = "hxrrc_blueprint_output_edge_dropdown"
 
 local INFRASTRUCTURE = {
-    {key = "roboport", name = "hxrrc_blueprint_roboport_button"},
-    {key = "pole", name = "hxrrc_blueprint_pole_button"},
-    {key = "belt", name = "hxrrc_blueprint_belt_button"},
-    {key = "inserter", name = "hxrrc_blueprint_inserter_button"},
-    {key = "pipe", name = "hxrrc_blueprint_pipe_button"},
-    {key = "underground_pipe", name = "hxrrc_blueprint_underground_pipe_button"},
+    {key = "roboport", name = "hxrrc_blueprint_roboport_button", entity_type = "roboport"},
+    {key = "pole", name = "hxrrc_blueprint_pole_button", entity_type = "electric-pole"},
+    {key = "belt", name = "hxrrc_blueprint_belt_button", entity_type = "transport-belt"},
+    {key = "inserter", name = "hxrrc_blueprint_inserter_button", entity_type = "inserter"},
+    {key = "pipe", name = "hxrrc_blueprint_pipe_button", entity_type = "pipe"},
+    {key = "underground_pipe", name = "hxrrc_blueprint_underground_pipe_button", entity_type = "pipe-to-ground"},
 }
 
 --GUI objects are runtime-only. The saved settings are recovered by sheet id through Settings.of_sheet.
@@ -107,17 +107,16 @@ local function entity_value(choice)
     return {name = choice.name, quality = choice.quality or "normal"}
 end
 
-local function add_choice_row(frame, definition, choice)
-    local row = frame.add{type = "flow", name = "hxrrc_blueprint_" .. definition.key .. "_row", direction = "horizontal"}
-    row.add{type = "label", name = "hxrrc_blueprint_" .. definition.key .. "_label", caption = {"hxrrc.blueprint_infra_" .. definition.key}}
-    row.add{
+local function add_choice_row(grid, definition, choice)
+    grid.add{type = "label", name = "hxrrc_blueprint_" .. definition.key .. "_label", caption = {"hxrrc.blueprint_infra_" .. definition.key}}
+    grid.add{
         type = "choose-elem-button",
         name = definition.name,
         elem_type = "entity-with-quality",
         ["entity-with-quality"] = entity_value(choice),
+        elem_filters = {{filter = "type", type = definition.entity_type}},
         tags = {setting = definition.key},
     }
-    return row
 end
 
 local function build_window(player, sheet_flow, settings)
@@ -130,18 +129,21 @@ local function build_window(player, sheet_flow, settings)
     }
     frame.auto_center = true
 
+    local grid = frame.add{type = "table", name = "hxrrc_blueprint_edges", column_count = 2}
+    grid.style.column_alignments[1] = "middle-right"
+    grid.style.column_alignments[2] = "middle-left"
+
     for _, definition in ipairs(INFRASTRUCTURE) do
-        add_choice_row(frame, definition, settings[definition.key])
+        add_choice_row(grid, definition, settings[definition.key])
     end
 
-    local edges = frame.add{type = "table", name = "hxrrc_blueprint_edges", column_count = 2}
-    edges.add{type = "label", name = "hxrrc_blueprint_input_edge_label", caption = {"hxrrc.blueprint_edge_input"}}
-    edges.add{type = "drop-down", name = INPUT_EDGE_NAME, items = {
+    grid.add{type = "label", name = "hxrrc_blueprint_input_edge_label", caption = {"hxrrc.blueprint_edge_input"}}
+    grid.add{type = "drop-down", name = INPUT_EDGE_NAME, items = {
         {"hxrrc.blueprint_edge_left"}, {"hxrrc.blueprint_edge_right"},
         {"hxrrc.blueprint_edge_top"}, {"hxrrc.blueprint_edge_bottom"},
     }, selected_index = edge_index(settings.input_edge)}
-    edges.add{type = "label", name = "hxrrc_blueprint_output_edge_label", caption = {"hxrrc.blueprint_edge_output"}}
-    edges.add{type = "drop-down", name = OUTPUT_EDGE_NAME, items = {
+    grid.add{type = "label", name = "hxrrc_blueprint_output_edge_label", caption = {"hxrrc.blueprint_edge_output"}}
+    grid.add{type = "drop-down", name = OUTPUT_EDGE_NAME, items = {
         {"hxrrc.blueprint_edge_left"}, {"hxrrc.blueprint_edge_right"},
         {"hxrrc.blueprint_edge_top"}, {"hxrrc.blueprint_edge_bottom"},
     }, selected_index = edge_index(settings.output_edge)}
