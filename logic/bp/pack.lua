@@ -130,6 +130,14 @@ local function bounded_slot(slot, w, h)
         or (slot.attach_dy == -1 or slot.attach_dy == h) and slot.attach_dx >= 0 and slot.attach_dx < w
 end
 
+local function normal_for_slot(slot, w, h)
+    if slot.attach_dx == -1 then return Grid.EAST end
+    if slot.attach_dx == w then return Grid.WEST end
+    if slot.attach_dy == -1 then return Grid.SOUTH end
+    if slot.attach_dy == h then return Grid.NORTH end
+    return nil
+end
+
 local function port_slots(block, port)
     local result, seen = {}, {}
     local function add(slot)
@@ -137,13 +145,7 @@ local function port_slots(block, port)
         local key = slot_key(slot.attach_dx, slot.attach_dy)
         if seen[key] then return end
         seen[key] = true
-        local normal = slot.normal_dir
-        if normal == nil then
-            if slot.attach_dx == -1 then normal = Grid.EAST
-            elseif slot.attach_dx == block.w then normal = Grid.WEST
-            elseif slot.attach_dy == -1 then normal = Grid.SOUTH
-            else normal = Grid.NORTH end
-        end
+        local normal = normal_for_slot(slot, block.w, block.h)
         local travel = port.role == "in" and normal or Grid.dir_opposite(normal)
         result[#result + 1] = {
             attach_dx = slot.attach_dx, attach_dy = slot.attach_dy,
@@ -187,20 +189,27 @@ end
 
 local function choose_port_slots(state, block, x, y, direction)
     local entries = {}
+    local placed_w, placed_h = Grid.rotate_size(block.w, block.h, direction)
     for index, port in ipairs(block.ports or {}) do
         local options = {}
         for _, slot in ipairs(port_slots(block, port)) do
-            local world_x, world_y = world_slot(block, x, y, direction, slot)
-            local travel = Grid.rotate_dir(slot.travel_dir, direction)
-            local dx, dy = Grid.dir_vector(travel)
-            local approach_x, approach_y = world_x, world_y
-            if port.role == "in" then approach_x, approach_y = approach_x - dx, approach_y - dy
-            else approach_x, approach_y = approach_x + dx, approach_y + dy end
-            -- The endpoint itself must be free, and the first cell on the route side must also exist. This is
-            -- what makes an edge port routable: an input needs a predecessor inside the grid, an output needs
-            -- its first successor inside it.
-            if cell_is_free(state, world_x, world_y) and cell_is_free(state, approach_x, approach_y) then
-                options[#options + 1] = {slot = slot, x = world_x, y = world_y}
+            -- attach_dx/attach_dy stay in the source frame.  Since the validator applies its edge predicate to
+            -- the placed envelope too, only retain slots that are legal in both frames.  Groups reserves both
+            -- source axes for its port row; this guard also keeps direct Pack callers safe for rectangles.
+            local placed_normal = normal_for_slot(slot, placed_w, placed_h)
+            if bounded_slot(slot, placed_w, placed_h) and placed_normal == slot.normal_dir then
+                local world_x, world_y = world_slot(block, x, y, direction, slot)
+                local travel = Grid.rotate_dir(slot.travel_dir, direction)
+                local dx, dy = Grid.dir_vector(travel)
+                local approach_x, approach_y = world_x, world_y
+                if port.role == "in" then approach_x, approach_y = approach_x - dx, approach_y - dy
+                else approach_x, approach_y = approach_x + dx, approach_y + dy end
+                -- The endpoint itself must be free, and the first cell on the route side must also exist. This
+                -- is what makes an edge port routable: an input needs a predecessor inside the grid, an output
+                -- needs its first successor inside it.
+                if cell_is_free(state, world_x, world_y) and cell_is_free(state, approach_x, approach_y) then
+                    options[#options + 1] = {slot = slot, x = world_x, y = world_y}
+                end
             end
         end
         if #options == 0 then return nil end

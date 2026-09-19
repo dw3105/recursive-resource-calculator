@@ -126,7 +126,9 @@ local function assert_block_invariants(block)
         local inward = (port.attach_dx < 0 and dx == 1) or (port.attach_dx >= block.w and dx == -1)
             or (port.attach_dy < 0 and dy == 1) or (port.attach_dy >= block.h and dy == -1)
         H.equal(inward, true, "port normal points into the block")
-        if port.role == "out" then H.equal(port.travel_dir, Grid.SOUTH, "output travel points outward") end
+        if port.role == "out" then
+            H.equal(port.travel_dir, Grid.dir_opposite(port.normal_dir), "output travel points outward")
+        end
     end
 end
 
@@ -250,9 +252,9 @@ for _, shape in ipairs(H.shapes()) do
             end
         end
     end)
-    --A port list wider than its block used to spill onto the side column at attach_dx = -1, which is outside the
-    --world whenever the block touches the grid edge, and routing then refuses it.
-    H.test(shape .. " G12 every attach tile stays on the row above or below the block", function()
+    --A port list wider than its block used to spill onto an unbounded side column.  Both edge families are legal,
+    --and the left edge gives output routes a second side to leave the block.
+    H.test(shape .. " G12 every attach tile stays on a bounded edge", function()
         H.new_world(shape)
         local plan_input = real_one_step_plan()
         for index = 1, 6 do
@@ -266,10 +268,11 @@ for _, shape in ipairs(H.shapes()) do
         local state = finish(plan_input)
         local block = candidates(state)[1].blocks[1]
         for _, port in ipairs(block.ports) do
-            H.equal(port.attach_dy == -1 or port.attach_dy == block.h, true,
-                tostring(port.port_id) .. " attaches above or below, never beside")
-            H.equal(port.attach_dx >= 0 and port.attach_dx < block.w, true,
-                tostring(port.port_id) .. " attaches within the block's width")
+            local on_horizontal = (port.attach_dy == -1 or port.attach_dy == block.h)
+                and port.attach_dx >= 0 and port.attach_dx < block.w
+            local on_vertical = (port.attach_dx == -1 or port.attach_dx == block.w)
+                and port.attach_dy >= 0 and port.attach_dy < block.h
+            H.equal(on_horizontal or on_vertical, true, tostring(port.port_id) .. " attaches on a bounded edge")
         end
         H.equal(type(block.port_sides), "table", "the block names the sides its ports use")
     end)

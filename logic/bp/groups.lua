@@ -253,7 +253,11 @@ local function cover_area(beacon, supply_w, supply_h)
 end
 
 local function covers(beacon, machine, supply_w, supply_h)
-    local area = cover_area(beacon, supply_w, supply_h)
+    -- A quarter-turn swaps the two axes of the beacon/machine offset, while the validator's supply
+    -- projection remains expressed in world axes.  Planning against the smaller reach on both axes makes
+    -- every planned relationship survive all four placements instead of only the unrotated one.
+    local reach = math.min(finite(supply_w, 0), finite(supply_h, 0))
+    local area = cover_area(beacon, reach, reach)
     local cx, cy = machine_center(machine)
     return cx >= area.x and cx <= area.x + area.w and cy >= area.y and cy <= area.y + area.h
 end
@@ -265,16 +269,18 @@ local function append_inserters(block, step, machine, catalog, input)
     for _, port in ipairs(step.outputs or {}) do ports[#ports + 1] = {role = "output", port = port} end
     -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane.  A
     -- separate row per connection keeps the opaque member rectangles disjoint without guessing route geometry.
+    local inserter_y = machine.y + machine.h
     for index, entry in ipairs(ports) do
         block.inserters[#block.inserters + 1] = {
             id = member_id("inserter", step.step_id, machine.ordinal, entry.role .. ":" .. tostring(index)),
             kind = "inserter", type = "inserter", name = name,
             step_id = step.step_id, machine_id = machine.id, role = entry.role,
             flow_id = entry.port.flow_id or entry.port.full_name,
-            x = machine.x + math.min(machine.w - iw, math.max(0, index - 1)),
-            y = machine.y + machine.h + index - 1, w = iw, h = ih,
+            x = machine.x + math.max(0, math.min(machine.w - iw, index - 1)),
+            y = inserter_y, w = iw, h = ih,
             dir = entry.role == "input" and NORTH or SOUTH,
         }
+        inserter_y = inserter_y + ih
     end
 end
 
@@ -306,22 +312,25 @@ local function block_ports(block, steps, ports, flows)
         local role = selected_port.port.role == "out" and "out" or "in"
         if role == "out" then outputs[#outputs + 1] = selected_port else inputs[#inputs + 1] = selected_port end
     end
-    --Every attach tile sits one row above the block or one row below it, never on the left or the right. A port
-    --pushed onto a side column used to land at x = -1, which is outside the grid whenever the block touches the
-    --left edge, and routing then refuses it. A block whose port list is wider than the block is widened instead,
-    --so the row always has room, and the packer only has to keep those two rows free (see block.port_sides).
-    local function place_side(list, role, side, normal, travel)
-        if #list > block.w then
-            block.w = #list
-            block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
-        end
+    --A port-bearing block needs enough room in both source axes for its top row to remain a legal edge after a
+    --quarter-turn. Keeping the ports on one shared top row also avoids source-frame bottom attachments becoming
+    --interior coordinates in the rotated envelope.
+    local function place_side(list, role, side, normal, travel, offset)
         if #list > 0 then
             block.port_sides = block.port_sides or {}
             block.port_sides[side] = true
         end
         for index, selected_port in ipairs(list) do
-            local x = index - 1
-            local y = side == "top" and -1 or block.h
+            local x, y
+            if side == "top" then
+                x, y = (offset or 0) + index - 1, -1
+            elseif side == "bottom" then
+                x, y = (offset or 0) + index - 1, block.h
+            elseif side == "left" then
+                x, y = -1, (offset or 0) + index - 1
+            else
+                x, y = block.w, (offset or 0) + index - 1
+            end
             local source = selected_port.port
             block.ports[#block.ports + 1] = {
                 port_id = source.port_id or source.id or ((role or "port") .. ":" .. tostring(index)),
@@ -334,8 +343,8 @@ local function block_ports(block, steps, ports, flows)
             }
         end
     end
-    place_side(inputs, "in", "top", SOUTH, SOUTH)
-    place_side(outputs, "out", "bottom", NORTH, SOUTH)
+    place_side(inputs, "in", "top", SOUTH, SOUTH, 0)
+    place_side(outputs, "out", "left", EAST, Grid.WEST, 0)
 end
 
 local function build_block(step_group, catalog, ports, flows, input, block_id)
@@ -374,9 +383,13 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, step in ipairs(steps) do
         local mw, mh = machine_size(step, catalog)
         max_machine_h = math.max(max_machine_h, mh)
+        local layout_w = mw
+        local _, step_inserter_w = inserter_size(catalog, input and input.inserter)
+        for _, entry in ipairs(step.inputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
+        for _, entry in ipairs(step.outputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for ordinal = 1, step.machine_count do
-            machine_specs[#machine_specs + 1] = {step = step, ordinal = ordinal, w = mw, h = mh}
-            machine_w = machine_w + mw
+            machine_specs[#machine_specs + 1] = {step = step, ordinal = ordinal, w = mw, h = mh, layout_w = layout_w}
+            machine_w = machine_w + layout_w
             if #machine_specs > 1 then machine_w = machine_w + 1 end
         end
     end
@@ -409,11 +422,17 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         }
         block.machines[#block.machines + 1] = machine
         block.members[#block.members + 1] = machine
-        x = x + spec.w + 1
+        x = x + spec.layout_w + 1
         append_inserters(block, spec.step, machine, catalog, input)
     end
 
+    -- Inserter rows belonging to different machines have disjoint x ranges because machine_specs reserves the
+    -- widest inserter footprint for each machine strip.  Rows belonging to one machine were accumulated above,
+    -- so variable inserter heights cannot overlap either.
     local inserter_bottom = machine_y + max_machine_h
+    for _, inserter in ipairs(block.inserters) do
+        inserter_bottom = math.max(inserter_bottom, inserter.y + inserter.h)
+    end
     for _, inserter in ipairs(block.inserters) do
         block.members[#block.members + 1] = inserter
     end
@@ -470,6 +489,15 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     block.w = w
     block.h = math.max(machine_y + max_machine_h, max_inserter_bottom, beacon_rows_h)
+
+    -- Ports are stored in the block's own frame, but the validator checks their attachment against the placed
+    -- envelope. Reserve the total top-row width in both dimensions: after a quarter-turn the source x range
+    -- is still bounded by the placed width, and the source top edge is still the placed top edge.
+    if input_count + output_count > 0 then
+        local port_count = input_count + output_count
+        block.w = math.max(block.w, port_count)
+        block.h = math.max(block.h, port_count)
+    end
     block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
     block.beacon_count = block.physical_beacon_count
     block_ports(block, steps, ports, flows)
@@ -723,11 +751,23 @@ function Groups.materialize(block, placement)
         end
         local geometry = Grid.place_port(block, {x = px, y = py, dir = dir}, source)
         local placed_port = copy(source)
-        placed_port.x, placed_port.y = geometry.x, geometry.y
         if placed_port.member_id then placed_port.member_id = "m:" .. tostring(placed_port.member_id) end
-        placed_port.normal_dir = geometry.dir
-        placed_port.dir = geometry.dir
-        placed_port.travel_dir = Grid.rotate_dir(source.travel_dir or NORTH, dir)
+        if dir == NORTH then
+            -- In the source orientation the two representations coincide, so retain the concrete tile for
+            -- callers that inspect a north-facing materialization.
+            placed_port.x, placed_port.y = geometry.x, geometry.y
+            placed_port.normal_dir = geometry.dir
+            placed_port.dir = geometry.dir
+            placed_port.travel_dir = Grid.rotate_dir(source.travel_dir or NORTH, dir)
+        else
+            -- The validator's edge predicate consumes attach_dx/attach_dy and normal_dir as a single frame,
+            -- while Grid.place_port consumes them as the source frame.  Keep that frame coherent and let Route
+            -- use its source-frame fallback (_block_w/_block_h) for the world endpoint on rotated placements.
+            -- Supplying x/y here would ask the validator to rotate the already-placed block a second time.
+            placed_port.normal_dir = source.normal_dir
+            placed_port.dir = source.normal_dir
+            placed_port.travel_dir = source.travel_dir or NORTH
+        end
         --The search carries placed ports into Route, but not the materialized entity list.  Keep the exact
         --rotated member rectangles on the port so routing indexes the members themselves, not a rotated-again
         --block envelope.  This is internal layout data and never becomes a blueprint entity.
