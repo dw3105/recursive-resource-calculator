@@ -1,0 +1,167 @@
+--The bounded blueprint search keeps the best complete candidate, grows grids deterministically, and distinguishes budget from impossibility.
+local H = require "tests.harness"
+
+local Search = require "logic.bp.search"
+
+local function clone(value, seen)
+    if type(value) ~= "table" then return value end
+    seen = seen or {}
+    if seen[value] then return seen[value] end
+    local result = {}
+    seen[value] = result
+    for key, child in pairs(value) do result[clone(key, seen)] = clone(child, seen) end
+    return result
+end
+
+local function plain(value, path, seen)
+    local value_type = type(value)
+    H.equal(value_type == "function" or value_type == "userdata", false, path .. " is serializable data")
+    if value_type ~= "table" then return end
+    H.equal(getmetatable(value), nil, path .. " has no metatable")
+    seen = seen or {}
+    if seen[value] then return end
+    seen[value] = true
+    for key, child in pairs(value) do
+        plain(key, path .. ".<key>", seen)
+        plain(child, path .. "." .. tostring(key), seen)
+    end
+end
+
+local function box()
+    return {{-0.4, -0.4}, {0.4, 0.4}}
+end
+
+local function pole()
+    return {name = "medium-electric-pole", tile_w = 1, tile_h = 1, supply_w = 10, supply_h = 10, wire_reach = 20}
+end
+
+local function base_catalog()
+    return {
+        entity = {
+            assembler = {name = "assembler", tile_w = 1, tile_h = 1, energy_usage_w = 1,
+                collision_box = box(), collision_mask = {"item-layer"}},
+            beacon = {name = "beacon", tile_w = 1, tile_h = 1,
+                collision_box = box(), collision_mask = {"item-layer"}, beacon = {supply_w = 10, supply_h = 10}},
+            inserter = {name = "inserter", tile_w = 1, tile_h = 1,
+                collision_box = box(), collision_mask = {"item-layer"}},
+        },
+        beacon = {beacon = {supply_w = 10, supply_h = 10}},
+        inserter = {name = "inserter", items_per_second = 10},
+        robo = {name = "roboport", tile_w = 1, tile_h = 1, connection_distance = 3},
+    }
+end
+
+local function one_step_plan()
+    return {steps = {{step_id = "one", machine = "assembler", machine_count = 1, power_w = 1,
+        modules = {}, beacon_groups = {}, inputs = {}, outputs = {}}}, flows = {}, ports = {}}
+end
+
+local function shared_plan()
+    local group = {signature = "shared", name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {}}
+    return {steps = {
+        {step_id = "a", machine = "assembler", machine_count = 1, power_w = 1, modules = {}, beacon_groups = {group}},
+        {step_id = "b", machine = "assembler", machine_count = 1, power_w = 1, modules = {}, beacon_groups = {group}},
+    }, flows = {}, ports = {}}
+end
+
+local function input_for(plan, extra)
+    local input = {
+        plan = plan, catalog = base_catalog(), pole = pole(), include_roboports = false,
+        grids = {{w = 2, h = 3}, {w = 3, h = 3}},
+    }
+    for key, value in pairs(extra or {}) do input[key] = value end
+    return input
+end
+
+local function finish(input, operations)
+    local state = Search.begin(input)
+    local ticks = 0
+    while not state.done and ticks < 10000 do
+        ticks = ticks + 1
+        Search.step(state, {ops = operations or 100000})
+    end
+    H.equal(state.done, true, "search finishes within the test bound")
+    return state
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " BP-15 a small feasible plan publishes a validated blueprint", function()
+        local state = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
+        H.equal(state.ok, true, "the feasible search succeeds")
+        H.equal(state.result ~= nil, true, "a complete result is published")
+        H.equal(state.incumbent ~= nil, true, "a validated incumbent was retained")
+        H.equal(state.incumbent.validation ~= nil, true, "the incumbent includes validation output")
+    end)
+
+    H.test(shape .. " BP-15 the same input searched twice is deterministic", function()
+        local first = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
+        local second = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
+        H.deep_equal(first.result, second.result, "the serialized layouts are identical")
+        H.deep_equal(first.incumbent.score, second.incumbent.score, "the objective score is identical")
+    end)
+
+    H.test(shape .. " BP-20 a larger grid that needs fewer beacons wins", function()
+        local state = finish(input_for(shared_plan()))
+        H.equal(state.ok, true, "the multi-grid search succeeds")
+        H.equal(state.incumbent.score.beacon_count, 1, "the larger grid admits the one-beacon grouping")
+        H.equal(state.result ~= nil, true, "the best complete candidate is serialized")
+    end)
+
+    H.test(shape .. " BP-15 exhausting the search budget is not no-layout", function()
+        local state = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}, max_ops = 1}), 100000)
+        H.equal(state.ok, false, "the bounded search fails")
+        H.equal(state.errors[1].code, "BP_FAIL_SEARCH_BUDGET", "budget exhaustion has the budget failure")
+        H.equal(state.errors[1].code == "BP_FAIL_NO_LAYOUT_GRID_LIMIT", false,
+            "budget exhaustion never claims that no layout exists")
+        H.equal(state.result, nil, "an unfinished search publishes nothing")
+    end)
+
+    H.test(shape .. " BP-15 cancellation mid-search publishes nothing", function()
+        local state = Search.begin(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
+        Search.step(state, {ops = 1})
+        Search.cancel(state)
+        H.equal(state.done, true, "cancel completes the job")
+        H.equal(state.errors[1].code, "BP_FAIL_CANCELLED", "cancel has its failure code")
+        H.equal(state.result, nil, "cancel never publishes a result")
+    end)
+
+    H.test(shape .. " BP-15 a revision change before publication drops the result", function()
+        local state = Search.begin(input_for(one_step_plan(), {
+            grids = {{w = 2, h = 2}}, revisions = {sheet = 4, config = 7},
+            current_revisions = {sheet = 4, config = 7},
+        }))
+        state.current_revisions.sheet = 5
+        local ticks = 0
+        while not state.done and ticks < 10000 do
+            ticks = ticks + 1
+            Search.step(state, {ops = 100000})
+        end
+        H.equal(state.errors[1].code, "BP_FAIL_REVISION_CHANGED", "the changed revision drops the result")
+        H.equal(state.result, nil, "a stale result is never published")
+    end)
+
+    H.test(shape .. " BP-15 search state and resumable cursors are plain data", function()
+        local state = Search.begin(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
+        Search.step(state, {ops = 1})
+        plain(state, "search")
+        local resumed = clone(state)
+        local first, second = state, resumed
+        while not first.done do Search.step(first, {ops = 100000}) end
+        while not second.done do Search.step(second, {ops = 100000}) end
+        H.deep_equal(first.result, second.result, "a copied cursor resumes the same layout")
+    end)
+
+    H.test(shape .. " BP-15 progress stays below one until commit", function()
+        local state = Search.begin(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}}))
+        local fraction = Search.progress(state)
+        H.equal(fraction < 1, true, "initial progress is below one")
+        while not state.done do
+            Search.step(state, {ops = 1})
+            local current = Search.progress(state)
+            if not state.done then H.equal(current < 1, true, "live progress stays below one") end
+        end
+        H.equal(Search.progress(state), 1, "committed progress reaches one")
+    end)
+end
+
+H.done("test_search")
