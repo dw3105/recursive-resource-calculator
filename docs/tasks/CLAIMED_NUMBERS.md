@@ -48,3 +48,4 @@
 | `044` | `rrc/agent` | Repair: perimeter ports sit inside the grid | 2026-09-19 |
 | `045` | `rrc/agent` | Recovery E golden coverage matrix | 2026-09-19 |
 | `046` | `rrc/agent` | Repair: draft cases say what they are | 2026-09-19 |
+| `047` | `rrc/agent` | Repair: block ports name their step | 2026-09-19 |
