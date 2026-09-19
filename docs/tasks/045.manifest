@@ -1,0 +1,5 @@
+tests/golden/cases/
+tests/golden/required-matrix.json
+tests/golden/lib/runner.py
+!docs/golden-coverage.md
+!tests/tools/test_golden_matrix.py
