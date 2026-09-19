@@ -1,0 +1,52 @@
+{
+  "candidate_sha": "harness",
+  "capture_provenance": {
+    "candidate_sha": "harness",
+    "config_revision": 0,
+    "factorio_branch": "2.0",
+    "mod_version": "harness",
+    "outcome": "failure",
+    "packaged": null,
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "revisions": {
+      "config": 0,
+      "sheet": 0
+    },
+    "sheet_revision": 0,
+    "stage": "search"
+  },
+  "capture_source_export": "blueprint-export/sheet-1",
+  "case_id": "repeatability",
+  "config_revision": 0,
+  "export_sha256": "0e12f5afa22eada8c82bb0f01606e5f66c26bd9cdabacf4a1e4cb4b90c42d38d",
+  "factorio_branch": "2.0",
+  "mod_version": "harness",
+  "observed_outcome": {
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "stage": "search",
+    "state": "failure"
+  },
+  "options_file": "options.json",
+  "options_sha256": "585786bc0b6b3166596eaafeb05d4226903e5d9ac6ca0c86bb80e26a4a78ea23",
+  "outcome": "failure",
+  "packaged": null,
+  "prepared_input_file": "prepared_input.json",
+  "prepared_input_sha256": "e793b432e1dcda19bb6fbb715714526662434bd5ae356c007975bb67f8889ba1",
+  "reason_codes": [
+    "BP_FAIL_SEARCH_BUDGET"
+  ],
+  "revisions": {
+    "config": 0,
+    "sheet": 0
+  },
+  "sheet_revision": 0,
+  "source_export": "export.json",
+  "source_kind": "harness",
+  "stage": "search",
+  "state": "draft",
+  "supported_outcome": "production"
+}

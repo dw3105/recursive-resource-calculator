@@ -1,48 +1,254 @@
 {
-  "schema_version": 1,
+  "actual": null,
   "case_id": "repeatability",
-  "factorio_branch": "2.0",
-  "versions": {
-    "mod": "1.1.36",
-    "rrc_version": "1.1.36",
-    "factorio": "2.0",
-    "factorio_branch": "2.0",
-    "base_game_version": "2.0"
+  "engine_scenario": {
+    "allowed_discrete_error": 0.02,
+    "drain": [
+      {
+        "full_name": "item/repeatable-product",
+        "rate_per_second": 1
+      }
+    ],
+    "expected_rates": {},
+    "initial_state": {
+      "game_speed": 1,
+      "research": [
+        "automation",
+        "steel-processing"
+      ],
+      "surface": "nauvis"
+    },
+    "sampling_window_ticks": 600,
+    "supply": [
+      {
+        "full_name": "item/repeatable-ore",
+        "rate_per_second": 3
+      }
+    ],
+    "timeout_seconds": 30,
+    "warm_up_ticks": 60
   },
-  "targets": [],
+  "expected": "expected_canonical.json",
+  "expected_outcome": "production",
+  "factorio_branch": "2.0",
+  "observed_outcome": {
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "stage": "search",
+    "state": "failure"
+  },
+  "prepared_input": "prepared_input.json",
+  "schema_version": 1,
   "setup": {
-    "selection": [],
-    "settings": {
-      "current": {
-        "input_edge": "left",
-        "output_edge": "top"
+    "options": {
+      "round_up": null,
+      "start_leftovers": "byproduct"
+    },
+    "selection": {
+      "1": {
+        "beacons": [
+          {
+            "count": 1,
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ],
+            "name": "beacon",
+            "quality": "normal",
+            "sharing": 1,
+            "type": "beacon"
+          }
+        ],
+        "consumer": null,
+        "machine": {
+          "name": "repeatable-assembler",
+          "quality": "normal"
+        },
+        "modules": [
+          {
+            "name": "speed-module",
+            "quality": "normal"
+          }
+        ],
+        "product_full_name": "item/repeatable-part",
+        "recipe_name": "make-repeatable-part",
+        "selected": true,
+        "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+        "status": "selected",
+        "unselected": null
+      },
+      "2": {
+        "beacons": [
+          {
+            "count": 1,
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ],
+            "name": "beacon",
+            "quality": "normal",
+            "sharing": 1,
+            "type": "beacon"
+          }
+        ],
+        "consumer": null,
+        "machine": {
+          "name": "repeatable-assembler",
+          "quality": "normal"
+        },
+        "modules": [
+          {
+            "name": "speed-module",
+            "quality": "normal"
+          }
+        ],
+        "product_full_name": "item/repeatable-product",
+        "recipe_name": "make-repeatable-product",
+        "selected": true,
+        "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+        "status": "selected",
+        "unselected": null
+      },
+      "burners": {
+        "rrc_empty_list": true
+      },
+      "quality_loops": {
+        "rrc_empty_list": true
       }
     },
-    "options": {
-      "round_up": true
+    "settings": {
+      "current": {
+        "fingerprint": "rrc-snapshot-1:t1:310:s7:options61:t1:219:s15:start_leftovers12:s9:byproduct11:s8:round_up4:b1:010:s7:targets241:t1:14:d1:1227:t1:919:s15:rate_per_second4:d1:17:s4:name22:s18:repeatable-product7:s4:type7:s4:item8:s5:index4:d1:18:s5:valid4:b1:110:s7:quality9:s6:normal11:s8:raw_text4:s1:112:s9:full_name27:s23:item/repeatable-product12:s9:time_unit5:s2:/s12:s9:selection1487:t1:44:d1:1706:t2:1014:s10:unselected4:b1:015:s11:recipe_name24:s20:make-repeatable-part21:s17:product_full_name24:s20:item/repeatable-part9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal4:d1:2712:t2:1014:s10:unselected4:b1:015:s11:recipe_name27:s23:make-repeatable-product21:s17:product_full_name27:s23:item/repeatable-product9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal17:s13:quality_loops4:t1:010:s7:burners4:t1:0",
+        "options": {
+          "round_up": null,
+          "start_leftovers": "byproduct"
+        },
+        "revisions": {
+          "config": 0,
+          "sheet": 0
+        },
+        "selection": {
+          "1": {
+            "beacons": [
+              {
+                "count": 1,
+                "modules": [
+                  {
+                    "name": "speed-module",
+                    "quality": "normal"
+                  }
+                ],
+                "name": "beacon",
+                "quality": "normal",
+                "sharing": 1,
+                "type": "beacon"
+              }
+            ],
+            "consumer": null,
+            "machine": {
+              "name": "repeatable-assembler",
+              "quality": "normal"
+            },
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ],
+            "product_full_name": "item/repeatable-part",
+            "recipe_name": "make-repeatable-part",
+            "selected": true,
+            "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+            "status": "selected",
+            "unselected": null
+          },
+          "2": {
+            "beacons": [
+              {
+                "count": 1,
+                "modules": [
+                  {
+                    "name": "speed-module",
+                    "quality": "normal"
+                  }
+                ],
+                "name": "beacon",
+                "quality": "normal",
+                "sharing": 1,
+                "type": "beacon"
+              }
+            ],
+            "consumer": null,
+            "machine": {
+              "name": "repeatable-assembler",
+              "quality": "normal"
+            },
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ],
+            "product_full_name": "item/repeatable-product",
+            "recipe_name": "make-repeatable-product",
+            "selected": true,
+            "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+            "status": "selected",
+            "unselected": null
+          },
+          "burners": {
+            "rrc_empty_list": true
+          },
+          "quality_loops": {
+            "rrc_empty_list": true
+          }
+        },
+        "targets": [
+          {
+            "full_name": "item/repeatable-product",
+            "index": 1,
+            "name": "repeatable-product",
+            "quality": "normal",
+            "rate_per_second": 1,
+            "raw_text": "1",
+            "time_unit": "/s",
+            "type": "item",
+            "valid": true
+          }
+        ]
+      },
+      "result": {
+        "fingerprint": "rrc-snapshot-1:t1:310:s7:options61:t1:219:s15:start_leftovers12:s9:byproduct11:s8:round_up4:b1:010:s7:targets241:t1:14:d1:1227:t1:919:s15:rate_per_second4:d1:17:s4:name22:s18:repeatable-product7:s4:type7:s4:item8:s5:index4:d1:18:s5:valid4:b1:110:s7:quality9:s6:normal11:s8:raw_text4:s1:112:s9:full_name27:s23:item/repeatable-product12:s9:time_unit5:s2:/s12:s9:selection1487:t1:44:d1:1706:t2:1014:s10:unselected4:b1:015:s11:recipe_name24:s20:make-repeatable-part21:s17:product_full_name24:s20:item/repeatable-part9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal4:d1:2712:t2:1014:s10:unselected4:b1:015:s11:recipe_name27:s23:make-repeatable-product21:s17:product_full_name27:s23:item/repeatable-product9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal17:s13:quality_loops4:t1:010:s7:burners4:t1:0"
+      }
     }
   },
-  "engine_scenario": {
-    "initial_state": {
-      "research": [],
-      "surface": "nauvis",
-      "game_speed": 1
-    },
-    "supply": [],
-    "drain": [],
-    "warm_up_ticks": 60,
-    "sampling_window_ticks": 600,
-    "expected_rates": {},
-    "allowed_discrete_error": 0.02,
-    "timeout_seconds": 10
-  },
-  "expected_outcome": "production",
-  "expected": null,
-  "actual": null,
+  "source_export": "export.json",
+  "source_kind": "harness",
   "state": "draft",
-  "independent_assertions": {
-    "conservation": true,
-    "grid_containment": true
-  },
-  "capture_pending": "Capture the repeatability sheet twice through the real preparation path."
+  "supported_outcome": "production",
+  "targets": [
+    {
+      "full_name": "item/repeatable-product",
+      "index": 1,
+      "name": "repeatable-product",
+      "quality": "normal",
+      "rate_per_second": 1,
+      "raw_text": "1",
+      "time_unit": "/s",
+      "type": "item",
+      "valid": true
+    }
+  ],
+  "versions": {
+    "base_game_version": "2.0.77",
+    "factorio": "2.0",
+    "factorio_branch": "2.0",
+    "mod": "1.1.10",
+    "rrc_version": "1.1.10"
+  }
 }

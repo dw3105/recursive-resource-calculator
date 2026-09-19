@@ -1,0 +1,1295 @@
+{
+  "calculation": {
+    "columns": [
+      {
+        "consumer": null,
+        "machine": {
+          "name": "repeatable-assembler",
+          "quality": "normal"
+        },
+        "net_amounts": {
+          "item/repeatable-ore": -1,
+          "item/repeatable-part": -1,
+          "item/repeatable-product": 1
+        },
+        "product_full_name": "item/repeatable-product",
+        "recipe_name": "make-repeatable-product",
+        "setup": {
+          "beacons": [
+            {
+              "count": 1,
+              "modules": [
+                {
+                  "name": "speed-module",
+                  "quality": "normal"
+                }
+              ],
+              "name": "beacon",
+              "quality": "normal"
+            }
+          ],
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ]
+        }
+      },
+      {
+        "consumer": null,
+        "machine": {
+          "name": "repeatable-assembler",
+          "quality": "normal"
+        },
+        "net_amounts": {
+          "item/repeatable-ore": -2,
+          "item/repeatable-part": 1
+        },
+        "product_full_name": "item/repeatable-part",
+        "recipe_name": "make-repeatable-part",
+        "setup": {
+          "beacons": [
+            {
+              "count": 1,
+              "modules": [
+                {
+                  "name": "speed-module",
+                  "quality": "normal"
+                }
+              ],
+              "name": "beacon",
+              "quality": "normal"
+            }
+          ],
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ]
+        }
+      }
+    ],
+    "product_parts": {},
+    "quality_loop_stage_results": {},
+    "reasons_by_column": {},
+    "recipe_rates": {
+      "make-repeatable-part": 1,
+      "make-repeatable-product": 1
+    },
+    "solved_rates": {
+      "item/repeatable-part": 1,
+      "item/repeatable-product": 1
+    },
+    "status": "ok",
+    "unsolved_rates": {
+      "item/repeatable-ore": 3
+    }
+  },
+  "diagnostics": {
+    "catalog": {},
+    "missing_prototypes": {},
+    "rejected_values": {}
+  },
+  "encoding": "zlib+base64",
+  "environment": {
+    "active_mods": {
+      "RRC-Fork": "1.1.10",
+      "base": "2.0.77"
+    },
+    "base_game_version": "2.0.77",
+    "force": {
+      "quality_unlocks": {
+        "normal": true
+      },
+      "research": {
+        "make-repeatable-part": 0,
+        "make-repeatable-product": 0
+      }
+    },
+    "mod_settings": {
+      "hxrrc-displayed-floating-point-precision": 12
+    },
+    "mod_version": "1.1.10"
+  },
+  "format": "rrc-sheet-debug",
+  "prepared_input": {
+    "catalog": {
+      "beacon": {
+        "beacon": {
+          "counter": "same_type",
+          "distribution_effectivity": 1.5
+        }
+      },
+      "belt": {
+        "belt": "transport-belt",
+        "items_per_second": 15,
+        "lane_items_per_second": 7.5,
+        "quality": "normal",
+        "splitter": "splitter",
+        "underground": "underground-belt",
+        "underground_max_distance": 5
+      },
+      "entity": {
+        "beacon": {
+          "beacon": {
+            "counter": "same_type",
+            "distribution_effectivity": 1.5
+          },
+          "energy_usage_w": 480000,
+          "etype": "beacon",
+          "fluid_boxes": {},
+          "module_slots": 2,
+          "name": "beacon",
+          "needs_power": true,
+          "pollution_per_min": 0,
+          "quality": "normal"
+        },
+        "inserter": {
+          "collision_box": {
+            "left_top": {
+              "x": -0.45,
+              "y": -0.45
+            },
+            "right_bottom": {
+              "x": 0.45,
+              "y": 0.45
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 13000,
+          "etype": "inserter",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": {},
+          "name": "inserter",
+          "needs_power": true,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 1,
+          "tile_w": 1
+        },
+        "medium-electric-pole": {
+          "collision_box": {
+            "left_top": {
+              "x": -0.45,
+              "y": -0.45
+            },
+            "right_bottom": {
+              "x": 0.45,
+              "y": 0.45
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 0,
+          "etype": "electric-pole",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": {},
+          "name": "medium-electric-pole",
+          "needs_power": null,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 1,
+          "tile_w": 1
+        },
+        "pipe": {
+          "collision_box": {
+            "left_top": {
+              "x": -0.45,
+              "y": -0.45
+            },
+            "right_bottom": {
+              "x": 0.45,
+              "y": 0.45
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 0,
+          "etype": "pipe",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": [
+            {
+              "connections": [
+                {
+                  "connection_type": "normal",
+                  "direction": 0,
+                  "flow_direction": "input-output",
+                  "positions": [
+                    {
+                      "x": 0,
+                      "y": -1
+                    },
+                    {
+                      "x": 1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 1
+                    },
+                    {
+                      "x": -1,
+                      "y": 0
+                    }
+                  ]
+                },
+                {
+                  "connection_type": "normal",
+                  "direction": 4,
+                  "flow_direction": "input-output",
+                  "positions": [
+                    {
+                      "x": 1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 1
+                    },
+                    {
+                      "x": -1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": -1
+                    }
+                  ]
+                },
+                {
+                  "connection_type": "normal",
+                  "direction": 8,
+                  "flow_direction": "input-output",
+                  "positions": [
+                    {
+                      "x": 0,
+                      "y": 1
+                    },
+                    {
+                      "x": -1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": -1
+                    },
+                    {
+                      "x": 1,
+                      "y": 0
+                    }
+                  ]
+                },
+                {
+                  "connection_type": "normal",
+                  "direction": 12,
+                  "flow_direction": "input-output",
+                  "positions": [
+                    {
+                      "x": -1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": -1
+                    },
+                    {
+                      "x": 1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 1
+                    }
+                  ]
+                }
+              ],
+              "index": 1,
+              "production_type": "input-output",
+              "volume": 100
+            }
+          ],
+          "name": "pipe",
+          "needs_power": null,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 1,
+          "tile_w": 1
+        },
+        "pipe-to-ground": {
+          "collision_box": {
+            "left_top": {
+              "x": -0.45,
+              "y": -0.45
+            },
+            "right_bottom": {
+              "x": 0.45,
+              "y": 0.45
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 0,
+          "etype": "pipe-to-ground",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": [
+            {
+              "connections": [
+                {
+                  "connection_type": "normal",
+                  "direction": 0,
+                  "flow_direction": "input-output",
+                  "positions": [
+                    {
+                      "x": 0,
+                      "y": -1
+                    },
+                    {
+                      "x": 1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": 1
+                    },
+                    {
+                      "x": -1,
+                      "y": 0
+                    }
+                  ]
+                },
+                {
+                  "connection_type": "underground",
+                  "direction": 8,
+                  "flow_direction": "input-output",
+                  "max_underground_distance": 10,
+                  "positions": [
+                    {
+                      "x": 0,
+                      "y": 1
+                    },
+                    {
+                      "x": -1,
+                      "y": 0
+                    },
+                    {
+                      "x": 0,
+                      "y": -1
+                    },
+                    {
+                      "x": 1,
+                      "y": 0
+                    }
+                  ]
+                }
+              ],
+              "index": 1,
+              "production_type": "input-output",
+              "volume": 100
+            }
+          ],
+          "name": "pipe-to-ground",
+          "needs_power": null,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 1,
+          "tile_w": 1
+        },
+        "repeatable-assembler": {
+          "crafting_speed": 1,
+          "energy_usage_w": 75000,
+          "etype": "assembling-machine",
+          "fluid_boxes": {},
+          "module_slots": 2,
+          "name": "repeatable-assembler",
+          "needs_power": true,
+          "pollution_per_min": 0.06666666666666667,
+          "quality": "normal"
+        },
+        "roboport": {
+          "collision_box": {
+            "left_top": {
+              "x": -1.95,
+              "y": -1.95
+            },
+            "right_bottom": {
+              "x": 1.95,
+              "y": 1.95
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 50000,
+          "etype": "roboport",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": {},
+          "name": "roboport",
+          "needs_power": true,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 4,
+          "tile_w": 4
+        },
+        "splitter": {
+          "collision_box": {
+            "left_top": {
+              "x": -0.95,
+              "y": -0.45
+            },
+            "right_bottom": {
+              "x": 0.95,
+              "y": 0.45
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 0,
+          "etype": "splitter",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": {},
+          "name": "splitter",
+          "needs_power": null,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 1,
+          "tile_w": 2
+        },
+        "transport-belt": {
+          "collision_box": {
+            "left_top": {
+              "x": -0.45,
+              "y": -0.45
+            },
+            "right_bottom": {
+              "x": 0.45,
+              "y": 0.45
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 0,
+          "etype": "transport-belt",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": {},
+          "name": "transport-belt",
+          "needs_power": null,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 1,
+          "tile_w": 1
+        },
+        "underground-belt": {
+          "collision_box": {
+            "left_top": {
+              "x": -0.45,
+              "y": -0.45
+            },
+            "right_bottom": {
+              "x": 0.45,
+              "y": 0.45
+            }
+          },
+          "collision_mask": {
+            "layers": {
+              "object": true,
+              "player": true,
+              "water_tile": true
+            }
+          },
+          "energy_usage_w": 0,
+          "etype": "underground-belt",
+          "flags": {
+            "player-creation": true
+          },
+          "fluid_boxes": {},
+          "name": "underground-belt",
+          "needs_power": null,
+          "pollution_per_min": 0,
+          "quality": "normal",
+          "tile_h": 1,
+          "tile_w": 1
+        }
+      },
+      "fluid": {},
+      "inserter": {
+        "drop_offset": {
+          "x": 0,
+          "y": -1.203125
+        },
+        "drop_position": {
+          "x": 0,
+          "y": -1.203125
+        },
+        "items_per_second": 4.62,
+        "name": "inserter",
+        "pickup_offset": {
+          "x": 0,
+          "y": 1
+        },
+        "quality": "normal"
+      },
+      "item": {
+        "repeatable-ore": {
+          "fuel_emissions_multiplier": 1,
+          "fuel_value": 0,
+          "name": "repeatable-ore",
+          "quality": "normal",
+          "type": "item"
+        },
+        "repeatable-part": {
+          "fuel_emissions_multiplier": 1,
+          "fuel_value": 0,
+          "name": "repeatable-part",
+          "quality": "normal",
+          "type": "item"
+        },
+        "repeatable-product": {
+          "fuel_emissions_multiplier": 1,
+          "fuel_value": 0,
+          "name": "repeatable-product",
+          "quality": "normal",
+          "type": "item"
+        },
+        "speed-module": {
+          "module": true,
+          "module_effects": {
+            "speed": 0.2
+          },
+          "name": "speed-module",
+          "quality": "normal",
+          "type": "module"
+        }
+      },
+      "module": {
+        "speed-module": {
+          "category": "speed",
+          "effects": {
+            "speed": 0.2
+          },
+          "name": "speed-module",
+          "quality": "normal"
+        }
+      },
+      "pipe": {
+        "pipe": "pipe",
+        "quality": "normal",
+        "throughput_per_second": 1200,
+        "underground": "pipe-to-ground",
+        "underground_max_distance": 10
+      },
+      "pole": {
+        "name": "medium-electric-pole",
+        "quality": "normal",
+        "supply_h": 3.5,
+        "supply_w": 3.5,
+        "tile_h": 1,
+        "tile_w": 1,
+        "wire_reach": 9
+      },
+      "quality": {
+        "normal": {
+          "level": 0,
+          "name": "normal"
+        }
+      },
+      "quality_level": {
+        "normal": 0
+      },
+      "robo": {
+        "connection_distance": 50,
+        "construction_radius": 55,
+        "logistic_radius": 25,
+        "name": "roboport",
+        "quality": "normal",
+        "tile_h": 4,
+        "tile_w": 4
+      },
+      "schema_version": 1
+    },
+    "force": "player",
+    "options": {
+      "catalog_diagnostics": {},
+      "input_edge": "left",
+      "output_edge": "top",
+      "round_up": null,
+      "search_budget": 2500,
+      "start_leftovers": "byproduct"
+    },
+    "provenance": {
+      "candidate_sha": "harness",
+      "config_revision": 0,
+      "factorio_branch": "2.0",
+      "mod_version": "harness",
+      "outcome": "failure",
+      "packaged": null,
+      "reason_codes": [
+        "BP_FAIL_SEARCH_BUDGET"
+      ],
+      "revisions": {
+        "config": 0,
+        "sheet": 0
+      },
+      "sheet_revision": 0,
+      "stage": "search"
+    },
+    "revisions": {
+      "config": 0,
+      "sheet": 0
+    },
+    "schema_version": 1,
+    "settings": {
+      "belt": {
+        "name": "transport-belt",
+        "quality": "normal",
+        "splitter": "splitter",
+        "underground": "underground-belt"
+      },
+      "input_edge": "left",
+      "inserter": {
+        "name": "inserter",
+        "quality": "normal"
+      },
+      "output_edge": "top",
+      "pipe": {
+        "name": "pipe",
+        "quality": "normal"
+      },
+      "pole": {
+        "name": "medium-electric-pole",
+        "quality": "normal"
+      },
+      "roboport": {
+        "name": "roboport",
+        "quality": "normal"
+      },
+      "underground_pipe": {
+        "name": "pipe-to-ground",
+        "quality": "normal"
+      }
+    },
+    "snapshot": {
+      "fingerprint": {
+        "input": "rrc-snapshot-1:t1:310:s7:options61:t1:219:s15:start_leftovers12:s9:byproduct11:s8:round_up4:b1:010:s7:targets241:t1:14:d1:1227:t1:919:s15:rate_per_second4:d1:17:s4:name22:s18:repeatable-product7:s4:type7:s4:item8:s5:index4:d1:18:s5:valid4:b1:110:s7:quality9:s6:normal11:s8:raw_text4:s1:112:s9:full_name27:s23:item/repeatable-product12:s9:time_unit5:s2:/s12:s9:selection1487:t1:44:d1:1706:t2:1014:s10:unselected4:b1:015:s11:recipe_name24:s20:make-repeatable-part21:s17:product_full_name24:s20:item/repeatable-part9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal4:d1:2712:t2:1014:s10:unselected4:b1:015:s11:recipe_name27:s23:make-repeatable-product21:s17:product_full_name27:s23:item/repeatable-product9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal17:s13:quality_loops4:t1:010:s7:burners4:t1:0",
+        "result": "rrc-snapshot-1:t1:310:s7:options61:t1:219:s15:start_leftovers12:s9:byproduct11:s8:round_up4:b1:010:s7:targets241:t1:14:d1:1227:t1:919:s15:rate_per_second4:d1:17:s4:name22:s18:repeatable-product7:s4:type7:s4:item8:s5:index4:d1:18:s5:valid4:b1:110:s7:quality9:s6:normal11:s8:raw_text4:s1:112:s9:full_name27:s23:item/repeatable-product12:s9:time_unit5:s2:/s12:s9:selection1487:t1:44:d1:1706:t2:1014:s10:unselected4:b1:015:s11:recipe_name24:s20:make-repeatable-part21:s17:product_full_name24:s20:item/repeatable-part9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal4:d1:2712:t2:1014:s10:unselected4:b1:015:s11:recipe_name27:s23:make-repeatable-product21:s17:product_full_name27:s23:item/repeatable-product9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal17:s13:quality_loops4:t1:010:s7:burners4:t1:0"
+      },
+      "options": {
+        "round_up": null,
+        "start_leftovers": "byproduct"
+      },
+      "player_index": 1,
+      "revisions": {
+        "config": 0,
+        "sheet": 0
+      },
+      "schema_version": 1,
+      "selection": {
+        "1": {
+          "beacons": [
+            {
+              "count": 1,
+              "modules": [
+                {
+                  "name": "speed-module",
+                  "quality": "normal"
+                }
+              ],
+              "name": "beacon",
+              "quality": "normal",
+              "sharing": 1,
+              "type": "beacon"
+            }
+          ],
+          "consumer": null,
+          "machine": {
+            "name": "repeatable-assembler",
+            "quality": "normal"
+          },
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ],
+          "product_full_name": "item/repeatable-part",
+          "recipe_name": "make-repeatable-part",
+          "selected": true,
+          "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+          "status": "selected",
+          "unselected": null
+        },
+        "2": {
+          "beacons": [
+            {
+              "count": 1,
+              "modules": [
+                {
+                  "name": "speed-module",
+                  "quality": "normal"
+                }
+              ],
+              "name": "beacon",
+              "quality": "normal",
+              "sharing": 1,
+              "type": "beacon"
+            }
+          ],
+          "consumer": null,
+          "machine": {
+            "name": "repeatable-assembler",
+            "quality": "normal"
+          },
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ],
+          "product_full_name": "item/repeatable-product",
+          "recipe_name": "make-repeatable-product",
+          "selected": true,
+          "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+          "status": "selected",
+          "unselected": null
+        },
+        "burners": {},
+        "quality_loops": {}
+      },
+      "sheet_id": "sheet-1",
+      "state": "current",
+      "targets": [
+        {
+          "full_name": "item/repeatable-product",
+          "index": 1,
+          "name": "repeatable-product",
+          "quality": "normal",
+          "rate_per_second": 1,
+          "raw_text": "1",
+          "time_unit": "/s",
+          "type": "item",
+          "valid": true
+        }
+      ]
+    },
+    "solver_result": {
+      "columns": [
+        {
+          "consumer": null,
+          "machine": {
+            "name": "repeatable-assembler",
+            "quality": "normal"
+          },
+          "net_amounts": {
+            "item/repeatable-ore": -1,
+            "item/repeatable-part": -1,
+            "item/repeatable-product": 1
+          },
+          "product_full_name": "item/repeatable-product",
+          "recipe_name": "make-repeatable-product",
+          "setup": {
+            "beacons": [
+              {
+                "count": 1,
+                "modules": [
+                  {
+                    "name": "speed-module",
+                    "quality": "normal"
+                  }
+                ],
+                "name": "beacon",
+                "quality": "normal"
+              }
+            ],
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ]
+          }
+        },
+        {
+          "consumer": null,
+          "machine": {
+            "name": "repeatable-assembler",
+            "quality": "normal"
+          },
+          "net_amounts": {
+            "item/repeatable-ore": -2,
+            "item/repeatable-part": 1
+          },
+          "product_full_name": "item/repeatable-part",
+          "recipe_name": "make-repeatable-part",
+          "setup": {
+            "beacons": [
+              {
+                "count": 1,
+                "modules": [
+                  {
+                    "name": "speed-module",
+                    "quality": "normal"
+                  }
+                ],
+                "name": "beacon",
+                "quality": "normal"
+              }
+            ],
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ]
+          }
+        }
+      ],
+      "product_parts": {},
+      "reasons_by_column": {},
+      "recipe_rates": {
+        "make-repeatable-part": 1,
+        "make-repeatable-product": 1
+      },
+      "solved_rates": {
+        "item/repeatable-part": 1,
+        "item/repeatable-product": 1
+      },
+      "status": "ok",
+      "unsolved_rates": {
+        "item/repeatable-ore": 3
+      }
+    },
+    "source_export": "blueprint-export/sheet-1",
+    "source_kind": "harness",
+    "surface": "nauvis"
+  },
+  "prototypes": {
+    "beacon": {
+      "beacon": {
+        "counter": "same_type",
+        "distribution_effectivity": 1.5
+      }
+    },
+    "entity": {
+      "beacon": {
+        "beacon": {
+          "counter": "same_type",
+          "distribution_effectivity": 1.5
+        },
+        "energy_usage_w": 480000,
+        "etype": "beacon",
+        "fluid_boxes": {
+          "rrc_empty_list": true
+        },
+        "module_slots": 2,
+        "name": "beacon",
+        "needs_power": true,
+        "pollution_per_min": 0,
+        "quality": "normal"
+      },
+      "repeatable-assembler": {
+        "crafting_speed": 1,
+        "energy_usage_w": 75000,
+        "etype": "assembling-machine",
+        "fluid_boxes": {
+          "rrc_empty_list": true
+        },
+        "module_slots": 2,
+        "name": "repeatable-assembler",
+        "needs_power": true,
+        "pollution_per_min": 0.06666666666666667,
+        "quality": "normal"
+      }
+    },
+    "fluid": {},
+    "item": {
+      "speed-module": {
+        "module": true,
+        "module_effects": {
+          "speed": 0.2
+        },
+        "name": "speed-module",
+        "quality": "normal",
+        "type": "module"
+      }
+    },
+    "module": {
+      "speed-module": {
+        "category": "speed",
+        "effects": {
+          "speed": 0.2
+        },
+        "name": "speed-module",
+        "quality": "normal"
+      }
+    },
+    "quality": {
+      "normal": {
+        "level": 0,
+        "name": "normal"
+      }
+    },
+    "quality_level": {
+      "normal": 0
+    },
+    "schema_version": 1
+  },
+  "provenance": {
+    "candidate_sha": "harness",
+    "config_revision": 0,
+    "factorio_branch": "2.0",
+    "mod_version": "harness",
+    "outcome": "failure",
+    "packaged": null,
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "revisions": {
+      "config": 0,
+      "sheet": 0
+    },
+    "sheet_revision": 0,
+    "stage": "search"
+  },
+  "rrc_version": "1.1.10",
+  "schema_version": 1,
+  "selection": {
+    "1": {
+      "beacons": [
+        {
+          "count": 1,
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ],
+          "name": "beacon",
+          "quality": "normal",
+          "sharing": 1,
+          "type": "beacon"
+        }
+      ],
+      "consumer": null,
+      "machine": {
+        "name": "repeatable-assembler",
+        "quality": "normal"
+      },
+      "modules": [
+        {
+          "name": "speed-module",
+          "quality": "normal"
+        }
+      ],
+      "product_full_name": "item/repeatable-part",
+      "recipe_name": "make-repeatable-part",
+      "selected": true,
+      "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+      "status": "selected",
+      "unselected": null
+    },
+    "2": {
+      "beacons": [
+        {
+          "count": 1,
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ],
+          "name": "beacon",
+          "quality": "normal",
+          "sharing": 1,
+          "type": "beacon"
+        }
+      ],
+      "consumer": null,
+      "machine": {
+        "name": "repeatable-assembler",
+        "quality": "normal"
+      },
+      "modules": [
+        {
+          "name": "speed-module",
+          "quality": "normal"
+        }
+      ],
+      "product_full_name": "item/repeatable-product",
+      "recipe_name": "make-repeatable-product",
+      "selected": true,
+      "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+      "status": "selected",
+      "unselected": null
+    },
+    "burners": {
+      "rrc_empty_list": true
+    },
+    "quality_loops": {
+      "rrc_empty_list": true
+    }
+  },
+  "settings": {
+    "current": {
+      "fingerprint": "rrc-snapshot-1:t1:310:s7:options61:t1:219:s15:start_leftovers12:s9:byproduct11:s8:round_up4:b1:010:s7:targets241:t1:14:d1:1227:t1:919:s15:rate_per_second4:d1:17:s4:name22:s18:repeatable-product7:s4:type7:s4:item8:s5:index4:d1:18:s5:valid4:b1:110:s7:quality9:s6:normal11:s8:raw_text4:s1:112:s9:full_name27:s23:item/repeatable-product12:s9:time_unit5:s2:/s12:s9:selection1487:t1:44:d1:1706:t2:1014:s10:unselected4:b1:015:s11:recipe_name24:s20:make-repeatable-part21:s17:product_full_name24:s20:item/repeatable-part9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal4:d1:2712:t2:1014:s10:unselected4:b1:015:s11:recipe_name27:s23:make-repeatable-product21:s17:product_full_name27:s23:item/repeatable-product9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal17:s13:quality_loops4:t1:010:s7:burners4:t1:0",
+      "options": {
+        "round_up": null,
+        "start_leftovers": "byproduct"
+      },
+      "revisions": {
+        "config": 0,
+        "sheet": 0
+      },
+      "selection": {
+        "1": {
+          "beacons": [
+            {
+              "count": 1,
+              "modules": [
+                {
+                  "name": "speed-module",
+                  "quality": "normal"
+                }
+              ],
+              "name": "beacon",
+              "quality": "normal",
+              "sharing": 1,
+              "type": "beacon"
+            }
+          ],
+          "consumer": null,
+          "machine": {
+            "name": "repeatable-assembler",
+            "quality": "normal"
+          },
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ],
+          "product_full_name": "item/repeatable-part",
+          "recipe_name": "make-repeatable-part",
+          "selected": true,
+          "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+          "status": "selected",
+          "unselected": null
+        },
+        "2": {
+          "beacons": [
+            {
+              "count": 1,
+              "modules": [
+                {
+                  "name": "speed-module",
+                  "quality": "normal"
+                }
+              ],
+              "name": "beacon",
+              "quality": "normal",
+              "sharing": 1,
+              "type": "beacon"
+            }
+          ],
+          "consumer": null,
+          "machine": {
+            "name": "repeatable-assembler",
+            "quality": "normal"
+          },
+          "modules": [
+            {
+              "name": "speed-module",
+              "quality": "normal"
+            }
+          ],
+          "product_full_name": "item/repeatable-product",
+          "recipe_name": "make-repeatable-product",
+          "selected": true,
+          "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+          "status": "selected",
+          "unselected": null
+        },
+        "burners": {
+          "rrc_empty_list": true
+        },
+        "quality_loops": {
+          "rrc_empty_list": true
+        }
+      },
+      "targets": [
+        {
+          "full_name": "item/repeatable-product",
+          "index": 1,
+          "name": "repeatable-product",
+          "quality": "normal",
+          "rate_per_second": 1,
+          "raw_text": "1",
+          "time_unit": "/s",
+          "type": "item",
+          "valid": true
+        }
+      ]
+    },
+    "result": {
+      "fingerprint": "rrc-snapshot-1:t1:310:s7:options61:t1:219:s15:start_leftovers12:s9:byproduct11:s8:round_up4:b1:010:s7:targets241:t1:14:d1:1227:t1:919:s15:rate_per_second4:d1:17:s4:name22:s18:repeatable-product7:s4:type7:s4:item8:s5:index4:d1:18:s5:valid4:b1:110:s7:quality9:s6:normal11:s8:raw_text4:s1:112:s9:full_name27:s23:item/repeatable-product12:s9:time_unit5:s2:/s12:s9:selection1487:t1:44:d1:1706:t2:1014:s10:unselected4:b1:015:s11:recipe_name24:s20:make-repeatable-part21:s17:product_full_name24:s20:item/repeatable-part9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal4:d1:2712:t2:1014:s10:unselected4:b1:015:s11:recipe_name27:s23:make-repeatable-product21:s17:product_full_name27:s23:item/repeatable-product9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal17:s13:quality_loops4:t1:010:s7:burners4:t1:0"
+    }
+  },
+  "sheet": {
+    "fingerprint": {
+      "input": "rrc-snapshot-1:t1:310:s7:options61:t1:219:s15:start_leftovers12:s9:byproduct11:s8:round_up4:b1:010:s7:targets241:t1:14:d1:1227:t1:919:s15:rate_per_second4:d1:17:s4:name22:s18:repeatable-product7:s4:type7:s4:item8:s5:index4:d1:18:s5:valid4:b1:110:s7:quality9:s6:normal11:s8:raw_text4:s1:112:s9:full_name27:s23:item/repeatable-product12:s9:time_unit5:s2:/s12:s9:selection1487:t1:44:d1:1706:t2:1014:s10:unselected4:b1:015:s11:recipe_name24:s20:make-repeatable-part21:s17:product_full_name24:s20:item/repeatable-part9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal4:d1:2712:t2:1014:s10:unselected4:b1:015:s11:recipe_name27:s23:make-repeatable-product21:s17:product_full_name27:s23:item/repeatable-product9:s6:status11:s8:selected10:s7:beacons202:t1:14:d1:1188:t1:67:s4:name9:s6:beacon7:s4:type9:s6:beacon8:s5:count4:d1:110:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal10:s7:quality9:s6:normal10:s7:sharing4:d1:110:s7:machine64:t1:27:s4:name24:s20:repeatable-assembler10:s7:quality9:s6:normal10:s7:modules69:t1:14:d1:156:t1:27:s4:name16:s12:speed-module10:s7:quality9:s6:normal11:s8:consumer4:b1:011:s8:selected4:b1:112:s9:signature114:s109:M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal17:s13:quality_loops4:t1:010:s7:burners4:t1:0"
+    },
+    "options": {
+      "round_up": null,
+      "start_leftovers": "byproduct"
+    },
+    "player_index": 1,
+    "revisions": {
+      "config": 0,
+      "sheet": 0
+    },
+    "schema_version": 1,
+    "selection": {
+      "1": {
+        "beacons": [
+          {
+            "count": 1,
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ],
+            "name": "beacon",
+            "quality": "normal",
+            "sharing": 1,
+            "type": "beacon"
+          }
+        ],
+        "consumer": null,
+        "machine": {
+          "name": "repeatable-assembler",
+          "quality": "normal"
+        },
+        "modules": [
+          {
+            "name": "speed-module",
+            "quality": "normal"
+          }
+        ],
+        "product_full_name": "item/repeatable-part",
+        "recipe_name": "make-repeatable-part",
+        "selected": true,
+        "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+        "status": "selected",
+        "unselected": null
+      },
+      "2": {
+        "beacons": [
+          {
+            "count": 1,
+            "modules": [
+              {
+                "name": "speed-module",
+                "quality": "normal"
+              }
+            ],
+            "name": "beacon",
+            "quality": "normal",
+            "sharing": 1,
+            "type": "beacon"
+          }
+        ],
+        "consumer": null,
+        "machine": {
+          "name": "repeatable-assembler",
+          "quality": "normal"
+        },
+        "modules": [
+          {
+            "name": "speed-module",
+            "quality": "normal"
+          }
+        ],
+        "product_full_name": "item/repeatable-product",
+        "recipe_name": "make-repeatable-product",
+        "selected": true,
+        "signature": "M20:repeatable-assembler6:normalS1;12:speed-module6:normalB1;G6:beacon6:normal1:11:11;12:speed-module6:normal",
+        "status": "selected",
+        "unselected": null
+      },
+      "burners": {
+        "rrc_empty_list": true
+      },
+      "quality_loops": {
+        "rrc_empty_list": true
+      }
+    },
+    "sheet_id": "sheet-1",
+    "state": "current",
+    "targets": [
+      {
+        "full_name": "item/repeatable-product",
+        "index": 1,
+        "name": "repeatable-product",
+        "quality": "normal",
+        "rate_per_second": 1,
+        "raw_text": "1",
+        "time_unit": "/s",
+        "type": "item",
+        "valid": true
+      }
+    ]
+  },
+  "source_export": "blueprint-export/sheet-1",
+  "source_kind": "harness",
+  "state": "current"
+}

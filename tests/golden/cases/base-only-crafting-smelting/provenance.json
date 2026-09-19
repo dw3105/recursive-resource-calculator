@@ -1,0 +1,52 @@
+{
+  "candidate_sha": "harness",
+  "capture_provenance": {
+    "candidate_sha": "harness",
+    "config_revision": 0,
+    "factorio_branch": "2.0",
+    "mod_version": "harness",
+    "outcome": "failure",
+    "packaged": null,
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "revisions": {
+      "config": 0,
+      "sheet": 0
+    },
+    "sheet_revision": 0,
+    "stage": "search"
+  },
+  "capture_source_export": "blueprint-export/sheet-1",
+  "case_id": "base-only-crafting-smelting",
+  "config_revision": 0,
+  "export_sha256": "eaca2935805ab5b1c233c913442e2f39de70caea3d1b8726af4dc5cd5aa5441e",
+  "factorio_branch": "2.0",
+  "mod_version": "harness",
+  "observed_outcome": {
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "stage": "search",
+    "state": "failure"
+  },
+  "options_file": "options.json",
+  "options_sha256": "08ec8439c620782b199a47688878ba9125737c1bd34f278434b33a00f8f47c52",
+  "outcome": "failure",
+  "packaged": null,
+  "prepared_input_file": "prepared_input.json",
+  "prepared_input_sha256": "c32bdf3354d3dfcdd60ed6a29a3773914464b22eab76bad837a5378afabc36ea",
+  "reason_codes": [
+    "BP_FAIL_SEARCH_BUDGET"
+  ],
+  "revisions": {
+    "config": 0,
+    "sheet": 0
+  },
+  "sheet_revision": 0,
+  "source_export": "export.json",
+  "source_kind": "harness",
+  "stage": "search",
+  "state": "draft",
+  "supported_outcome": "production"
+}

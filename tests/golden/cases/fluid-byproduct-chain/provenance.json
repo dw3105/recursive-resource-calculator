@@ -1,0 +1,52 @@
+{
+  "candidate_sha": "harness",
+  "capture_provenance": {
+    "candidate_sha": "harness",
+    "config_revision": 0,
+    "factorio_branch": "2.0",
+    "mod_version": "harness",
+    "outcome": "failure",
+    "packaged": null,
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "revisions": {
+      "config": 0,
+      "sheet": 0
+    },
+    "sheet_revision": 0,
+    "stage": "search"
+  },
+  "capture_source_export": "blueprint-export/sheet-1",
+  "case_id": "fluid-byproduct-chain",
+  "config_revision": 0,
+  "export_sha256": "0fccf2e4b20eb5c49910b8444ad600a71459a0d9610aec48f863b71f667751e3",
+  "factorio_branch": "2.0",
+  "mod_version": "harness",
+  "observed_outcome": {
+    "reason_codes": [
+      "BP_FAIL_SEARCH_BUDGET"
+    ],
+    "stage": "search",
+    "state": "failure"
+  },
+  "options_file": "options.json",
+  "options_sha256": "14d3e97ec7f620e52cc40abcfecb1267a102610cccfb6da9a7f1dfe178ad312b",
+  "outcome": "failure",
+  "packaged": null,
+  "prepared_input_file": "prepared_input.json",
+  "prepared_input_sha256": "aafe75070a29c4af03db8d95583e8d16fbbbb8cecfb0c979c99f4e9194e5d24d",
+  "reason_codes": [
+    "BP_FAIL_SEARCH_BUDGET"
+  ],
+  "revisions": {
+    "config": 0,
+    "sheet": 0
+  },
+  "sheet_revision": 0,
+  "source_export": "export.json",
+  "source_kind": "harness",
+  "stage": "search",
+  "state": "draft",
+  "supported_outcome": "production"
+}

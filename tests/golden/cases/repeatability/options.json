@@ -1,0 +1,33 @@
+{
+  "base_game_version": "2.0.77",
+  "engine_scenario": {
+    "allowed_discrete_error": 0.02,
+    "drain": [
+      {
+        "full_name": "item/repeatable-product",
+        "rate_per_second": 1
+      }
+    ],
+    "expected_rates": {},
+    "initial_state": {
+      "game_speed": 1,
+      "research": [
+        "automation",
+        "steel-processing"
+      ],
+      "surface": "nauvis"
+    },
+    "sampling_window_ticks": 600,
+    "supply": [
+      {
+        "full_name": "item/repeatable-ore",
+        "rate_per_second": 3
+      }
+    ],
+    "timeout_seconds": 30,
+    "warm_up_ticks": 60
+  },
+  "expected_outcome": "production",
+  "factorio_branch": "2.0",
+  "supported_outcome": "production"
+}
