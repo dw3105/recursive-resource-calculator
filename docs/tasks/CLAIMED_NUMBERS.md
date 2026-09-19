@@ -66,3 +66,5 @@
 | `057` | `rrc/agent` | Queue F capture case setup | 2026-09-19 |
 | `058` | `rrc/agent` | Repair block port placement | 2026-09-19 |
 | `058` | `rrc/agent` | Repair: block ports attach to free in-grid cells | 2026-09-19 |
+| `059` | `rrc/agent` | Repair block port cells | 2026-09-19 |
+| `059` | `rrc/agent` | Repair: block ports stand on free cells | 2026-09-19 |
