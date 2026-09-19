@@ -20,6 +20,32 @@ local function result()
     }
 end
 
+local function different_result()
+    return {
+        entities = {{entity_number = 2, name = "assembling-machine-1", position = {x = 1.5, y = 0.5}}},
+    }, {
+        label = "copper line",
+        icons = {{index = 1, signal = {type = "item", name = "iron-plate"}}},
+        description = "item/iron-plate=2/s",
+    }
+end
+
+local function refuse_cursor_setup(player)
+    local cursor = player.cursor_stack
+    local cursor_metatable = getmetatable(cursor)
+    H.equal(cursor_metatable ~= nil, true, "the cursor stack has a testable metatable")
+    local previous_index = cursor_metatable.__index
+    cursor_metatable.__index = function(object, key)
+        if key == "is_blueprint_setup" then
+            return function() return false end
+        end
+        return previous_index(object, key)
+    end
+    return function()
+        cursor_metatable.__index = previous_index
+    end
+end
+
 local function held_item(player)
     if not player.cursor_stack.valid_for_read then return nil end
     return {name = player.cursor_stack.name, count = player.cursor_stack.count, quality = player.cursor_stack.quality.name}
@@ -82,6 +108,58 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(player.cursor_stack.is_blueprint_setup(), true, "retry hands over the set-up result")
         H.deep_equal(player.cursor_stack.get_blueprint_entities(), blueprint.entities, "retry keeps the entities")
         H.equal(player.cursor_stack.label, metadata.label, "retry keeps the label")
+    end)
+
+    H.test(shape .. " BP-18 a successful retry refuses a second handover and keeps one blueprint", function()
+        local world, Delivery = fixture(shape)
+        local player = game.players[1]
+        local blueprint, metadata = result()
+        world.hold_item(1, "iron-plate", "normal", 2)
+
+        local delivered, reason = Delivery.deliver(1, blueprint, metadata)
+        H.equal(delivered, false, "the full cursor keeps the result")
+        H.equal(reason, "blueprint_cursor_busy", "the kept result reports busy")
+
+        world.empty_hand(1)
+        local retried, retry_reason = Delivery.retry(1)
+        H.equal(retried, true, "the first retry succeeds")
+        H.equal(retry_reason, nil, "the successful retry has no reason")
+        H.equal(player.cursor_stack.valid_for_read, true, "the cursor has the handed-over blueprint")
+        H.equal(player.cursor_stack.is_blueprint, true, "the cursor holds a blueprint")
+        H.equal(player.cursor_stack.count, 1, "the cursor holds exactly one blueprint")
+        H.deep_equal(player.cursor_stack.get_blueprint_entities(), blueprint.entities, "the first retry keeps the entities")
+
+        local second_retry, second_reason = Delivery.retry(1)
+        H.equal(second_retry, false, "the second retry refuses the already handed-over result")
+        H.equal(second_reason, "nothing_to_deliver", "the second retry reports nothing to deliver")
+        H.equal(player.cursor_stack.valid_for_read, true, "the second retry leaves the cursor occupied")
+        H.equal(player.cursor_stack.is_blueprint, true, "the second retry leaves a blueprint in hand")
+        H.equal(player.cursor_stack.count, 1, "the second retry leaves exactly one blueprint")
+        H.deep_equal(player.cursor_stack.get_blueprint_entities(), blueprint.entities, "the second retry leaves the same entities")
+    end)
+
+    H.test(shape .. " BP-18 a successful retry clears pending before a different blueprint arrives", function()
+        local world, Delivery = fixture(shape)
+        local first_blueprint, first_metadata = result()
+        world.hold_item(1, "iron-plate")
+
+        local delivered = Delivery.deliver(1, first_blueprint, first_metadata)
+        H.equal(delivered, false, "the first result is kept")
+        H.equal(storage[1].blueprint_delivery ~= nil, true, "the first result is pending")
+
+        world.empty_hand(1)
+        local retried, retry_reason = Delivery.retry(1)
+        H.equal(retried, true, "the kept result is handed over")
+        H.equal(retry_reason, nil, "the successful retry has no reason")
+        H.equal(storage[1].blueprint_delivery == nil, true, "successful retry clears the kept result")
+
+        world.empty_hand(1)
+        local next_blueprint, next_metadata = different_result()
+        local next_delivered, next_reason = Delivery.deliver(1, next_blueprint, next_metadata)
+        H.equal(next_delivered, true, "a later different blueprint is not blocked by pending state")
+        H.equal(next_reason, nil, "the later delivery has no reason")
+        H.deep_equal(game.players[1].cursor_stack.get_blueprint_entities(), next_blueprint.entities,
+            "the later delivery reaches the cursor")
     end)
 
     H.test(shape .. " BP-18 a failed delivery leaves the cursor and staging inventory clean", function()
@@ -192,6 +270,53 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(captured.was_blueprint, true, "the staged stack was a blueprint")
         H.equal(captured.was_setup, true, "the staged stack was set up")
         H.equal(captured.cursor_was_blueprint, true, "handover happened before staging cleanup")
+    end)
+
+    H.test(shape .. " BP-18 a cursor setup refusal clears the hand and staging slot and reports failure", function()
+        local world, Delivery = fixture(shape)
+        local player = game.players[1]
+        local blueprint, metadata = result()
+        local captured_inventory
+        local create_inventory = game.create_inventory
+        game.create_inventory = function(size)
+            captured_inventory = create_inventory(size)
+            return captured_inventory
+        end
+        local restore_cursor = refuse_cursor_setup(player)
+
+        local ok, reason = Delivery.deliver(1, blueprint, metadata)
+
+        restore_cursor()
+        game.create_inventory = create_inventory
+
+        H.equal(ok, false, "cursor setup refusal is rejected")
+        H.equal(reason, "blueprint_delivery_failed", "cursor setup refusal reports failure")
+        H.equal(player.cursor_stack.valid_for_read, false, "cursor setup refusal leaves the hand empty")
+        H.equal(player.cursor_ghost, nil, "cursor setup refusal leaves no ghost")
+        H.equal(player.cursor_record, nil, "cursor setup refusal leaves no record")
+        H.equal(captured_inventory ~= nil, true, "staging inventory was created")
+        H.equal(captured_inventory[1] ~= nil, true, "staging slot exists")
+        H.equal(captured_inventory[1].valid_for_read, false, "cursor setup refusal leaves no staging item")
+    end)
+
+    H.test(shape .. " BP-18 a cursor setup refusal drops the result after clearing the hand", function()
+        local world, Delivery = fixture(shape)
+        local player = game.players[1]
+        local blueprint, metadata = result()
+        local restore_cursor = refuse_cursor_setup(player)
+
+        local ok, reason = Delivery.deliver(1, blueprint, metadata)
+
+        restore_cursor()
+
+        H.equal(ok, false, "cursor setup refusal is rejected")
+        H.equal(reason, "blueprint_delivery_failed", "cursor setup refusal reports failure")
+        H.equal(player.cursor_stack.valid_for_read, false, "the failed handover leaves the hand empty")
+        H.equal(storage[1].blueprint_delivery == nil, true, "the refused result is dropped rather than kept")
+
+        local retry_ok, retry_reason = Delivery.retry(1)
+        H.equal(retry_ok, false, "a dropped result cannot be retried")
+        H.equal(retry_reason, "nothing_to_deliver", "retry reports that the dropped result is gone")
     end)
 end
 
