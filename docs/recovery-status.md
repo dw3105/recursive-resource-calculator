@@ -114,3 +114,29 @@ perimeter out:item/gear role=out x=0 y=0
 `logic/bp/search.lua:343-354` takes slot 1 of each edge, and `logic/bp/settings.lua:14-15` makes the default
 edges `left` and `top`, whose first slots are the same corner. One cell carries one belt, so routing reported
 `BP_R_PORT_BLOCKED`. Every default sheet hits it. Lane 053 owns the fix.
+
+## Routing, 2026-09-19 (integrator, host legalcopilot-dev)
+
+`docs/tasks/058_reproducer.lua` reduces the player's sheet to five steps with beacon sharing, a fluid input,
+external items and machine identifiers without quality. It is the gate for every routing repair. Merged
+`lane/059` (`git merge --no-ff`, `0bba0db`) and then fixed three defects it exposed:
+
+1. **A port lost the tile it is reached from.** Routing one demand laid a belt across the approach tile of a
+   port it does not serve, and that port then had no path at all. Every port now claims its own tile and its
+   approach tile before any demand is routed (`reserve_port_cells`). A belt already carrying the same flow may
+   still pass, so one trunk feeding two consumers of one item stays legal (`tests/test_route.lua` R17).
+2. **Two belts could not cross.** When the next tile in a direction is taken, the search dives under it and
+   surfaces on the first free tile within the family's underground distance; the tiles between keep no segment.
+   A tile the search can walk is never dived under (`tests/test_route.lua` R16).
+3. **Order decided the outcome and nothing reordered.** Brute force over the fixture's first candidate: of the
+   5040 demand orders, 5035 fail and 5 succeed. A failed demand now rips every segment out and routes again
+   with itself first, each demand claiming the front once.
+
+Also corrected: the two ends of an underground pair. Items go down at the demand's source, and a blueprint
+spells that end `type = "input"`. The old spelling inverted every pair a generated blueprint would contain.
+No engine run has confirmed this; it is reasoning from the blueprint format, and the engine tier settles it.
+
+**Open, measured here, not fixed:** the smallest grid the search tries is one roboport block, 54x54 tiles, for
+blocks that occupy about 130 tiles. Every path search is a breadth-first sweep of up to 2916 cells, and a failed
+demand sweeps it four times, once per direction order. `Jobs.OPS_PER_TICK = 2000` then buys very little progress
+per tick. The fixture reaches `stage=route` and keeps working; it has not yet printed `REPRO state=success`.
