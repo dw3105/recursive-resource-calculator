@@ -166,6 +166,69 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(placement.x, 0, "the tighter short-side region wins")
         H.equal(placement.y, 0, "the upper region is the tighter fit")
     end)
+
+    H.test(shape .. " P10 BSSF short side beats earlier coordinate tie-breaks", function()
+        local input = {
+            area = Grid.rect(0, 0, 12, 14),
+            obstacles = {Grid.rect(5, 0, 4, 14), Grid.rect(9, 0, 3, 2)},
+            blocks = {{block_id = "tight", w = 4, h = 3, allowed_dirs = {Grid.NORTH, Grid.EAST}}},
+            limits = {},
+        }
+        local state = run(input, 100)
+        local placement = state.result.placements[1]
+        H.equal(placement ~= nil, true, "the block has a placement")
+        H.equal(placement.x, 9, "the tighter short-side region beats the earlier tie-breaks")
+        H.equal(placement.y, 2, "the tighter region starts below the earlier region")
+        H.equal(placement.dir, Grid.EAST, "the tighter region uses its only fitting direction")
+    end)
+
+    H.test(shape .. " P11 BSSF long side breaks an equal short-side tie", function()
+        local input = {
+            area = Grid.rect(0, 0, 12, 20),
+            obstacles = {Grid.rect(0, 8, 12, 3)},
+            blocks = {{block_id = "long-tie", w = 10, h = 3, allowed_dirs = {Grid.NORTH}}},
+            limits = {},
+        }
+        local state = run(input, 100)
+        local placement = state.result.placements[1]
+        H.equal(placement ~= nil, true, "the block has a placement")
+        H.equal(placement.x, 0, "the tighter long-side region starts at the left")
+        H.equal(placement.y, 0, "the tighter long-side region is selected")
+    end)
+
+    H.test(shape .. " P12 rejects a region that fits on one axis only", function()
+        local input = {
+            area = Grid.rect(0, 0, 10, 8),
+            obstacles = {Grid.rect(2, 0, 3, 8), Grid.rect(5, 5, 5, 3)},
+            blocks = {{block_id = "open-only", w = 3, h = 3, allowed_dirs = {Grid.NORTH}}},
+            limits = {},
+        }
+        local state = run(input, 100)
+        local placement = state.result.placements[1]
+        H.equal(placement ~= nil, true, "the block has a placement")
+        H.equal(placement.x, 5, "the block is placed in the open region")
+        H.equal(placement.y, 0, "the block starts in the open region")
+        H.equal(placement.x >= 0 and placement.y >= 0, true, "the placement starts inside the area")
+        H.equal(placement.x + placement.w <= 10 and placement.y + placement.h <= 8,
+            true, "the placement stays inside the area")
+        H.equal(Grid.intersects(placement, Grid.rect(2, 0, 3, 8)), false,
+            "the placement avoids the corridor wall")
+        H.equal(Grid.intersects(placement, Grid.rect(5, 5, 5, 3)), false,
+            "the placement avoids the lower obstacle")
+    end)
+
+    H.test(shape .. " P13 no-fit names a block when only its width fits", function()
+        local input = {
+            area = Grid.rect(0, 0, 10, 5),
+            obstacles = {Grid.rect(0, 2, 10, 1)},
+            blocks = {{block_id = "height-only", w = 5, h = 3, allowed_dirs = {Grid.NORTH}}},
+            limits = {},
+        }
+        local state = run(input, 100)
+        H.equal(state.ok, false, "a block that fits on one axis only fails the pack")
+        H.deep_equal(state.errors, {{code = "BP_P_NO_FIT", block_id = "height-only"}},
+            "the no-fit error names the block")
+    end)
 end
 
 H.done("test_pack")
