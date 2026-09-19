@@ -27,6 +27,23 @@ Current facts:
 - `tests/test_blueprint_pipeline.lua:258` replaces `Registry.calculation` with a test getter after computing a real result, so nothing yet proves the **real** `logic/calculation_result.lua` record reaches preparation.
 - Writing to `storage` during the engine's load event is forbidden; rebuilding a process-local callback is not.
 
+## What attempt 1 left behind
+
+Attempt 1 delivered the reload work and its own cases pass: `tests/test_generation_reload.lua` 4 of 4 and
+`tests/test_generation_record_handoff.lua` 2 of 2. Its commit is in your branch.
+
+It also **broke the gate**. On your base and on the merge target, `lua5.2 tests/test_blueprint_pipeline.lua` is
+22 of 22. On attempt 1's tree it is 20 of 22, with
+
+```text
+FAIL 2.0 mandatory real-sheet case: a calculated nonzero chain reaches delivered blueprint [assert]
+FAIL 2.1 mandatory real-sheet case: a calculated nonzero chain reaches delivered blueprint [assert]
+```
+
+That case was **not** blocked by lane 053; 053 merged long before your base was cut. Your own change stopped a
+real calculated sheet from reaching a delivered blueprint. Find which part of the reload work did it — most
+likely the rebinding of a saved job or the new terminal bookkeeping — and fix it without weakening any case.
+
 ## What to build
 
 1. `tests/test_generation_reload.lua` first: a job pending across a reload of the supported path, then the behaviour you chose, stated in the file. Resume plain saved state, or cancel cleanly. Never both, never neither.
@@ -41,6 +58,7 @@ Current facts:
 ```checks
 {"name": "lifecycle-tests", "command": "lua5.2 tests/test_generation_reload.lua && lua5.4 tests/test_generation_reload.lua && lua5.2 tests/test_generation_record_handoff.lua && lua5.4 tests/test_generation_record_handoff.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "neighbours", "command": "lua5.2 tests/test_engine_test_api.lua && lua5.2 tests/test_blueprint_delivery.lua && lua5.2 tests/test_calculation_result.lua && lua5.2 tests/test_no_runtime_require.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
+{"name": "real-sheet-gate", "command": "lua5.2 tests/test_blueprint_pipeline.lua && lua5.4 tests/test_blueprint_pipeline.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "owned-only", "command": "python3 tools/lane_ownership.py --base queue-base --manifest docs/tasks/056.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
