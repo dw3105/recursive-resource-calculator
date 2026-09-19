@@ -175,7 +175,24 @@ local function normalize_specs(input)
             end
         end
     elseif type(pole) == "table" then
-        append_spec(specs, pole)
+        --A catalog normally gives us one already-selected quality.  Pure-data
+        --callers may instead give one pole family with quality variants; make
+        --each variant a real spec so every placed pole carries the reach that
+        --belongs to its own quality.
+        local variants = pole.quality_poles or pole.quality_variants or pole.qualities
+        if type(variants) == "table" and pole.quality == nil then
+            local base = {}
+            for key, value in pairs(pole) do
+                if key ~= "quality_poles" and key ~= "quality_variants" and key ~= "qualities" then base[key] = value end
+            end
+            for _, quality in ipairs(sorted_keys(variants)) do
+                if type(variants[quality]) == "table" then
+                    append_spec(specs, merge_spec(base, variants[quality], quality))
+                end
+            end
+        else
+            append_spec(specs, pole)
+        end
     end
 
     table.sort(specs, function(a, b)
@@ -243,6 +260,12 @@ local function connector_id(name)
     --The data contract gives pole_copper the first connector id.  Keeping the
     --fallback makes the pure module usable without the Factorio globals too.
     return 0
+end
+
+local function supplied_connector_id(input, name)
+    local supplied = type(input) == "table" and (input.wire_connector_ids or input.connector_ids) or nil
+    if type(supplied) == "table" and supplied[name] ~= nil then return supplied[name] end
+    return connector_id(name)
 end
 
 local function consume(budget)
@@ -372,9 +395,78 @@ local function advance_pair(repair, count)
     end
 end
 
+local function advance_prune_pair(eval, count)
+    --The graph trial uses the old selected positions so that removing a pole
+    --does not change the meaning of a pair halfway through the scan.
+    while eval.graph_left <= count do
+        if eval.graph_left == eval.removed then
+            eval.graph_left = eval.graph_left + 1
+            eval.graph_right = eval.graph_left + 1
+        elseif eval.graph_right > count then
+            eval.graph_left = eval.graph_left + 1
+            eval.graph_right = eval.graph_left + 1
+        elseif eval.graph_right == eval.removed then
+            eval.graph_right = eval.graph_right + 1
+        else
+            return
+        end
+    end
+end
+
+local function begin_prune_eval(work)
+    local removed = work.prune_index
+    local eval = {
+        removed = removed, coverage_index = 1, coverage_selected_index = 1,
+        covered = false, graph_left = 1, graph_right = 2,
+        parent = {}, size = {}, components = 0, edges = {},
+    }
+    for position = 1, #work.selected do
+        if position ~= removed then
+            eval.parent[position], eval.size[position] = position, 1
+            eval.components = eval.components + 1
+        end
+    end
+    advance_prune_pair(eval, #work.selected)
+    work.prune_eval = eval
+    return eval
+end
+
+local function accept_prune(work, eval)
+    local old_to_new, selected = {}, {}
+    local new_position = 0
+    for old_position, candidate_index in ipairs(work.selected) do
+        if old_position ~= eval.removed then
+            new_position = new_position + 1
+            old_to_new[old_position] = new_position
+            selected[new_position] = candidate_index
+        end
+    end
+
+    local connect = {add_position = new_position + 1, compare_position = 1,
+        parent = {}, size = {}, components = 0, edges = {}}
+    for position = 1, new_position do
+        connect.parent[position], connect.size[position] = position, 1
+        connect.components = connect.components + 1
+    end
+    for _, edge in ipairs(eval.edges) do
+        local left, right = old_to_new[edge.a], old_to_new[edge.b]
+        if left and right and uf_join(connect, left, right) then
+            connect.edges[#connect.edges + 1] = {a = left, b = right}
+        end
+    end
+
+    work.selected = selected
+    work.selected_set = {}
+    for _, candidate_index in ipairs(selected) do work.selected_set[candidate_index] = true end
+    work.connect = connect
+    work.prune_index = math.min(eval.removed - 1, #selected)
+    work.prune_eval = nil
+end
+
 local function start_prune(state)
     local work = state._work
     work.prune_index = #work.selected
+    work.prune_eval = nil
     state.cursor.phase = "prune"
 end
 
@@ -382,7 +474,7 @@ local function start_publish(state)
     local work = state._work
     work.publish = {
         ordered = {}, picked = {}, pick_position = 1, scan_index = 1, best = nil,
-        entities = {}, ids_by_position = {}, wires = {}, edge_index = 1,
+        entities = {}, ids_by_position = {}, position_by_candidate = {}, wires = {}, edge_index = 1,
         uncovered = {}, uncovered_index = 1, errors = {}, entity_index = 1,
     }
     state.cursor.phase = "publish_sort"
@@ -584,6 +676,7 @@ function Power.begin(input)
             relay_candidate_limit = relay_candidate_limit, relay_check_limit = relay_check_limit,
             relay_candidates_used = 0, relay_checks = 0, relay_bound_hit = false,
             pruning_enabled = limits.prune == true,
+            copper_connector = supplied_connector_id(input, "pole_copper"),
         },
     }
     return state
@@ -742,7 +835,13 @@ function Power.step(state, budget)
         elseif phase == "connect" then
             local connect = work.connect
             if connect.add_position > #work.selected then
-                if connect.components <= 1 or #work.selected >= work.max_poles then
+                if connect.components <= 1 then
+                    start_prune(state)
+                elseif #work.selected >= work.max_poles then
+                    --Reaching the pole bound with multiple components is an
+                    --incomplete bounded search.  It must not be presented as
+                    --a proof that no legal layout exists.
+                    work.relay_bound_hit = true
                     start_prune(state)
                 else
                     start_repair(state)
@@ -873,10 +972,52 @@ function Power.step(state, budget)
             if not work.pruning_enabled or work.prune_index <= 0 then
                 start_publish(state)
             else
-                --The first pass only ever adds a pole for new coverage or a
-                --frontier bridge.  Walk the optional pruning cursor anyway;
-                --publication is never held up by a graph rebuild.
+                begin_prune_eval(work)
+                cursor.phase = "prune_coverage"
+            end
+
+        elseif phase == "prune_coverage" then
+            local eval = work.prune_eval
+            if eval.coverage_index > #work.consumers then
+                cursor.phase = "prune_graph"
+            elseif eval.covered then
+                eval.coverage_index = eval.coverage_index + 1
+                eval.coverage_selected_index = 1
+                eval.covered = false
+            elseif eval.coverage_selected_index > #work.selected then
+                --The trial would leave a consumer uncovered; keep this pole.
+                work.prune_eval = nil
                 work.prune_index = work.prune_index - 1
+                cursor.phase = "prune"
+            else
+                local selected_position = eval.coverage_selected_index
+                eval.coverage_selected_index = selected_position + 1
+                if selected_position ~= eval.removed
+                    and consumer_covered(work.candidates[work.selected[selected_position]],
+                        work.consumers[eval.coverage_index]) then
+                    eval.covered = true
+                end
+            end
+
+        elseif phase == "prune_graph" then
+            local eval = work.prune_eval
+            if eval.graph_left > #work.selected then
+                if eval.components <= 1 then
+                    accept_prune(work, eval)
+                    cursor.phase = "prune"
+                else
+                    work.prune_eval = nil
+                    work.prune_index = work.prune_index - 1
+                    cursor.phase = "prune"
+                end
+            else
+                local left = work.candidates[work.selected[eval.graph_left]]
+                local right = work.candidates[work.selected[eval.graph_right]]
+                if wire_legal(left, right) and uf_join(eval, eval.graph_left, eval.graph_right) then
+                    eval.edges[#eval.edges + 1] = {a = eval.graph_left, b = eval.graph_right}
+                end
+                eval.graph_right = eval.graph_right + 1
+                advance_prune_pair(eval, #work.selected)
             end
 
         elseif phase == "publish_sort" then
@@ -908,6 +1049,7 @@ function Power.step(state, budget)
                 local candidate, rect = work.candidates[candidate_index], work.candidates[candidate_index].rect
                 local id = "p:" .. tostring(position)
                 publish.ids_by_position[position] = id
+                publish.position_by_candidate[candidate_index] = position
                 publish.entities[position] = {
                     id = id, kind = "pole", name = candidate.name, quality = candidate.quality,
                     x = rect.x, y = rect.y, w = rect.w, h = rect.h,
@@ -925,9 +1067,11 @@ function Power.step(state, budget)
                 cursor.phase = "publish_uncovered"
             else
                 local edge = edges[publish.edge_index]
+                local a_position = publish.position_by_candidate[work.selected[edge.a]]
+                local b_position = publish.position_by_candidate[work.selected[edge.b]]
                 publish.wires[#publish.wires + 1] = {
-                    a_id = publish.ids_by_position[edge.a], a_connector = connector_id("pole_copper"),
-                    b_id = publish.ids_by_position[edge.b], b_connector = connector_id("pole_copper"),
+                    a_id = publish.ids_by_position[a_position], a_connector = work.copper_connector,
+                    b_id = publish.ids_by_position[b_position], b_connector = work.copper_connector,
                 }
                 publish.edge_index = publish.edge_index + 1
             end
