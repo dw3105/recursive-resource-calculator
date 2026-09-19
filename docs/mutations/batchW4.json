@@ -28,5 +28,35 @@
   "shapes": "2.0",
   "expect": "a cursor setup refusal clears the hand",
   "note": "an unset-up cursor blueprint is handed to the player"
+ },
+ {
+  "id": "W4-M04",
+  "file": "logic/bp/search.lua",
+  "old": "                    if state.incumbent == nil or Validate.compare(score, state.incumbent.score) < 0 then",
+  "new": "                    if state.incumbent == nil or Validate.compare(score, state.incumbent.score) > 0 then",
+  "test": "tests/test_search.lua",
+  "shapes": "2.0",
+  "expect": "BP-20",
+  "note": "the worse layout becomes the incumbent"
+ },
+ {
+  "id": "W4-M05",
+  "file": "logic/bp/search.lua",
+  "old": "local function fail_budget(state)\n    failure(state, \"BP_FAIL_SEARCH_BUDGET\")\nend",
+  "new": "local function fail_budget(state)\n    failure(state, \"BP_FAIL_NO_LAYOUT_GRID_LIMIT\")\nend",
+  "test": "tests/test_search.lua",
+  "shapes": "2.0",
+  "expect": "exhausting the search budget",
+  "note": "a partial search claims no layout exists"
+ },
+ {
+  "id": "W4-M06",
+  "file": "logic/bp/search.lua",
+  "old": "local function fail_revision(state)\n    failure(state, \"BP_FAIL_REVISION_CHANGED\")\nend",
+  "new": "local function fail_revision(state)\nend",
+  "test": "tests/test_search.lua",
+  "shapes": "2.0",
+  "expect": "a revision change before publication",
+  "note": "an edited sheet publishes a stale layout"
  }
 ]

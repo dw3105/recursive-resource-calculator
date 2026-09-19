@@ -37,3 +37,4 @@
 | `033` | `rrc/agent` | W4R delivery: retry clears, cursor refusal stays clean | 2026-09-19 |
 | `034` | `rrc/agent` | W4R export dialog: a readable box | 2026-09-19 |
 | `035` | `rrc/agent` | W4R blueprint dialog: aligned rows and filtered pickers | 2026-09-19 |
+| `036` | `rrc/agent` | W4R search: the better layout wins | 2026-09-19 |
