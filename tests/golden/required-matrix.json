@@ -113,6 +113,216 @@
    ],
    "state": "draft",
    "prepared_input": null
+  },
+  {
+   "case_id": "base-only-crafting-smelting",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-BASE"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "shared-intermediate-multi-target",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-SHARED"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "shared-beacon-loadouts",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-BEACON"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "grid-growth-beacon-improvement",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-GRID"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "quality-machines-infrastructure",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-QUALITY"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "modded-machine-interface",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base",
+    "standard-mod"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-MODDED"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "repeatability",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-REPEAT"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "unsupported-cycles",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "rejection",
+   "clauses": [
+    "GOLD-09-REJECT"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "unsupported-quality-changing",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "rejection",
+   "clauses": [
+    "GOLD-09-REJECT"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "unsupported-spoilage",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "rejection",
+   "clauses": [
+    "GOLD-09-REJECT"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "unsupported-probabilistic",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "rejection",
+   "clauses": [
+    "GOLD-09-REJECT"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "unsupported-custom-behaviour",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base",
+    "standard-mod"
+   ],
+   "outcome_kind": "rejection",
+   "clauses": [
+    "GOLD-09-REJECT"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "boundary-100-machines-30-steps",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "GOLD-09-BOUNDARY"
+   ],
+   "state": "draft",
+   "prepared_input": null
   }
  ]
 }
