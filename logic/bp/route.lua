@@ -817,6 +817,9 @@ local function underground_reach(work, demand)
     return math.max(0, math.floor(finite(family.underground_max_distance, 0)))
 end
 
+--One scratch table, reused: the probe below runs on the hot path and a fresh table per tile is pure garbage.
+local PROBE = {}
+
 local function crossing_target(work, demand, search, current, direction, amount)
     local reach = underground_reach(work, demand)
     if reach < 2 then return nil end
@@ -831,7 +834,7 @@ local function crossing_target(work, demand, search, current, direction, amount)
         if work.underground_cells[coordinate_key(middle_x, middle_y)] then return nil end
         --Only tiles the search cannot walk are worth diving under. The moment one of them is walkable, walking
         --it is shorter and costs no entities, so the dive stops there.
-        if path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, {}) then return nil end
+        if path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, PROBE) then return nil end
         local x, y = current.x + dx * distance, current.y + dy * distance
         if not inside_grid(work, x, y) then return nil end
         local key = coordinate_key(x, y)

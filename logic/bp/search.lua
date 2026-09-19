@@ -595,8 +595,12 @@ function Search.begin(input)
     return state
 end
 
+--Growing the grid can never beat a layout that already fits a smaller one: the candidates a grid is offered are
+--the same at every size, so a bigger grid ties or loses on footprint and never lowers a beacon count. Once a
+--grid has produced an incumbent, the search stops growing and serializes it instead of walking every remaining
+--size, which on a five-step sheet is forty-nine of them.
 local function finish_grid_or_search(state)
-    if next_grid(state) then return end
+    if state.incumbent == nil and next_grid(state) then return end
     if state.incumbent then
         if not revisions_match(nil, state) then fail_revision(state); return end
         state.work.serializing_candidate = state.incumbent.candidate
