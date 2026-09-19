@@ -328,3 +328,21 @@ previous report and the cursor exactly as they were; a deleted sheet ends the jo
 `tests/golden/required-matrix.json` is machine-readable and is what release verification reads. A case may be
 listed as unfinished; release verification then **fails**, and never counts it as a skipped success. Fields per
 case: `case_id`, `branches`, `mods`, `outcome_kind`, `clauses`, `state = "draft" | "accepted"`, `prepared_input`.
+
+## 18. Perimeter ports (2026-09-19, decided after a second real-sheet failure)
+
+§5.8 defines a block port's attach tile as the tile **outside that block's envelope**, which is still a tile inside
+the grid. The factory perimeter is not a block, and applying the same rule to the grid envelope puts the attach
+tile outside the world: `logic/bp/search.lua` asks `Grid.edge_slots` for slots on `{x = 0, y = 0, w, h}`, so a
+left-edge slot lands at `x = -1`, and `logic/bp/route.lua` maps every cell outside the grid to `"__outside__"`,
+which routing treats as blocked. A real sheet therefore ends `BP_R_PORT_BLOCKED`, then
+`BP_FAIL_NO_LAYOUT_GRID_LIMIT`, and no blueprint is ever produced.
+
+The rule, from here on:
+
+- A **perimeter port** sits on the grid's own edge cell, inside the grid: `x == 0`, `x == w - 1`, `y == 0` or
+  `y == h - 1`. Its `travel_dir` points out of the grid for an output and into the grid for an input.
+- Routing reaches a perimeter port like any other cell. Nothing outside the grid is ever a routing endpoint, and
+  `"__outside__"` keeps meaning blocked.
+- A block port keeps §5.8 unchanged: its attach tile is outside its block and inside the grid.
+- The belt or pipe standing on a perimeter cell is what the player connects to; the blueprint carries it.

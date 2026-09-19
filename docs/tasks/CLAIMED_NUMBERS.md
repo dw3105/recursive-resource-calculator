@@ -45,3 +45,4 @@
 | `041` | `rrc/agent` | Recovery C release gate | 2026-09-19 |
 | `042` | `rrc/agent` | Recovery D golden generates from this candidate | 2026-09-19 |
 | `043` | `rrc/agent` | Repair: search hands pack bare rects | 2026-09-19 |
+| `044` | `rrc/agent` | Repair: perimeter ports sit inside the grid | 2026-09-19 |
