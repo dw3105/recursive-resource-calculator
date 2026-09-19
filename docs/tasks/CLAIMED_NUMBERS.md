@@ -38,3 +38,4 @@
 | `034` | `rrc/agent` | W4R export dialog: a readable box | 2026-09-19 |
 | `035` | `rrc/agent` | W4R blueprint dialog: aligned rows and filtered pickers | 2026-09-19 |
 | `036` | `rrc/agent` | W4R search: the better layout wins | 2026-09-19 |
+| `037` | `rrc/agent` | W5 activate sliced calculation behind Compute | 2026-09-19 |
