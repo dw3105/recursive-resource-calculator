@@ -38,6 +38,28 @@ What has already been tried and must not be repeated:
   unusable, the search grew the grid again and again, and the fixture ran **past 300 seconds** against 2.7
   seconds today. Reserving only the port rows broke the small real-sheet case in `tests/test_blueprint_pipeline.lua`.
 
+## What attempt 1 left behind, and the measurement that names the defect
+
+Attempt 1 committed `WIP: 059_port_cells_free` and hit the same wall as lane 058: on its tree
+`lua5.2 docs/tasks/058_reproducer.lua` runs past 90 seconds. Adding constraints to the packer is what makes the
+search grow grids forever; the checks below already refuse that.
+
+The measurement that matters, taken on this base (host `legalcopilot-dev`, 2026-09-19):
+
+```text
+BLK block:cable+circuit env=(0,5,10x11) dir=4 used=10x11
+BLOCKED flow=item/cable src=(-1,5 owner=__outside__) sink=(10,5 owner=machine:block:cable+circuit)
+```
+
+The block's envelope starts at `x = 0` and is **10 wide**, so it owns columns 0 to 9. Cell `(10, 5)` is the first
+column outside it — exactly where a rotated block's top-row port attaches, and exactly where a belt belongs. Yet
+the occupancy index answers `machine:block:cable+circuit` for that cell. The envelope and the occupancy disagree,
+and the disagreement is what refuses the port.
+
+So the defect is not where a port attaches. It is that a rotated block writes its machines into cells outside its
+own envelope. Find it in `Groups.materialize` or in how `logic/bp/route.lua` indexes those entities, prove it with
+a case that places one rotated block and asks which cells it owns, and only then look at ports again.
+
 ## What to build
 
 1. A block port attaches to a cell that is inside the grid and free of machines, beacons and inserters, for every
