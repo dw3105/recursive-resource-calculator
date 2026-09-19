@@ -64,3 +64,5 @@
 | `055` | `rrc/agent` | Queue A API coverage | 2026-09-19 |
 | `056` | `rrc/agent` | Queue L generation reload | 2026-09-19 |
 | `057` | `rrc/agent` | Queue F capture case setup | 2026-09-19 |
+| `058` | `rrc/agent` | Repair block port placement | 2026-09-19 |
+| `058` | `rrc/agent` | Repair: block ports attach to free in-grid cells | 2026-09-19 |
