@@ -83,6 +83,44 @@ end
 --Net amounts per craft of a recipe crafted at normal quality by a machine with a setup. With a quality effect (Factorio 2.0), each item product's
 --expected amount is spread over the qualities it can come out at before the ingredients are taken off, so an item that is both ingredient and
 --product nets gross output at normal minus what the recipe takes. product_parts, when given, gains the parts of every item above normal.
+--Plain copies of what a column was computed with: numbers, strings and tables only, so a column survives the
+--debug export and the blueprint preparation without carrying a LuaObject.
+local function plain_identifier(identifier)
+    if type(identifier) ~= "table" then return nil end
+    local name = identifier.name
+    if type(name) == "table" then name = name.name end
+    if type(name) ~= "string" then return nil end
+    local quality = identifier.quality
+    if type(quality) == "table" then quality = quality.name end
+    return {name = name, quality = type(quality) == "string" and quality or nil}
+end
+
+local function plain_module_list(modules)
+    local list = {}
+    for _, module in ipairs(modules or {}) do
+        local copy = plain_identifier(module)
+        if copy then
+            copy.count = type(module.count) == "number" and module.count or nil
+            list[#list + 1] = copy
+        end
+    end
+    return list
+end
+
+local function plain_setup(setup)
+    if type(setup) ~= "table" then return nil end
+    local beacons = {}
+    for _, beacon in ipairs(setup.beacons or {}) do
+        local copy = plain_identifier(beacon)
+        if copy then
+            copy.count = type(beacon.count) == "number" and beacon.count or nil
+            copy.modules = plain_module_list(beacon.modules)
+            beacons[#beacons + 1] = copy
+        end
+    end
+    return {modules = plain_module_list(setup.modules), beacons = beacons}
+end
+
 local function column_net_amounts(recipe, identifier, setup, player_index, product_parts)
     local bonus = productivity_bonus(recipe, identifier, setup, player_index)
     local quality_effect = 0
@@ -456,10 +494,16 @@ local function collect_columns(production_rates_by_product_full_name, player_ind
             else
                 local recipe = prototypes.recipe[entry.key]
                 local product_full_name = player_storage.product_full_names_by_recipe_name[entry.key]
+                local identifier = player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[entry.key]
+                local setup = player_storage.module_setups_by_recipe_name[entry.key]
                 column = {recipe_name = entry.key, product_full_name = product_full_name,
                     consumer = player_storage.consumer_product_full_names[product_full_name] == true,
-                    net_amounts = column_net_amounts(recipe, player_storage.identifiers_of_chosen_crafting_machines_by_recipe_name[entry.key],
-                        player_storage.module_setups_by_recipe_name[entry.key], player_index, product_parts)}
+                    --The machine and the module setup this column was computed with travel with the column. A
+                    --reader of the debug export, and every stage after the solver, then needs no second lookup
+                    --and can never disagree with the numbers above.
+                    machine = plain_identifier(identifier),
+                    setup = plain_setup(setup),
+                    net_amounts = column_net_amounts(recipe, identifier, setup, player_index, product_parts)}
                 inputs, outputs = {}, {}
                 for _, ingredient in ipairs(recipe.ingredients) do
                     inputs[#inputs + 1] = ingredient.type .. "/" .. ingredient.name

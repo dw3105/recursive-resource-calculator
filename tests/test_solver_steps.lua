@@ -156,6 +156,27 @@ for _, shape in ipairs(H.shapes()) do
         local unsolvable_reference = Solver._solve_for_sync(unsolvable.rates, 1, {}, nil)
         assert_same(unsolvable_reference, unsolvable_state, "unsolvable answer")
     end)
+    --A calculated column is the sheet's own record of how a step was computed. Without the machine and the
+    --module setup on the column, the debug export shows numbers nobody can check, and every later reader has to
+    --guess the binding again.
+    H.test(shape .. " S9 every calculated column carries the machine and setup it was computed with", function()
+        world_for(shape, false)
+        storage[1].module_setups_by_recipe_name["X-craft"] = {modules = {{name = "q", quality = "normal"}}, beacons = {}}
+        local result = Solver._solve_for_sync({[ "item/X" ] = 1}, 1, {}, nil)
+        local by_recipe = {}
+        for _, column in ipairs(result.columns or {}) do by_recipe[column.recipe_name] = column end
+        local craft = by_recipe["X-craft"]
+        H.equal(craft ~= nil, true, "the craft column exists")
+        H.equal(type(craft.machine), "table", "the craft column carries its machine")
+        H.equal(craft.machine.name, "assembler", "and names the chosen machine")
+        H.equal(type(craft.setup), "table", "the craft column carries its module setup")
+        H.equal(craft.setup.modules[1] ~= nil and craft.setup.modules[1].name, "q", "with the chosen module")
+        local mine = by_recipe["A-make"]
+        H.equal(mine ~= nil and type(mine.machine), "table", "the mining column carries its machine")
+        H.equal(mine.machine.name, "miner0", "and names the mining machine")
+        assert_plain(craft.machine, "column.machine")
+        assert_plain(craft.setup, "column.setup")
+    end)
 end
 
 H.done("test_solver_steps")
