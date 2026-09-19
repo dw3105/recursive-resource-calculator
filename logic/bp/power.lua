@@ -776,7 +776,8 @@ function Power.step(state, budget)
                     repair.x = repair.x + 1
                     if repair.x > repair.max_x then repair.x, repair.y = repair.min_x, repair.y + 1 end
                     if work.relay_checks >= work.relay_check_limit then
-                        work.relay_bound_hit, repair.mode = true, "frontier_pair"
+                        work.relay_bound_hit = true
+                        finish_repair(state)
                     else
                         work.relay_checks = work.relay_checks + 1
                         local left = work.candidates[work.selected[repair.pair_left]]
@@ -806,7 +807,8 @@ function Power.step(state, budget)
                     repair.x = repair.x + 1
                     if repair.x > repair.max_x then repair.x, repair.y = repair.min_x, repair.y + 1 end
                     if work.relay_checks >= work.relay_check_limit then
-                        work.relay_bound_hit, repair.mode = true, "frontier_pair"
+                        work.relay_bound_hit = true
+                        finish_repair(state)
                     else
                         work.relay_checks = work.relay_checks + 1
                         local source = work.candidates[work.selected[repair.pair_left]]
