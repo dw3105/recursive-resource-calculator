@@ -1,0 +1,62 @@
+[
+ {
+  "id": "W3B-M01",
+  "file": "logic/bp/validate.lua",
+  "old": "        local reach = reason and nil or math.min(wire_reach(a, work.catalog) or 0, wire_reach(b, work.catalog) or 0)",
+  "new": "        local reach = reason and nil or math.max(wire_reach(a, work.catalog) or 0, wire_reach(b, work.catalog) or 0)",
+  "test": "tests/test_validate.lua",
+  "shapes": "2.0",
+  "expect": "V6",
+  "note": "an edge is legal when the longer of the two reaches covers it"
+ },
+ {
+  "id": "W3B-M02",
+  "file": "logic/bp/validate.lua",
+  "old": "if step.machine_count ~= nil and count_by_step[step_id] ~= finite(step.machine_count, 0) then",
+  "new": "if false then",
+  "test": "tests/test_validate.lua",
+  "shapes": "2.0",
+  "expect": "V12",
+  "note": "the placed machine count is never compared with the plan"
+ },
+ {
+  "id": "W3B-M03",
+  "file": "logic/bp/validate.lua",
+  "old": "    for _, key in ipairs({\"beacon_count\", \"footprint_area\", \"pole_count\", \"route_length\", \"entity_count\"}) do",
+  "new": "    for _, key in ipairs({\"footprint_area\", \"beacon_count\", \"pole_count\", \"route_length\", \"entity_count\"}) do",
+  "test": "tests/test_validate.lua",
+  "shapes": "2.0",
+  "expect": "V13",
+  "note": "footprint decides before beacon count"
+ },
+ {
+  "id": "W3B-M04",
+  "file": "logic/bp/validate.lua",
+  "old": "            if not near(produced, consumed) then error_record(work.errors, \"BP_V_FLOW_IMBALANCE\"",
+  "new": "            if near(produced, consumed) then error_record(work.errors, \"BP_V_FLOW_IMBALANCE\"",
+  "test": "tests/test_validate.lua",
+  "shapes": "2.0",
+  "expect": "V10",
+  "note": "conservation reports the balanced flows instead of the unbalanced ones"
+ },
+ {
+  "id": "W3B-M05",
+  "file": "logic/bp/serialize.lua",
+  "old": "        if pa.y ~= pb.y then return pa.y < pb.y end",
+  "new": "        if pa.y ~= pb.y then return pa.y > pb.y end",
+  "test": "tests/test_serialize.lua",
+  "shapes": "2.0",
+  "expect": "S1",
+  "note": "entity numbers run bottom to top"
+ },
+ {
+  "id": "W3B-M06",
+  "file": "logic/bp/serialize.lua",
+  "old": "    if direction ~= nil then result.direction = direction end",
+  "new": "",
+  "test": "tests/test_serialize.lua",
+  "shapes": "2.0",
+  "expect": "S3",
+  "note": "direction never reaches the blueprint entity"
+ }
+]

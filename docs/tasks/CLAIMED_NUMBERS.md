@@ -33,3 +33,4 @@
 | `029` | `rrc/agent` | W3R pack: BSSF tightness and both-axis fit | 2026-09-19 |
 | `030` | `rrc/agent` | W3R settings: half a belt family | 2026-09-19 |
 | `031` | `rrc/agent` | W3R calc: the job carries the sheet's revisions | 2026-09-19 |
+| `032` | `rrc/agent` | W3R validate: reach of the shorter pole | 2026-09-19 |
