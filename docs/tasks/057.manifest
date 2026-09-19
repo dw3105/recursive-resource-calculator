@@ -1,0 +1,4 @@
+!tests/golden/capture_case.lua
+tests/golden/setup/
+!tests/test_case_capture.lua
+!docs/golden-case-authoring.md

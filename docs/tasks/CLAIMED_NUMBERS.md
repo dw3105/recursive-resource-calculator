@@ -56,3 +56,11 @@
 | `052` | `rrc/agent` | unblock G | 2026-09-19 |
 | `053` | `rrc/agent` | Repair perimeter port collision | 2026-09-19 |
 | `053` | `rrc/agent` | Repair: perimeter ports never share a cell | 2026-09-19 |
+| `054` | `rrc/agent` | queue D | 2026-09-19 |
+| `055` | `rrc/agent` | queue A | 2026-09-19 |
+| `056` | `rrc/agent` | queue L | 2026-09-19 |
+| `057` | `rrc/agent` | queue F | 2026-09-19 |
+| `054` | `rrc/agent` | Queue D dispatch preflight | 2026-09-19 |
+| `055` | `rrc/agent` | Queue A API coverage | 2026-09-19 |
+| `056` | `rrc/agent` | Queue L generation reload | 2026-09-19 |
+| `057` | `rrc/agent` | Queue F capture case setup | 2026-09-19 |

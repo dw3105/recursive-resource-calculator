@@ -1,0 +1,5 @@
+tools/extract_api.py
+docs/api/2.0.77.members.json
+docs/api/2.1.19.members.json
+tests/test_api_shapes.lua
+!tests/test_companion_api_shapes.lua
