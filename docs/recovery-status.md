@@ -1,28 +1,34 @@
 # Round 8 board — one list, replaces every older "next step"
 
-Updated 2026-09-19, HEAD 883c6fe merged, by the integrator on host `legalcopilot-dev`. Branch `feat/round-8-blueprints`, never pushed,
-never merged to `main`. This board supersedes the "next three steps" of `~/.claude/plans/rrc-round-8-handoff.md`.
+Updated 2026-09-19 10:35 UTC, HEAD 93fcfe3, by the integrator on host `legalcopilot-dev`. Branch
+`feat/round-8-blueprints`, never pushed, never merged to `main`. Dispatch follows
+`~/codex-reviews/rrc-parallel-execution-unblock-plan-2026-09-19-1014.md`: five disjoint lanes run beside every
+physical repair, and no lane waits on the blueprint pipeline for work it can finish alone.
 
 ## Streams
 
-| Stream | Lane | Owns | State |
-|---|---|---|---|
-| Calculation activation | 037 | `control.lua`, `gui/sheet.lua`, `logic/calc_pipeline.lua`, six older test files | **merged** |
-| A blueprint generation service | 039 | `gui/blueprint_dialog.lua`, `logic/bp/generation.lua`, `logic/engine_test_api.lua`, two new test files, `tests/test_bp_settings.lua` | **attempt 3 running**, base `recovery-base-039c` = 7e4a5c2, work from attempt 2 rebuilt on it |
-| B engine scenario runner | 040 | `tests/golden/engine/mod/`, `tests/test_engine_scenario.lua`, `docs/engine-evidence/runner.md` | **merged** |
-| C release gate | 041 | `prepare_release.sh`, `tools/release_gate.py`, its tests, `tools/evidence_receipt.py`, `generate_release.sh`, `tools/build_test_zip.sh`, `docs/release-preparation.md` | **merged** |
-| D golden generates from this candidate | 042 | `tests/golden/run`, `add_case`, `accept`, `lib/`, `generate.lua`, `tests/tools/test_golden_tools.py`, `docs/golden-workflow.md` | **merged** |
-| Repair: obstacle shape | 043 | `logic/bp/search.lua`, `tests/test_search.lua` | **merged** |
-| Repair: perimeter ports | 044 | `logic/bp/search.lua`, `logic/bp/route.lua`, `tests/test_search.lua`, `tests/test_route.lua` | **merged** aba5d15 |
-| E coverage and scenarios | 045 | `tests/golden/cases/`, `tests/golden/required-matrix.json`, `tests/golden/lib/runner.py`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **merged**; 17 GOLD-09 rows, 19 draft cases, `--drafts report` |
-| Repair: draft case honesty | 046 | `tests/golden/cases/`, `required-matrix.json`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **merged** |
-| Integrator | — | `tests/harness.lua`, `tests/run.sh`, locale files, `docs/feature-contracts.md`, `logic/registry.lua`, `control.lua` since 037 merged, `gui/export_dialog.lua`, task files, merges | active |
+| Stream | Lane | Owner live? | Base SHA | Owns | State and next command |
+|---|---|---|---|---|---|
+| Repair: block port binding | 047 | no | binding-base 835a66e | `logic/bp/groups.lua`, `logic/bp/route.lua`, `tests/test_groups.lua`, `tests/test_route.lua` | **merged** 93fcfe3 |
+| S service lifecycle and capture | 048 | **yes** | unblock-base 93fcfe3 | `gui/blueprint_dialog.lua`, `logic/bp/generation.lua`, `logic/engine_test_api.lua`, two new test files, `tests/test_bp_settings.lua` | running; carries lane 039's checkpoint 17ca320 as its first commit |
+| C calculation result record | 049 | **yes** | unblock-base 93fcfe3 | `logic/calc_pipeline.lua`, new `logic/calculation_result.lua`, their two test files | running; §19 frozen |
+| E real engine adapter | 050 | **yes** | unblock-base 93fcfe3 | `tests/golden/engine/mod/`, `tests/test_engine_scenario.lua`, new `tests/test_engine_runtime_adapter.lua`, `docs/engine-evidence/runner.md` | running; §21 frozen |
+| R evidence contract and release gate | 051 | **yes** | unblock-base 93fcfe3 | `tools/release_gate.py`, its tests, new `tests/tools/test_evidence_contract.py`, `docs/release-preparation.md` | running; §21 frozen |
+| G capture to case workflow | 052 | **yes** | unblock-base 93fcfe3 | `logic/export_payload.lua`, its test, `tests/golden/add_case`, `tests/golden/lib/common.py`, new `tests/tools/test_capture_workflow.py`, `docs/golden-workflow.md` | running; §20 frozen |
+| Lane 039 (superseded) | 039 | no | recovery-base-039c 7e4a5c2 | — | attempt 3 terminal; work preserved as checkpoint 3698214, now lane 048's first commit |
+| Merged earlier | 037, 038, 040–046 | no | — | calculation activation, export shape, engine runner, release gate, golden workflow, coverage, two repairs | **merged** |
+| Integrator | — | yes | — | `tests/harness.lua`, `tests/run.sh`, `control.lua`, `gui/sheet.lua`, `gui/export_dialog.lua`, locale, `docs/feature-contracts.md`, `docs/engine-evidence/examples/`, task files, corpus matrix, merges | active |
+
+## Frozen interfaces (2026-09-19)
+
+`docs/feature-contracts.md` §19 calculation result record, §20 prepared capture, §21 observation v1 with the
+producer's own spelling. `docs/engine-evidence/examples/` holds one synthetic example per outcome kind.
 
 ## What is done
 
 Waves 1 to 4 merged and sealed: snapshot, jobs, catalog, grid, export dialog, progress panel, payload, solver
 steps, reset, report steps, plan, preflight, calc pipeline, settings, pack, groups, route, power, validate,
-serialize, search, delivery, golden skeleton. Suite 2580 case runs, 0 failed, both interpreters, plus 27 Python
+serialize, search, delivery, golden skeleton. Suite 2596 case runs, 0 failed, both interpreters, plus 27 Python
 tooling tests and the golden corpus. Mutation batches: W1 8 of 9 with one recorded equivalent, W2 7 of 7,
 W3 12 of 12, W3b 6 of 6, W4 6 of 6.
 
@@ -47,8 +53,8 @@ Expect more of these. A unit-green module set says nothing about the path a play
 
 ## What is not done
 
-- Generate queues a real job and reached routing; lane 044 cleared that stop, and lane 039 attempt 3 is proving
-  whether a click now ends with a blueprint in the player's hand. Nothing delivered yet.
+- Generate queues a real job and reaches routing. Three real defects are fixed (obstacle shape 043, perimeter
+  ports 044, block port binding 047). No blueprint has reached a player yet; lane 048 owns that gate.
 - One case in the matrix is accepted; 19 are drafts, every GOLD-09 category has a row, and `sh tests/golden/run
   --branch 2.0 --drafts report` names every gap and exits 1. `--branch 2.1` matches zero accepted cases.
 - Every draft's capture-dependent fields are empty and its reason codes are terminal, checked by
