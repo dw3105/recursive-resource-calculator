@@ -39,3 +39,4 @@
 | `035` | `rrc/agent` | W4R blueprint dialog: aligned rows and filtered pickers | 2026-09-19 |
 | `036` | `rrc/agent` | W4R search: the better layout wins | 2026-09-19 |
 | `037` | `rrc/agent` | W5 activate sliced calculation behind Compute | 2026-09-19 |
+| `038` | `rrc/agent` | W5 export dialog: vanilla blueprint-string shape | 2026-09-19 |
