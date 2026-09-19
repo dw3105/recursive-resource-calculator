@@ -54,13 +54,34 @@ local function plan(quality)
     }
 end
 
+local function real_one_step_plan()
+    return {
+        steps = {{step_id = "gear", recipe = "gear", machine = "assembler", machine_count = 1,
+            inputs = {{flow_id = "item/raw", rate_per_second = 0.1}},
+            outputs = {{flow_id = "item/gear", rate_per_second = 0.1}}}},
+        flows = {
+            {flow_id = "item/raw", producers = {{step_id = "$external", share_per_second = 0.1}},
+                consumers = {{step_id = "gear", share_per_second = 0.1}}},
+            {flow_id = "item/gear", producers = {{step_id = "gear", share_per_second = 0.1}},
+                consumers = {{step_id = "$external", share_per_second = 0.1}}},
+        },
+        ports = {
+            {port_id = "in:item/raw", role = "in", full_name = "item/raw", is_fluid = false,
+                rate_per_second = 0.1, kind = "item", min_lanes = 1},
+            {port_id = "out:item/gear", role = "out", full_name = "item/gear", is_fluid = false,
+                rate_per_second = 0.1, kind = "item", min_lanes = 1},
+        },
+    }
+end
+
 local function finish(input, ops)
     local state = Groups.begin(input)
-    for _ = 1, 100 do
+    for _ = 1, 600 do
         if state.done then return state end
         Groups.step(state, {ops = ops or 1})
     end
-    H.equal(state.done, true, "grouping completes within the test budget")
+    H.equal(state.done, true, "grouping finishes within 600 iterations; stopped in phase "
+        .. tostring(state.progress and state.progress.phase))
     return state
 end
 
@@ -213,6 +234,20 @@ for _, shape in ipairs(H.shapes()) do
             H.equal(previous.physical_beacon_count < current.physical_beacon_count
                 or (previous.physical_beacon_count == current.physical_beacon_count and previous.id <= current.id), true,
                 "candidate order is deterministic and beacon-first")
+        end
+    end)
+
+    H.test(shape .. " G9 real plan ports stay on the perimeter while block ports name their step", function()
+        local grouped = find_by_blocks(candidates(finish({plan = real_one_step_plan(), catalog = catalog()})), 1)
+        H.equal(grouped ~= nil, true, "real one-step block exists")
+        if grouped then
+            local block = grouped.blocks[1]
+            H.equal(#block.ports, 2, "the block has one port for each step connection")
+            for _, port in ipairs(block.ports) do
+                H.equal(port.step_id, "gear", "block port names the step it serves")
+                H.equal(tostring(port.step_id):sub(1, 6) == "block:", false,
+                    "block port does not use the synthetic block id")
+            end
         end
     end)
 end

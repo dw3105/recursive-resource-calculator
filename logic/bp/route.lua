@@ -65,6 +65,18 @@ local function step_id_of(value)
     return value
 end
 
+local function block_step_id(block)
+    if type(block) ~= "table" then return nil end
+    if block.step_id ~= nil then return block.step_id end
+    for _, machine in ipairs(block.machines or {}) do
+        if machine.step_id ~= nil then return machine.step_id end
+    end
+    for _, member in ipairs(block.members or {}) do
+        if member.step_id ~= nil then return member.step_id end
+    end
+    return nil
+end
+
 local function share_of(value)
     if type(value) ~= "table" then return finite(value, 0) end
     return finite(value.share_per_second or value.rate_per_second or value.rate, 0)
@@ -313,7 +325,7 @@ local function normalize_endpoint(block, placement, port, catalog)
     local endpoint = {
         port_id = port.port_id or port.id or ((block.block_id or block.id or "block") .. ":" .. tostring(port.flow_id or port.full_name)),
         block_id = block.block_id or block.id,
-        step_id = port.step_id or block.step_id or block.block_id or block.id,
+        step_id = port.step_id or block_step_id(block),
         role = role,
         flow_id = port_flow_id(port),
         kind = port.kind or (port.is_fluid and "fluid" or "item"),
@@ -417,11 +429,13 @@ local function build_demands(work, flows)
             end
             for _, producer in ipairs(producers) do
                 for _, consumer in ipairs(consumers) do
-                    local amount = math.min(producer.remaining, consumer.remaining)
-                    if amount > tolerance(amount) then
-                        demands[#demands + 1] = {flow = flow, flow_id = id, source = producer.endpoint, sink = consumer.endpoint,
-                            amount = amount, remaining = amount}
-                        producer.remaining, consumer.remaining = producer.remaining - amount, consumer.remaining - amount
+                    if producer.endpoint and consumer.endpoint then
+                        local amount = math.min(producer.remaining, consumer.remaining)
+                        if amount > tolerance(amount) then
+                            demands[#demands + 1] = {flow = flow, flow_id = id, source = producer.endpoint, sink = consumer.endpoint,
+                                amount = amount, remaining = amount}
+                            producer.remaining, consumer.remaining = producer.remaining - amount, consumer.remaining - amount
+                        end
                     end
                     if producer.remaining <= tolerance(producer.remaining) then break end
                 end

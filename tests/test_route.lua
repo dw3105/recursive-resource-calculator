@@ -2,6 +2,7 @@
 local H = require "tests.harness"
 
 local Grid = require "logic.bp.grid"
+local Groups = require "logic.bp.groups"
 local Route = require "logic.bp.route"
 
 local function belt_input(extra)
@@ -14,11 +15,11 @@ local function belt_input(extra)
                 underground_max_distance = 5},
         },
         blocks = {
-            {block_id = "source", x = 1, y = 2, w = 1, h = 1, ports = {
+            {block_id = "source", machines = {{step_id = "source"}}, x = 1, y = 2, w = 1, h = 1, ports = {
                 {port_id = "source-out", role = "out", kind = "item", flow_id = "item/plate", rate_per_second = 10,
                     attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST},
             }},
-            {block_id = "consumer", x = 8, y = 2, w = 1, h = 1, ports = {
+            {block_id = "consumer", machines = {{step_id = "consumer"}}, x = 8, y = 2, w = 1, h = 1, ports = {
                 {port_id = "consumer-in", role = "in", kind = "item", flow_id = "item/plate", rate_per_second = 10,
                     attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.EAST},
             }},
@@ -61,11 +62,11 @@ local function shared_capacity_input(total)
         catalog = {belt = {belt = "basic-belt", splitter = "basic-splitter", items_per_second = 10, lane_items_per_second = 5}},
         obstacles = narrow_row(),
         blocks = {
-            {block_id = "source", x = 1, y = 2, w = 1, h = 1, ports = {
+            {block_id = "source", machines = {{step_id = "source"}}, x = 1, y = 2, w = 1, h = 1, ports = {
                 {port_id = "source-out", role = "out", kind = "item", flow_id = "item/shared", rate_per_second = total,
                     attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST},
             }},
-            {block_id = "intermediate", x = 4, y = 4, w = 1, h = 1, ports = {
+            {block_id = "intermediate", machines = {{step_id = "intermediate"}}, x = 4, y = 4, w = 1, h = 1, ports = {
                 {port_id = "intermediate-in", role = "in", kind = "item", flow_id = "item/shared", rate_per_second = total / 2,
                     attach_dx = 0, attach_dy = -1, normal_dir = Grid.SOUTH, travel_dir = Grid.SOUTH},
             }},
@@ -86,11 +87,11 @@ local function underground_input(connection_a, connection_b, distance)
         catalog = {belt = {belt = "basic-belt", underground = "basic-underground", items_per_second = 10,
             underground_max_distance = 5}},
         blocks = {
-            {block_id = "source", x = 1, y = 1, w = 1, h = 1, ports = {
+            {block_id = "source", machines = {{step_id = "source"}}, x = 1, y = 1, w = 1, h = 1, ports = {
                 {port_id = "source-out", role = "out", kind = "item", flow_id = "item/ore", rate_per_second = 4,
                     attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST, connection = connection_a},
             }},
-            {block_id = "consumer", x = distance + 1, y = 1, w = 1, h = 1, ports = {
+            {block_id = "consumer", machines = {{step_id = "consumer"}}, x = distance + 1, y = 1, w = 1, h = 1, ports = {
                 {port_id = "consumer-in", role = "in", kind = "item", flow_id = "item/ore", rate_per_second = 4,
                     attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.EAST, connection = connection_b},
             }},
@@ -121,7 +122,7 @@ local function perimeter_input(edge, role)
     }
     return {
         grid = Grid.new(5, 5), catalog = {belt = {belt = "basic-belt", items_per_second = 10}},
-        blocks = {{block_id = block_id, x = 2, y = 2, w = 1, h = 1, ports = {block_port}}},
+        blocks = {{block_id = block_id, machines = {{step_id = block_id}}, x = 2, y = 2, w = 1, h = 1, ports = {block_port}}},
         perimeter_ports = {{port_id = perimeter_port_id, role = role, kind = "item", flow_id = flow_id,
             rate_per_second = 1, x = side.x, y = side.y, travel_dir = role == "out" and side.outward or side.inward}},
         flows = {{flow_id = flow_id, producers = role == "out"
@@ -143,7 +144,7 @@ end
 local function outside_perimeter_input()
     return {
         grid = Grid.new(5, 5), catalog = {belt = {belt = "basic-belt", items_per_second = 10}},
-        blocks = {{block_id = "source", x = 2, y = 2, w = 1, h = 1, ports = {{
+        blocks = {{block_id = "source", machines = {{step_id = "source"}}, x = 2, y = 2, w = 1, h = 1, ports = {{
             port_id = "source-port", role = "out", kind = "item", flow_id = "item/outside", rate_per_second = 1,
             attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.WEST,
         }}}},
@@ -152,6 +153,63 @@ local function outside_perimeter_input()
         flows = {{flow_id = "item/outside", producers = {{step_id = "source", share_per_second = 1}},
             consumers = {{step_id = "$external", port_id = "outside-port", share_per_second = 1}}}},
     }
+end
+
+local function real_one_step_plan()
+    return {
+        steps = {{step_id = "gear", recipe = "gear", machine = "assembler", machine_count = 1,
+            inputs = {{flow_id = "item/raw", rate_per_second = 0.1}},
+            outputs = {{flow_id = "item/gear", rate_per_second = 0.1}}}},
+        flows = {
+            {flow_id = "item/raw", producers = {{step_id = "$external", share_per_second = 0.1}},
+                consumers = {{step_id = "gear", share_per_second = 0.1}}},
+            {flow_id = "item/gear", producers = {{step_id = "gear", share_per_second = 0.1}},
+                consumers = {{step_id = "$external", share_per_second = 0.1}}},
+        },
+        ports = {
+            {port_id = "in:item/raw", role = "in", full_name = "item/raw", is_fluid = false,
+                rate_per_second = 0.1, kind = "item", min_lanes = 1},
+            {port_id = "out:item/gear", role = "out", full_name = "item/gear", is_fluid = false,
+                rate_per_second = 0.1, kind = "item", min_lanes = 1},
+        },
+    }
+end
+
+local function real_plan_route_input()
+    local plan = real_one_step_plan()
+    local grouping = Groups.begin({plan = plan, catalog = {entity = {
+        assembler = {name = "assembler", tile_w = 3, tile_h = 3},
+    }}})
+    local iterations = 0
+    while not grouping.done and iterations < 600 do
+        iterations = iterations + 1
+        Groups.step(grouping, {ops = 1})
+    end
+    H.equal(grouping.done, true, "grouping finishes within 600 iterations; stopped in phase "
+        .. tostring(grouping.progress and grouping.progress.phase))
+    local block = grouping.result.candidates[1].blocks[1]
+    block.x, block.y = 4, 3
+    return {
+        grid = Grid.new(14, 12),
+        catalog = {belt = {belt = "basic-belt", items_per_second = 10}},
+        blocks = {block},
+        perimeter_ports = {
+            {port_id = "in:item/raw", role = "in", kind = "item", flow_id = "item/raw",
+                rate_per_second = 0.1, x = 0, y = 2, travel_dir = Grid.EAST},
+            {port_id = "out:item/gear", role = "out", kind = "item", flow_id = "item/gear",
+                rate_per_second = 0.1, x = 13, y = 8, travel_dir = Grid.EAST},
+        },
+        flows = plan.flows,
+    }
+end
+
+local function genuinely_unbound_port_input()
+    local input = real_plan_route_input()
+    input.blocks = {{block_id = "block:orphan", x = 4, y = 3, w = 1, h = 1, ports = {{
+        port_id = "orphan-out", role = "out", kind = "item", flow_id = "item/gear", rate_per_second = 0.1,
+        attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST,
+    }}}}
+    return input
 end
 
 for _, shape in ipairs(H.shapes()) do
@@ -184,12 +242,12 @@ for _, shape in ipairs(H.shapes()) do
             grid = Grid.new(5, 10),
             catalog = {belt = {belt = "basic-belt", underground = "basic-underground", items_per_second = 10}},
             blocks = {
-                {block_id = "source", x = 1, y = 1, w = 2, h = 1, dir = Grid.EAST, ports = {
+                {block_id = "source", machines = {{step_id = "source"}}, x = 1, y = 1, w = 2, h = 1, dir = Grid.EAST, ports = {
                     {port_id = "source-out", role = "out", kind = "item", flow_id = "item/rotated", rate_per_second = 4,
                         attach_dx = 2, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST,
                         connection = {connection_type = "underground", direction = Grid.EAST, max_underground_distance = 5}},
                 }},
-                {block_id = "consumer", x = 1, y = 7, w = 2, h = 1, dir = Grid.EAST, ports = {
+                {block_id = "consumer", machines = {{step_id = "consumer"}}, x = 1, y = 7, w = 2, h = 1, dir = Grid.EAST, ports = {
                     {port_id = "consumer-in", role = "in", kind = "item", flow_id = "item/rotated", rate_per_second = 4,
                         attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.EAST,
                         connection = {connection_type = "underground", direction = Grid.WEST, max_underground_distance = 5}},
@@ -225,13 +283,13 @@ for _, shape in ipairs(H.shapes()) do
             grid = Grid.new(8, 3), catalog = {pipe = {pipe = "pipe", throughput_per_second = 100}},
             obstacles = {{x = 0, y = 0, w = 8, h = 1, owner = "wall"}, {x = 0, y = 2, w = 8, h = 1, owner = "wall"}},
             blocks = {
-                {block_id = "source", x = 1, y = 1, w = 1, h = 1, ports = {
+                {block_id = "source", machines = {{step_id = "source"}}, x = 1, y = 1, w = 1, h = 1, ports = {
                     {port_id = "water-out", role = "out", kind = "fluid", flow_id = "fluid/water", rate_per_second = 5,
                         attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST},
                     {port_id = "steam-out", role = "out", kind = "fluid", flow_id = "fluid/steam", rate_per_second = 5,
                         attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST},
                 }},
-                {block_id = "sink", x = 6, y = 1, w = 1, h = 1, ports = {
+                {block_id = "sink", machines = {{step_id = "sink"}}, x = 6, y = 1, w = 1, h = 1, ports = {
                     {port_id = "water-in", role = "in", kind = "fluid", flow_id = "fluid/water", rate_per_second = 5,
                         attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.EAST},
                     {port_id = "steam-in", role = "in", kind = "fluid", flow_id = "fluid/steam", rate_per_second = 5,
@@ -317,6 +375,27 @@ for _, shape in ipairs(H.shapes()) do
         local state = run(outside_perimeter_input())
         H.equal(state.ok, false, "outside perimeter route fails")
         H.equal(error_code(state), "BP_R_PORT_BLOCKED", "outside perimeter is blocked")
+    end)
+
+    H.test(shape .. " R11 a real one-step plan binds both endpoints of every flow", function()
+        local state = run(real_plan_route_input())
+        local initial_error = state.work and state.work.initial_error
+        H.equal(state.ok, true, "real one-step plan routes; code "
+            .. tostring(error_code(state)) .. "; detail " .. tostring(initial_error and initial_error.detail))
+        local bindings = {}
+        for _, binding in ipairs(state.result and state.result.bindings or {}) do
+            bindings[binding.flow_id] = binding
+            H.equal(binding.source_port_id ~= nil, true, binding.flow_id .. " has a producer endpoint")
+            H.equal(binding.sink_port_id ~= nil, true, binding.flow_id .. " has a consumer endpoint")
+        end
+        H.equal(bindings["item/raw"] ~= nil, true, "raw flow is bound")
+        H.equal(bindings["item/gear"] ~= nil, true, "gear flow is bound")
+    end)
+
+    H.test(shape .. " R12 a port with no owning step is still blocked", function()
+        local state = run(genuinely_unbound_port_input())
+        H.equal(state.ok, false, "an unowned port fails")
+        H.equal(error_code(state), "BP_R_PORT_BLOCKED", "an unowned port reports blocked")
     end)
 end
 
