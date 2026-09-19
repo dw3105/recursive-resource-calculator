@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "mod": "RRC-Golden-Companion",
+  "supported_factorio_branches": ["2.0", "2.1"],
+  "info_json_factorio_version": {
+    "2.0": "2.0",
+    "2.1": "2.1"
+  },
+  "branch_facts": "scenario.lua:Scenario.BRANCH_FACTS"
+}

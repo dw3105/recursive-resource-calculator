@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "title": "RRC golden test companion",
   "author": "RRC maintainers",
-  "description": "A thin remote-call driver for the packaged RRC engine test interface.",
+  "description": "A tick-driven factory runner for the packaged RRC engine test interface.",
   "factorio_version": "2.0",
   "dependencies": ["base", "RRC-Fork"]
 }
