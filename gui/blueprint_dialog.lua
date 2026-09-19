@@ -7,8 +7,9 @@ local BlueprintDialog = {}
 BlueprintDialog.FRAME_NAME = "hxrrc_blueprint_dialog"
 
 local Settings = require "logic.bp.settings"
-local Catalog = require "logic.catalog"
 local ReasonCodes = require "logic.bp.reason_codes"
+local Generation = require "logic.bp.generation"
+local Registry = require "logic.registry"
 
 local GENERATE_NAME = "hxrrc_blueprint_generate_button"
 local CLOSE_NAME = "hxrrc_blueprint_close_button"
@@ -31,6 +32,14 @@ local opened_sheets = {}
 local function player_of(player_index)
     local player = game.get_player(player_index)
     return player and player.valid and player or nil
+end
+
+local function name_of_member(object, key)
+    if not object then return nil end
+    local ok, value = pcall(function() return object[key] end)
+    if not ok or not value then return nil end
+    local ok_name, name = pcall(function() return value.name end)
+    return ok_name and name or nil
 end
 
 local function sheet_id_of(sheet_flow)
@@ -157,34 +166,55 @@ local function build_window(player, sheet_flow, settings)
     return frame
 end
 
-local function catalog_for(player_index, settings)
-    local belt = settings.belt or {}
-    local pipe = settings.pipe or {}
-    local underground_pipe = settings.underground_pipe or {}
-    return Catalog.build(player_index, {
-        belt = {
-            belt = belt.name,
-            underground = belt.underground,
-            splitter = belt.splitter,
-            quality = belt.quality,
-        },
-        pipe = {
-            pipe = pipe.name,
-            underground = underground_pipe.name,
-            quality = pipe.quality,
-        },
-        inserter = settings.inserter,
-        pole = settings.pole,
-        robo = settings.roboport,
-    })
-end
-
 local function show_error(frame, code, subject)
     local label = frame and frame[ERROR_NAME]
     if not label then return end
     local key = ReasonCodes.locale_key(code) or "hxrrc.blueprint_reject_option_prototype_missing"
     label.caption = {key, subject and subject.name or "infrastructure"}
     label.visible = true
+end
+
+--The click only checks the six choices already visible in the dialog.  The generation catalog is deliberately
+--not built here: snapshot, catalog projection and planning are the first job slice.
+local function quality_available(player_index, quality)
+    if quality == nil or quality == "normal" then return true end
+    if not rawget(_G, "prototypes") or not prototypes.quality or not prototypes.quality[quality] then return false end
+    local player = player_of(player_index)
+    local force = player and player.force
+    if force and type(force.is_quality_unlocked) == "function" then
+        local ok, unlocked = pcall(force.is_quality_unlocked, quality)
+        if ok then return unlocked == true end
+    end
+    return true
+end
+
+local function validate_settings(player_index, settings)
+    if settings.input_edge == settings.output_edge then
+        return false, "BP_REJ_EDGES_EQUAL", {kind = "edge", name = "input/output", quality = "normal"}
+    end
+    local expected = {
+        {key = "roboport", type = "roboport"}, {key = "pole", type = "electric-pole"},
+        {key = "belt", type = "transport-belt"}, {key = "inserter", type = "inserter"},
+        {key = "pipe", type = "pipe"}, {key = "underground_pipe", type = "pipe-to-ground"},
+    }
+    for _, definition in ipairs(expected) do
+        local choice = settings[definition.key]
+        local name = type(choice) == "table" and choice.name or nil
+        local prototype = rawget(_G, "prototypes") and prototypes.entity and name and prototypes.entity[name]
+        if not prototype or prototype.type ~= definition.type then
+            return false, "BP_REJ_OPTION_PROTOTYPE_MISSING", {kind = "infrastructure", name = name or definition.key,
+                quality = type(choice) == "table" and choice.quality or "normal"}
+        end
+        local quality = type(choice) == "table" and choice.quality or "normal"
+        if not quality_available(player_index, quality) then
+            return false, "BP_REJ_QUALITY_UNAVAILABLE", {kind = "quality", name = quality, quality = quality}
+        end
+    end
+    if not Settings.belt_family(settings.belt and settings.belt.name, settings.belt and settings.belt.quality) then
+        return false, "BP_REJ_BELT_FAMILY_MISSING", {kind = "infrastructure",
+            name = settings.belt and settings.belt.name or "belt", quality = settings.belt and settings.belt.quality or "normal"}
+    end
+    return true
 end
 
 local function settings_for_open_dialog(player_index, element)
@@ -267,28 +297,41 @@ function BlueprintDialog.on_generate_clicked(event)
     if not sheet or not sheet.valid then return false end
     local sheet_id = sheet_id_of(sheet)
     local settings = Settings.of_sheet(player_index, sheet_id)
-    local catalog, diagnostics = catalog_for(player_index, settings)
-    --Catalog diagnostics are projected into the same rejection shape without guessing a replacement prototype.
-    for _, diagnostic in ipairs(diagnostics or {}) do
-        if diagnostic.code == "CATALOG_MISSING_PROTOTYPE" then
-            local name = tostring(diagnostic.subject or "infrastructure"):gsub("^[^/]+/", "")
-            show_error(frame_of(player_of(player_index)), "BP_REJ_OPTION_PROTOTYPE_MISSING", {name = name})
-            return false, "BP_REJ_OPTION_PROTOTYPE_MISSING", {name = name}
-        elseif diagnostic.code == "CATALOG_MISSING_QUALITY" then
-            local name = tostring(diagnostic.subject or "quality"):gsub("^[^/]+/", "")
-            show_error(frame_of(player_of(player_index)), "BP_REJ_QUALITY_UNAVAILABLE", {name = name})
-            return false, "BP_REJ_QUALITY_UNAVAILABLE", {name = name}
-        end
-    end
-    local ok, code, subject = Settings.validate(settings, catalog, player_index)
+    local ok, code, subject = validate_settings(player_index, settings)
     if not ok then
         show_error(frame_of(player_of(player_index)), code, subject)
         return false, code, subject
     end
-    --The generator job is supplied by the later blueprint lanes. The dialog's accepted boundary is the stored,
-    --validated settings; keeping the window open makes a valid click side-effect free for the sheet itself.
-    return true, settings
+    local player = player_of(player_index)
+    local job_id, reason = Generation.start{
+        schema_version = 1,
+        player_index = player_index,
+        sheet_id = sheet_id,
+        revisions = nil,
+        settings = settings,
+        surface = name_of_member(player, "surface"),
+        force = name_of_member(player, "force"),
+        deliver = true,
+    }
+    if not job_id then
+        show_error(frame_of(player), reason, {name = sheet_id or "sheet"})
+        return false, reason
+    end
+    --The click only enqueues.  Preparation and every layout stage run under Jobs.on_tick.
+    return true, job_id
 end
+
+function BlueprintDialog.show_generation_failure(player_index, terminal)
+    local frame = frame_of(player_of(player_index))
+    local label = frame and frame[ERROR_NAME]
+    if not label then return end
+    local reasons = terminal and terminal.reason_codes or {}
+    local stage = terminal and terminal.stage or terminal and terminal.phase or "search"
+    label.caption = table.concat(reasons, ", ") .. " [" .. tostring(stage) .. "]"
+    label.visible = true
+end
+
+Registry.generation_failure = BlueprintDialog.show_generation_failure
 
 for _, definition in ipairs(INFRASTRUCTURE) do
     event_handlers.on_gui_elem_changed[definition.name] = store_element_change
