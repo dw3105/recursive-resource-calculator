@@ -1,6 +1,6 @@
 # Round 8 board — one list, replaces every older "next step"
 
-Updated 2026-09-19 10:45 UTC, HEAD 5d5f9c8, by the integrator on host `legalcopilot-dev`. Branch
+Updated 2026-09-19 10:50 UTC, HEAD after merging 049, 050, 051, 052, by the integrator on host `legalcopilot-dev`. Branch
 `feat/round-8-blueprints`, never pushed, never merged to `main`. Dispatch follows
 `~/codex-reviews/rrc-parallel-execution-unblock-plan-2026-09-19-1014.md`: five disjoint lanes run beside every
 physical repair, and no lane waits on the blueprint pipeline for work it can finish alone.
@@ -11,10 +11,10 @@ physical repair, and no lane waits on the blueprint pipeline for work it can fin
 |---|---|---|---|---|---|
 | Repair: block port binding | 047 | no | binding-base 835a66e | `logic/bp/groups.lua`, `logic/bp/route.lua`, `tests/test_groups.lua`, `tests/test_route.lua` | **merged** 93fcfe3 |
 | S service lifecycle and capture | 048 | **yes** | unblock-base 93fcfe3 | `gui/blueprint_dialog.lua`, `logic/bp/generation.lua`, `logic/engine_test_api.lua`, two new test files, `tests/test_bp_settings.lua` | running; carries lane 039's checkpoint 17ca320 as its first commit |
-| C calculation result record | 049 | **yes** | unblock-base 93fcfe3 | `logic/calc_pipeline.lua`, new `logic/calculation_result.lua`, their two test files | running; §19 frozen |
-| E real engine adapter | 050 | **yes** | unblock-base 93fcfe3 | `tests/golden/engine/mod/`, `tests/test_engine_scenario.lua`, new `tests/test_engine_runtime_adapter.lua`, `docs/engine-evidence/runner.md` | running; §21 frozen |
+| C calculation result record | 049 | no | unblock-base 93fcfe3 | `logic/calc_pipeline.lua`, `logic/calculation_result.lua`, their two test files | **merged**; wired into `control.lua` by the integrator |
+| E real engine adapter | 050 | no | unblock-base 93fcfe3 | `tests/golden/engine/mod/`, `tests/test_engine_scenario.lua`, `tests/test_engine_runtime_adapter.lua`, `docs/engine-evidence/runner.md` | **merged**; 16 adapter cases drive the shipped adapter |
 | R evidence contract and release gate | 051 | no | unblock-base 93fcfe3 | `tools/release_gate.py`, its tests, new `tests/tools/test_evidence_contract.py`, `docs/release-preparation.md` | **merged**; verdict FAIL was my broken manifest, verified by hand |
-| G capture to case workflow | 052 | **yes** | unblock-base 93fcfe3 | `logic/export_payload.lua`, its test, `tests/golden/add_case`, `tests/golden/lib/common.py`, new `tests/tools/test_capture_workflow.py`, `docs/golden-workflow.md` | running; §20 frozen |
+| G capture to case workflow | 052 | no | unblock-base 93fcfe3 | `logic/export_payload.lua`, its test, `tests/golden/add_case`, `tests/golden/lib/common.py`, `tests/tools/test_capture_workflow.py`, `docs/golden-workflow.md` | **merged**; a failed search still yields a draft |
 | Lane 039 (superseded) | 039 | no | recovery-base-039c 7e4a5c2 | — | attempt 3 terminal; work preserved as checkpoint 3698214, now lane 048's first commit |
 | Merged earlier | 037, 038, 040–046 | no | — | calculation activation, export shape, engine runner, release gate, golden workflow, coverage, two repairs | **merged** |
 | Integrator | — | yes | — | `tests/harness.lua`, `tests/run.sh`, `control.lua`, `gui/sheet.lua`, `gui/export_dialog.lua`, locale, `docs/feature-contracts.md`, `docs/engine-evidence/examples/`, task files, corpus matrix, merges | active |
@@ -28,7 +28,7 @@ producer's own spelling. `docs/engine-evidence/examples/` holds one synthetic ex
 
 Waves 1 to 4 merged and sealed: snapshot, jobs, catalog, grid, export dialog, progress panel, payload, solver
 steps, reset, report steps, plan, preflight, calc pipeline, settings, pack, groups, route, power, validate,
-serialize, search, delivery, golden skeleton. Suite 2596 case runs, 0 failed, both interpreters, plus 27 Python
+serialize, search, delivery, golden skeleton. Suite 2680 case runs, 0 failed, both interpreters, plus 27 Python
 tooling tests and the golden corpus. Mutation batches: W1 8 of 9 with one recorded equivalent, W2 7 of 7,
 W3 12 of 12, W3b 6 of 6, W4 6 of 6.
 
@@ -77,3 +77,15 @@ that dispatch, and no tag is ever moved.
 One file has one owner. A lane never edits a locale file, `tests/harness.lua`, `tests/run.sh` or
 `docs/feature-contracts.md`. The integrator merges with `git merge --no-ff` and runs the suite; `lane merge` is
 not used, so its reviewer and verifier requirements do not apply. Nothing reaches `main` without the user's word.
+
+## Known gap in the pinned API (2026-09-19, integrator)
+
+Lane 050 reports `docs/api/2.0.77.members.json` and `docs/api/2.1.19.members.json` carry no `LuaEntity`, no
+`LuaFluidBox` and no `LuaGameScript.write_file`, so `tests/test_api_shapes.lua` checks nothing about the members
+the companion mod calls on those classes. Extending the pin is integrator work and is not done yet.
+
+## Every verdict of this dispatch read FAIL for one reason: my manifests
+
+`docs/tasks/04*.manifest` and `docs/tasks/05*.manifest` were written with literal backslash-n bytes, so
+`tools/lane_ownership.py` read each as a single path and refused every changed file. Four lanes did their work
+correctly and reported the cause precisely. Each was audited by hand against the repaired manifest before merge.
