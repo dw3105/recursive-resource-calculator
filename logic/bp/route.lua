@@ -34,6 +34,27 @@ local function tolerance(value)
     return math.max(EPSILON, math.abs(value or 0) * EPSILON)
 end
 
+local function new_counters()
+    return {
+        expansions = 0,
+        demands_attempted = 0,
+        restarts = 0,
+        crossings_placed = 0,
+        searches_abandoned = {
+            blocked = 0,
+            capacity = 0,
+            expansions = 0,
+            fluid_mix = 0,
+            no_path = 0,
+        },
+    }
+end
+
+local function abandon_search(work, reason)
+    local abandoned = work.counters.searches_abandoned
+    abandoned[reason] = (abandoned[reason] or 0) + 1
+end
+
 local function copy_position(value)
     if type(value) ~= "table" or type(value.x) ~= "number" or type(value.y) ~= "number" then return nil end
     return {x = value.x, y = value.y}
@@ -655,6 +676,7 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     work.entities[#work.entities + 1] = first
     work.entities[#work.entities + 1] = second
     work.segments[#work.segments + 1] = segment
+    work.counters.crossings_placed = work.counters.crossings_placed + 1
     work.entity_by_segment[segment.segment_id] = first
     work.segments_by_cell[coordinate_key(entry.x, entry.y)] = segment
     work.segments_by_cell[coordinate_key(exit_cell.x, exit_cell.y)] = segment
@@ -942,7 +964,7 @@ local function normalize_input(input)
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
-        underground_cells = {},
+        underground_cells = {}, counters = new_counters(), attempt_generation = 0,
         --A path search visits cells, so the whole routing run is bounded by the grid it runs on. The old default
         --of one million let a single demand burn 1.2 million expansions on a 54 by 54 grid (2916 cells) without
         --finishing, which is a hang the player sees as a frozen Generate. Sixteen visits per cell is generous for
@@ -996,18 +1018,25 @@ local function restart_with_priority(state, work, demand)
     for _, entry in ipairs(work.demand_order) do
         if not claimed[entry.order_key] then ordered[#ordered + 1] = entry end
     end
+    work.counters.restarts = work.counters.restarts + 1
     work.demands = ordered
     for _, entry in ipairs(ordered) do entry.remaining = entry.amount end
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
-    work.expansions, work.current = 0, nil
+    work.attempt_generation, work.current = work.attempt_generation + 1, nil
     state.cursor.demand_index, state.progress.done_units = 1, 0
     state.progress.phase = "routing"
     return true
 end
 
+local function clear_route_work(work)
+    work.entities, work.segments, work.bindings = {}, {}, {}
+    work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
+    work.current = nil
+end
+
 local function fail_demand(state, work, demand, code, detail)
-    if restart_with_priority(state, work, demand) then return false end
+    if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
     local record = {code = code, flow_id = demand and demand.flow_id}
     if detail ~= nil then record.detail = detail end
     state.errors, state.done, state.ok = {record}, true, false
@@ -1018,11 +1047,22 @@ end
 function Route.begin(input)
     local work = normalize_input(input or {})
     return {done = false, ok = nil, cursor = {flow_index = 1, demand_index = 1, phase = "routing"},
-        progress = {phase = "routing", done_units = 0, total_units = #work.demands}, work = work}
+        progress = {phase = "routing", done_units = 0, total_units = #work.demands},
+        counters = work.counters, work = work}
+end
+
+function Route.cancel(state)
+    if type(state) ~= "table" or state.done then return state end
+    clear_route_work(state.work)
+    state.cancelled, state.done, state.ok, state.result = true, true, false, nil
+    state.errors = {{code = "BP_FAIL_CANCELLED"}}
+    state.progress.phase = "cancelled"
+    return state
 end
 
 function Route.step(state, budget)
     if state.done then return state end
+    if state.cancelled then return Route.cancel(state) end
     budget = budget or {ops = 1}
     local ops = finite(budget.ops, 1)
     if ops < 0 then ops = 0 end
@@ -1045,6 +1085,10 @@ function Route.step(state, budget)
         if demand.remaining <= tolerance(demand.remaining) then
             state.cursor.demand_index, state.progress.done_units = state.cursor.demand_index + 1, state.progress.done_units + 1
         else
+            if demand._attempt_generation ~= work.attempt_generation then
+                demand._attempt_generation = work.attempt_generation
+                work.counters.demands_attempted = work.counters.demands_attempted + 1
+            end
             local capacity, kind = capacity_for(work, demand.flow)
             local amount = math.min(demand.remaining, capacity)
             if amount <= 0 then
@@ -1075,11 +1119,13 @@ function Route.step(state, budget)
                 end
                 end
             else
-                work.expansions = work.expansions + 1
-                if work.expansions > work.max_expansions then
+                if work.expansions >= work.max_expansions then
                     work.current, ops = nil, ops - 1
+                    abandon_search(work, "expansions")
                     if fail_demand(state, work, demand, "BP_R_EXPANSIONS") then break end
                 else
+                work.expansions = work.expansions + 1
+                work.counters.expansions = work.counters.expansions + 1
                 local outcome = search_step(work, work.current)
                 ops = ops - 1
                 if type(outcome) == "table" then
@@ -1090,9 +1136,11 @@ function Route.step(state, budget)
                     else demand.remaining = demand.remaining - amount end
                 elseif outcome == "failed" then
                     local search = work.current
+                    local reason = search.saw_fluid_mix and "fluid_mix"
+                        or (search.saw_capacity and "capacity" or (search.saw_blocked and "blocked" or "no_path"))
+                    abandon_search(work, reason)
                     if search.saw_blocked and not search.saw_capacity and not search.saw_fluid_mix
                         and search.order_index < #DIRECTION_ORDERS then
-                        work.expansions = 0
                         work.current = begin_search(work, demand, amount, search.order_index + 1)
                     else
                         local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
