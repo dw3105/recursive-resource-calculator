@@ -45,6 +45,27 @@ packaged `logic/build_id.lua`, observation digest, receipt, candidate SHA,
 branch, active mods and engine environment.  Production cases additionally
 check canonical version/digest, rates, warm-up/sample timing and timeout.
 
+## Frozen observation contract
+
+Observation schema 1 follows the companion's producer shape.  The top-level
+`outcome_kind` is `production`, `rejection`, or `export`, and exactly one block
+with that name carries the result.  The older top-level `outcome` block remains
+accepted as a compatibility synonym.  Production windows are objects with
+`warm_up.ticks` and `window.ticks`; the older flat
+`warm_up_ticks`/`sampling_window_ticks` names remain accepted as synonyms.
+
+Rates are lower bounds.  For every expected rate, the measured value must be at
+least `target - allowed_discrete_error`.  Extra production is valid and is not
+a rate mismatch; missing or empty measured-rate data and any expected shortfall
+are refusals.
+
+Window and generation values are engine ticks, not wall-clock seconds.  The
+scenario `timeout_seconds` bounds generation ticks at 60 ticks per second.  A
+separate wall-clock target, when declared as `wall_clock_seconds`, is compared
+only with `production.timings.wall_clock_seconds`; a missing measurement never
+counts as meeting that target.  Engine tick fields are never used for that
+wall-clock comparison.
+
 Refusals are intentionally specific:
 
 - `empty selection`: the requested branch has no matrix cases.
@@ -55,7 +76,7 @@ Refusals are intentionally specific:
 - `missing observation` / `missing receipt`: the required engine evidence pair is incomplete.
 - `unexpected rejection`: the engine rejected a case whose matrix outcome is production/export.
 - `rates below target`: a measured production rate is below the manifest target and tolerance.
-- `invalid timing`: timing is absent, non-finite, over the case timeout, or timed out.
+- `invalid timing`: timing is absent, non-finite, over the engine-tick or wall-clock target, or timed out.
 - `mismatched archive`: the receipt hash is not the hash of the supplied archive, or its build identity differs.
 - `mismatched environment`: the packaged branch, mod version, engine version, or required active mod differs.
 
