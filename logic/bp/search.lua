@@ -296,11 +296,11 @@ local function electrical_kind(entity, catalog)
 
     local function classify(value)
         if value == "roboport" or value == "robo" then return "roboport" end
-        if value == "machine" or value == "assembling-machine" or value == "furnace"
+        if value == "machine" or value == "assembler" or value == "assembling-machine" or value == "furnace"
             or value == "rocket-silo" or value == "lab" or value == "mining-drill" then return "machine" end
         if value == "beacon" then return "beacon" end
         if value == "inserter" then return "inserter" end
-        if value == "belt" or value == "lane" or value == "pipe"
+        if value == "transport" or value == "powered-transport" or value == "belt" or value == "lane" or value == "pipe"
             or value == "transport-belt" or value == "underground-belt" or value == "splitter"
             or value == "pipe-to-ground" then return "transport" end
         return nil
@@ -309,6 +309,7 @@ local function electrical_kind(entity, catalog)
     --Route entities use type = input/output, so an entity kind or a prototype/catalog type wins over that field.
     if declared == "roboport" or typed == "roboport" or catalog_kind == "roboport"
         or name == "roboport" or name:find("roboport", 1, true) then return nil end
+    if entity.powered_transport == true or entity.is_powered_transport == true then return "transport" end
     local result = classify(declared) or classify(catalog_kind)
     if result == "roboport" then return nil end
     if result then return result end
@@ -325,7 +326,7 @@ local function electrical_kind(entity, catalog)
         or name:find("splitter", 1, true) or name == "pipe" or name:find("pipe", 1, true) then
         return "transport"
     end
-    if name:find("assembling%-machine", 1) or name:find("furnace", 1, true)
+    if name:find("assembling%-machine", 1) or name:find("assembler", 1, true) or name:find("furnace", 1, true)
         or name:find("rocket%-silo", 1) or name:find("mining%-drill", 1)
         or name:find("lab", 1, true) then return "machine" end
     return nil
