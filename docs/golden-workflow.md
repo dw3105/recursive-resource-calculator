@@ -57,6 +57,11 @@ failure diagnostics, but never rewrites an expectation. Only the explicit
 it leaves a reviewable old/new/diff/provenance record under the artifact
 directory.
 
+That separation is also the release rule: a development checkout may produce
+drafts and offline comparison results, but it cannot turn either into accepted
+engine evidence or a reviewed release baseline by merely running the normal
+command.
+
 Run the fast suite with `sh tests/run.sh`; it does not invoke this corpus or
 start a game. Run the corpus during release preparation, with the engine
 companion and the packaged candidate when in-game evidence is required.
