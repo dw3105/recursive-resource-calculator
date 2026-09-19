@@ -1,20 +1,39 @@
 #!/bin/sh
-# Build the round 8 test zips for one tagged commit, from the committed tree only.
-# Usage: build_zip1.sh <tag-or-sha> <2.0 version> <2.1 version>
-set -e
-R=/home/dev_zaigraev_gmail_com/recursive-resource-calculator
+# Build labelled test zips for one tagged commit, from the committed tree only.
+# Usage: build_test_zip.sh <tag-or-sha> <2.0 version> <2.1 version> [output-dir]
+set -eu
+
+if [ "$#" -lt 3 ] || [ "$#" -gt 4 ]; then
+    echo "usage: build_test_zip.sh <tag-or-sha> <2.0 version> <2.1 version> [output-dir]" >&2
+    exit 2
+fi
+
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+R=${RRC_REPO:-$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)}
+OUT=${RRC_TEST_ZIP_DIR:-${4:-$(pwd)}}
 SHA=$(git -C "$R" rev-parse "$1")
-V20=$2; V21=$3
-WORK=$(mktemp -d)
+V20=$2
+V21=$3
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/rrc-test-zip.XXXXXX")
+cleanup() {
+    rm -rf "$WORK"
+}
+trap cleanup 0 1 2 15
+
+mkdir -p "$OUT"
+git -C "$R" archive "$SHA" | tar -x -C "$WORK"
 cd "$WORK"
-git -C "$R" archive "$SHA" | tar -x
-for pair in "$V20 2.0" "$V21 2.1"; do
-  set -- $pair
-  RRC_CANDIDATE_SHA="$SHA" bash ./generate_release.sh "$1" "$2"
-  python3 -m zipfile -c "RRC-Fork_$1.zip" "RRC-Fork_$1"
-  cp "RRC-Fork_$1.zip" /home/dev_zaigraev_gmail_com/share/
-  printf '%s  RRC-Fork_%s.zip  (Factorio %s)\n' "$(sha256sum "RRC-Fork_$1.zip" | cut -d' ' -f1)" "$1" "$2"
-done
-echo "built from $SHA"
-echo "entries in the 2.0 zip: $(python3 -c "import zipfile;print(len(zipfile.ZipFile('RRC-Fork_$V20.zip').namelist()))")"
-rm -rf "$WORK"
+
+build_one() {
+    version=$1
+    branch=$2
+    RRC_CANDIDATE_SHA="$SHA" bash ./generate_release.sh "$version" "$branch"
+    archive="$OUT/RRC-Fork_${version}_factorio-${branch}-test.zip"
+    python3 -m zipfile -c "$archive" "RRC-Fork_${version}"
+    printf 'TEST BUILD: %s  %s  (Factorio %s)\n' \
+        "$(sha256sum "$archive" | cut -d' ' -f1)" "$archive" "$branch"
+}
+
+build_one "$V20" 2.0
+build_one "$V21" 2.1
+echo "TEST BUILD: built from $SHA; these archives are not release artifacts"
