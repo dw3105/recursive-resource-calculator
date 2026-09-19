@@ -41,7 +41,10 @@ Still missing from attempt 1, and required: `tests/golden/add_case`, `tests/gold
 under `tests/golden/cases/`, the shared code under `tests/golden/lib/`, the companion mod under
 `tests/golden/engine/mod/`, `tests/tools/test_golden_tools.py`, and the three documents. Keep what attempt 1 built
 and add the rest. `logic/engine_test_api.lua` changed under you in the meantime: the packaged build id is now read
-at load, because Factorio refuses `require` inside a handler. Never move it back into a function.
+at load, because Factorio refuses `require` inside a handler. Never move it back into a function. Your own
+`logic/engine_test_api.lua:282` still holds `local Serialize = require "logic.bp.serialize"` inside a function;
+`tests/test_no_runtime_require.lua` fails the suite on it. Move that require, and every other one you wrote, to
+the top of the file.
 
 ## What to build
 
