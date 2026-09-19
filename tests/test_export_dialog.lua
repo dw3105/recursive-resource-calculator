@@ -69,11 +69,9 @@ for _, shape in ipairs(H.shapes()) do
 
         H.equal(H.text_selected(box), true, "opening selects the whole text")
         H.equal(H.text_focused(box), true, "opening focuses the text")
-        local copy = find(frame, function(element) return element.name == "hxrrc_export_copy_button" end)
-        event_handlers.on_gui_click.hxrrc_export_copy_button({element = copy, player_index = 1})
-        H.equal(H.text_selected(box), true, "Copy marks the whole text")
-        H.equal(H.text_focused(box), true, "Copy focuses the text")
-        H.equal(world.flying_texts[1][1], "hxrrc.export_copy_hint", "Copy shows its hint")
+        H.equal(find(frame, function(element) return element.name == "hxrrc_export_copy_button" end), nil,
+            "no button claims to copy: a mod cannot write text to the system clipboard")
+        H.equal(#world.flying_texts, 0, "nothing draws itself over the window")
     end)
 
     H.test(shape .. " E2 Close destroys the frame and clears dialog state", function()
@@ -226,22 +224,19 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(decoded.note, payload.note, "wrapped text keeps the complete payload")
     end)
 
-    H.test(shape .. " E13 Copy selects, focuses and shows its hint", function()
+    H.test(shape .. " E13 one button closes, and nothing pretends to copy", function()
         local world, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = "debug-string"})
         local frame = ExportDialog.open(1, sheet_flow)
         local box = find(frame, function(element) return element.type == "text-box" end)
-        local copy = find(frame, function(element) return element.name == "hxrrc_export_copy_button" end)
 
-        H.equal(copy.caption[1], "hxrrc.export_copy", "Copy uses the copy locale key")
-        local footer = find(frame, function(element) return element.name == "hxrrc_export_footer" end)
-        H.equal(footer.style.horizontal_align, "left", "footer starts its buttons at the left")
-        H.equal(close_button(frame) ~= nil, true, "Close remains available")
+        H.equal(find(frame, function(element) return element.name == "hxrrc_export_copy_button" end), nil,
+            "no Copy button: LuaPlayer.add_to_clipboard takes a blueprint stack, never text")
         H.equal(find(frame, function(element) return element.name == "hxrrc_export_select_all_button" end), nil,
-            "the old Select all button is gone")
-        event_handlers.on_gui_click.hxrrc_export_copy_button({element = copy, player_index = 1})
-        H.equal(H.text_selected(box), true, "Copy selects the whole string")
-        H.equal(H.text_focused(box), true, "Copy focuses the string")
-        H.equal(world.flying_texts[1][1], "hxrrc.export_copy_hint", "Copy shows its hint")
+            "no Select all button either")
+        H.equal(close_button(frame) ~= nil, true, "Close is the one button")
+        H.equal(H.text_selected(box), true, "the string is already selected, so CTRL + C works at once")
+        H.equal(H.text_focused(box), true, "and the box already holds the focus")
+        H.equal(#world.flying_texts, 0, "nothing draws itself over the window")
     end)
 
     H.test(shape .. " E14 keeps the state line and explanation", function()

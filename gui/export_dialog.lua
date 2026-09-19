@@ -10,12 +10,14 @@ local ExportDialog = {}
 ExportDialog.FRAME_NAME = "hxrrc_export_dialog"
 local TEXT_NAME = "hxrrc_export_text"
 local STATE_NAME = "hxrrc_export_state"
-local COPY_NAME = "hxrrc_export_copy_button"
+local CLOSE_ONLY_NOTE = "hxrrc_export_explanation"
 local CLOSE_NAME = "hxrrc_export_close_button"
 local FRAME_MIN_WIDTH = 600
 local TEXT_WIDTH = 600
 local TEXT_HEIGHT = 240
-local DISPLAY_LINE_LENGTH = 120
+--A line must be narrower than TEXT_WIDTH at the default font, or the pane grows a sideways scrollbar.
+--64 characters is about 460 px, well inside 600.
+local DISPLAY_LINE_LENGTH = 64
 
 --GUI handles are deliberately kept out of storage. This is only a runtime aid for noticing that the sheet which
 --owns an open window was destroyed; the saved part below contains only the sheet id and the displayed state.
@@ -184,6 +186,9 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
         }
         text_box.style.width = TEXT_WIDTH
         text_box.style.height = TEXT_HEIGHT
+        --Fill the frame the way the game's own string window does, and never grow a sideways scrollbar.
+        text_box.style.horizontally_stretchable = true
+        text_box.style.horizontally_squashable = false
         select_and_focus(frame)
     else
         frame.add{
@@ -202,8 +207,9 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     local footer = frame.add{type = "flow", name = "hxrrc_export_footer", direction = "horizontal"}
     footer.style.horizontally_stretchable = true
     footer.style.horizontal_align = "left"
-    footer.add{type = "button", name = COPY_NAME, caption = {"hxrrc.export_copy"}}
-    --Keep an explicit Close button; this dialog does not rely on the title-bar close affordance.
+    --One button only. A mod cannot write text to the system clipboard: LuaPlayer.add_to_clipboard takes a
+    --blueprint stack and feeds the game's own blueprint clipboard. So the window selects the string itself and
+    --the player presses CTRL + C, and no button pretends to copy.
     footer.add{type = "button", name = CLOSE_NAME, caption = {"hxrrc.export_close"}}
     return frame
 end
@@ -246,16 +252,6 @@ end
 function ExportDialog.on_export_clicked(event)
     if not event or not event.element then return false end
     return ExportDialog.open(event.player_index, sheet_flow_of(event.element)) ~= nil
-end
-
-event_handlers.on_gui_click[COPY_NAME] = function(event)
-    local frame = frame_of(player_of(event.player_index))
-    if select_and_focus(frame) then
-        player_of(event.player_index).create_local_flying_text{
-            text = {"hxrrc.export_copy_hint"},
-            create_at_cursor = true,
-        }
-    end
 end
 
 event_handlers.on_gui_click[CLOSE_NAME] = function(event)
