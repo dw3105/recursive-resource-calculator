@@ -9,25 +9,9 @@
     "factorio_branch": "2.0",
     "base_game_version": "2.0"
   },
-  "targets": [
-    {
-      "full_name": "item/iron-gear-wheel",
-      "rate_per_second": 1,
-      "quality": "normal"
-    }
-  ],
+  "targets": [],
   "setup": {
-    "selection": [
-      {
-        "product_full_name": "item/iron-gear-wheel",
-        "recipe_name": "iron-gear-wheel",
-        "machine": {
-          "name": "assembling-machine-2",
-          "quality": "normal"
-        },
-        "modules": []
-      }
-    ],
+    "selection": [],
     "settings": {
       "current": {
         "input_edge": "left",
@@ -44,23 +28,11 @@
       "surface": "nauvis",
       "game_speed": 1
     },
-    "supply": [
-      {
-        "full_name": "item/iron-plate",
-        "rate_per_second": 2
-      }
-    ],
-    "drain": [
-      {
-        "full_name": "item/iron-gear-wheel",
-        "rate_per_second": 1
-      }
-    ],
+    "supply": [],
+    "drain": [],
     "warm_up_ticks": 60,
     "sampling_window_ticks": 600,
-    "expected_rates": {
-      "item/iron-gear-wheel": 1
-    },
+    "expected_rates": {},
     "allowed_discrete_error": 0.02,
     "timeout_seconds": 10
   },
@@ -68,6 +40,7 @@
   "reason_codes": [
     "BP_REJ_UNSUPPORTED_INTERFACE"
   ],
+  "stage": "preflight",
   "state": "draft",
   "independent_assertions": {
     "conservation": true

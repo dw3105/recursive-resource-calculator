@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +15,15 @@ MATRIX_PATH = ROOT / "tests" / "golden" / "required-matrix.json"
 CASES_ROOT = ROOT / "tests" / "golden" / "cases"
 COVERAGE_PATH = ROOT / "docs" / "golden-coverage.md"
 RUN_PATH = ROOT / "tests" / "golden" / "run"
+REASON_CODES_PATH = ROOT / "logic" / "bp" / "reason_codes.lua"
+
+CAPTURE_DEPENDENT_FIELDS = {
+    "targets": [],
+    "setup.selection": [],
+    "engine_scenario.supply": [],
+    "engine_scenario.drain": [],
+    "engine_scenario.expected_rates": {},
+}
 
 GOLD09_CATEGORIES = (
     "provided assembler-chain example",
@@ -60,9 +70,71 @@ def coverage_rows(path: Path = COVERAGE_PATH):
     return rows
 
 
+def reason_code_groups(path: Path = REASON_CODES_PATH):
+    source = path.read_text(encoding="utf-8")
+    groups = {}
+    for match in re.finditer(r"ReasonCodes\.([A-Z]+)\s*=\s*{(.*?)}", source, re.DOTALL):
+        groups[match.group(1)] = set(re.findall(r'"([^"]+)"', match.group(2)))
+    if not groups:
+        raise AssertionError(f"no reason-code groups found in {path}")
+    return groups
+
+
+def _reason_code_group(code, groups):
+    return next((group for group, codes in groups.items() if code in codes), "UNKNOWN")
+
+
+def assert_terminal_reason_codes(manifest, case_id, groups):
+    declared = manifest.get("reason_codes", manifest.get("expected_reason_codes", []))
+    if declared is None:
+        return
+    if not isinstance(declared, list):
+        raise AssertionError(f"reason_codes is not a list: {case_id}")
+    allowed = {code for group in ("REJECT", "FAIL") for code in groups.get(group, set())}
+    for code in declared:
+        group = _reason_code_group(code, groups)
+        if code not in allowed:
+            raise AssertionError(
+                f"declared reason code {code!r} for {case_id} belongs to {group}; "
+                "only REJECT and FAIL codes are terminal"
+            )
+
+
+def _capture_dependent_values(manifest):
+    setup = manifest.get("setup")
+    scenario = manifest.get("engine_scenario")
+    return {
+        "targets": manifest.get("targets"),
+        "setup.selection": setup.get("selection") if isinstance(setup, dict) else None,
+        "engine_scenario.supply": scenario.get("supply") if isinstance(scenario, dict) else None,
+        "engine_scenario.drain": scenario.get("drain") if isinstance(scenario, dict) else None,
+        "engine_scenario.expected_rates": (
+            scenario.get("expected_rates") if isinstance(scenario, dict) else None
+        ),
+    }
+
+
+def assert_draft_content_is_honest(manifest, case_id, baseline):
+    if manifest.get("targets") == baseline.get("targets"):
+        raise AssertionError(f"draft {case_id} copies accepted baseline targets")
+    setup = manifest.get("setup") if isinstance(manifest.get("setup"), dict) else {}
+    baseline_setup = baseline.get("setup") if isinstance(baseline.get("setup"), dict) else {}
+    if setup.get("selection") == baseline_setup.get("selection"):
+        raise AssertionError(f"draft {case_id} copies accepted baseline setup.selection")
+    values = _capture_dependent_values(manifest)
+    for field, empty in CAPTURE_DEPENDENT_FIELDS.items():
+        if values[field] != empty:
+            raise AssertionError(
+                f"draft {case_id} has non-empty capture-dependent field {field}; "
+                "capture_pending must supply this category's captured sheet"
+            )
+
+
 def assert_matrix_and_cases(matrix_path: Path, cases_root: Path) -> None:
     rows = matrix_rows(matrix_path)
+    groups = reason_code_groups()
     seen = set()
+    baseline = None
     for row in rows:
         case_id = row.get("case_id")
         if not isinstance(case_id, str) or not case_id:
@@ -85,22 +157,29 @@ def assert_matrix_and_cases(matrix_path: Path, cases_root: Path) -> None:
             raise AssertionError(f"state mismatch: {case_id}")
         if manifest.get("factorio_branch") not in row.get("branches", []):
             raise AssertionError(f"branch mismatch: {case_id}")
+        assert_terminal_reason_codes(manifest, case_id, groups)
         for branch in row.get("branches", []):
             if not (cases_root / case_id).is_dir():
                 raise AssertionError(f"matrix branch names missing case directory: {case_id}@{branch}")
         if row.get("state") == "draft":
+            if baseline is None:
+                baseline_path = cases_root / "basic-canonical" / "manifest.json"
+                if not baseline_path.is_file():
+                    raise AssertionError(f"missing accepted baseline manifest: {baseline_path}")
+                baseline = read_json(baseline_path)
             if not isinstance(manifest.get("capture_pending"), str) or not manifest["capture_pending"]:
                 raise AssertionError(f"draft has no capture_pending note: {case_id}")
             if not isinstance(manifest.get("engine_scenario"), dict):
                 raise AssertionError(f"draft has no engine scenario: {case_id}")
+            assert_draft_content_is_honest(manifest, case_id, baseline)
             scenario = manifest["engine_scenario"]
-            if not scenario.get("supply") or not scenario.get("drain") or not scenario.get("expected_rates"):
-                raise AssertionError(f"draft engine scenario is incomplete: {case_id}")
             if not isinstance(scenario.get("allowed_discrete_error"), (int, float)):
                 raise AssertionError(f"draft has no allowed discrete error: {case_id}")
         if row.get("outcome_kind") == "rejection":
             if not manifest.get("reason_codes"):
                 raise AssertionError(f"rejection has no reason_codes: {case_id}")
+            if manifest.get("stage") not in {"preflight", "search", "validate"}:
+                raise AssertionError(f"rejection has no release-gate stage: {case_id}")
             if "expected" in manifest or "actual" in manifest:
                 raise AssertionError(f"rejection declares blueprint fields: {case_id}")
 
@@ -124,15 +203,42 @@ def assert_coverage_document(matrix_path: Path, coverage_path: Path) -> None:
         if row[4] != matrix_row["outcome_kind"] or row[5] != matrix_row["state"]:
             raise AssertionError(f"coverage disagrees with matrix: {row[2]}")
         if matrix_row["state"] == "draft":
-            if row[6] != "open gap: capture pending; not coverage":
+            if row[6] != "open gap: capture pending; content arrives with capture; not coverage":
                 raise AssertionError(f"draft is not reported as an open gap: {row[2]}")
-        elif row[6] == "open gap: capture pending; not coverage":
+        elif row[6] == "open gap: capture pending; content arrives with capture; not coverage":
             raise AssertionError(f"accepted case is reported as a gap: {row[2]}")
 
 
 class GoldenMatrixTests(unittest.TestCase):
     def test_every_matrix_row_has_a_matching_case_manifest(self):
         assert_matrix_and_cases(MATRIX_PATH, CASES_ROOT)
+
+    def test_internal_reason_code_is_not_a_terminal_declaration(self):
+        with self.assertRaisesRegex(AssertionError, r"BP_R_CAPACITY.*INTERNAL"):
+            assert_terminal_reason_codes(
+                {"reason_codes": ["BP_R_CAPACITY"]},
+                "belt-inserter-bottleneck",
+                reason_code_groups(),
+            )
+
+    def test_draft_cannot_copy_accepted_baseline_content(self):
+        baseline = read_json(CASES_ROOT / "basic-canonical" / "manifest.json")
+        with self.assertRaisesRegex(AssertionError, "copies accepted baseline targets"):
+            assert_draft_content_is_honest(dict(baseline), "copied-baseline", baseline)
+
+    def test_draft_capture_dependent_fields_must_be_empty(self):
+        baseline = read_json(CASES_ROOT / "basic-canonical" / "manifest.json")
+        manifest = {
+            "targets": [],
+            "setup": {"selection": []},
+            "engine_scenario": {
+                "supply": [{"full_name": "item/iron-plate", "rate_per_second": 2}],
+                "drain": [],
+                "expected_rates": {},
+            },
+        }
+        with self.assertRaisesRegex(AssertionError, "engine_scenario.supply"):
+            assert_draft_content_is_honest(manifest, "copied-supply", baseline)
 
     def test_every_gold09_category_and_matrix_row_is_in_coverage_doc(self):
         assert_coverage_document(MATRIX_PATH, COVERAGE_PATH)
