@@ -68,3 +68,12 @@
 | `058` | `rrc/agent` | Repair: block ports attach to free in-grid cells | 2026-09-19 |
 | `059` | `rrc/agent` | Repair block port cells | 2026-09-19 |
 | `059` | `rrc/agent` | Repair: block ports stand on free cells | 2026-09-19 |
+| `060` | `rrc/agent` | R route budget | 2026-09-19 |
+| `061` | `rrc/agent` | S search policy | 2026-09-19 |
+| `062` | `rrc/agent` | A companion api | 2026-09-19 |
+| `063` | `rrc/agent` | F corpus setups | 2026-09-19 |
+| `064` | `rrc/agent` | R2 route cost | 2026-09-19 |
+| `065` | `rrc/agent` | V validator independence | 2026-09-19 |
+| `066` | `rrc/agent` | R3 route cost cached | 2026-09-19 |
+| `067` | `rrc/agent` | power semantics | 2026-09-19 |
+| `068` | `rrc/agent` | fluid smoke case | 2026-09-19 |
