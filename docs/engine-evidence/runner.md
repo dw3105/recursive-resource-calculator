@@ -8,13 +8,28 @@ into perimeter source buffers and outputs/byproducts are removed from perimeter
 sink buffers; the observation records the counts the buffers actually accepted
 and released.
 
-## The one game command
+## Capture, then run
 
 Install the packaged `RRC-Golden-Companion` and the matching packaged candidate,
-load a save with the required technologies, and paste this as one Factorio
-console command. Replace the angle-bracket values and paste the reviewed case
-table in the marked fields; `prepared_input` must be the captured input from
-the candidate's debug export, not a handwritten plan.
+load a save with the required technologies, and capture the candidate's debug
+export first. This is the exact Factorio console command; it writes the encoded
+export to `script-output/rrc-engine-capture/<sheet-id>.txt`:
+
+```text
+/c game.write_file("rrc-engine-capture/<sheet-id>.txt", remote.call("rrc-engine-test", "export", "<sheet-id>"), false)
+```
+
+Decode that file and make the reviewed case inputs with the implemented host
+command:
+
+```sh
+tests/golden/add_case <case-id> --export rrc-engine-capture/<sheet-id>.txt --options <options.json>
+```
+
+Use the resulting captured `prepared_input` in this exact Factorio run command.
+Replace the angle-bracket values and paste the reviewed case table in the
+marked fields; `prepared_input` must be the captured input, never a handwritten
+plan.
 
 ```text
 /c remote.call("rrc-golden-companion", "run", {case_id="<case-id>", expected_candidate_sha="<candidate-sha>", sheet_id="<sheet-id>", prepared_input=<captured-prepared-input>, setup=<reviewed-setup>, engine_scenario=<reviewed-engine-scenario>})
@@ -32,6 +47,11 @@ The last line is also printed for `rejection` and `export`. A development build
 or a candidate SHA mismatch is rejected during the command before environment,
 sheet, generation, blueprint construction, supply, power, drain, warm-up or
 sampling work. The companion writes that rejection observation immediately.
+
+The offline `tests/test_engine_runtime_adapter.lua` test is a cheap proof that
+the shipped adapter reaches strict API-shaped mocks. It is not physical
+throughput evidence: only this command against the packaged candidate in
+Factorio produces an engine observation.
 
 ## Observation and timing
 

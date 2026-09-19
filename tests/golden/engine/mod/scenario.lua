@@ -92,6 +92,17 @@ local function sorted_unique(values)
     return result
 end
 
+local function mods_list(value)
+    if type(value) ~= "table" then return {} end
+    if #value > 0 then return copy(value) or {} end
+    local result = {}
+    for name, version in pairs(value) do
+        result[#result + 1] = {name = tostring(name), version = tostring(version)}
+    end
+    table.sort(result, function(left, right) return left.name < right.name end)
+    return result
+end
+
 local function scenario_of(case)
     return (type(case.engine_scenario) == "table" and case.engine_scenario)
         or (type(case.scenario) == "table" and case.scenario) or {}
@@ -152,9 +163,39 @@ end
 --digest helper is intentionally private to its interface module.
 local function sha256(text)
     local bit = rawget(_G, "bit32")
-    if not bit then return nil end
-    local band, bor, bxor = bit.band, bit.bor, bit.bxor
-    local rshift, rrotate = bit.rshift, bit.rrotate
+    local band, bor, bxor, rshift, rrotate
+    if bit then
+        band, bor, bxor = bit.band, bit.bor, bit.bxor
+        rshift, rrotate = bit.rshift, bit.rrotate
+    else
+        --Lua 5.4 has integer operators but Factorio's Lua 5.2 has bit32.  Keep
+        --the digest available in both offline interpreters without requiring a
+        --runtime module or relying on an engine helper that does not exist.
+        local MOD32 = 4294967296
+        local function unsigned(value) return value % MOD32 end
+        local function binary(op, values)
+            local result = 0
+            for place = 0, 31 do
+                local bit_value = 2 ^ place
+                local count = 0
+                for index = 1, #values do
+                    if math.floor(unsigned(values[index]) / bit_value) % 2 == 1 then count = count + 1 end
+                end
+                local set = op(count, #values)
+                if set then result = result + bit_value end
+            end
+            return result
+        end
+        band = function(first, ...) return binary(function(count, width) return count == width end, {first, ...}) end
+        bor = function(first, ...) return binary(function(count) return count > 0 end, {first, ...}) end
+        bxor = function(first, ...) return binary(function(count) return count % 2 == 1 end, {first, ...}) end
+        rshift = function(value, amount) return math.floor(unsigned(value) / 2 ^ amount) end
+        rrotate = function(value, amount)
+            amount = amount % 32
+            local low = unsigned(value) % 2 ^ amount
+            return math.floor(unsigned(value) / 2 ^ amount) + low * 2 ^ (32 - amount) % MOD32
+        end
+    end
     local k = {
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
         0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -238,14 +279,18 @@ function Controller:_metadata(state)
     local ok, metadata = safe_call(self.adapter, "metadata", state.case, state.environment, state.build)
     if ok and type(metadata) == "table" then result = copy(metadata) or {} end
     local initial = scenario_of(state.case).initial_state or state.case.initial_state or {}
+    local branch = result.factorio_branch or state.build.factorio_branch
+        or (state.environment and state.environment.branch) or "unknown"
     return {
         schema_version = 1,
         case_id = case_id_of(state.case),
         candidate_sha = tostring(state.build.candidate_sha or "unknown"),
         runner_revision = Scenario.RUNNER_REVISION,
-        engine_version = result.engine_version or state.build.factorio_branch or "unknown",
-        active_mods = result.active_mods or {},
-        force_research = result.force_research or copy(initial.research) or {},
+        factorio_version = result.factorio_version or state.build.factorio_version or branch,
+        factorio_branch = branch,
+        mods = mods_list(result.mods or result.active_mods),
+        force = result.force or (state.environment and state.environment.force_name)
+            or initial.force or "player",
         surface = result.surface or (state.environment and state.environment.surface_name)
             or initial.surface or "nauvis",
     }
@@ -310,6 +355,7 @@ function Controller:_finish_production(state)
         canonical_sha256 = canonical_sha,
         canonical_version = canonical_version,
         blueprint_string = state.blueprint_string,
+        blueprint_string_sha256 = sha256(state.blueprint_string),
         rates = map_rates(drained, state.sample_ticks),
         accepted_supply = {counts = accepted, rates = map_rates(accepted, state.sample_ticks)},
         drained_outputs = {counts = drained, rates = map_rates(drained, state.sample_ticks)},
@@ -387,15 +433,26 @@ function Controller:_export(state)
     if not ok or envelope == nil then
         return self:_rejection(state, "export", {"RRC_EXPORT_FAILED"}, envelope)
     end
-    local digest = type(envelope) == "table" and (envelope.digest or envelope.sha256 or envelope.canonical_sha256)
+    local digest = type(envelope) == "table" and (envelope.content_sha256 or envelope.digest or envelope.sha256 or envelope.canonical_sha256)
         or (type(envelope) == "string" and sha256(envelope))
         or state.case.export_digest
+    local decoded = envelope
+    if type(envelope) == "string" and rawget(_G, "helpers") then
+        local encoded = envelope:sub(1, 1) == "0" and envelope:sub(2) or envelope
+        local ok_text, text = pcall(helpers.decode_string, encoded)
+        if ok_text and type(text) == "string" then
+            local ok_table, value = pcall(helpers.json_to_table, text)
+            if ok_table and type(value) == "table" then decoded = value end
+        end
+    end
     local observation = self:_metadata(state)
     observation.outcome_kind = "export"
-    observation.export = {
-        envelope = envelope,
-        digest = digest,
-    }
+    if type(decoded) == "table" then
+        observation.export = copy(decoded) or {}
+        observation.export.content_sha256 = observation.export.content_sha256 or digest
+    else
+        observation.export = {envelope = decoded, content_sha256 = digest}
+    end
     return self:_finish(state, observation, Scenario.STATES.DONE)
 end
 
@@ -654,22 +711,27 @@ function Scenario.runtime_adapter()
     adapter.generation_context = function(case, environment, build)
         local setup = type(case.setup) == "table" and case.setup or {}
         local prepared = case.prepared_input or setup.prepared_input or scenario_of(case).prepared_input
-        local context = copy(prepared or {}) or {}
+        local prepared_input = copy(prepared or {}) or {}
         local settings = setup.settings
         if type(settings) == "table" and type(settings.current) == "table" then settings = settings.current end
-        context.schema_version = 1
-        context.player_index = context.player_index or case.player_index or 1
-        context.sheet_id = context.sheet_id or case.sheet_id or case_id_of(case)
-        context.revisions = context.revisions or case.revisions or {sheet = 0, config = 0}
-        context.settings = context.settings or copy(settings or {}) or {}
-        context.options = context.options or copy(setup.options or {}) or {}
+        local context = {
+            schema_version = 1,
+            player_index = case.player_index or 1,
+            sheet_id = case.sheet_id or case_id_of(case),
+            revisions = copy(case.revisions or prepared_input.revisions or {sheet = 0, config = 0})
+                or {sheet = 0, config = 0},
+            settings = copy(settings or prepared_input.settings or {}) or {},
+            options = copy(setup.options or prepared_input.options or {}) or {},
+            prepared_input = prepared_input,
+        }
         context.surface = environment.surface_name
         context.force = environment.force_name
         context.deliver = false
-        if not context.snapshot then
-            context.snapshot = {schema_version = 1, sheet_id = context.sheet_id, player_index = context.player_index,
-                targets = copy(case.targets or {}) or {}, selection = copy(setup.selection or {}) or {},
-                options = copy(setup.options or {}) or {}, state = "current", revisions = context.revisions}
+        if not context.prepared_input.snapshot then
+            context.prepared_input.snapshot = {schema_version = 1, sheet_id = context.sheet_id,
+                player_index = context.player_index, targets = copy(case.targets or {}) or {},
+                selection = copy(setup.selection or {}) or {}, options = copy(setup.options or {}) or {},
+                state = "current", revisions = context.revisions}
         end
         return context
     end
@@ -766,12 +828,9 @@ function Scenario.runtime_adapter()
         local position = {x = pole_position.x + 1, y = pole_position.y}
         local source = make_entity(environment.surface, {name = environment.facts.power_source,
             position = position, force = environment.force})
-        pcall(function() source.power_production = "100MW" end)
+        source.power_production = "100MW"
         local wire_type = rawget(_G, "defines") and defines.wire_type and defines.wire_type.copper or "copper"
-        --An energy interface joins a nearby electric network on both branches;
-        --a copper connection is useful where the prototype exposes one, but is
-        --not required by that prototype and must not make a valid factory fail.
-        pcall(function() source.connect_neighbour{wire = wire_type, target_entity = poles[1]} end)
+        source.connect_neighbour{wire = wire_type, target_entity = poles[1]}
         built.power = source
         return true
     end
@@ -808,8 +867,7 @@ function Scenario.runtime_adapter()
                 local amount = whole + port.accumulator
                 if amount > 0 then
                     local existing = current and current.name == port.name and current.amount or 0
-                    local capacity = port.buffer.fluidbox.get_capacity and port.buffer.fluidbox.get_capacity(1) or 25000
-                    local added = math.max(0, math.min(amount, capacity - existing))
+                    local added = math.max(0, amount)
                     if added > 0 then
                         port.buffer.fluidbox[1] = {name = port.name, amount = existing + added}
                         port.accumulator = math.max(0, amount - added)
@@ -849,20 +907,21 @@ function Scenario.runtime_adapter()
         return drained
     end
 
-    adapter.metadata = function(case, environment)
-        local game = game_object()
-        local active_mods = (rawget(_G, "script") and script.active_mods) or game.active_mods or {}
-        if not environment then
-            return {engine_version = tostring(game.version or "unknown"), active_mods = copy(active_mods) or {},
-                surface = scenario_of(case).surface or (case.initial_state and case.initial_state.surface) or "nauvis"}
-        end
-        local research = {}
-        for name, technology in pairs(environment.force.technologies or {}) do
-            if technology.researched then research[#research + 1] = name end
-        end
-        table.sort(research)
-        return {engine_version = tostring(game.version or "unknown"), active_mods = copy(active_mods) or {},
-            force_research = research, surface = environment.surface_name}
+    adapter.metadata = function(case, environment, build)
+        game_object()
+        local active_mods = (rawget(_G, "script") and script.active_mods) or {}
+        local branch = build and build.factorio_branch or environment and environment.branch
+            or case.factorio_branch or "unknown"
+        local facts = environment and environment.facts or Scenario.BRANCH_FACTS[branch]
+        return {
+            factorio_version = build and build.factorio_version or facts and facts.factorio_version or branch,
+            factorio_branch = branch,
+            mods = mods_list(active_mods),
+            force = environment and environment.force_name
+                or scenario_of(case).force or case.force or "player",
+            surface = environment and environment.surface_name
+                or scenario_of(case).surface or (case.initial_state and case.initial_state.surface) or "nauvis",
+        }
     end
 
     adapter.write_observation = function(observation, case)
@@ -875,9 +934,9 @@ function Scenario.runtime_adapter()
     adapter.announce = function(observation)
         local line = "[RRC engine evidence] " .. tostring(observation.case_id) .. " " .. tostring(observation.outcome_kind)
         local game = rawget(_G, "game")
-        if game and game.print then game.print(line) end
+        if game then game.print(line) end
         local rcon = rawget(_G, "rcon")
-        if rcon and rcon.print then pcall(rcon.print, line) end
+        if rcon and rcon.print then rcon.print(line) end
     end
 
     adapter.cleanup = function(built, perimeter, environment)
@@ -889,7 +948,7 @@ function Scenario.runtime_adapter()
                 if technology then technology.researched = researched end
             end
             if environment.created_surface and environment.surface and environment.surface.valid ~= false
-                and game.delete_surface then
+                then
                 game.delete_surface(environment.surface_name)
             end
         end
