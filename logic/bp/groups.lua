@@ -697,14 +697,32 @@ function Groups.materialize(block, placement)
         entity.position = {x = geometry.x + geometry.w / 2, y = geometry.y + geometry.h / 2}
         placed.entities[#placed.entities + 1] = entity
     end
-    for _, port in ipairs(block.ports or {}) do
-        local geometry = Grid.place_port(block, {x = px, y = py, dir = dir}, port)
-        local placed_port = copy(port)
+    local slots = placement.port_slots or {}
+    local function slot_for(port, index)
+        for _, slot in ipairs(slots) do
+            if slot.index ~= nil and slot.index == index then return slot end
+        end
+        for _, slot in ipairs(slots) do
+            if slot.port_id ~= nil and slot.port_id == port.port_id then return slot end
+        end
+        if slots[port.port_id] then return slots[port.port_id] end
+        return nil
+    end
+    for index, port in ipairs(block.ports or {}) do
+        local slot = slot_for(port, index)
+        local source = port
+        if slot then
+            source = copy(port)
+            source.attach_dx, source.attach_dy = slot.attach_dx, slot.attach_dy
+            source.normal_dir, source.travel_dir = slot.normal_dir, slot.travel_dir
+        end
+        local geometry = Grid.place_port(block, {x = px, y = py, dir = dir}, source)
+        local placed_port = copy(source)
         placed_port.x, placed_port.y = geometry.x, geometry.y
         if placed_port.member_id then placed_port.member_id = "m:" .. tostring(placed_port.member_id) end
         placed_port.normal_dir = geometry.dir
         placed_port.dir = geometry.dir
-        placed_port.travel_dir = Grid.rotate_dir(port.travel_dir or NORTH, dir)
+        placed_port.travel_dir = Grid.rotate_dir(source.travel_dir or NORTH, dir)
         placed.ports[#placed.ports + 1] = placed_port
     end
     table.sort(placed.entities, function(a, b) return a.id < b.id end)
