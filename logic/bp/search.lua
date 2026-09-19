@@ -385,16 +385,6 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
             if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then break end
             index = index + 1
         end
-        if role == "out" and perimeter_port_needs_route(port) and index > 1
-            and blocked[perimeter_cell_key(slots[role][index - 1].x, slots[role][index - 1].y)] then
-            index = index + 1
-            while index <= #slots[role] do
-                local slot = slots[role][index]
-                local key = perimeter_cell_key(slot.x, slot.y)
-                if not occupied[key] and not blocked[key] then break end
-                index = index + 1
-            end
-        end
         next_slot[role] = index + 1
         if index > #slots[role] then
             return external, false

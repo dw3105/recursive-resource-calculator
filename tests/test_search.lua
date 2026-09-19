@@ -67,6 +67,12 @@ local function perimeter_plan()
         ports = {{port_id = "out:item/plate", role = "out", kind = "item", flow_id = "item/plate", rate_per_second = 0}}}
 end
 
+local function active_perimeter_plan()
+    local plan = perimeter_plan()
+    plan.ports[1].rate_per_second = 1
+    return plan
+end
+
 local function perimeter_pair_plan()
     return {steps = {{step_id = "one", machine = "assembler", machine_count = 1, power_w = 1, modules = {},
         beacon_groups = {}, inputs = {}, outputs = {}}}, flows = {}, ports = {
@@ -111,6 +117,10 @@ local function finish(input, operations)
     end
     H.equal(state.done, true, "search finishes within the test bound; stopped in phase " .. tostring(state.phase))
     return state
+end
+
+local function complete_stage(result)
+    return {done = true, ok = true, result = result or {}, progress = {phase = "done", done_units = 1, total_units = 1}}
 end
 
 local function finish_with_validation_scores(input, label)
@@ -276,6 +286,84 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", "slot exhaustion reports no layout")
         H.equal(distinct_port_cells(state.work.perimeter_ports), true, "slot exhaustion never stacks ports")
         H.equal(#state.work.perimeter_ports, 1, "slot exhaustion keeps only the available perimeter slot")
+    end)
+
+    H.test(shape .. " BP-20 route entities with positions occupy their power cells", function()
+        local input = input_for(one_step_plan(), {grids = {{w = 4, h = 4}}})
+        local occupied
+        local originals = {route_begin = Route.begin, route_step = Route.step,
+            power_begin = Power.begin, power_step = Power.step,
+            validate_begin = Validate.begin, validate_step = Validate.step}
+        Route.begin = function()
+            return complete_stage({entities = {{id = "r:position", name = "transport-belt",
+                position = {x = 2.5, y = 1.5}, direction = Grid.EAST, dir = Grid.EAST}},
+                segments = {}, wires = {}, bindings = {}})
+        end
+        Route.step = function() end
+        Power.begin = function(stage_input)
+            occupied = clone(stage_input.occupied)
+            return complete_stage({entities = {}, wires = {}})
+        end
+        Power.step = function() end
+        Validate.begin = function()
+            return complete_stage({score = {beacon_count = 0, footprint_area = 1}})
+        end
+        Validate.step = function() end
+        local ok, state_or_error = pcall(function() return finish(input) end)
+        Route.begin, Route.step, Power.begin, Power.step = originals.route_begin, originals.route_step,
+            originals.power_begin, originals.power_step
+        Validate.begin, Validate.step = originals.validate_begin, originals.validate_step
+        H.equal(ok, true, "the position occupancy search finishes without raising: " .. tostring(state_or_error))
+        if not ok then return end
+        local found
+        for _, entry in ipairs(occupied or {}) do
+            if entry.owner == "r:position" then found = entry.rect break end
+        end
+        H.equal(found ~= nil, true, "the power stage receives the routed entity owner")
+        if found then H.deep_equal(found, {x = 2, y = 1, w = 1, h = 1}, "position derives the routed entity rectangle") end
+    end)
+
+    H.test(shape .. " BP-20 active perimeter ports clear roboport footprints before packing", function()
+        local input = input_for(active_perimeter_plan(), {
+            include_roboports = true,
+            grids = {{w = 6, h = 4, roboports = {{x = 0, y = 0, w = 1, h = 1}, {x = 2, y = 2, w = 1, h = 1}}}},
+        })
+        local packed_obstacles
+        local original_begin = Pack.begin
+        Pack.begin = function(stage_input)
+            packed_obstacles = clone(stage_input.obstacles)
+            return original_begin(stage_input)
+        end
+        local ok, state_or_error = pcall(function() return finish(input) end)
+        Pack.begin = original_begin
+        H.equal(ok, true, "the perimeter clearance search finishes without raising: " .. tostring(state_or_error))
+        if not ok then return end
+        H.equal(#packed_obstacles >= 4, true, "the packer receives two perimeter clearance rectangles")
+        if #packed_obstacles >= 4 then
+            H.deep_equal(packed_obstacles[3], {x = 0, y = 0, w = 2, h = 2}, "first roboport clearance")
+            H.deep_equal(packed_obstacles[4], {x = 1, y = 1, w = 3, h = 3}, "second roboport clearance")
+        end
+    end)
+
+    H.test(shape .. " BP-15 implicit active-perimeter search stops after its first valid layout", function()
+        local input = input_for(active_perimeter_plan(), {max_grid = 30})
+        input.grids = nil
+        local originals = {route_begin = Route.begin, route_step = Route.step,
+            power_begin = Power.begin, power_step = Power.step,
+            validate_begin = Validate.begin, validate_step = Validate.step}
+        Route.begin = function() return complete_stage({entities = {}, segments = {}, wires = {}, bindings = {}}) end
+        Route.step = function() end
+        Power.begin = function() return complete_stage({entities = {}, wires = {}}) end
+        Power.step = function() end
+        Validate.begin = function() return complete_stage({score = {beacon_count = 0, footprint_area = 1}}) end
+        Validate.step = function() end
+        local ok, state_or_error = pcall(function() return finish(input, 1) end)
+        Route.begin, Route.step, Power.begin, Power.step = originals.route_begin, originals.route_step,
+            originals.power_begin, originals.power_step
+        Validate.begin, Validate.step = originals.validate_begin, originals.validate_step
+        H.equal(ok, true, "the implicit perimeter search finishes without raising: " .. tostring(state_or_error))
+        if not ok then return end
+        H.equal(state_or_error.ok, true, "the implicit perimeter search publishes its first valid layout")
     end)
 
     H.test(shape .. " BP-15 a roboport grid reaches a placement without raising", function()
