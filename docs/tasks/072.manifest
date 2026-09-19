@@ -1,0 +1,6 @@
+logic/bp/groups.lua
+logic/bp/pack.lua
+tests/test_groups.lua
+tests/test_pack.lua
+tests/test_port_edges.lua
+!tests/test_placement_contract.lua

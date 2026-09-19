@@ -80,3 +80,5 @@
 | `069` | `rrc/agent` | resumable power | 2026-09-19 |
 | `070` | `rrc/agent` | port edge and collision | 2026-09-19 |
 | `071` | `rrc/agent` | pole wires legal | 2026-09-19 |
+| `072` | `rrc/agent` | collision beacon port residual | 2026-09-19 |
+| `073` | `rrc/agent` | underground pairing | 2026-09-19 |
