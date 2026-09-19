@@ -137,6 +137,21 @@ class GoldenToolsTests(unittest.TestCase):
             result = run_golden(root, "tool-case")
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    def test_rejection_codes_may_be_reviewed_inline_in_manifest(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = root / "inline-rejection"
+            case.mkdir()
+            inline = manifest("rejection")
+            inline.pop("expected")
+            inline["reason_codes"] = ["BP_REJ_SPOILAGE"]
+            write_json(case / "manifest.json", inline)
+            write_json(case / "candidate.json", {
+                "state": "failure", "reason_codes": ["BP_REJ_SPOILAGE"], "message": "locale text is irrelevant"
+            })
+            result = run_golden(root, "inline-rejection")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_accept_changes_only_the_named_expectation(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
