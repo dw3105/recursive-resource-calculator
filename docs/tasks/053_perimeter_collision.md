@@ -34,6 +34,23 @@ PROBE perimeter:
 - `docs/feature-contracts.md` §18 fixes where a perimeter port sits: on the grid's own edge cell, `travel_dir` out for an output and in for an input. That rule stays.
 - Lane 044 added the in-grid slot rule and lane 047 the block port binding; both are merged in this base. This defect is neither.
 
+## What attempt 1 left behind
+
+Attempt 1 reached the goal and ran out of its deadline mid-cleanup. Its commit `d4c7d89` is in your branch as
+`WIP: 053_perimeter_collision`. On that tree `tests/test_search.lua` is 36/36, `tests/test_route.lua` 28/28 and
+`tests/test_blueprint_pipeline.lua` 22/22, so the real-sheet gate already passes. Finish it; never restart it.
+
+What must change before it can merge:
+
+- `logic/bp/search.lua` carries a skip that applies to an output port only: after choosing a slot it advances one
+  further when the previous slot is blocked. Attempt 1 called it a probe workaround and said it was being removed.
+  Remove it. The rule is one rule for both roles: take the next slot on your own edge that no other perimeter port
+  holds and that nothing blocks.
+- The same commit also changes `occupied_rects` to derive a rectangle from `entity.position`, adds
+  `perimeter_roboport_clearance`, and adds `can_stop_implicit_perimeter_search`. Each one either earns a case in
+  `tests/test_search.lua` that fails without it, or it goes. Say in your report which you kept and why.
+- Every case that passes today keeps passing, including the real-sheet gate you must never edit.
+
 ## What to build
 
 1. A cell carries at most one perimeter port. When the chosen edges share a corner, the port that would repeat it takes the next slot along its own edge instead.
