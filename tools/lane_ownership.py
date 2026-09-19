@@ -14,7 +14,9 @@ The base is the lane's own wave base, not the spine: waves after the first inher
 compliant lane must not fail for carrying them. Nothing is written to disk and no fixed temporary path is used,
 because six lanes run at once and /tmp is not isolated by a worktree.
 
-Manifest format: one path per line, "!" prefix marks a required deliverable, "#" starts a comment.
+Manifest format: one path per line, "!" prefix marks a required deliverable, "#" starts a comment. A line ending
+with "/" owns a whole directory: every changed path under it is owned, and marking it "!" demands at least one
+changed path under it. A lane that creates a tree of case directories cannot list every file in advance.
 """
 
 import argparse
@@ -54,11 +56,21 @@ def main(argv=None):
     owned, required = read_manifest(args.manifest)
     changed = {line for line in git(repo, "diff", "--name-only", args.base, "HEAD").splitlines() if line.strip()}
 
+    prefixes = sorted(path for path in owned if path.endswith("/"))
+
+    def owned_by_prefix(path):
+        return any(path.startswith(prefix) for prefix in prefixes)
+
     problems = []
     for path in sorted(changed - owned):
-        problems.append("not owned by this lane: %s" % path)
+        if not owned_by_prefix(path):
+            problems.append("not owned by this lane: %s" % path)
     for path in sorted(required - changed):
-        problems.append("required deliverable never changed: %s" % path)
+        if path.endswith("/"):
+            if not any(changed_path.startswith(path) for changed_path in changed):
+                problems.append("required directory holds no changed file: %s" % path)
+        else:
+            problems.append("required deliverable never changed: %s" % path)
     descends = subprocess.run(["git", "merge-base", "--is-ancestor", args.base, "HEAD"], cwd=repo).returncode == 0
     if not descends:
         problems.append("HEAD does not descend from the lane base %s" % args.base)

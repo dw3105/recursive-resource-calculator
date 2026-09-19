@@ -3,8 +3,15 @@
 --This module is deliberately a reader. It takes one sheet snapshot, the last plain-data calculation that belongs
 --to that sheet, and the catalog projection of that calculation's dependencies. It never asks the solver to run,
 --never repairs a sheet, and never changes a setting.
-local Snapshot
-local Catalog
+--Snapshot requires gui.sheet and gui.sheet reaches this module back, so Snapshot arrives through the registry;
+--Catalog has no such cycle and is required at load. Neither may be required from a handler: Factorio refuses it.
+local Catalog = require "logic.catalog"
+local Registry = require "logic.registry"
+
+--Read on use, never at load: gui.sheet is still loading when this module is required through the export dialog.
+local function Snapshot()
+    return Registry.need("snapshot")
+end
 
 local ExportPayload = {}
 
@@ -310,7 +317,7 @@ local function setting_fingerprint(settings)
     if type(fingerprint) == "table" then return fingerprint.input or fingerprint.result end
     if type(settings.input_fingerprint) == "string" then return settings.input_fingerprint end
     if settings.targets ~= nil and settings.options ~= nil and settings.selection ~= nil then
-        local ok, value = pcall(Snapshot.fingerprint, settings)
+        local ok, value = pcall(Snapshot().fingerprint, settings)
         if ok then return value end
     end
     return nil
@@ -356,7 +363,7 @@ end
 
 local function current_settings(snapshot)
     return {
-        fingerprint = snapshot.fingerprint and snapshot.fingerprint.input or Snapshot.fingerprint(snapshot),
+        fingerprint = snapshot.fingerprint and snapshot.fingerprint.input or Snapshot().fingerprint(snapshot),
         targets = copy_json(snapshot.targets, nil, "targets"),
         options = copy_json(snapshot.options, nil, "options"),
         selection = copy_json(snapshot.selection, nil, "selection"),
@@ -373,7 +380,7 @@ local function result_settings(result, wrapper, result_fp)
 end
 
 local function state_of(snapshot, result, result_fp, pending)
-    local state = Snapshot.state_of(snapshot, result_fp, pending)
+    local state = Snapshot().state_of(snapshot, result_fp, pending)
     -- Solver diagnostics are still a calculation result. They are failed only when they match the current input;
     -- once the sheet changes, the older result is stale, never failed-current and never current.
     if state == "current" and type(result) == "table"
@@ -498,11 +505,7 @@ local function blueprint_attempt(player_data)
 end
 
 function ExportPayload.build(player_index, sheet_flow)
-    --Snapshot requires gui.sheet, and gui.sheet delegates its export button back here. Lazy loading avoids that
-    --intentional module cycle while keeping Snapshot.of_sheet as the only sheet reader.
-    Snapshot = Snapshot or require "logic.snapshot"
-    Catalog = Catalog or require "logic.catalog"
-    local snapshot = Snapshot.of_sheet(sheet_flow)
+    local snapshot = Snapshot().of_sheet(sheet_flow)
     local player_data = (type(storage) == "table" and type(storage[player_index]) == "table") and storage[player_index] or {}
     local result, wrapper, job = stored_calculation(player_data, snapshot.sheet_id)
     local active_job = map_value(player_data.calc_jobs, snapshot.sheet_id) or job

@@ -1,0 +1,32 @@
+[
+ {
+  "id": "W4-M01",
+  "file": "gui/blueprint_delivery.lua",
+  "old": "    if not cursor_is_empty(player) then\n        state[PENDING_KEY] = result\n        cleanup(staged)",
+  "new": "    if false then\n        state[PENDING_KEY] = result\n        cleanup(staged)",
+  "test": "tests/test_blueprint_delivery.lua",
+  "shapes": "2.0",
+  "expect": "BP-18",
+  "note": "a busy cursor is written over instead of keeping the result"
+ },
+ {
+  "id": "W4-M02",
+  "file": "gui/blueprint_delivery.lua",
+  "old": "    state[PENDING_KEY] = nil\n    tell(player_of(player_index), \"blueprint_delivered\")",
+  "new": "    tell(player_of(player_index), \"blueprint_delivered\")",
+  "test": "tests/test_blueprint_delivery.lua",
+  "shapes": "2.0",
+  "expect": "a successful retry refuses a second handover",
+  "note": "a retried blueprint stays pending and can be delivered twice"
+ },
+ {
+  "id": "W4-M03",
+  "file": "gui/blueprint_delivery.lua",
+  "old": "        if not cursor.is_blueprint_setup() then error(\"cursor blueprint is not set up\") end",
+  "new": "",
+  "test": "tests/test_blueprint_delivery.lua",
+  "shapes": "2.0",
+  "expect": "a cursor setup refusal clears the hand",
+  "note": "an unset-up cursor blueprint is handed to the player"
+ }
+]

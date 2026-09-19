@@ -6,7 +6,7 @@
   "new": "        local reach = reason and nil or math.max(wire_reach(a, work.catalog) or 0, wire_reach(b, work.catalog) or 0)",
   "test": "tests/test_validate.lua",
   "shapes": "2.0",
-  "expect": "V6",
+  "expect": "V14",
   "note": "an edge is legal when the longer of the two reaches covers it"
  },
  {

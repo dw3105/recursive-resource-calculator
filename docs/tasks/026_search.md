@@ -27,6 +27,25 @@ Current facts:
 - Grid growth starts at 2 by 2 and grows. A larger grid is still worth trying after a smaller one succeeded, because more room can mean fewer beacons.
 - Failure codes: `BP_FAIL_SEARCH_BUDGET`, `BP_FAIL_NO_LAYOUT_GRID_LIMIT`, `BP_FAIL_ENTITY_BUDGET`, `BP_FAIL_CANCELLED`, `BP_FAIL_REVISION_CHANGED`.
 
+## What attempt 1 left undone
+
+Attempt 1 wrote `logic/bp/search.lua` and sixteen cases, and three of its four checks passed: the search tests, the
+whole suite and the ownership audit. The red proof timed out at 600 s, exit 124, and that verdict is the whole
+failure.
+
+Cause, in your own file: `tests/test_search.lua:149`, `:150` and `:158` drive the search with an unbounded
+`while not state.done do ... end`. Against the stub that is restored from the base, `done` never becomes true, so
+the run hangs rather than failing, and a hang proves nothing. Lane 016 lost an attempt to the same trap.
+
+Keep everything attempt 1 built. Change only the waits:
+
+1. Bound **every** drive loop, including the two determinism loops and the progress loop, at 600 iterations.
+2. When a loop reaches its bound, fail the case with `H.equal(state.done, true, ...)` naming the phase the state
+   stopped in, so the stub produces `FAIL <case> [assert]` rather than a hang.
+3. Do the same for the two loops already bounded at 10000: 600 is the agreed bound.
+4. Run the red proof yourself before the checks: restore the stub in a scratch worktree, run
+   `timeout 120 lua5.2 tests/test_search.lua`, and confirm it prints a tagged assertion failure and exits non-zero.
+
 ## What to build
 
 1. `Search.begin`/`Search.step` drive the stages in order for each candidate: plan and preflight once, then per grid and per block ordering, group, pack, route, power, validate, and serialize only the winner.
@@ -43,7 +62,7 @@ Current facts:
 {"name": "search-tests", "command": "lua5.2 tests/test_search.lua && lua5.4 tests/test_search.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
 {"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-3-complete --manifest docs/tasks/026.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
-{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-complete -- logic/bp/search.lua; out=$(cd \"$S\" && lua5.2 tests/test_search.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
+{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-complete -- logic/bp/search.lua; out=$(cd \"$S\" && timeout 120 lua5.2 tests/test_search.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
 ```
 
 - Red first pasted, green after pasted, planted breach pasted then reverted.

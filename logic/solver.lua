@@ -1,4 +1,5 @@
 local Utils = require "logic.utils"
+local Registry = require "logic.registry"
 local Burners = require "logic.burners"
 local QualityId = require "logic.quality_id"
 local QualityLoop = require "logic.quality_loop"
@@ -1199,7 +1200,12 @@ Solver.productivity_bonus = productivity_bonus
 Solver._solve_for_sync = solve_for_sync
 
 function Solver.solve_for(production_rates_by_product_full_name, player_index, product_parts, options)
-    local SolverSteps = require "logic.solver_steps"
+    --Factorio refuses require outside control.lua parsing, and solver_steps requires this module, so the pair is
+    --bound through the registry. Without solver_steps loaded, the synchronous kernel answers on its own.
+    local SolverSteps = Registry.solver_steps
+    if SolverSteps == nil then
+        return solve_for_sync(production_rates_by_product_full_name, player_index, product_parts, options)
+    end
     local state = SolverSteps.begin({rates = production_rates_by_product_full_name, player_index = player_index,
         product_parts = product_parts, options = options})
     local budget = {ops = math.huge}

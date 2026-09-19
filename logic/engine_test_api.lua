@@ -55,8 +55,11 @@ local function packaged_or_error()
     if not EngineTestApi.build_id().packaged then error(DEV_ERROR, 2) end
 end
 
+--Read while control.lua is parsed: Factorio refuses require later, and a missing file is not an error here.
+local ok_build, packaged_build = pcall(require, "logic.build_id")
+
 function EngineTestApi.build_id()
-    local ok, build = pcall(require, "logic.build_id")
+    local ok, build = ok_build, packaged_build
     if ok and type(build) == "table" and build.packaged == true
         and type(build.candidate_sha) == "string" and build.candidate_sha ~= "" then
         return {
