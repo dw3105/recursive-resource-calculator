@@ -5,7 +5,7 @@
 --
 --A block is a rectangle with its contents laid out relative to its own corner, its beacons already assigned, its
 --inserters already placed, and its ports on the outside:
---  BlockPort = {port_id, role = "in"|"out", kind = "item"|"fluid", flow_id, rate_per_second,
+--  BlockPort = {port_id, role = "in"|"out", kind = "item"|"fluid", flow_id, step_id, rate_per_second,
 --               attach_dx, attach_dy,   -- the tile OUTSIDE the envelope this port attaches to
 --               normal_dir,             -- from that tile INTO the block
 --               travel_dir,             -- transport travel: into the block for an input, out of it for an output
@@ -284,34 +284,14 @@ local function block_ports(block, steps, ports, flows)
         members_by_step[machine.step_id] = members_by_step[machine.step_id] or {}
         members_by_step[machine.step_id][#members_by_step[machine.step_id] + 1] = machine
     end
-    local flow_by_id = {}
-    for _, flow in ipairs(flows or {}) do flow_by_id[flow.flow_id or flow.id] = flow end
 
     local selected = {}
     for _, port in ipairs(ports or {}) do
         local flow_id = port.flow_id or port.full_name or port.id
-        local flow = flow_by_id[flow_id]
         local step_id = port.step_id or port.member_step_id
-        if not step_id and flow then
-            local side = port.role == "out" and flow.consumers or flow.producers
-            -- An external input belongs to a consumer; an external output belongs to a producer.
-            local fallback = port.role == "out" and flow.producers or flow.consumers
-            for _, entry in ipairs(side or {}) do
-                if entry.step_id ~= "$external" and members_by_step[entry.step_id] then step_id = entry.step_id break end
-            end
-            if not step_id then
-                for _, entry in ipairs(fallback or {}) do
-                    if entry.step_id ~= "$external" and members_by_step[entry.step_id] then step_id = entry.step_id break end
-                end
-            end
-        end
-        if not step_id then
-            local first = block.machines[1]
-            step_id = first and first.step_id
-        end
         if step_id and members_by_step[step_id] then
             selected[#selected + 1] = {
-                port = port, flow_id = flow_id, member_id = members_by_step[step_id][1].id,
+                port = port, flow_id = flow_id, step_id = step_id, member_id = members_by_step[step_id][1].id,
             }
         end
     end
@@ -344,6 +324,7 @@ local function block_ports(block, steps, ports, flows)
                 role = role, kind = source.kind or (source.is_fluid and "fluid" or "item"),
                 flow_id = source.flow_id or source.full_name or selected_port.flow_id,
                 rate_per_second = source.rate_per_second,
+                step_id = selected_port.step_id,
                 attach_dx = x, attach_dy = y, normal_dir = normal, travel_dir = travel,
                 member_id = selected_port.member_id,
             }
@@ -582,50 +563,42 @@ local function relevant_ports(block_steps, ports, flows)
     local step_ids = {}
     for _, step in ipairs(block_steps) do step_ids[step.step_id] = true end
     local result = {}
-    local flow_by_id = {}
-    for _, flow in ipairs(flows or {}) do flow_by_id[flow.flow_id or flow.id] = flow end
     for _, port in ipairs(ports or {}) do
-        local include = false
-        if port.step_id and step_ids[port.step_id] then include = true end
-        local flow = flow_by_id[port.flow_id or port.full_name]
-        if flow and not include then
-            local side = port.role == "out" and flow.producers or flow.consumers
-            for _, entry in ipairs(side or {}) do if step_ids[entry.step_id] then include = true break end end
-        end
-        if include or (#block_steps == 1 and not flow) then result[#result + 1] = port end
+        if port.step_id and step_ids[port.step_id] then result[#result + 1] = port end
     end
     return result
 end
 
-local function make_candidates(input)
-    local _, catalog, steps, flows, ports = normalize_plan(input)
-    if #ports == 0 then
-        -- Plan normally supplies the external port list.  Keeping this small fallback makes the boundary
-        -- useful for hand-authored plans too, while still treating only explicitly external connections as
-        -- block ports when a caller marks them.
-        for _, step in ipairs(steps) do
-            for _, entry in ipairs(step.inputs or {}) do
-                if entry.external ~= false then
-                    ports[#ports + 1] = {
-                        port_id = entry.port_id or ("in:" .. tostring(entry.flow_id or entry.full_name)),
-                        role = "in", kind = entry.kind or (entry.is_fluid and "fluid" or "item"),
-                        flow_id = entry.flow_id or entry.full_name, rate_per_second = entry.rate_per_second,
-                        step_id = step.step_id,
-                    }
-                end
+local function step_ports(steps)
+    local ports = {}
+    for _, step in ipairs(steps) do
+        for _, entry in ipairs(step.inputs or {}) do
+            if entry.external ~= false then
+                ports[#ports + 1] = {
+                    port_id = entry.port_id or ("in:" .. tostring(entry.flow_id or entry.full_name)),
+                    role = "in", kind = entry.kind or (entry.is_fluid and "fluid" or "item"),
+                    flow_id = entry.flow_id or entry.full_name, rate_per_second = entry.rate_per_second,
+                    step_id = step.step_id,
+                }
             end
-            for _, entry in ipairs(step.outputs or {}) do
-                if entry.external ~= false then
-                    ports[#ports + 1] = {
-                        port_id = entry.port_id or ("out:" .. tostring(entry.flow_id or entry.full_name)),
-                        role = "out", kind = entry.kind or (entry.is_fluid and "fluid" or "item"),
-                        flow_id = entry.flow_id or entry.full_name, rate_per_second = entry.rate_per_second,
-                        step_id = step.step_id,
-                    }
-                end
+        end
+        for _, entry in ipairs(step.outputs or {}) do
+            if entry.external ~= false then
+                ports[#ports + 1] = {
+                    port_id = entry.port_id or ("out:" .. tostring(entry.flow_id or entry.full_name)),
+                    role = "out", kind = entry.kind or (entry.is_fluid and "fluid" or "item"),
+                    flow_id = entry.flow_id or entry.full_name, rate_per_second = entry.rate_per_second,
+                    step_id = step.step_id,
+                }
             end
         end
     end
+    return ports
+end
+
+local function make_candidates(input)
+    local _, catalog, steps, flows = normalize_plan(input)
+    local ports = step_ports(steps)
     local limits = input and input.limits or {}
     local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
     local specs = partition_specs(steps, max_candidates * 2)
