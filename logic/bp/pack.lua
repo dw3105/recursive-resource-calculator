@@ -17,6 +17,13 @@ local Grid = require "logic.bp.grid"
 
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 
+local function finite(value, fallback)
+    if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+        return value
+    end
+    return fallback
+end
+
 local function copy_rect(rect)
     return Grid.rect(rect.x, rect.y, rect.w, rect.h)
 end
@@ -39,12 +46,26 @@ local function copy_directions(allowed_dirs)
     return result
 end
 
+local function copy_port(port, index)
+    return {
+        port_id = port.port_id or port.id or tostring(index),
+        role = port.role,
+        attach_dx = finite(port.attach_dx), attach_dy = finite(port.attach_dy),
+        normal_dir = finite(port.normal_dir), travel_dir = finite(port.travel_dir),
+    }
+end
+
 local function copy_block(block)
+    local ports = {}
+    for index, port in ipairs(block.ports or block.block_ports or {}) do
+        ports[index] = copy_port(port, index)
+    end
     return {
         block_id = block.block_id ~= nil and block.block_id or block.id,
         w = block.w,
         h = block.h,
         allowed_dirs = copy_directions(block.allowed_dirs),
+        ports = ports,
     }
 end
 
@@ -91,16 +112,154 @@ local function better(candidate, best)
     return candidate.dir < best.dir
 end
 
+local function slot_key(dx, dy)
+    return tostring(dx) .. ":" .. tostring(dy)
+end
+
+local function edge_slots(w, h)
+    local result = {}
+    for x = 0, w - 1 do result[#result + 1] = {attach_dx = x, attach_dy = -1, normal_dir = Grid.SOUTH} end
+    for x = 0, w - 1 do result[#result + 1] = {attach_dx = x, attach_dy = h, normal_dir = Grid.NORTH} end
+    for y = 0, h - 1 do result[#result + 1] = {attach_dx = -1, attach_dy = y, normal_dir = Grid.EAST} end
+    for y = 0, h - 1 do result[#result + 1] = {attach_dx = w, attach_dy = y, normal_dir = Grid.WEST} end
+    return result
+end
+
+local function bounded_slot(slot, w, h)
+    return (slot.attach_dx == -1 or slot.attach_dx == w) and slot.attach_dy >= 0 and slot.attach_dy < h
+        or (slot.attach_dy == -1 or slot.attach_dy == h) and slot.attach_dx >= 0 and slot.attach_dx < w
+end
+
+local function port_slots(block, port)
+    local result, seen = {}, {}
+    local function add(slot)
+        if not bounded_slot(slot, block.w, block.h) then return end
+        local key = slot_key(slot.attach_dx, slot.attach_dy)
+        if seen[key] then return end
+        seen[key] = true
+        local normal = slot.normal_dir
+        if normal == nil then
+            if slot.attach_dx == -1 then normal = Grid.EAST
+            elseif slot.attach_dx == block.w then normal = Grid.WEST
+            elseif slot.attach_dy == -1 then normal = Grid.SOUTH
+            else normal = Grid.NORTH end
+        end
+        local travel = port.role == "in" and normal or Grid.dir_opposite(normal)
+        result[#result + 1] = {
+            attach_dx = slot.attach_dx, attach_dy = slot.attach_dy,
+            normal_dir = normal, travel_dir = travel,
+        }
+    end
+    if port.attach_dx ~= nil and port.attach_dy ~= nil then
+        add({attach_dx = port.attach_dx, attach_dy = port.attach_dy, normal_dir = port.normal_dir})
+    end
+    for _, slot in ipairs(edge_slots(block.w, block.h)) do add(slot) end
+    return result
+end
+
+local function cell_is_free(state, x, y)
+    if x < state.area.x or y < state.area.y
+        or x >= state.area.x + state.area.w or y >= state.area.y + state.area.h then
+        return false
+    end
+    for _, cell in ipairs(state.port_cells or {}) do
+        if cell.x == x and cell.y == y then return false end
+    end
+    for _, region in ipairs(state.regions) do
+        if x >= region.x and y >= region.y and x < region.x + region.w and y < region.y + region.h then
+            return true
+        end
+    end
+    return false
+end
+
+local function placement_avoids_port_cells(state, x, y, w, h)
+    for _, cell in ipairs(state.port_cells or {}) do
+        if cell.x >= x and cell.y >= y and cell.x < x + w and cell.y < y + h then return false end
+    end
+    return true
+end
+
+local function world_slot(block, x, y, direction, slot)
+    local dx, dy = Grid.rotate_rect(slot.attach_dx, slot.attach_dy, 1, 1, block.w, block.h, direction)
+    return x + dx, y + dy
+end
+
+local function choose_port_slots(state, block, x, y, direction)
+    local entries = {}
+    for index, port in ipairs(block.ports or {}) do
+        local options = {}
+        for _, slot in ipairs(port_slots(block, port)) do
+            local world_x, world_y = world_slot(block, x, y, direction, slot)
+            local travel = Grid.rotate_dir(slot.travel_dir, direction)
+            local dx, dy = Grid.dir_vector(travel)
+            local approach_x, approach_y = world_x, world_y
+            if port.role == "in" then approach_x, approach_y = approach_x - dx, approach_y - dy
+            else approach_x, approach_y = approach_x + dx, approach_y + dy end
+            -- The endpoint itself must be free, and the first cell on the route side must also exist. This is
+            -- what makes an edge port routable: an input needs a predecessor inside the grid, an output needs
+            -- its first successor inside it.
+            if cell_is_free(state, world_x, world_y) and cell_is_free(state, approach_x, approach_y) then
+                options[#options + 1] = {slot = slot, x = world_x, y = world_y}
+            end
+        end
+        if #options == 0 then return nil end
+        entries[#entries + 1] = {index = index, port = port, options = options}
+    end
+    table.sort(entries, function(a, b)
+        if #a.options ~= #b.options then return #a.options < #b.options end
+        local aid = tostring(a.port.port_id or a.index)
+        local bid = tostring(b.port.port_id or b.index)
+        if aid ~= bid then return aid < bid end
+        return a.index < b.index
+    end)
+
+    local chosen, used = {}, {}
+    local function visit(index)
+        if index > #entries then return true end
+        local entry = entries[index]
+        for _, option in ipairs(entry.options) do
+            local key = slot_key(option.x, option.y)
+            if not used[key] then
+                used[key], chosen[entry.index] = true, option.slot
+                if visit(index + 1) then return true end
+                used[key], chosen[entry.index] = nil, nil
+            end
+        end
+        return false
+    end
+    if not visit(1) then return nil end
+
+    local selected = {}
+    for index, port in ipairs(block.ports or {}) do
+        local slot = chosen[index]
+        selected[index] = {
+            port_id = port.port_id, index = index,
+            attach_dx = slot.attach_dx, attach_dy = slot.attach_dy,
+            normal_dir = slot.normal_dir, travel_dir = slot.travel_dir,
+        }
+    end
+    return selected
+end
+
 local function scan_region(state, block, region)
     for _, direction in ipairs(block.allowed_dirs) do
         local w, h = Grid.rotate_size(block.w, block.h, direction)
-        if region.w >= w and region.h >= h then
+        local x, y = region.x, region.y
+        if region.w >= w and region.h >= h and placement_avoids_port_cells(state, x, y, w, h) then
             local short_side, long_side = Pack.bssf_score(region, w, h)
             local candidate = {
-                x = region.x, y = region.y, dir = direction, w = w, h = h,
+                x = x, y = y, dir = direction, w = w, h = h,
                 short_side = short_side, long_side = long_side,
             }
-            if better(candidate, state.cursor.best) then state.cursor.best = candidate end
+            if #block.ports == 0 then
+                if better(candidate, state.cursor.best) then state.cursor.best = candidate end
+            else
+                candidate.port_slots = choose_port_slots(state, block, region.x, region.y, direction)
+                if candidate.port_slots and better(candidate, state.cursor.best) then
+                    state.cursor.best = candidate
+                end
+            end
         end
     end
 end
@@ -116,6 +275,7 @@ local function place(state, block)
         block_id = block.block_id,
         x = candidate.x, y = candidate.y, dir = candidate.dir,
         w = candidate.w, h = candidate.h,
+        port_slots = candidate.port_slots,
     }
     state.placements[#state.placements + 1] = placement
 
@@ -123,6 +283,10 @@ local function place(state, block)
     for _, region in ipairs(state.regions) do
         local pieces = Grid.subtract(region, placement)
         for _, piece in ipairs(pieces) do next_regions[#next_regions + 1] = piece end
+    end
+    for _, slot in ipairs(candidate.port_slots or {}) do
+        local x, y = world_slot(block, candidate.x, candidate.y, candidate.dir, slot)
+        state.port_cells[#state.port_cells + 1] = {x = x, y = y}
     end
     state.regions = Grid.prune(next_regions)
     if #state.regions > state.stats.peak_free_regions then
@@ -163,6 +327,7 @@ function Pack.begin(input)
         cursor = {block_index = 1, region_index = 1, best = nil},
         progress = {phase = "packing", done_units = 0, total_units = #blocks},
         stats = {peak_free_regions = #regions, scans = 0},
+        port_cells = {},
     }
 
     if limits.max_free_regions ~= nil and #regions > limits.max_free_regions then
