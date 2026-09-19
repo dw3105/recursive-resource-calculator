@@ -14,5 +14,7 @@ weight_cores = 0.5
 suite_label = "rrc/heavy"
 
 [verify]
-default = "lua5.2 {tests}"
+#lane_gate._run_verifier substitutes {tag} and {worktree} only, so a {tests} placeholder reaches bash unexpanded
+#and the verifier runs "lua5.2 {tests}", which fails for a reason that has nothing to do with the lane.
+default = "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh"
 scaffold = "sh tests/run.sh"

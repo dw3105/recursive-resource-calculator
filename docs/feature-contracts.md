@@ -264,3 +264,67 @@ written down here rather than a commit id, because a commit id moves whenever th
 | 3 | `wave-2-green` | `git rev-parse wave-2-green` |
 | 3 repair, plus lanes 022 and 023 | `wave-3-repair-base` | `git rev-parse wave-3-repair-base` |
 | 4 | `wave-3-green` | `git rev-parse wave-3-green` |
+
+## 17. Generation service, prepared input, terminal result (recovery amendment, 2026-09-19)
+
+Two callers want a blueprint: the player's Generate click and the `rrc-engine-test` interface. Today the dialog
+validates settings and stops (`gui/blueprint_dialog.lua`, the Generate handler returns `true, settings`), while the
+engine interface registers the shared `blueprint` job kind on its own (`logic/engine_test_api.lua`). Two owners of
+one job kind means whichever registers last decides how every job publishes. One service owns it.
+
+### 17.1 `logic/bp/generation.lua`
+
+```lua
+Generation.register()                       -- registers the "blueprint" job kind exactly once; idempotent
+Generation.start(input) -> job_id, nil      -- or nil, reason_code
+Generation.status(player_index, job_id) -> TerminalResult
+Generation.cancel(player_index, job_id) -> boolean
+```
+
+`Generation.start` never blocks: it enqueues, and the shared tick budget advances it (`logic/jobs.lua`,
+CALC-06). Preparation that can be large — snapshot, catalog projection, plan — runs inside the job, never inside
+the click, because a click that blocks on preparation still freezes the game.
+
+```lua
+GenerationInput = {
+    schema_version = 1,
+    player_index, sheet_id, revisions = {sheet, config},
+    settings,              -- logic/bp/settings.lua shape, already validated by the caller
+    options,               -- sheet options that reach the plan
+    surface, force,        -- names, never LuaObjects
+    deliver = true|false,  -- true: hand the result to BlueprintDelivery; false: return it only
+}
+```
+
+`deliver = false` is what the engine interface uses: it wants the result, never the player's cursor.
+
+### 17.2 Prepared input, captured not invented
+
+```lua
+PreparedInput = {schema_version = 1, snapshot, solver_result, catalog, settings, options, revisions,
+                 surface, force, source_export}   -- source_export: the debug export the capture came from
+```
+
+A prepared input is **captured from the real preparation path**. A handwritten plan is a fixture and must never be
+filed as a captured sheet; `tests/golden/add_case` records which one it holds.
+
+### 17.3 Terminal result
+
+```lua
+TerminalResult = {
+    job_id, state = "pending" | "success" | "failure" | "cancelled",
+    phase, progress = {done_units, total_units},
+    blueprint_string?, canonical_sha256?, canonical_version?,   -- success only
+    reason_codes?, stage?,                                      -- failure only: "preflight" | "search" | "validate"
+}
+```
+
+Rules: one terminal result per job; a second `start` on one sheet supersedes the first and the superseded job
+publishes nothing; publication rechecks revisions and fails `BP_FAIL_REVISION_CHANGED`; a cancelled job leaves the
+previous report and the cursor exactly as they were; a deleted sheet ends the job without publishing.
+
+### 17.4 Required-case matrix
+
+`tests/golden/required-matrix.json` is machine-readable and is what release verification reads. A case may be
+listed as unfinished; release verification then **fails**, and never counts it as a skipped success. Fields per
+case: `case_id`, `branches`, `mods`, `outcome_kind`, `clauses`, `state = "draft" | "accepted"`, `prepared_input`.

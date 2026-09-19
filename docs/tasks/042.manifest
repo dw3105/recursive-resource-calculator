@@ -1,0 +1,7 @@
+tests/golden/run
+tests/golden/add_case
+tests/golden/accept
+tests/golden/lib/
+!tests/golden/generate.lua
+!tests/tools/test_golden_tools.py
+docs/golden-workflow.md

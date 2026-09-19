@@ -1,0 +1,118 @@
+{
+ "schema_version": 1,
+ "note": "Release verification reads this file. A draft case fails the release gate; it is never a skipped success.",
+ "cases": [
+  {
+   "case_id": "basic-canonical",
+   "branches": [
+    "2.0"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "BP-14",
+    "GOLD-04"
+   ],
+   "state": "accepted",
+   "prepared_input": null
+  },
+  {
+   "case_id": "assembler-chain-example",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "BP-A1"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "fluid-byproduct-chain",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "BP-A4"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "belt-inserter-bottleneck",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "rejection",
+   "clauses": [
+    "BP-A9"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "multi-pole-connectivity",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "BP-A10"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "import-build-round-trip",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "production",
+   "clauses": [
+    "BP-A14"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  },
+  {
+   "case_id": "export-decode",
+   "branches": [
+    "2.0",
+    "2.1"
+   ],
+   "mods": [
+    "base"
+   ],
+   "outcome_kind": "export",
+   "clauses": [
+    "EX-A9"
+   ],
+   "state": "draft",
+   "prepared_input": null
+  }
+ ]
+}

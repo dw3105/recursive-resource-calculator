@@ -1,0 +1,7 @@
+!prepare_release.sh
+!tools/release_gate.py
+!tests/tools/test_release_gate.py
+tools/evidence_receipt.py
+generate_release.sh
+tools/build_test_zip.sh
+!docs/release-preparation.md

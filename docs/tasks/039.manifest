@@ -1,0 +1,6 @@
+gui/blueprint_dialog.lua
+!logic/bp/generation.lua
+logic/engine_test_api.lua
+!tests/test_blueprint_pipeline.lua
+!tests/test_engine_test_api.lua
+tests/test_bp_settings.lua

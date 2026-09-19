@@ -40,3 +40,7 @@
 | `036` | `rrc/agent` | W4R search: the better layout wins | 2026-09-19 |
 | `037` | `rrc/agent` | W5 activate sliced calculation behind Compute | 2026-09-19 |
 | `038` | `rrc/agent` | W5 export dialog: vanilla blueprint-string shape | 2026-09-19 |
+| `039` | `rrc/agent` | Recovery A blueprint generation service | 2026-09-19 |
+| `040` | `rrc/agent` | Recovery B engine scenario runner | 2026-09-19 |
+| `041` | `rrc/agent` | Recovery C release gate | 2026-09-19 |
+| `042` | `rrc/agent` | Recovery D golden generates from this candidate | 2026-09-19 |
