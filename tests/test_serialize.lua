@@ -135,6 +135,25 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(first.description:find("in:item/iron%-ore", 1, false) ~= nil, true, "description external port")
         H.equal(first.description:find("transport%-belt", 1, false) ~= nil, true, "description infrastructure")
     end)
+
+    H.test(shape .. " S7 route fields survive entity and global wire serialization", function()
+        local candidate = {entities = {
+            {id = "left", name = "underground-belt", position = {x = 0.5, y = 0.5}, dir = 12,
+                ug_role = "input", ug_pair_id = "right", quality = {name = "rare"},
+                wires = {{a_id = "left", a_connector = 1, b_id = "right", b_connector = 2}}},
+            {id = "right", name = "underground-belt", position = {x = 2.5, y = 0.5}, direction = 12,
+                type = "output", ug_role = "output", ug_pair_id = "left"},
+        }}
+        local blueprint = serialize(candidate)
+        local left, right = blueprint.entities[1], blueprint.entities[2]
+        H.equal(left.direction, 12, "dir is written as the verified blueprint direction")
+        H.equal(left.type, "input", "underground role supplies the endpoint type")
+        H.equal(left.quality, "rare", "entity quality is retained")
+        H.equal(type(left.wires[1][1]), "number", "entity wire endpoint is remapped")
+        H.equal(#blueprint.wires, 1, "entity wire is also retained at the blueprint boundary")
+        H.equal(blueprint.wires[1][1] ~= blueprint.wires[1][3], true, "global wire endpoints remain distinct")
+        H.equal(right.type, "output", "explicit endpoint type is retained")
+    end)
 end
 
 H.done("test_serialize")

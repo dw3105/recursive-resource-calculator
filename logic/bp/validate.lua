@@ -362,6 +362,45 @@ local function is_beacon(info) return info.kind == "beacon" end
 local function is_robo(info) return info.kind == "roboport" or info.kind == "robo" end
 local function is_inserter(info) return info.kind == "inserter" end
 
+--Routing entities are deliberately identified from the candidate itself, not from Route's occupancy tables.  The
+--validator is a second opinion at the boundary, so a fixture may carry only a prototype name and a flow id.
+local function transport_kind(info)
+    if not info then return nil end
+    if info.kind == "belt" then return "belt" end
+    if info.kind == "pipe" then return "pipe" end
+    local entity, spec = info.entity or {}, info.spec or {}
+    local kind = entity.kind or entity.type or spec.etype
+    if kind == "transport-belt" or kind == "underground-belt" or kind == "splitter" then return "belt" end
+    if kind == "pipe" or kind == "pipe-to-ground" then return "pipe" end
+    local name = tostring(name_of(entity) or ""):lower()
+    if name:find("underground-belt", 1, true) or name:find("transport-belt", 1, true) or name:find("splitter", 1, true) then return "belt" end
+    if name == "belt" or name == "underground" or name:find("belt", 1, true) then return "belt" end
+    if name == "pipe" or name == "pipe-to-ground" or name:find("pipe", 1, true) then return "pipe" end
+    return nil
+end
+
+local function tile_of(info)
+    return math.floor(info.cx + EPSILON), math.floor(info.cy + EPSILON)
+end
+
+local function tile_key(x, y)
+    return tostring(x) .. ":" .. tostring(y)
+end
+
+local function entity_direction(info)
+    return info and info.entity and (info.entity.direction or info.entity.dir)
+end
+
+local function endpoint_type(info)
+    local entity = info and info.entity or {}
+    local role = entity.ug_role
+    local kind = entity.type
+    if role ~= nil and role ~= "input" and role ~= "output" then return nil end
+    if kind ~= nil and kind ~= "input" and kind ~= "output" then kind = nil end
+    if role ~= nil and kind ~= nil and role ~= kind then return nil end
+    return role or kind
+end
+
 local function is_external_port(port)
     return port.perimeter == true or (port.member_id == nil and port.block_id == nil and port.step_id == nil)
 end
@@ -440,7 +479,7 @@ local function make_work(input)
     local grid_h = finite(root.grid_h, finite(input.grid_h, finite(grid.h, finite(root.height, input.height))))
     local wires = list_from(root.wires or (root.power and root.power.wires))
     local flows = flow_list(root.flows or (root.route and root.route.flows) or (plan and plan.flows))
-    local ports = collect_ports(root); local port_by_id = map_by_id(ports)
+    local blocks = list_from(root.blocks); local ports = collect_ports(root); local port_by_id = map_by_id(ports)
     local segments = collect_segments(root); local segment_by_id = map_by_id(segments)
     local bindings = collect_bindings(root); local steps = step_map(plan); local placements = placement_map(root.placements)
     local machines, beacons, poles, power_nodes, roboports, inserters, consumers = {}, {}, {}, {}, {}, {}, {}
@@ -453,7 +492,7 @@ local function make_work(input)
         if is_inserter(info) then inserters[#inserters + 1] = info end
         if needs_power(info) and not is_pole(info) and not is_power_switch(info) and not is_robo(info) then consumers[#consumers + 1] = info end
     end
-    return {input = input, root = root, plan = plan, catalog = catalog, entities = entities, infos = infos, info_by_id = info_by_id,
+    return {input = input, root = root, plan = plan, catalog = catalog, blocks = blocks, entities = entities, infos = infos, info_by_id = info_by_id,
         grid_w = grid_w, grid_h = grid_h, wires = wires, flows = flows, ports = ports, port_by_id = port_by_id,
         segments = segments, segment_by_id = segment_by_id, bindings = bindings, steps = steps, placements = placements,
         machines = machines, beacons = beacons, poles = poles, power_nodes = power_nodes, roboports = roboports, inserters = inserters,
@@ -646,6 +685,7 @@ local function check_segments(work)
     local allocation_by_flow_sink, segments_by_flow = {}, {}
     for _, segment in ipairs(work.segments) do
         local kind = segment.kind or "belt"; local capacity = segment_capacity(work, segment, kind); local total = 0; local flows_on_segment = {}
+        if segment.flow_id ~= nil then flows_on_segment[segment.flow_id] = true end
         for _, allocation in ipairs(segment.allocations or {}) do
             local amount = flow_share(allocation); total = total + amount; local flow_id = allocation.flow_id or segment.flow_id
             if flow_id ~= nil then
@@ -656,7 +696,9 @@ local function check_segments(work)
         local code = kind == "pipe" and "BP_V_PIPE_CAPACITY" or kind == "inserter" and "BP_V_INSERTER_CAPACITY" or "BP_V_BELT_CAPACITY"
         if total > capacity + tolerance(capacity) then error_record(work.errors, code, {tostring(segment.segment_id)}, {capacity = capacity, allocated = total}) end
         local flow_count = 0; for _, _ in pairs(flows_on_segment) do flow_count = flow_count + 1 end
-        if kind == "pipe" and flow_count > 1 then error_record(work.errors, "BP_V_FLUID_MIXING", {tostring(segment.segment_id)}) end
+        if kind == "pipe" and flow_count > 1 then
+            error_record(work.errors, "BP_V_FLUID_MIXING", {tostring(segment.segment_id)})
+        end
         for flow_id, _ in pairs(flows_on_segment) do segments_by_flow[flow_id] = (segments_by_flow[flow_id] or 0) + 1 end
     end
     for _, flow in ipairs(work.flows) do
@@ -688,23 +730,193 @@ end
 local function connection_for(info) return info.entity.connection or info.entity.underground_connection or info.entity.pipe_connection end
 
 local function check_underground(work)
-    local underground = {}; for _, info in ipairs(work.infos) do if info.entity.ug_pair_id or info.entity.ug_role then underground[#underground + 1] = info end end
+    local underground = {}
+    for _, info in ipairs(work.infos) do
+        if info.entity.ug_pair_id or info.entity.ug_role or info.entity.underground_pair_id then underground[#underground + 1] = info end
+    end
+    local checked = {}
+    local function pair_key(a, b)
+        local left, right = tostring(a.id), tostring(b and b.id or "")
+        if left > right then left, right = right, left end
+        return left .. "\0" .. right
+    end
+    local function middle_segment(source, sink)
+        local sx, sy = tile_of(source); local tx, ty = tile_of(sink)
+        local horizontal, vertical = sy == ty and sx ~= tx, sx == tx and sy ~= ty
+        if not horizontal and not vertical then return nil end
+        local min_x, max_x, min_y, max_y = math.min(sx, tx), math.max(sx, tx), math.min(sy, ty), math.max(sy, ty)
+        local function between(x, y)
+            return (horizontal and y == sy and x > min_x and x < max_x)
+                or (vertical and x == sx and y > min_y and y < max_y)
+        end
+        local source_flow = source.entity.flow_id
+        for _, candidate in ipairs(work.infos) do
+            if candidate ~= source and candidate ~= sink and transport_kind(candidate)
+                and source_flow ~= nil and candidate.entity.flow_id == source_flow then
+                local x, y = tile_of(candidate)
+                if between(x, y) then return candidate, {x = x, y = y} end
+            end
+        end
+        for _, segment in ipairs(work.segments) do
+            local same_flow = segment.flow_id == source_flow
+            if not same_flow then
+                for _, allocation in ipairs(segment.allocations or {}) do
+                    if allocation.flow_id == source_flow then same_flow = true; break end
+                end
+            end
+            if same_flow then
+                local points = segment.cells or segment.tiles or segment.path or segment.positions
+                for _, point in ipairs(list_from(points)) do
+                    local x, y
+                    if type(point) == "table" then
+                        x, y = finite(point.x), finite(point.y)
+                        if x == nil or y == nil then x, y = finite(point[1]), finite(point[2]) end
+                    end
+                    if x ~= nil and y ~= nil and between(math.floor(x), math.floor(y)) then
+                        return segment, {x = math.floor(x), y = math.floor(y)}
+                    end
+                end
+            end
+        end
+        return nil
+    end
     for _, info in ipairs(underground) do
-        local pair = work.info_by_id[info.entity.ug_pair_id]
-        if not pair or not pair.entity.ug_pair_id or pair.entity.ug_pair_id ~= info.id or pair.entity.ug_role == info.entity.ug_role then
-            error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(info.entity.ug_pair_id)})
-        elseif pair.entity.flow_id and info.entity.flow_id and pair.entity.flow_id ~= info.entity.flow_id then
+        local pair_id = info.entity.ug_pair_id or info.entity.underground_pair_id
+        local pair = work.info_by_id[pair_id]
+        if pair and (pair.entity.ug_pair_id or pair.entity.underground_pair_id) ~= info.id then pair = nil end
+        local already_checked = pair and checked[pair_key(info, pair)]
+        if pair and not already_checked then
+            checked[pair_key(info, pair)] = true
+        end
+        if already_checked then
+            -- The reciprocal endpoint is checked with the first endpoint only.
+        elseif not pair then
+            error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair_id)})
+        elseif pair and pair.entity.flow_id and info.entity.flow_id and pair.entity.flow_id ~= info.entity.flow_id then
             error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "flow differs"})
         else
-            local distance = math.abs(info.cx - pair.cx) + math.abs(info.cy - pair.cy); local first, second = connection_for(info), connection_for(pair)
-            local kind = (info.kind == "pipe" or pair.kind == "pipe") and "pipe" or "belt"; local family = kind == "pipe" and work.catalog.pipe or work.catalog.belt
+            local first_type, second_type = endpoint_type(info), endpoint_type(pair)
+            if not first_type or not second_type or first_type == second_type then
+                error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "endpoints must be one input and one output"})
+            end
+            local source, sink = first_type == "input" and info or pair, first_type == "input" and pair or info
+            local sx, sy = tile_of(source); local tx, ty = tile_of(sink)
+            local dx, dy = tx - sx, ty - sy
+            local expected = Grid.dir_from_vector(dx == 0 and 0 or (dx > 0 and 1 or -1), dy == 0 and 0 or (dy > 0 and 1 or -1))
+            if not expected or (dx ~= 0 and dy ~= 0) or (dx == 0 and dy == 0) then
+                error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "endpoints are not cardinally aligned"})
+            end
+            local source_direction, sink_direction = entity_direction(source), entity_direction(sink)
+            if expected and ((source_direction ~= nil and source_direction ~= expected)
+                or (sink_direction ~= nil and sink_direction ~= expected)) then
+                error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "endpoints do not carry transport direction"})
+            end
+            local distance = math.abs(info.cx - pair.cx) + math.abs(info.cy - pair.cy)
+            local first, second = connection_for(source), connection_for(sink)
+            local kind = (transport_kind(info) == "pipe" or transport_kind(pair) == "pipe") and "pipe" or "belt"
+            local family = kind == "pipe" and work.catalog.pipe or work.catalog.belt
             local first_max = finite(first and first.max_underground_distance, finite(family and family.underground_max_distance, INF))
             local second_max = finite(second and second.max_underground_distance, finite(family and family.underground_max_distance, INF))
-            if distance > first_max + tolerance(first_max) or distance > second_max + tolerance(second_max) then error_record(work.errors, "BP_V_UNDERGROUND_RANGE", {tostring(info.id), tostring(pair.id)}, {distance = distance, first_max = first_max, second_max = second_max}) end
-            if first and second and first.direction and second.direction then
-                local dx, dy = pair.cx - info.cx, pair.cy - info.cy; local expected = Grid.dir_from_vector(dx == 0 and 0 or (dx > 0 and 1 or -1), dy == 0 and 0 or (dy > 0 and 1 or -1))
-                if expected and (first.direction ~= expected or second.direction ~= Grid.dir_opposite(expected)) then error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "connections do not face each other"}) end
+            if distance > first_max + tolerance(first_max) or distance > second_max + tolerance(second_max) then
+                error_record(work.errors, "BP_V_UNDERGROUND_RANGE", {tostring(info.id), tostring(pair.id)}, {distance = distance, first_max = first_max, second_max = second_max})
             end
+            if first and second and first.direction and second.direction then
+                if expected and (first.direction ~= expected or second.direction ~= Grid.dir_opposite(expected)) then
+                    error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "connections do not face each other"})
+                end
+            elseif (first and first.direction and expected and first.direction ~= expected)
+                or (second and second.direction and expected and second.direction ~= Grid.dir_opposite(expected)) then
+                error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "connection does not face its partner"})
+            end
+            local middle, point = middle_segment(source, sink)
+            if middle then
+                error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id), tostring(middle.id or middle.segment_id)},
+                    {reason = "middle tile carries the underground flow", point = point})
+            end
+        end
+    end
+    return true
+end
+
+local function port_position(work, port)
+    local x, y = finite(port.x), finite(port.y)
+    if x ~= nil and y ~= nil then return x, y end
+    local wanted = port.block_id
+    local owner
+    for _, block in ipairs(work.blocks or {}) do
+        local block_id = block.block_id or block.id
+        if wanted == nil then
+            for _, candidate in ipairs(list_from(block.ports or block.block_ports)) do
+                if (candidate.port_id or candidate.id) == port.port_id then owner = block; break end
+            end
+        elseif block_id == wanted then
+            owner = block
+        end
+        if owner then break end
+    end
+    if not owner then return nil end
+    local block_id = owner.block_id or owner.id
+    local placement = work.placements[block_id] or owner.placement or owner
+    local frame = {w = finite(port._block_w, finite(owner.w, 1)), h = finite(port._block_h, finite(owner.h, 1))}
+    local placed = Grid.place_port(frame, {x = finite(placement.x, 0), y = finite(placement.y, 0), dir = finite(placement.dir, Grid.NORTH)}, port)
+    return placed.x, placed.y
+end
+
+local function check_port_approaches(work)
+    local reported = {}
+    local function report(port, x, y, flow_id, source)
+        local key = tostring(port.port_id) .. "\0" .. tile_key(x, y) .. "\0" .. tostring(flow_id)
+        if reported[key] then return end
+        reported[key] = true
+        error_record(work.errors, "BP_V_PORT_EDGE_WRONG", {tostring(port.port_id), tostring(source.id or source.segment_id)},
+            {reason = "port-owned tile carries another flow", port_id = port.port_id, x = x, y = y,
+                port_flow_id = port.flow_id or port.full_name, occupant_flow_id = flow_id})
+    end
+    local function occupant_at(port, x, y)
+        local wanted_flow = port.flow_id or port.full_name
+        if wanted_flow == nil then return end
+        for _, info in ipairs(work.infos) do
+            local kind = transport_kind(info)
+            if kind then
+                local tx, ty = tile_of(info)
+                local flow_id = info.entity.flow_id or info.entity.full_name
+                if tx == math.floor(x) and ty == math.floor(y) and flow_id ~= nil and flow_id ~= wanted_flow then
+                    report(port, x, y, flow_id, info.entity)
+                end
+            end
+        end
+        for _, segment in ipairs(work.segments) do
+            local flow_ids = {}
+            if segment.flow_id ~= nil then flow_ids[segment.flow_id] = true end
+            for _, allocation in ipairs(segment.allocations or {}) do
+                if allocation.flow_id ~= nil then flow_ids[allocation.flow_id] = true end
+            end
+            for flow_id, _ in pairs(flow_ids) do
+                if flow_id ~= wanted_flow then
+                    local points = segment.cells or segment.tiles or segment.path or segment.positions
+                    for _, point in ipairs(list_from(points)) do
+                        local px, py
+                        if type(point) == "table" then
+                            px, py = finite(point.x), finite(point.y)
+                            if px == nil or py == nil then px, py = finite(point[1]), finite(point[2]) end
+                        end
+                        if px ~= nil and py ~= nil and math.floor(px) == math.floor(x) and math.floor(py) == math.floor(y) then
+                            report(port, x, y, flow_id, segment)
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for _, port in ipairs(work.ports) do
+        local x, y = port_position(work, port)
+        local direction = port.travel_dir or port.dir or port.normal_dir
+        local dx, dy
+        if direction then dx, dy = Grid.dir_vector(direction) end
+        if x ~= nil and y ~= nil and dx ~= nil and dy ~= nil then
+            occupant_at(port, x, y)
+            if port.role == "in" then occupant_at(port, x - dx, y - dy)
+            elseif port.role == "out" then occupant_at(port, x + dx, y + dy) end
         end
     end
     return true
@@ -810,7 +1022,8 @@ function Validate.step(state, budget)
         elseif phase == "wire_legality" then check_wire_legality(work); state.cursor.phase = "wire_connectivity"
         elseif phase == "wire_connectivity" then check_wire_connectivity(work); state.cursor.phase = "segments"
         elseif phase == "segments" then check_segments(work); state.cursor.phase = "underground"
-        elseif phase == "underground" then check_underground(work); state.cursor.phase = "ports"
+        elseif phase == "underground" then check_underground(work); state.cursor.phase = "port_approaches"
+        elseif phase == "port_approaches" then check_port_approaches(work); state.cursor.phase = "ports"
         elseif phase == "ports" then check_ports(work); state.cursor.phase = "machines"
         elseif phase == "machines" then check_machines(work); state.cursor.phase = "finish"
         elseif phase == "finish" then finish(work, state)

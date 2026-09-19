@@ -372,6 +372,7 @@ local function global_wires(candidate, references)
     add(root.power and root.power.wires)
     add(root.route and root.route.wires)
     add(root.routing and root.routing.wires)
+    for _, entity in ipairs(candidate_entities(root)) do add(entity.wires) end
     local unique, seen = {}, {}
     for _, wire in ipairs(result) do
         local key = wire_key(wire)
@@ -392,6 +393,7 @@ local function serialize_entity(entity, references)
     for _, field in ipairs({"recipe", "recipe_quality", "type", "mirror", "tags", "request_filters", "burner_fuel_inventory"}) do
         if entity[field] ~= nil then result[field] = copy(entity[field]) end
     end
+    if result.type == nil and (entity.ug_role == "input" or entity.ug_role == "output") then result.type = entity.ug_role end
     if result.recipe ~= nil and result.recipe_quality == nil then result.recipe_quality = "normal" end
     if entity.drop_position ~= nil then result.drop_position = map_position(entity.drop_position) end
 
