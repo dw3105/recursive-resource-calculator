@@ -9,6 +9,7 @@ Repair lane. A mutation batch planted two defects in `logic/bp/pack.lua` and eve
 **PRESERVE:**
 - You own `logic/bp/pack.lua` and `tests/test_pack.lua` only. Everything else is frozen; if you need a change elsewhere, stop and report.
 - Every existing case in `tests/test_pack.lua` stays. You add; you never weaken or delete.
+- `prototypes`, `game`, `settings` and every prototype list are **userdata** in the game, never tables. Never write `type(prototypes) == "table"`; ask `rawget(_G, "prototypes")` instead (`docs/feature-contracts.md` §2c).
 - Never `git push`, never touch `main`, never `--no-verify`, never amend, never rebase, never merge.
 
 Current facts:

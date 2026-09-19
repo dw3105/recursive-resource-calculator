@@ -1,6 +1,6 @@
 # 023 — the blueprint the game reads, and the form a golden compares
 
-Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-023`, branch `lane/023`, base = `feat/round-8-blueprints`, tag `wave-2-green` (resolve it with `git rev-parse wave-2-green`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-023`, branch `lane/023`, base = `feat/round-8-blueprints`, tag `wave-3-repair-base` (resolve it with `git rev-parse wave-3-repair-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 ## What is true
 
@@ -8,6 +8,7 @@ Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_co
 - Every existing test stays green and unmodified. Run `sh tests/run.sh`; never edit a file under `tests/` other than the one this lane owns.
 - `control.lua`, `gui/sheet.lua`, `gui/calculator.lua`, `tests/harness.lua`, `locale/*/locale.cfg`, `docs/feature-contracts.md` and everything under `tools/` are frozen. If you need a change in one, stop and report it; do not edit it.
 - Nothing you put in `storage` may be a function, a metatable or a LuaObject: the game saves it.
+- `prototypes`, `game`, `settings` and every prototype list are **userdata** in the game, never tables. Never write `type(prototypes) == "table"`; ask `rawget(_G, "prototypes")` instead (`docs/feature-contracts.md` §2c). `tests/test_guards_userdata.lua` refuses the pattern in any shipped file.
 - Never `git push`, never touch `main`, never `--no-verify`, never amend, never rebase, never merge.
 - You own `logic/bp/serialize.lua` and `tests/test_serialize.lua` only.
 - Entity numbers are assigned here and nowhere else, by sorting (y, x, id). Every cross reference is remapped in the same pass.
@@ -38,12 +39,12 @@ Current facts:
 ```checks
 {"name": "serialize-tests", "command": "lua5.2 tests/test_serialize.lua && lua5.4 tests/test_serialize.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-2-green --manifest docs/tasks/023.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
-{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-2-green -- logic/bp/serialize.lua; out=$(cd \"$S\" && lua5.2 tests/test_serialize.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base wave-3-repair-base --manifest docs/tasks/023.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null 2>&1; git -C \"$S\" checkout wave-3-repair-base -- logic/bp/serialize.lua; out=$(cd \"$S\" && lua5.2 tests/test_serialize.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
 ```
 
 - Red first pasted, green after pasted, planted breach pasted then reverted.
-- `git diff --stat wave-2-green HEAD` pasted.
+- `git diff --stat wave-3-repair-base HEAD` pasted.
 
 Run the checks as your **last** action, after your final commit. A commit made after the checks moved the tree the
 proof was taken against, and the supervisor refuses that proof with the reason `tree-moved`, however green every
