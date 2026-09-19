@@ -1,4 +1,5 @@
 local Report = require "gui.report"
+local Registry = require "logic.registry"
 local Solver = require "logic.solver"
 local InputContainer = require "gui.input_container"
 local compute_power_and_pollution = require "logic.compute_power_and_pollution"
@@ -408,5 +409,8 @@ event_handlers.on_gui_checked_state_changed["hxrrc_round_up_machines_checkbox"] 
 
 --input_container must not require the sheet back, so the sheet hands it the update to run when a target changes
 InputContainer.on_target_changed = Sheet.update_start_leftovers_visibility
+
+--Published for gui/progress_panel.lua, which this module requires: Factorio refuses require in a handler.
+Registry.sheet = Sheet
 
 return Sheet

@@ -20,6 +20,7 @@
 --The calculation and search lanes register their stepper in this module. The registry is deliberately module-local:
 --a function may live here, but never in storage. A registered spec may contain begin, step, publish and cancel
 --functions. Tests use the same seam with a small fake kind.
+local Registry = require "logic.registry"
 local Jobs = {}
 
 Jobs.SCHEMA_VERSION = 1
@@ -455,7 +456,7 @@ local function service_kind(indices, kind, budget)
 end
 
 --Advances jobs inside this tick's budget. Called once from control.lua's on_tick.
-function Jobs.on_tick(event)
+local function service_tick(event)
     if type(event) == "table" and type(event.tick) == "number" then
         current_tick = event.tick
     else
@@ -471,6 +472,15 @@ function Jobs.on_tick(event)
     --The two passes make calculation priority explicit. The same shared budget is passed through both passes.
     service_kind(indices, "calculation", budget)
     if budget.ops > 0 then service_kind(indices, "blueprint", budget) end
+end
+
+--gui/progress_panel.lua used to wrap this function at load. It cannot: the wrap needed this module before its own
+--load finished, and a handler may never call require. It publishes its refresh instead, and the field is read on
+--every tick, so load order stops mattering.
+function Jobs.on_tick(event)
+    service_tick(event)
+    local refresh = Registry.progress_refresh
+    if type(refresh) == "function" then refresh() end
 end
 
 --Stops a job now: within two ticks of the handler that asked, and without publishing a partial result.
@@ -571,5 +581,8 @@ end
 
 --Name used by callers that prefer to make the seam explicit.
 Jobs.register_kind = Jobs.register
+--Published for the modules that cannot require this one back: Factorio refuses require in a handler.
+Registry.jobs = Jobs
+
 
 return Jobs

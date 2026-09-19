@@ -22,8 +22,11 @@
 --evidence for: a development checkout can never be mistaken for a release candidate.
 local EngineTestApi = {}
 
+--Read while control.lua is parsed: require is refused later, and a missing file is not an error here.
+local ok_build, packaged_build = pcall(require, "logic.build_id")
+
 function EngineTestApi.build_id()
-    local ok, build = pcall(require, "logic.build_id")
+    local ok, build = ok_build, packaged_build
     if ok and type(build) == "table" and build.packaged then return build end
     return {candidate_sha = "dev", mod_version = "dev", factorio_branch = "dev", packaged = false}
 end

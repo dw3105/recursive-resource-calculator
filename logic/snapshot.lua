@@ -24,6 +24,7 @@
 --
 --Two fingerprints, never one: the inputs a player can edit, and the result that was computed from some earlier
 --inputs. "current" means those two agree. Anything else has to say which is which.
+local Registry = require "logic.registry"
 local Sheet = require "gui.sheet"
 local ModuleSetup = require "logic.module_setup"
 local QualityId = require "logic.quality_id"
@@ -343,5 +344,8 @@ function Snapshot.state_of(snapshot, result_fingerprint, job_running)
     end
     return "stale"
 end
+--Published for the modules that cannot require this one back: Factorio refuses require in a handler.
+Registry.snapshot = Snapshot
+
 
 return Snapshot

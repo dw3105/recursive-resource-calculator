@@ -8,6 +8,8 @@
 --The input and cursor are deliberately the only calculation data kept between slices. The solver's prototype
 --references are read again by the synchronous kernel when the final assembly is reached; no LuaObject, function or
 --metatable can therefore cross a save boundary.
+local Solver = require "logic.solver"
+local Registry = require "logic.registry"
 local SolverSteps = {}
 
 local PHASES = {
@@ -156,7 +158,6 @@ end
 local completed_results = setmetatable({}, {__mode = "k"})
 
 local function finish(state)
-    local Solver = require "logic.solver"
     local input = state.input
     local result = Solver._solve_for_sync(input.rates, input.player_index, input.product_parts, input.options)
     completed_results[state] = result
@@ -201,5 +202,8 @@ end
 function SolverSteps._result(state)
     return completed_results[state]
 end
+
+--Published for logic/solver.lua, which cannot require this module back at runtime.
+Registry.solver_steps = SolverSteps
 
 return SolverSteps

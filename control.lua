@@ -9,6 +9,9 @@ local Calculator = require "gui.calculator"
 local ModulePicker = require "gui.module_picker"
 --Round 8 modules. Requiring them here is what registers their GUI handlers and their remote interface.
 local Jobs = require "logic.jobs"
+--Loaded here so their registry entries exist before any handler runs: a handler may never call require.
+local Snapshot = require "logic.snapshot"
+local SolverSteps = require "logic.solver_steps"
 local Reset = require "logic.reset"
 local EngineTestApi = require "logic.engine_test_api"
 local Pipette = require "gui.pipette"

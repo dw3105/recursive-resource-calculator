@@ -6,6 +6,8 @@
 --
 --The calculator window is never disabled while work runs, because the controls that stop that work live inside
 --it. Cancel stops within two ticks of its handler and leaves the previous report visible and marked canceled.
+local Registry = require "logic.registry"
+
 local ProgressPanel = {}
 
 local UNKNOWN_TOTAL_ESTIMATE = 100
@@ -13,13 +15,14 @@ local CANCEL_LABEL_NAME = "hxrrc_calc_canceled_label"
 local LAST_PHASE_TAG = "hxrrc_progress_phase"
 local LAST_VALUE_TAG = "hxrrc_progress_value"
 
---Requiring Sheet at module load would recurse: Sheet requires this module to install its handlers.
+--Sheet requires this module to install its handlers, so the edge back is late: Factorio refuses require inside a
+--handler, and both modules load while control.lua is parsed.
 local function Sheet()
-    return require "gui.sheet"
+    return Registry.need("sheet")
 end
 
 local function Jobs()
-    return require "logic.jobs"
+    return Registry.need("jobs")
 end
 
 local function controls_of(sheet_flow)
@@ -203,17 +206,9 @@ if script and script.on_nth_tick then
     script.on_nth_tick(10, refresh_all)
 end
 
---control.lua owns the on_tick registration and is frozen. Wrap its existing Jobs call so the test harness, which
---fires that handler directly, exercises the same ten-tick refresh without replacing the control handler.
-do
-    local jobs = Jobs()
-    local jobs_on_tick = jobs.on_tick
-    if type(jobs_on_tick) == "function" then
-        jobs.on_tick = function(event)
-            jobs_on_tick(event)
-            refresh_all()
-        end
-    end
-end
+--control.lua owns the on_tick registration and is frozen, so the bar rides on Jobs.on_tick. The callback is
+--published rather than wrapped: wrapping needed logic.jobs while this module was still loading, and the load
+--order of two modules that need each other is never fixed.
+Registry.progress_refresh = refresh_all
 
 return ProgressPanel
