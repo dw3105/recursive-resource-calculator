@@ -1010,6 +1010,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--candidate", help="candidate blueprint/result path for one selected case")
     result.add_argument("--artifacts", help="failure/accept artifact directory")
     result.add_argument("--branch", help="only run cases declared for this Factorio branch")
+    result.add_argument("--drafts", choices=("report",), help="report draft cases without treating them as passes")
     return result
 
 
@@ -1084,6 +1085,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         print("FAIL " + requirement_failure, file=sys.stderr)
         return 1
     failures = 0
+    drafts = 0
     processed = 0
     for case in cases:
         try:
@@ -1096,6 +1098,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 continue
             processed += 1
             if manifest.get("state", manifest.get("status")) == "draft":
+                if args.drafts == "report":
+                    drafts += 1
+                    failures += 1
+                    print(f"DRAFT {case.name}")
+                    continue
                 raise GoldenError("draft case cannot satisfy the release corpus")
             if explicit_accept:
                 if len(cases) != 1:
@@ -1115,7 +1122,10 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     if args.branch and processed == 0:
         print(f"FAIL branch {args.branch}: matches zero applicable cases", file=sys.stderr)
         return 1
-    print(f"golden: {processed - failures} passed, {failures} failed")
+    if args.drafts == "report":
+        print(f"golden: {processed - failures} passed, {failures - drafts} failed, {drafts} drafts")
+    else:
+        print(f"golden: {processed - failures} passed, {failures} failed")
     return 0 if failures == 0 else 1
 
 

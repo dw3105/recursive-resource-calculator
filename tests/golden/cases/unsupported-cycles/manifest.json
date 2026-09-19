@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "case_id": "unsupported-cycles",
+  "factorio_branch": "2.0",
+  "versions": {
+    "mod": "1.1.36",
+    "rrc_version": "1.1.36",
+    "factorio": "2.0",
+    "factorio_branch": "2.0",
+    "base_game_version": "2.0"
+  },
+  "targets": [
+    {
+      "full_name": "item/iron-gear-wheel",
+      "rate_per_second": 1,
+      "quality": "normal"
+    }
+  ],
+  "setup": {
+    "selection": [
+      {
+        "product_full_name": "item/iron-gear-wheel",
+        "recipe_name": "iron-gear-wheel",
+        "machine": {
+          "name": "assembling-machine-2",
+          "quality": "normal"
+        },
+        "modules": []
+      }
+    ],
+    "settings": {
+      "current": {
+        "input_edge": "left",
+        "output_edge": "top"
+      }
+    },
+    "options": {
+      "round_up": true
+    }
+  },
+  "engine_scenario": {
+    "initial_state": {
+      "research": [],
+      "surface": "nauvis",
+      "game_speed": 1
+    },
+    "supply": [
+      {
+        "full_name": "item/iron-plate",
+        "rate_per_second": 2
+      }
+    ],
+    "drain": [
+      {
+        "full_name": "item/iron-gear-wheel",
+        "rate_per_second": 1
+      }
+    ],
+    "warm_up_ticks": 60,
+    "sampling_window_ticks": 600,
+    "expected_rates": {
+      "item/iron-gear-wheel": 1
+    },
+    "allowed_discrete_error": 0.02,
+    "timeout_seconds": 10
+  },
+  "expected_outcome": "rejection",
+  "reason_codes": [
+    "BP_REJ_CYCLE"
+  ],
+  "state": "draft",
+  "independent_assertions": {
+    "conservation": true
+  },
+  "capture_pending": "Capture the unsupported dependency-cycle sheet through the real preparation path."
+}
