@@ -585,7 +585,10 @@ local function codes(errors)
     return result
 end
 
-local function stage_for(errors)
+local function stage_for(errors, job)
+    --The stage a failure records wins: a raised error names where it was raised, which a code prefix cannot.
+    local recorded = type(job) == "table" and type(job.progress) == "table" and job.progress.phase
+    if type(recorded) == "string" and recorded ~= "" and recorded ~= "failed" then return recorded end
     local code = failure_code(errors) or ""
     if code:match("^BP_REJ_") then return "preflight" end
     if code:match("^BP_V_") then return "validate" end
@@ -639,13 +642,39 @@ local function update_capture(handle, state, outcome, errors, stage)
     persist_handle(handle)
 end
 
+--Every code the player sees carries whatever the stage said about it: a raised Lua error's message, the blocked
+--cell and its owner, the prototype that failed to resolve. A code with no detail explains nothing.
+local function reason_details(errors)
+    local details, seen = {}, {}
+    local function add(record)
+        if type(record) ~= "table" then return end
+        if record.code ~= nil or record.detail ~= nil then
+            local detail = record.detail
+            if type(detail) ~= "string" then detail = detail ~= nil and tostring(detail) or nil end
+            local key = tostring(record.code) .. "\0" .. tostring(detail)
+            if not seen[key] and (record.code ~= nil or detail ~= nil) then
+                seen[key] = true
+                details[#details + 1] = {
+                    code = record.code ~= nil and tostring(record.code) or nil,
+                    detail = detail,
+                    flow_id = record.flow_id ~= nil and tostring(record.flow_id) or nil,
+                }
+            end
+        end
+        for _, child in ipairs(record) do add(child) end
+    end
+    add(errors)
+    return details
+end
+
 local function terminal_failure(handle, job)
     if not handle or handle.state ~= "pending" then return end
     local code_list = codes(job.errors)
     handle.state = "failure"
-    handle.phase = stage_for(job.errors)
+    handle.phase = stage_for(job.errors, job)
     handle.progress = result_progress(job.progress)
     handle.reason_codes = code_list
+    handle.reason_details = reason_details(job.errors)
     update_capture(handle, job.state and job.state.prepare and job.state.prepare.fields, "failure", job.errors, handle.phase)
     persist_handle(handle)
     local report = Registry.generation_failure
@@ -653,6 +682,7 @@ local function terminal_failure(handle, job)
         pcall(report, handle.player_index, {
             job_id = handle.job_id, state = "failure", phase = handle.phase, stage = handle.phase,
             progress = result_progress(handle.progress), reason_codes = copy_plain(code_list) or {},
+            reason_details = copy_plain(handle.reason_details) or {},
         })
     end
 end
@@ -903,7 +933,9 @@ local function step(job, budget)
         state.phase = "prepare"
         local ok, prepared_or_reason, preparation_reason = pcall(prepared_input, state.input, job, state, budget)
         if not ok then
-            set_failure(job, state, "BP_FAIL_ENTITY_BUDGET", "preflight")
+            --A raised error is never a budget: the code says so and the detail carries the raised message, which
+            --names the file and the line (contracts §11).
+            set_failure(job, state, "BP_FAIL_INTERNAL_ERROR", "prepare")
             job.errors[1].detail = tostring(prepared_or_reason)
             terminal_failure(handle_for(job), job)
             budget.ops = math.max(0, budget.ops - 1)
@@ -1050,6 +1082,7 @@ local function public_status(handle)
         result.canonical_version = handle.canonical_version
     elseif handle.state == "failure" then
         result.reason_codes, result.stage = copy_plain(handle.reason_codes) or {}, handle.phase
+        result.reason_details = copy_plain(handle.reason_details) or {}
     end
     return result
 end

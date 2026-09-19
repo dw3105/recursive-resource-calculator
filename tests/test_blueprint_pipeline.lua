@@ -272,6 +272,33 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(game.players[1].cursor_stack.is_blueprint_setup(), true, "the real result is delivered")
         H.equal(game.players[1].cursor_stack.get_blueprint_entities() ~= nil, true, "the delivered blueprint has entities")
     end)
+    --A code alone explains nothing. job_step_failed is a raised Lua error, and its message names the file and the
+    --line; without this the player sees four words and the message dies inside the job.
+    H.test(shape .. " unit case: a failing step reports its raised error, not only its code", function()
+        local world, Registry, Jobs, _, Generation, _, sheet, sheet_id = fixture(shape,
+            {targets = {{item = "gear", rate = 1}}, control = true})
+        local Snapshot = require "logic.snapshot"
+        local of_sheet = Snapshot.of_sheet
+        Snapshot.of_sheet = function() error("logic/bp/fixture.lua:1: planted failure", 0) end
+        local shown = {}
+        Registry.generation_failure = function(_, terminal) shown[#shown + 1] = terminal end
+        local settings = require("logic.bp.settings").of_sheet(1, sheet_id)
+        local job_id = Generation.start{player_index = 1, sheet_id = sheet_id, settings = settings, deliver = false}
+        local result = terminal(world, Jobs, Generation, 1, job_id, 200)
+        Snapshot.of_sheet = of_sheet
+
+        H.equal(result.state, "failure", "the planted error ends the job")
+        H.equal(type(result.reason_details), "table", "the terminal result carries its details")
+        local seen = false
+        for _, reason in ipairs(result.reason_details) do
+            if type(reason.detail) == "string" and reason.detail:find("planted failure", 1, true) then seen = true end
+        end
+        H.equal(seen, true, "the raised message travels with the code")
+        H.equal(#shown > 0 and type(shown[1].reason_details), "table", "and reaches the dialog")
+        H.equal(result.reason_codes[1], "BP_FAIL_INTERNAL_ERROR", "a raised error is never called a budget")
+        H.equal(result.stage, "prepare", "and names the stage it was raised in")
+    end)
+
 end
 
 H.done("test_blueprint_pipeline")

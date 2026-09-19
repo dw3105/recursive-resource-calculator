@@ -218,6 +218,14 @@ an output. They are separate fields because they are separate things.
 internal retry signal and a validator violation are diagnostics the export carries by code. Goldens compare codes,
 never message text.
 
+Every terminal failure carries `reason_details` beside `reason_codes`: one entry per code, with the `detail` the
+stage supplied and the `flow_id` when it had one. A code with no detail explains nothing, so the dialog prints
+the detail too.
+
+`BP_FAIL_INTERNAL_ERROR` is what a raised Lua error becomes. Its detail is the raised message, which names the
+file and the line. Labelling such an error a budget or a layout limit hides the defect, so no other code is used
+for it.
+
 ## 12. Export envelope
 
 `format = "rrc-sheet-debug"`, `schema_version = 1`, `encoding = "zlib+base64"`, produced with
