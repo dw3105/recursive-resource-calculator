@@ -89,6 +89,34 @@ local function failure(state, code, details)
     state.result = nil
 end
 
+local function record_rejection(state, errors)
+    local counts = state.work.rejections or {}
+    state.work.rejections = counts
+    local seen = false
+    for _, entry in ipairs(errors or {}) do
+        local code = type(entry) == "table" and (entry.code or entry.reason) or tostring(entry)
+        if code ~= nil then
+            counts[code] = (counts[code] or 0) + 1
+            seen = true
+        end
+    end
+    if not seen then counts["BP_V_UNSPECIFIED"] = (counts["BP_V_UNSPECIFIED"] or 0) + 1 end
+end
+
+local function rejection_details(state)
+    local counts = state.work and state.work.rejections
+    if type(counts) ~= "table" then return nil end
+    local codes = {}
+    for code in pairs(counts) do codes[#codes + 1] = code end
+    if #codes == 0 then return nil end
+    table.sort(codes)
+    local details = {}
+    for _, code in ipairs(codes) do
+        details[#details + 1] = {code = code, detail = tostring(code) .. " x" .. tostring(counts[code])}
+    end
+    return details
+end
+
 local function search_limits(input)
     local limits = type(input.limits) == "table" and input.limits or {}
     local maximum = input.search_budget or input.max_search_ops or input.max_ops
@@ -659,7 +687,7 @@ local function fail_revision(state)
 end
 
 local function fail_budget(state)
-    failure(state, "BP_FAIL_SEARCH_BUDGET")
+    failure(state, "BP_FAIL_SEARCH_BUDGET", {reason_details = rejection_details(state)})
 end
 
 local function candidate_beacon_count(candidate)
@@ -749,7 +777,8 @@ local function finish_grid_or_search(state)
     if next_grid(state) then return end
     if state.work.grid_limit_hit then finish_search_budget(state); return end
     if state.work.power_bound_hit then finish_search_budget(state); return end
-    if state.incumbent then begin_serialization(state) else failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT") end
+    if state.incumbent then begin_serialization(state)
+    else failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", {reason_details = rejection_details(state)}) end
 end
 
 --A grid too small to hold the blocks and the rows their ports need can never produce a layout, and packing it
@@ -914,7 +943,12 @@ function Search.step(container, budget)
         elseif state.phase == "validate" then
             run_stage(state, "validate", Validate, budget)
             if stage_done(state.work.validate) then
-                if not state.work.validate.ok then discard_candidate(state)
+                if not state.work.validate.ok then
+                    --A candidate discarded without a record makes every validator rejection look like a routing
+                    --failure from outside.  Counting the codes costs nothing and is what the failure message and
+                    --the debug export need.
+                    record_rejection(state, state.work.validate.errors)
+                    discard_candidate(state)
                 else
                     local score = state.work.validate.result and state.work.validate.result.score or {}
                     if state.incumbent == nil or Validate.compare(score, state.incumbent.score) < 0 then
