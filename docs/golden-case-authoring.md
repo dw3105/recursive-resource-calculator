@@ -1,66 +1,75 @@
 # Golden case authoring
 
-`capture_case.lua` records one named setup through the same sliced calculation,
-preparation and blueprint search used by the mod.  It never accepts a golden
-baseline.
+The corpus setups under `tests/golden/setup/` are executable, offline
+descriptions of the world needed by a golden case. They feed the existing
+calculation, preparation and search services; they do not replace any of
+those production paths.
 
-## Exact command
+## The five production-chain cases
 
-Run this from the repository root.  The temporary case root keeps the draft
-out of the checked-in corpus until a reviewer explicitly chooses what to do
-with it:
+The lane owns these case/setup pairs:
+
+- `base-only-crafting-smelting`: smelting followed by crafting;
+- `shared-intermediate-multi-target`: two targets sharing one smelted item;
+- `fluid-byproduct-chain`: water in, dirty water out, then a smelting step;
+- `assembler-chain-example`: a compact all-assembler chain; and
+- `repeatability`: the same prepared graph captured twice.
+
+Every setup declares `declared_chain.steps` and `declared_chain.flows`. The
+flow declaration uses the production names (`item/foo` and `fluid/bar`), so a
+fluid or byproduct cannot disappear behind an otherwise plausible item chain.
+The setup also records mocked prototype facts, selected recipes and machines,
+module/beacon loadouts, infrastructure, mod/version, Factorio branch,
+research, generation bounds, and the engine scenario's supply and drain.
+
+`Setup.assert_calculated_graph` is called after the sliced calculation has
+published its solver result and before `Generation.start` is called. It
+compares the calculated recipe step names and the union of every non-zero
+recipe input/output flow with the declared chain. A mismatch reports the
+names/flows found, which makes an accidental external import visible at the
+assertion point.
+
+Run the focused checks with:
 
 ```sh
-tmp=$(mktemp -d) && lua5.2 tests/golden/capture_case.lua tiny-chain --output "$tmp/export.txt" --options "$tmp/options.json" && tests/golden/add_case tiny-chain --export "$tmp/export.txt" --options "$tmp/options.json" --cases "$tmp/cases"
+lua5.2 tests/test_corpus_setups.lua
+lua5.4 tests/test_corpus_setups.lua
 ```
 
-Use `lua5.4` in place of `lua5.2` for the other offline interpreter.  The
-capture command prints the stopped phase, terminal state, source kind and the
-preserved prepared input, and writes the encoded export plus the options file.
-The example setup intentionally stops Search at its explicit zero-operation
-bound, so it demonstrates a `search` failure without pretending that a layout
-was produced.
+## Harness captures and provenance
 
-## Setup descriptions
+Capture an individual setup through the real path:
 
-Files under `tests/golden/setup/` are versioned Lua data descriptions.  A
-description carries:
+```sh
+tmp=$(mktemp -d)
+lua5.2 tests/golden/capture_case.lua fluid-byproduct-chain \
+  --output "$tmp/export.txt" --options "$tmp/options.json"
+tests/golden/add_case fluid-byproduct-chain --force \
+  --export "$tmp/export.txt" --options "$tmp/options.json"
+```
 
-- `schema_version` and a stable `setup_id`;
-- `prototype_facts`, including items, recipes, machines, modules and beacons;
-  `mocked = true` records that these facts come from the offline harness;
-- target rows in UI order;
-- the selected recipe, machine, machine modules, beacon groups and beacon
-  modules;
-- the infrastructure choices and input/output edges; and
-- `generation` limits plus `engine_scenario` assumptions for later review.
+The five checked-in cases are drafts with `source_kind: "harness"`.
+Their prepared inputs and exports are useful replay inputs, but they are not
+Factorio observations. In the capture provenance, `candidate_sha: "harness"`
+is the stable source identity emitted by the offline producer; it is the
+harness source-SHA sentinel, not a packaged candidate SHA. A later packaged
+Factorio run must write a separate runtime capture with its own candidate SHA.
 
-The setup helper uses existing `tests/harness.lua` world and sheet facilities.
-It does not copy calculation or blueprint preparation.  Those are run by the
-production sliced jobs.
+`add_case` preserves `export.json`, the encoded `export.txt`,
+`prepared_input.json`, `options.json`, and `provenance.json`. It records the
+observed generation result separately from policy. Thus a bounded search
+failure can appear in `observed_outcome` while `supported_outcome` and
+`expected_outcome` remain `production`. Do not turn that observation into a
+rejection case, and do not create runtime evidence from a harness capture.
 
-## Runtime captures
+The existing `tiny-chain` setup is intentionally different: its zero search
+budget is a failure-capture demonstration. It is not one of the five
+production-chain cases and must not be copied as their graph template.
 
-A runtime capture is not made from this offline setup.  It needs a packaged
-candidate running in the intended Factorio branch, the active mods and their
-versions, the player's research and quality unlocks, the player's selected
-recipes and machines, the module/beacon setup, infrastructure choices, and a
-player/surface setup matching the engine scenario.  Only a capture with
-`source_kind = "runtime"` is engine evidence; a harness capture is labelled
-`harness`.
+## Reviewing or accepting a case
 
-`add_case` keeps the prepared input and provenance in a draft.  A search can
-fail after preparation and the capture remains usable; its observed state,
-stage and reason codes are recorded separately from the supported outcome.
-The command never writes an accepted expectation.
-
-Keep these four facts separate when reviewing a case:
-
-1. the setup description exists and says what was mocked;
-2. a prepared capture exists and says where it came from;
-3. the result meets independent assertions (for example conservation or
-   rates); and
-4. engine evidence exists from a packaged runtime capture.
-
-None of the first three facts creates the fourth, and a failed observed search
-does not by itself change the supported outcome.
+The generated `candidate.json` is a placeholder. A draft does not accept a
+golden expectation. Use the normal corpus runner to generate a fresh
+candidate, inspect its independent assertions and provenance, and use
+`tests/golden/accept` only after review. Never edit a harness provenance to
+make it look like a packaged runtime observation.
