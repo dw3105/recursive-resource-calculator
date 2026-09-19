@@ -72,6 +72,30 @@ H.equal(machine.tile_w, 3, "its footprint is three tiles wide")
 
 Lane 003's red proof came back 2 assertions and 18 crashes, which is why this is written down.
 
+## 2c. An engine global is never a table
+
+`prototypes` is a `LuaPrototypes` object, `game` a `LuaGameScript`, `settings` a `LuaSettings`, and a prototype
+list such as `prototypes.entity` a `LuaCustomTable`. In the game `type()` reports `userdata` for every one of
+them. A guard written `type(prototypes) == "table"` is therefore false in every real factory and true in every
+offline test: the code takes its absent branch, finds nothing, and the suite still passes. That shape shipped
+broken in 1.1.27.
+
+Ask about presence instead:
+
+```lua
+if not rawget(_G, "prototypes") then return nil end
+local machine = prototypes.entity[name]
+```
+
+The harness reports these globals as userdata, and `tests/test_guards_userdata.lua` refuses the pattern in every
+shipped file. Registering `prototypes` alone turned twelve merged cases red and led to nine such guards across
+five modules.
+
+**Purity.** The geometry core — `grid.lua`, `pack.lua`, `groups.lua`, `route.lua`, `power.lua`, `validate.lua`,
+`serialize.lua` — reads no engine global at all: plain data in, plain data out. The boundary modules `plan.lua`,
+`preflight.lua` and `settings.lua` do read the game, because they resolve what the player picked and what the
+force unlocked before any catalog exists.
+
 ## 3. Units, identities, determinism
 
 Rates per second. Power watts. Pollution per minute. Lengths in tiles. Budgets in ops.
