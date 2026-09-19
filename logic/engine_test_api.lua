@@ -25,6 +25,15 @@ local EngineTestApi = {}
 local INTERFACE_NAME = "rrc-engine-test"
 local DEV_ERROR = "rrc-engine-test requires a packaged release candidate"
 
+--Every dependency is loaded while control.lua is being parsed. Factorio refuses require from a remote
+--interface handler, even though an offline Lua interpreter permits it. Keep these references out of the
+--runtime callbacks below; the module registry is already populated by control.lua before this file loads.
+local Jobs = require "logic.jobs"
+local Search = require "logic.bp.search"
+local Preflight = require "logic.bp.preflight"
+local ExportPayload = require "logic.export_payload"
+local Serialize = require "logic.bp.serialize"
+
 --This table is runtime-only. The actual work is held by Jobs/storage; it contains only handles and completed
 --plain results so that the interface itself cannot put executable values in a save.
 local engine_jobs = {}
@@ -143,7 +152,6 @@ local function canonical_from_string(blueprint_string)
     if type(decoded) ~= "string" then error("blueprint string could not be decoded", 3) end
     local blueprint = helpers.json_to_table(decoded)
     if type(blueprint) ~= "table" then error("decoded blueprint is not an object", 3) end
-    local Serialize = require "logic.bp.serialize"
     local canonical, version = Serialize.canonical(blueprint)
     local json = helpers.table_to_json(canonical)
     return canonical, {canonical_sha256 = sha256(json), canonical_version = version}
@@ -177,7 +185,17 @@ local function reason_codes(value)
     local result = {}
     local function add(item)
         if type(item) == "string" then result[#result + 1] = item
-        elseif type(item) == "table" then add(item.code or item.reason_code or item.reason)
+        elseif type(item) == "table" then
+            if item.code or item.reason_code or item.reason then
+                add(item.code or item.reason_code or item.reason)
+            elseif #item > 0 then
+                for _, child in ipairs(item) do add(child) end
+            else
+                for key, child in pairs(item) do
+                    if child and type(key) == "string" and key:match("^BP_") then add(key)
+                    else add(child) end
+                end
+            end
         end
     end
     if type(value) == "table" then
@@ -194,6 +212,13 @@ local function reason_codes(value)
         end
     else add(value) end
     table.sort(result)
+    local unique = {}
+    for _, code in ipairs(result) do
+        if not unique[code] then unique[code] = true end
+    end
+    result = {}
+    for code, _ in pairs(unique) do result[#result + 1] = code end
+    table.sort(result)
     return result
 end
 
@@ -203,8 +228,6 @@ local function start_generation(context)
     local player_index = context.player_index or 1
     local sheet_id = context.sheet_id
     if sheet_id == nil then error("generation context needs sheet_id", 2) end
-    local Jobs = require "logic.jobs"
-    local Search = require "logic.bp.search"
     --The search lane owns the algorithm; this registration only connects the public companion to that same job
     --scheduler. It never invents a candidate or runs a private copy of the search.
     Jobs.register("blueprint", {begin = Search.begin, step = Search.step, cancel = Search.cancel,
@@ -264,7 +287,6 @@ local function cancel_generation(id)
     local handle = engine_jobs[id]
     if not handle then error("unknown generation job " .. tostring(id), 2) end
     if handle.state == "pending" then
-        local Jobs = require "logic.jobs"
         Jobs.cancel(handle.player_index, handle.sheet_id)
         handle.state = "cancelled"
     end
@@ -274,7 +296,6 @@ end
 local function preflight(case)
     packaged_or_error()
     case = copy_plain(case) or {}
-    local Preflight = require "logic.bp.preflight"
     local reasons = Preflight.check(case.snapshot or case.sheet or {}, case.calculation or case.result or {},
         case.catalog or {}, case.options or case.settings or {})
     local codes = {}
@@ -286,7 +307,6 @@ local function export_sheet(sheet_id)
     packaged_or_error()
     local player_index, sheet = locate_sheet(sheet_id)
     if not sheet then error("unknown sheet " .. tostring(sheet_id), 2) end
-    local ExportPayload = require "logic.export_payload"
     local payload = ExportPayload.build(player_index, sheet)
     local encoded, reason = ExportPayload.encode(payload)
     if not encoded then error(reason or "debug export failed", 2) end

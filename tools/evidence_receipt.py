@@ -139,8 +139,19 @@ def make_receipt(
         raise EvidenceError("observation must be a JSON object")
     build = read_build_id(archive)
     observed_build = observation.get("build_id")
-    if isinstance(observed_build, Mapping) and observed_build.get("packaged") is not True:
-        raise EvidenceError("observation came from a development checkout")
+    if isinstance(observed_build, Mapping):
+        if observed_build.get("packaged") is not True:
+            raise EvidenceError("observation came from a development checkout")
+        nested_candidate = observed_build.get("candidate_sha")
+        if nested_candidate is not None and str(nested_candidate) != build["candidate_sha"]:
+            raise EvidenceError(
+                f"candidate mismatch: observation build={nested_candidate!r}, archive={build['candidate_sha']!r}"
+            )
+        for key in ("factorio_branch", "mod_version"):
+            if key in observed_build and observed_build[key] != build.get(key):
+                raise EvidenceError(
+                    f"environment mismatch: observation build {key}={observed_build[key]!r}, archive={build.get(key)!r}"
+                )
     if observation.get("packaged") is False:
         raise EvidenceError("observation came from a development checkout")
     observed_case = _observation_case(observation)
