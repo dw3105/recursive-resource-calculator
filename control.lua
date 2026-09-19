@@ -20,6 +20,8 @@ local Indexer = require "logic.indexer"
 local PlayerData = require "logic.player_data"
 local PlayerDataUpdater = require "logic.player_data_updater"
 local Updates = require "updates"
+--Load the calculation job kind while control.lua is parsed; handlers may never require it at runtime.
+local CalcPipeline = require "logic.calc_pipeline"
 
 --Ids 1 and 2 keep their meaning: a save made by an older version can hold queued entries naming them.
 async_calls = {Sheet.calculate, Calculator.auto_center, Jobs.step}

@@ -1,5 +1,6 @@
 --A calculation sliced across ticks commits exactly the synchronous report, or no report when stale or cancelled.
 local H = require "tests.harness"
+local Registry
 
 local function report_line(line)
     if not line then return nil end
@@ -114,6 +115,7 @@ local function base_world(shape)
     world.init()
     require "control"
     world.handlers.on_init()
+    Registry = require "logic.registry"
     return world
 end
 
@@ -125,8 +127,12 @@ local function prepared_sheet(targets)
 end
 
 local function synchronous_report(Sheet, sheet_flow)
+    local pipeline = Registry.calc_pipeline
+    Registry.calc_pipeline = nil
     Sheet.calculate(Sheet.compute_button_of(sheet_flow))
-    return report_signature(H.parse_report(sheet_flow.output_flow))
+    local expected = report_signature(H.parse_report(sheet_flow.output_flow))
+    Registry.calc_pipeline = pipeline
+    return expected
 end
 
 local function quality_world(shape)
@@ -162,6 +168,7 @@ local function quality_world(shape)
     loop.recycle_recipe_name = "X-recycling"
     loop.recycle.machine = {name = "recycler"}
     loop.recycle.setup.modules = {}
+    Registry = require "logic.registry"
     return world
 end
 
@@ -175,6 +182,7 @@ local function infeasible_world(shape)
     require "control"
     world.handlers.on_init()
     world.bind("item/P", "backwards")
+    Registry = require "logic.registry"
     return world
 end
 
@@ -196,6 +204,52 @@ for _, shape in ipairs(H.shapes()) do
         H.run_ticks(world, 1)
         H.equal(running_job(sheet_id), nil, "the smallest default-budget job finishes within one tick")
         H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "the report is published")
+    end)
+
+    H.test(shape .. " CP-11 Compute enqueues instead of publishing and the panel follows the run", function()
+        local world = base_world(shape)
+        local Sheet, _, sheet_flow = prepared_sheet({{item = "plate", rate = 3, unit = "/s"}})
+        local expected = synchronous_report(Sheet, sheet_flow)
+        local row = sheet_flow.input_container.children[1]
+        row.rate_textfield.text = "4"
+        local Jobs = require "logic.jobs"
+        Jobs.OPS_PER_TICK = 1
+        local sheet_id = Sheet.id_of(sheet_flow)
+        local old_report = child_named(sheet_flow.output_flow, "report")
+
+        Sheet.calculate(Sheet.compute_button_of(sheet_flow))
+
+        H.equal(running_job(sheet_id) ~= nil, true, "Compute enqueues a calculation job")
+        H.equal(child_named(sheet_flow.output_flow, "report"), old_report, "Compute does not publish before a tick")
+        H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "the previous report remains visible while queued")
+        H.equal(Sheet.progressbar_of(sheet_flow).visible, true, "the progress bar is visible while the job runs")
+        H.equal(Sheet.cancel_button_of(sheet_flow).visible, true, "Cancel is visible while the job runs")
+
+        wait_for(world, sheet_id)
+        H.equal(Sheet.progressbar_of(sheet_flow).visible, false, "the progress bar hides after publish")
+        H.equal(Sheet.cancel_button_of(sheet_flow).visible, false, "Cancel hides after publish")
+        H.equal(report_signature(H.parse_report(sheet_flow.output_flow)).rows["item/plate"].rate, 4, "the queued input is eventually published")
+    end)
+
+    H.test(shape .. " CP-12 Cancel during Compute keeps the old report and marks it stale", function()
+        local world = base_world(shape)
+        local Sheet, _, sheet_flow = prepared_sheet({{item = "plate", rate = 3, unit = "/s"}})
+        local expected = synchronous_report(Sheet, sheet_flow)
+        local row = sheet_flow.input_container.children[1]
+        row.rate_textfield.text = "4"
+        local Jobs = require "logic.jobs"
+        Jobs.OPS_PER_TICK = 1
+        local sheet_id = Sheet.id_of(sheet_flow)
+        Sheet.calculate(Sheet.compute_button_of(sheet_flow))
+        H.equal(running_job(sheet_id) ~= nil, true, "the calculation is running before Cancel")
+
+        event_handlers.on_gui_click["hxrrc_cancel_button"]({element = Sheet.cancel_button_of(sheet_flow), player_index = 1})
+
+        H.equal(running_job(sheet_id), nil, "Cancel removes the running job")
+        H.deep_equal(report_signature(H.parse_report(sheet_flow.output_flow)), expected, "Cancel leaves the old report intact")
+        H.equal(child_named(sheet_flow.output_flow, "report").tags.hxrrc_report_stale, true, "Cancel marks the old report stale")
+        H.equal(Sheet.progressbar_of(sheet_flow).visible, false, "Cancel hides the progress bar")
+        H.equal(Sheet.cancel_button_of(sheet_flow).visible, false, "Cancel hides itself")
     end)
 
     H.test(shape .. " CP-02 tiny budget spreads one report across ticks without partial rows", function()

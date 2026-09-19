@@ -1,6 +1,47 @@
 --Round-up checkbox: whole machine counts on labels only, per sheet, on old saves, at zero and at huge counts
 local H = require "tests.harness"
 
+local function running_job(player_index, sheet_id)
+    local data = storage[player_index or 1]
+    return data and data.calc_jobs and data.calc_jobs[sheet_id]
+end
+
+local function wait_for_calculation(world, sheet_flow, player_index)
+    local Sheet = require "gui.sheet"
+    player_index = player_index or 1
+    local sheet_id = Sheet.id_of(sheet_flow)
+    for _ = 1, 600 do
+        local job = running_job(player_index, sheet_id)
+        if not job then return end
+        H.run_ticks(world, 1)
+    end
+    local job = running_job(player_index, sheet_id)
+    H.equal(job, nil, "calculation stopped after 600 ticks in phase " .. tostring(job and job.phase))
+end
+
+local function wait_for_player_calculations(world, player_index)
+    player_index = player_index or 1
+    for _ = 1, 600 do
+        local data = storage[player_index]
+        local jobs = data and data.calc_jobs
+        if not storage.computation_stack[1] and not (jobs and next(jobs)) then return end
+        H.run_ticks(world, 1)
+    end
+    local data = storage[player_index]
+    local jobs = data and data.calc_jobs
+    local job = jobs and next(jobs) and jobs[next(jobs)]
+    H.equal(job, nil, "calculation queue stopped after 600 ticks in phase " .. tostring(job and job.phase))
+end
+
+local function run_sheet(world, targets, player_index, options)
+    local Sheet = require "gui.sheet"
+    local sheet_pane, sheet_flow = H.fill_sheet(targets, player_index)
+    if options and options.round_up then Sheet.round_up_checkbox_of(sheet_flow).state = true end
+    Sheet.calculate(Sheet.compute_button_of(sheet_flow))
+    wait_for_calculation(world, sheet_flow, player_index)
+    return H.parse_report(sheet_flow.output_flow), sheet_pane
+end
+
 local function gear_world(shape, energy, speed)
     local world = H.new_world(shape)
     world.add_item("raw")
@@ -20,7 +61,7 @@ local function control_gear_world(shape)
 end
 
 local function drain_ticks(world)
-    while storage.computation_stack[1] do world.handlers.events[defines.events.on_tick]({tick = 0}) end
+    wait_for_player_calculations(world)
 end
 
 --Types a gear target into the first row of the sheet at sheet_index, as a player would
@@ -46,12 +87,12 @@ end
 
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " G6a round-up changes the machine label only", function()
-        gear_world(shape)
-        local off = H.run_sheet({{item = "gear", rate = 2.4, unit = "/s"}})
+        local world = gear_world(shape)
+        local off = run_sheet(world, {{item = "gear", rate = 2.4, unit = "/s"}})
         H.near(off.rows["item/gear"].machines, 2.4, "machines when off")
         H.equal(off.rows["item/gear"].machine_tooltip, nil, "no tooltip when off")
-        gear_world(shape)
-        local on = H.run_sheet({{item = "gear", rate = 2.4, unit = "/s"}}, 1, {round_up = true})
+        world = gear_world(shape)
+        local on = run_sheet(world, {{item = "gear", rate = 2.4, unit = "/s"}}, 1, {round_up = true})
         H.equal(on.rows["item/gear"].machine_caption, " x 3", "caption when on")
         H.near(tonumber(on.rows["item/gear"].machine_tooltip), 2.4, "exact count in tooltip")
         H.near(on.energy_mw, off.energy_mw, "energy unchanged by rounding")
@@ -60,8 +101,8 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " G6b rounding noise just above a whole count does not add a machine", function()
-        gear_world(shape, 1.1, 0.5)
-        local report = H.run_sheet({{item = "gear", rate = 25, unit = "/s"}}, 1, {round_up = true})
+        local world = gear_world(shape, 1.1, 0.5)
+        local report = run_sheet(world, {{item = "gear", rate = 25, unit = "/s"}}, 1, {round_up = true})
         H.equal(report.rows["item/gear"].machine_caption, " x 55", "25 * 1.1 / 0.5")
     end)
 
@@ -78,6 +119,7 @@ for _, shape in ipairs(H.shapes()) do
         local checkbox = Sheet.round_up_checkbox_of(sheet_pane.tabs[2].content)
         checkbox.state = true
         world.handlers.events[defines.events.on_gui_checked_state_changed]({element = checkbox, player_index = 1})
+        wait_for_player_calculations(world)
         H.equal(sheet_report(sheet_pane, 2).rows["item/gear"].machine_caption, " x 3", "toggled sheet")
         H.near(sheet_report(sheet_pane, 1).rows["item/gear"].machines, 2.4, "other sheet")
         H.equal(sheet_report(sheet_pane, 1).rows["item/gear"].machine_tooltip, nil, "other sheet not rounded")
@@ -102,6 +144,7 @@ for _, shape in ipairs(H.shapes()) do
         type_gear_target(sheet_pane, 1, "2.4")
         Sheet.round_up_checkbox_of(sheet_flow).state = true
         Sheet.calculate(Sheet.compute_button_of(sheet_flow))
+        wait_for_calculation(world, sheet_flow)
         H.equal(sheet_report(sheet_pane, 1).rows["item/gear"].machine_caption, " x 3", "repaired sheet rounds")
     end)
 
@@ -116,7 +159,7 @@ for _, shape in ipairs(H.shapes()) do
         world.init()
         world.bind("item/p", "p-maker")
         world.bind("item/q", "q-maker")
-        local report = H.run_sheet({{item = "p", rate = 1, unit = "/s"}, {item = "q", rate = 1, unit = "/s"}}, 1, {round_up = true})
+        local report = run_sheet(world, {{item = "p", rate = 1, unit = "/s"}, {item = "q", rate = 1, unit = "/s"}}, 1, {round_up = true})
         assert(report, "no report")
         H.equal(report.rows["item/p"].machine_caption, " x 0", "p-maker caption")
     end)
@@ -136,7 +179,7 @@ for _, shape in ipairs(H.shapes()) do
         world.bind("item/p", "r1")
         world.bind("item/q", "r2")
         world.bind("item/r", "r3")
-        local report = H.run_sheet({{item = "p", rate = 2, unit = "/s"}, {item = "q", rate = 65535 + 1e-5, unit = "/s"}, {item = "r", rate = 2001, unit = "/s"}}, 1, {round_up = true})
+        local report = run_sheet(world, {{item = "p", rate = 2, unit = "/s"}, {item = "q", rate = 65535 + 1e-5, unit = "/s"}, {item = "r", rate = 2001, unit = "/s"}}, 1, {round_up = true})
         assert(report, "no report")
         for _, product in ipairs({"item/p", "item/q", "item/r"}) do
             H.equal(report.rows[product].machine_caption, " x 3", product .. " caption")
@@ -144,8 +187,8 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " G6h a machine count beyond integer range still renders", function()
-        gear_world(shape)
-        local report = H.run_sheet({{item = "gear", rate = 1e19, unit = "/s"}}, 1, {round_up = true})
+        local world = gear_world(shape)
+        local report = run_sheet(world, {{item = "gear", rate = 1e19, unit = "/s"}}, 1, {round_up = true})
         assert(report, "no report")
         H.equal(report.rows["item/gear"].machine_caption, " x 10000000000000000000", "caption")
     end)

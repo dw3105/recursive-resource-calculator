@@ -2,6 +2,7 @@
 local H = require "tests.harness"
 
 local M = {}
+local active_world
 
 --Gear on a 4-slot assembler; a 2-slot beacon taking speed and efficiency; a hidden speed module; an unlinked modded quality, legendary locked
 --with_control: control.lua is loaded (and initialized) before any GUI module, since it creates the event handler tables they register into
@@ -21,6 +22,7 @@ local function picker_world(shape, with_control)
     world.add_recipe({name = "gear", category = "crafting", ingredients = {{name = "raw", amount = 1}}, products = {{name = "gear", amount = 1}}})
     world.add_player(1)
     world.init()
+    active_world = world
     if with_control then
         require "control"
         world.handlers.on_init()
@@ -32,6 +34,24 @@ local function picker_world(shape, with_control)
     return world
 end
 
+local function wait_for_calculation(sheet_flow)
+    local sheet_id = M.Sheet.id_of(sheet_flow)
+    for _ = 1, 600 do
+        local data = storage[1]
+        local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+        if not job then return end
+        H.run_ticks(active_world, 1)
+    end
+    local data = storage[1]
+    local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+    H.equal(job, nil, "calculation stopped after 600 ticks in phase " .. tostring(job and job.phase))
+end
+
+local function calculate_sheet(sheet_flow)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+    wait_for_calculation(sheet_flow)
+end
+
 local function find_all(element, predicate, found)
     found = found or {}
     if predicate(element) then found[#found + 1] = element end
@@ -40,7 +60,10 @@ local function find_all(element, predicate, found)
 end
 
 local function gear_sheet()
-    local report, sheet_pane = H.run_sheet({{item = "gear", rate = 1, unit = "/s"}})
+    local sheet_pane, sheet_flow = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}})
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+    wait_for_calculation(sheet_flow)
+    local report = H.parse_report(sheet_flow.output_flow)
     storage[1].sheet_section = {sheet_pane = sheet_pane}
     return report, sheet_pane
 end
@@ -245,7 +268,7 @@ for _, shape in ipairs(H.shapes()) do
         local row = sheet_flow.input_container.children[1]
         row.hxrrc_desired_item_button.elem_value = nil
         event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
-        M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+        calculate_sheet(sheet_flow)
         H.equal(state(), nil, "empty sheet computed: state gone")
         H.equal(#frames(), 0, "empty sheet computed: window gone")
 
@@ -396,7 +419,7 @@ local function control_picker_world(shape)
     row.rate_textfield.text = "1"
     row.hxrrc_desired_item_button.elem_value = {name = "gear"}
     event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
-    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+    calculate_sheet(sheet_flow)
     storage.computation_stack = {}
     return world, player, player.gui.screen.hxrrc_calculator, sheet_flow
 end

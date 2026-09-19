@@ -6,6 +6,7 @@
 local Snapshot = require "logic.snapshot"
 local Sheet = require "gui.sheet"
 local Jobs = require "logic.jobs"
+local Registry = require "logic.registry"
 local SolverSteps = require "logic.solver_steps"
 local ReportSteps = require "logic.report_steps"
 local QualityLoops = require "logic.quality_loops"
@@ -131,6 +132,17 @@ local function remember_report_parent(sheet_flow, inputs, key)
 end
 
 local function begin_report(job, state, result)
+    --The synchronous diagnostic renderer supplies no_rate for columns without a solver-specific reason. The
+    --incremental renderer receives the same result in slices, so make that implicit diagnostic data explicit before
+    --it starts a staged row; otherwise an infeasible mixed sheet would try to calculate a nil recipe rate.
+    if result.recipe_rates == nil then
+        result.reasons_by_column = result.reasons_by_column or {}
+        for _, column in ipairs(result.columns or {}) do
+            if result.reasons_by_column[column.recipe_name] == nil then
+                result.reasons_by_column[column.recipe_name] = "no_rate"
+            end
+        end
+    end
     local input = input_for_state(state, job)
     local report = ReportSteps.begin{
         player_index = job.player_index,
@@ -340,5 +352,6 @@ function CalcPipeline.cancel(player_index, sheet_id)
 end
 
 Jobs.register("calculation", {begin = begin_state, step = CalcPipeline.step})
+Registry.calc_pipeline = CalcPipeline
 
 return CalcPipeline

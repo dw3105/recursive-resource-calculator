@@ -2,6 +2,7 @@
 local H = require "tests.harness"
 
 local M = {}
+local active_world
 
 --Gear and cog on a 4-slot assembler (also a 2-slot fast assembler, and a "press" that crafts only cog); a 2-slot beacon; X from A with X recycling
 --into A, for loop stages. control.lua is loaded first, since it creates the handler tables the GUI modules register into.
@@ -27,6 +28,7 @@ local function pipette_world(shape)
     world.add_recipe({name = "A-mining", category = "mining", ingredients = {}, products = {{name = "A", amount = 1}}})
     world.add_player(1)
     world.init()
+    active_world = world
     require "control"
     world.handlers.on_init()
     world.bind("item/gear", "gear")
@@ -44,6 +46,36 @@ local function pipette_world(shape)
     M.Utils = require "logic.utils"
     storage.computation_stack = {}
     return world
+end
+
+local function wait_for_calculation(sheet_flow)
+    local sheet_id = M.Sheet.id_of(sheet_flow)
+    --The legacy paste helper intentionally leaves the cursor notification for its explicit tick. Keep that
+    --unrelated notification queued while Compute's own ticks finish, so the old pipette assertions retain their
+    --event ordering while the calculation still runs through H.run_ticks.
+    local deferred_cursor_events = active_world.cursor_events
+    active_world.cursor_events = {}
+    for _ = 1, 600 do
+        local data = storage[1]
+        local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+        if not job then
+            active_world.cursor_events = deferred_cursor_events
+            return
+        end
+        H.run_ticks(active_world, 1)
+    end
+    active_world.cursor_events = deferred_cursor_events
+    local data = storage[1]
+    local job = data and data.calc_jobs and data.calc_jobs[sheet_id]
+    H.equal(job, nil, "calculation stopped after 600 ticks in phase " .. tostring(job and job.phase))
+end
+
+local function calculate_sheet(sheet_flow)
+    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
+    --The old helper deliberately discarded queued legacy recomputes; keep that behavior while waiting for the
+    --new calculation job itself to finish.
+    storage.computation_stack = {}
+    wait_for_calculation(sheet_flow)
 end
 
 local function find_all(element, predicate, found)
@@ -65,8 +97,7 @@ local function sheet(targets)
         event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
     end
     local _ = rows
-    M.Sheet.calculate(M.Sheet.compute_button_of(sheet_flow))
-    storage.computation_stack = {}
+    calculate_sheet(sheet_flow)
     return sheet_flow
 end
 
@@ -185,6 +216,7 @@ for _, shape in ipairs(H.shapes()) do
             beacons = {{name = "beacon", count = 4, sharing = 2, modules = {{name = "speed-module"}}}}}
         local sheet_flow = sheet({{item = "gear"}})
         world.advance_tick(5)
+        local copy_tick = world.tick
         press(world, machine_button(sheet_flow, "gear"))
         local copied = clipboard()
         assert(copied, "remembered")
@@ -197,7 +229,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(stored(copied.setup.beacons[1].modules), "speed-module", "beacon modules")
         H.deep_equal(copied.item, {name = "raw", quality = "rare"}, "placing item, not the entity name")
         H.deep_equal(hand(), {name = "raw", quality = "rare", ghost = true}, "held as a ghost at the machine's quality")
-        H.equal(copied.copied_tick, 5, "copy tick")
+        H.equal(copied.copied_tick, copy_tick, "copy tick")
         H.equal(copied.own_notifications, 1, "one notification forgiven")
     end)
 
@@ -554,15 +586,14 @@ for _, shape in ipairs(H.shapes()) do
         row.rate_textfield.text = "1"
         row.hxrrc_desired_item_button.elem_value = {name = "cog"}
         event_handlers.on_gui_elem_changed.hxrrc_desired_item_button({element = row.hxrrc_desired_item_button, player_index = 1})
-        M.Sheet.calculate(M.Sheet.compute_button_of(second))
-        storage.computation_stack = {}
+        calculate_sheet(second)
         local button = machine_button(second, "cog")
         local tags_before, sprite_before = button.tags, button.sprite
         paste(world, button)
         H.deep_equal(chosen().cog, {name = "assembler", quality = "uncommon"}, "pasted from the first sheet's copy")
         H.deep_equal(button.tags, tags_before, "button tags untouched by the drain")
         H.equal(button.sprite, sprite_before, "button sprite untouched by the drain")
-        M.Sheet.calculate(M.Sheet.compute_button_of(second))
+        calculate_sheet(second)
         local rebuilt = machine_button(second, "cog")
         H.equal(rebuilt.sprite, "entity/assembler", "rebuilt report shows it")
         H.equal(rebuilt.tags.quality, "uncommon", "rebuilt report shows its quality")
