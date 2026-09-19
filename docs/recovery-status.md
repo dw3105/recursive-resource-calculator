@@ -1,6 +1,6 @@
 # Round 8 board — one list, replaces every older "next step"
 
-Updated 2026-09-19 10:35 UTC, HEAD 93fcfe3, by the integrator on host `legalcopilot-dev`. Branch
+Updated 2026-09-19 10:45 UTC, HEAD 5d5f9c8, by the integrator on host `legalcopilot-dev`. Branch
 `feat/round-8-blueprints`, never pushed, never merged to `main`. Dispatch follows
 `~/codex-reviews/rrc-parallel-execution-unblock-plan-2026-09-19-1014.md`: five disjoint lanes run beside every
 physical repair, and no lane waits on the blueprint pipeline for work it can finish alone.
@@ -13,7 +13,7 @@ physical repair, and no lane waits on the blueprint pipeline for work it can fin
 | S service lifecycle and capture | 048 | **yes** | unblock-base 93fcfe3 | `gui/blueprint_dialog.lua`, `logic/bp/generation.lua`, `logic/engine_test_api.lua`, two new test files, `tests/test_bp_settings.lua` | running; carries lane 039's checkpoint 17ca320 as its first commit |
 | C calculation result record | 049 | **yes** | unblock-base 93fcfe3 | `logic/calc_pipeline.lua`, new `logic/calculation_result.lua`, their two test files | running; §19 frozen |
 | E real engine adapter | 050 | **yes** | unblock-base 93fcfe3 | `tests/golden/engine/mod/`, `tests/test_engine_scenario.lua`, new `tests/test_engine_runtime_adapter.lua`, `docs/engine-evidence/runner.md` | running; §21 frozen |
-| R evidence contract and release gate | 051 | **yes** | unblock-base 93fcfe3 | `tools/release_gate.py`, its tests, new `tests/tools/test_evidence_contract.py`, `docs/release-preparation.md` | running; §21 frozen |
+| R evidence contract and release gate | 051 | no | unblock-base 93fcfe3 | `tools/release_gate.py`, its tests, new `tests/tools/test_evidence_contract.py`, `docs/release-preparation.md` | **merged**; verdict FAIL was my broken manifest, verified by hand |
 | G capture to case workflow | 052 | **yes** | unblock-base 93fcfe3 | `logic/export_payload.lua`, its test, `tests/golden/add_case`, `tests/golden/lib/common.py`, new `tests/tools/test_capture_workflow.py`, `docs/golden-workflow.md` | running; §20 frozen |
 | Lane 039 (superseded) | 039 | no | recovery-base-039c 7e4a5c2 | — | attempt 3 terminal; work preserved as checkpoint 3698214, now lane 048's first commit |
 | Merged earlier | 037, 038, 040–046 | no | — | calculation activation, export shape, engine runner, release gate, golden workflow, coverage, two repairs | **merged** |
@@ -32,8 +32,11 @@ serialize, search, delivery, golden skeleton. Suite 2596 case runs, 0 failed, bo
 tooling tests and the golden corpus. Mutation batches: W1 8 of 9 with one recorded equivalent, W2 7 of 7,
 W3 12 of 12, W3b 6 of 6, W4 6 of 6.
 
-In game, on 2.0.77: no crash since 1.1.41, export decodes offline, reset works, blueprint dialog and its pickers
-accepted by the user.
+In game, on 2.0.77: the user confirms the debug export window works at 1.1.47 — selectable text that refuses
+typing, Esc and the close key shut it, the title bar's X shuts it. Reset works, the blueprint dialog and its
+per-category pickers are accepted. Two window defects reached the game first: `add{}` silently dropped
+`read_only`, and an invented style name (`draggable_space_with_no_left_margin`) crashed on open. Both classes now
+fail offline — `docs/api/2.0.77.styles.json` pins 582 core style names.
 
 ## Two real defects found by running a real sheet
 
