@@ -160,6 +160,43 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(frame ~= nil, true, "dialog opens")
         assert_no_duplicate_sibling_names(frame)
     end)
+
+    H.test(shape .. " E9 layout keeps the whole encoded payload in a readable box", function()
+        local payload = {
+            format = "rrc-sheet-debug",
+            schema_version = 1,
+            note = string.rep("whole-payload-", 40),
+        }
+        local encoded = helpers.encode_string(helpers.table_to_json(payload))
+        local _, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = encoded})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local box = find(frame, function(element) return element.type == "text-box" end)
+
+        H.equal(box ~= nil, true, "successful export has a text box")
+        H.equal(box.text, encoded, "text box carries the whole encoded string")
+        local decoded = assert(H.decode_export(box.text))
+        H.equal(decoded.format, payload.format, "text box payload decodes")
+        H.equal(decoded.note, payload.note, "decoded payload is not clipped")
+        H.equal(box.style.width, 600, "text box has a readable width")
+        H.equal(box.style.height, 240, "text box has a readable height")
+        H.equal(frame.style.minimal_width, 600, "frame has a readable minimum width")
+    end)
+
+    H.test(shape .. " E10 failed export keeps its labels and has no text box", function()
+        local _, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "failed", error = "encode failed"})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local state = find(frame, function(element) return element.name == "hxrrc_export_state" end)
+        local failure = find(frame, function(element)
+            return type(element.caption) == "table" and element.caption[1] == "hxrrc.export_encoding_failed"
+        end)
+
+        H.equal(state ~= nil, true, "failed dialog has a state label")
+        H.equal(frame.style.minimal_width, 600, "failed dialog keeps the readable frame width")
+        H.equal(state.caption[1], "hxrrc.export_state_failed", "failed dialog keeps the state label")
+        H.equal(failure ~= nil, true, "failed dialog keeps the failure label")
+        H.equal(find(frame, function(element) return element.type == "text-box" end), nil,
+            "failed dialog has no text box")
+    end)
 end
 
 H.done("test_export_dialog")
