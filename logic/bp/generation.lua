@@ -13,7 +13,6 @@ local Search = require "logic.bp.search"
 local Serialize = require "logic.bp.serialize"
 local BlueprintDelivery = require "gui.blueprint_delivery"
 local Settings = require "logic.bp.settings"
-local Solver = require "logic.solver"
 
 Generation.SCHEMA_VERSION = 1
 
@@ -104,7 +103,8 @@ end
 
 local function add_full_name(references, full_name, parts)
     if type(full_name) ~= "string" then return end
-    local kind, name = full_name:match("^(item|fluid)/(.+)$")
+    local kind, name = full_name:match("^(item)/(.+)$")
+    if not kind then kind, name = full_name:match("^(fluid)/(.+)$") end
     if kind == "item" then
         references.items[name] = true
         if parts and parts.quality then references.qualities[name_of(parts.quality) or parts.quality] = true end
@@ -210,51 +210,9 @@ local function catalog_options(references, settings)
     }
 end
 
-local RESULT_MAP_KEYS = {
-    "calculation_results", "last_calculations", "results_by_sheet", "sheet_results", "last_results",
-    "calculation_by_sheet_id", "last_calculation_by_sheet_id", "calculation_results_by_sheet_id",
-}
-local RESULT_KEYS = {"last_calculation", "last_calculation_result", "last_result", "calculation_result", "calculation"}
-
-local function map_value(map, sheet_id)
+local function map_value(map, key)
     if type(map) ~= "table" then return nil end
-    return map[sheet_id] or map[tostring(sheet_id)]
-end
-
-local function result_wrapper(candidate, sheet_id)
-    if type(candidate) ~= "table" then return nil, nil end
-    if candidate.sheet_id ~= nil and candidate.sheet_id ~= sheet_id then return nil, nil end
-    if type(candidate.result) == "table" then return candidate.result, candidate end
-    if type(candidate.calculation) == "table" then return candidate.calculation, candidate end
-    return candidate, candidate
-end
-
-local function stored_calculation(player_index, sheet_id)
-    local data = type(storage) == "table" and storage[player_index] or nil
-    if type(data) ~= "table" then return nil, nil end
-    for _, key in ipairs(RESULT_MAP_KEYS) do
-        local result, wrapper = result_wrapper(map_value(data[key], sheet_id), sheet_id)
-        if result then return result, wrapper end
-    end
-    for _, key in ipairs(RESULT_KEYS) do
-        local result, wrapper = result_wrapper(data[key], sheet_id)
-        if result then return result, wrapper end
-    end
-    local job = map_value(data.calc_jobs, sheet_id)
-    if type(job) == "table" and type(job.result) == "table" and job.done then
-        return job.result, job
-    end
-end
-
-local function current_report(sheet)
-    local output = sheet and sheet.output_flow
-    for _, child in ipairs(output and output.children or {}) do
-        if child.name == "report" and child.valid ~= false then
-            local tags = child.tags or {}
-            return tags.hxrrc_report_stale ~= true and tags.stale ~= true
-        end
-    end
-    return false
+    return map[key] or map[tostring(key)]
 end
 
 local function fingerprint_of(snapshot_module, value)
@@ -274,7 +232,7 @@ local function mark_snapshot_result(snapshot_module, snapshot, result, wrapper)
     local candidates = {
         result and (result.input_fingerprint or result.settings_fingerprint or result.fingerprint),
         result and (result.settings or result.snapshot or result.inputs or result.input),
-        wrapper and (wrapper.settings or wrapper.snapshot or wrapper.inputs),
+        wrapper and (wrapper.input_fingerprint or wrapper.settings or wrapper.snapshot or wrapper.inputs),
     }
     local result_fingerprint
     for index = 1, 3 do
@@ -292,63 +250,207 @@ local function mark_snapshot_result(snapshot_module, snapshot, result, wrapper)
     end
 end
 
-local function prepare_from_sheet(input, job)
+local function copy_keys(value)
+    local keys = {}
+    for key, _ in pairs(value or {}) do
+        if type(key) == "string" or type(key) == "number" then keys[#keys + 1] = key end
+    end
+    table.sort(keys, function(a, b)
+        if type(a) == type(b) then return a < b end
+        return type(a) == "number"
+    end)
+    return keys
+end
+
+--Large plain-data projections cross the job boundary one child at a time. The cursor itself is plain data, so a
+--save can resume this walk without putting a function, LuaObject or metatable in storage.
+local function copy_cursor(value)
+    local value_type = type(value)
+    if value == nil or value_type == "boolean" or value_type == "string" or value_type == "number" then
+        return {done = true, value = value_type == "number" and finite(value, nil) or value}
+    end
+    if value_type ~= "table" or getmetatable(value) ~= nil then return {done = true, value = nil} end
+    local target = {}
+    return {done = false, value = target, stack = {{source = value, target = target, keys = copy_keys(value), index = 1}}}
+end
+
+local function consume(budget)
+    if budget.ops > 0 then budget.ops = budget.ops - 1 end
+end
+
+local function copy_cursor_step(cursor, budget)
+    if cursor.done then return true end
+    while budget.ops > 0 and #cursor.stack > 0 do
+        local frame = cursor.stack[#cursor.stack]
+        local key = frame.keys[frame.index]
+        if key == nil then
+            table.remove(cursor.stack)
+        else
+            frame.index = frame.index + 1
+            local child = frame.source[key]
+            local child_type = type(child)
+            if child == nil or child_type == "boolean" or child_type == "string" or child_type == "number" then
+                frame.target[key] = child_type == "number" and finite(child, nil) or child
+            elseif child_type == "table" and getmetatable(child) == nil then
+                local nested = {}
+                frame.target[key] = nested
+                cursor.stack[#cursor.stack + 1] = {source = child, target = nested, keys = copy_keys(child), index = 1}
+            end
+            consume(budget)
+        end
+    end
+    if #cursor.stack == 0 then cursor.done = true end
+    return cursor.done
+end
+
+local function merge_plain(target, source)
+    for key, value in pairs(source or {}) do
+        if type(value) == "table" and getmetatable(value) == nil then
+            if type(target[key]) ~= "table" then target[key] = {} end
+            merge_plain(target[key], value)
+        else
+            target[key] = value
+        end
+    end
+end
+
+local function empty_catalog()
+    return {schema_version = Catalog.SCHEMA_VERSION, entity = {}, item = {}, fluid = {}, quality = {}, quality_level = {},
+        module = {}, beacon = {}}
+end
+
+local function calculation_for(player_index, sheet_id, revisions, snapshot)
+    local calculation = Registry.need("calculation")
+    local get = calculation and calculation.get
+    if type(get) ~= "function" then return nil, "not_computed" end
+    local ok, record = pcall(get, player_index, sheet_id)
+    if not ok or type(record) ~= "table" or type(record.result) ~= "table" then return nil, "not_computed" end
+    if record.player_index ~= nil and record.player_index ~= player_index then return nil, "stale" end
+    if record.sheet_id ~= nil and record.sheet_id ~= sheet_id then return nil, "stale" end
+    if record.sheet_revision ~= revisions.sheet or record.config_revision ~= revisions.config then return nil, "stale" end
+    if record.input_fingerprint ~= snapshot.fingerprint.input then return nil, "stale" end
+    return record.result, record
+end
+
+local function source_name(sheet_id)
+    return "blueprint-export/" .. tostring(sheet_id)
+end
+
+local function preparation_context(input, job)
     local sheet = sheet_for(input.player_index, input.sheet_id)
     if not sheet then return nil, "deleted" end
-
-    local snapshot_module = Registry.need("snapshot")
-    local raw_snapshot = snapshot_module.of_sheet(sheet)
-    local raw_calculation, wrapper = stored_calculation(input.player_index, input.sheet_id)
+    local revisions = copy_plain(job.revisions) or current_revisions(input.player_index, input.sheet_id)
+    local raw_snapshot, raw_calculation, wrapper, supplied_catalog, supplied_export, recalculate_snapshot
+    if type(input.prepared_input) == "table" then
+        local supplied = input.prepared_input
+        raw_snapshot, raw_calculation, wrapper = supplied.snapshot or {}, supplied.solver_result, nil
+        supplied_catalog, supplied_export = supplied.catalog, supplied.source_export
+        revisions = copy_plain(supplied.revisions) or revisions
+        recalculate_snapshot = false
+    else
+        local snapshot_module = Registry.need("snapshot")
+        raw_snapshot = snapshot_module.of_sheet(sheet)
+        raw_calculation, wrapper = calculation_for(input.player_index, input.sheet_id, revisions, raw_snapshot)
+        if not raw_calculation then return nil, wrapper end
+        recalculate_snapshot = true
+    end
     local sheet_reader = Registry.need("sheet")
     local read = sheet_reader.read_inputs(sheet)
-
-    --The sliced calculation path leaves the finished result in its report staging state and then removes the
-    --job.  When that path has published a current report, recapture its real inputs with the same solver kernel
-    --inside this job.  A sheet without a current report remains an honest preflight rejection below; this fallback
-    --does not turn an uncalculated sheet into a supported request.
-    if raw_calculation == nil and current_report(sheet) then
-        raw_calculation = Solver.solve_for(read.rates, input.player_index, read.product_parts, read.options)
-        wrapper = {sheet_id = input.sheet_id, result = raw_calculation}
-    end
-    local snapshot = copy_plain(raw_snapshot) or {}
-    local calculation = copy_plain(raw_calculation) or {status = "not_computed", columns = {}}
-    mark_snapshot_result(snapshot_module, snapshot, raw_calculation, wrapper)
-    if raw_calculation ~= nil and snapshot.state == "not_computed" and current_report(sheet) then
-        --The fallback above is a fresh calculation of the report's current sheet inputs.  The result is plain data
-        --after the copy boundary, so it is safe to carry through the remaining job stages.
-        snapshot.fingerprint.result = snapshot.fingerprint.input
-        snapshot.state = "current"
-    end
-    local settings = copy_plain(input.settings) or Settings.of_sheet(input.player_index, input.sheet_id)
-    local options = copy_plain(input.options) or copy_plain(read.options) or {}
-    options.input_edge = options.input_edge or settings.input_edge
-    options.output_edge = options.output_edge or settings.output_edge
-    local references = references_for(snapshot, calculation, settings)
-    local catalog, diagnostics = Catalog.build(input.player_index, catalog_options(references, settings))
-    options.catalog_diagnostics = copy_plain(diagnostics) or {}
-    local source_export = ExportPayload.build(input.player_index, sheet)
+    local raw_settings = input.settings or Settings.of_sheet(input.player_index, input.sheet_id)
+    local raw_options = input.options or read.options or {}
+    raw_options.input_edge = raw_options.input_edge or raw_settings.input_edge
+    raw_options.output_edge = raw_options.output_edge or raw_settings.output_edge
+    local references = references_for(raw_snapshot, raw_calculation, raw_settings)
+    local options = catalog_options(references, raw_settings)
+    --Catalog.build remains the authoritative projection. Its result crosses the preparation boundary through the
+    --same cursor as the snapshot and export, so a large prototype projection cannot consume one unbounded step.
+    local catalog_parts = supplied_catalog and {} or {options}
+    local fields = {
+        snapshot = raw_snapshot, solver_result = raw_calculation, settings = raw_settings, options = raw_options,
+        revisions = revisions,
+    }
+    local copy_order = {"snapshot", "solver_result", "settings", "options", "revisions"}
     return {
-        schema_version = Generation.SCHEMA_VERSION,
-        snapshot = snapshot,
-        solver_result = calculation,
-        catalog = catalog,
-        settings = settings,
-        options = options,
-        revisions = copy_plain(job.revisions) or current_revisions(input.player_index, input.sheet_id),
-        surface = input.surface or name_of(member_of(player_of(input.player_index), "surface")),
-        force = input.force or name_of(member_of(player_of(input.player_index), "force")),
-        source_export = source_export,
+        input = input, sheet_id = input.sheet_id, wrapper = wrapper,
+        raw_calculation = raw_calculation, fields = {}, raw_fields = fields, copy_order = copy_order, copy_index = 1,
+        catalog_parts = catalog_parts, catalog_index = 1, catalog = empty_catalog(), catalog_diagnostics = {},
+        catalog_prebuilt = supplied_catalog ~= nil, catalog_cursor = copy_cursor(supplied_catalog or {}),
+        source_export = supplied_export or {name = source_name(input.sheet_id)},
+        source_export_cursor = copy_cursor(supplied_export or {name = source_name(input.sheet_id)}),
+        recalculate_snapshot = recalculate_snapshot, catalog_part = nil,
+        catalog_part_diagnostics = nil,
     }
 end
 
-local function prepared_input(input, job)
-    if type(input.prepared_input) == "table" then
-        local prepared = copy_plain(input.prepared_input) or {}
-        prepared.schema_version = prepared.schema_version or Generation.SCHEMA_VERSION
-        prepared.revisions = prepared.revisions or copy_plain(job.revisions) or {}
-        return prepared
+local function finish_preparation(prep, input, job)
+    local snapshot = prep.fields.snapshot or {}
+    if prep.recalculate_snapshot then
+        mark_snapshot_result(Registry.need("snapshot"), snapshot, prep.raw_calculation, prep.wrapper)
     end
-    return prepare_from_sheet(input, job)
+    prep.fields.options.catalog_diagnostics = copy_plain(prep.catalog_diagnostics) or {}
+    local raw_export = prep.source_export or {}
+    local exported = {name = source_name(input.sheet_id), format = raw_export.format, schema_version = raw_export.schema_version}
+    return {
+        schema_version = Generation.SCHEMA_VERSION,
+        snapshot = snapshot,
+        solver_result = prep.fields.solver_result or {status = "not_computed", columns = {}},
+        catalog = prep.catalog,
+        settings = prep.fields.settings or {}, options = prep.fields.options or {}, revisions = prep.fields.revisions or copy_plain(job.revisions) or {},
+        surface = input.surface or name_of(member_of(player_of(input.player_index), "surface")),
+        force = input.force or name_of(member_of(player_of(input.player_index), "force")), source_export = exported,
+    }
+end
+
+local function preparation_step(prep, input, job, budget)
+    while budget.ops > 0 do
+        if prep.copy_index <= #prep.copy_order then
+            local name = prep.copy_order[prep.copy_index]
+            if not prep.copy_cursor then prep.copy_cursor = copy_cursor(prep.raw_fields[name]) end
+            if copy_cursor_step(prep.copy_cursor, budget) then
+                prep.fields[name] = prep.copy_cursor.value
+                prep.copy_cursor, prep.copy_index = nil, prep.copy_index + 1
+            end
+        elseif prep.catalog_prebuilt then
+            if prep.catalog_cursor.done then
+                prep.catalog_prebuilt = false
+            else
+                copy_cursor_step(prep.catalog_cursor, budget)
+            end
+        elseif prep.catalog_index <= #prep.catalog_parts then
+            if not prep.catalog_part then
+                local part, diagnostics = Catalog.build(input.player_index, prep.catalog_parts[prep.catalog_index])
+                prep.catalog_part, prep.catalog_part_diagnostics = part, diagnostics
+                prep.catalog_cursor = copy_cursor(prep.catalog_part)
+            end
+            if copy_cursor_step(prep.catalog_cursor, budget) then
+                local part = prep.catalog_cursor.value
+                merge_plain(prep.catalog, part)
+                for _, diagnostic in ipairs(prep.catalog_part_diagnostics or {}) do
+                    prep.catalog_diagnostics[#prep.catalog_diagnostics + 1] = diagnostic
+                end
+                prep.catalog_part, prep.catalog_cursor, prep.catalog_part_diagnostics = nil, nil, nil
+                prep.catalog_index = prep.catalog_index + 1
+            end
+        elseif not prep.source_export then
+            local sheet = sheet_for(input.player_index, input.sheet_id)
+            prep.source_export = ExportPayload.build(input.player_index, sheet)
+            prep.source_export_cursor = copy_cursor(prep.source_export)
+        elseif not prep.source_export_cursor.done then
+            copy_cursor_step(prep.source_export_cursor, budget)
+        else
+            return finish_preparation(prep, input, job)
+        end
+        if budget.ops <= 0 then return nil end
+    end
+end
+
+local function prepared_input(input, job, state, budget)
+    if not state.prepare then
+        local prep, reason = preparation_context(input, job)
+        if not prep then return nil, reason end
+        state.prepare = prep
+    end
+    return preparation_step(state.prepare, input, job, budget)
 end
 
 local function failure_code(errors)
@@ -395,6 +497,34 @@ local function result_progress(progress)
     return {done_units = number(progress.done_units, 0), total_units = progress.total_units}
 end
 
+local function capture_source_kind(input, prepared)
+    local requested = input.source_kind or prepared.source_kind
+    if requested == "runtime" or requested == "harness" or requested == "handwritten_fixture" then return requested end
+    return type(input.prepared_input) == "table" and "harness" or "runtime"
+end
+
+local function initial_provenance(input, job)
+    local supplied = type(input.provenance) == "table" and input.provenance or Registry.generation_provenance
+    supplied = type(supplied) == "table" and supplied or {}
+    local provenance = {
+        candidate_sha = supplied.candidate_sha or "dev", mod_version = supplied.mod_version or "dev",
+        factorio_branch = supplied.factorio_branch or "unknown", packaged = supplied.packaged == true,
+        sheet_revision = job.revisions and job.revisions.sheet or 0, config_revision = job.revisions and job.revisions.config or 0,
+        outcome = "pending",
+    }
+    return copy_plain(provenance) or {}
+end
+
+local function update_capture(handle, state, outcome, errors, stage)
+    if not handle or type(handle.capture) ~= "table" then return end
+    handle.capture.provenance = handle.capture.provenance or {}
+    handle.capture.provenance.outcome = outcome
+    if errors then handle.capture.provenance.reason_codes = copy_plain(codes(errors)) or {} end
+    if stage then handle.capture.provenance.stage = stage end
+    state = state or {}
+    handle.capture.provenance.revisions = copy_plain(state.revisions or handle.revisions) or {}
+end
+
 local function terminal_failure(handle, job)
     if not handle or handle.state ~= "pending" then return end
     local code_list = codes(job.errors)
@@ -402,6 +532,7 @@ local function terminal_failure(handle, job)
     handle.phase = stage_for(job.errors)
     handle.progress = result_progress(job.progress)
     handle.reason_codes = code_list
+    update_capture(handle, job.state and job.state.prepare and job.state.prepare.fields, "failure", job.errors, handle.phase)
     local report = Registry.generation_failure
     if type(report) == "function" then
         pcall(report, handle.player_index, {
@@ -416,6 +547,7 @@ local function terminal_cancel(handle, phase)
     handle.state = "cancelled"
     handle.phase = phase or "cancelled"
     handle.progress = result_progress(handle.progress)
+    update_capture(handle, nil, "cancelled", nil, handle.phase)
 end
 
 local function handle_for(job)
@@ -591,37 +723,45 @@ local function step(job, budget)
 
     if state.phase == "queued" or state.phase == "prepare" then
         state.phase = "prepare"
-        local ok, prepared_or_reason, preparation_reason = pcall(prepared_input, state.input, job)
+        local ok, prepared_or_reason, preparation_reason = pcall(prepared_input, state.input, job, state, budget)
         if not ok then
-            set_failure(job, state, "BP_FAIL_ENTITY_BUDGET", "search")
+            set_failure(job, state, "BP_FAIL_ENTITY_BUDGET", "preflight")
             job.errors[1].detail = tostring(prepared_or_reason)
             terminal_failure(handle_for(job), job)
             budget.ops = math.max(0, budget.ops - 1)
             return job
         end
-        if prepared_or_reason == nil then
+        if prepared_or_reason == nil and preparation_reason ~= nil then
             if preparation_reason == "deleted" then
                 job.done, job.ok, job.phase = true, false, "cancelled"
                 job.errors = {{code = "BP_FAIL_CANCELLED"}}
                 state.phase = "cancelled"
                 terminal_cancel(handle_for(job), "cancelled")
             else
-                set_failure(job, state, "BP_FAIL_ENTITY_BUDGET", "search")
+                set_failure(job, state, "BP_REJ_SNAPSHOT_STALE", "preflight")
+                job.errors[1].detail = preparation_reason
                 terminal_failure(handle_for(job), job)
             end
             budget.ops = math.max(0, budget.ops - 1)
             return job
         end
-        state.prepared = prepared_or_reason
-        local input = prepared_or_reason
-        local search_input = search_input_for(input, job)
-        state.search = Search.begin(search_input)
-        state.search.player_index, state.search.sheet_id = job.player_index, job.sheet_id
-        state.search.revisions = copy_plain(job.revisions) or {}
-        state.phase = "search"
-        job.phase = state.search.phase
-        job.progress = result_progress(state.search.progress)
-        budget.ops = math.max(0, budget.ops - 1)
+        if prepared_or_reason ~= nil then
+            state.prepared = prepared_or_reason
+            local handle = handle_for(job)
+            if handle and not handle.capture then
+                handle.capture = copy_plain(prepared_or_reason) or {}
+                handle.capture.source_kind = capture_source_kind(state.input, prepared_or_reason)
+                handle.capture.provenance = initial_provenance(state.input, job)
+            end
+            local input = prepared_or_reason
+            local search_input = search_input_for(input, job)
+            state.search = Search.begin(search_input)
+            state.search.player_index, state.search.sheet_id = job.player_index, job.sheet_id
+            state.search.revisions = copy_plain(job.revisions) or {}
+            state.phase = "search"
+            job.phase = state.search.phase
+            job.progress = result_progress(state.search.progress)
+        end
     end
 
     if state.phase == "search" and budget.ops > 0 then
@@ -662,6 +802,7 @@ local function publish(job)
     handle.canonical_version = version
     handle.canonical = canonical
     handle.canonical_sha256 = canonical_digest(canonical)
+    update_capture(handle, nil, "success", nil, "done")
 
     if handle.deliver then
         local ok, reason = BlueprintDelivery.deliver(handle.player_index, blueprint)
@@ -747,10 +888,19 @@ function Generation.status(player_index, job_id)
                 handle.state = "failure"
                 handle.phase = "search"
                 handle.reason_codes = {"BP_FAIL_REVISION_CHANGED"}
+                update_capture(handle, nil, "failure", handle.reason_codes, handle.phase)
             end
         end
     end
     return public_status(handle)
+end
+
+function Generation.capture(player_index, generation_id)
+    local handle = handles[generation_id]
+    if not handle or handle.player_index ~= player_index or type(handle.capture) ~= "table" then return nil end
+    local capture = copy_plain(handle.capture)
+    if capture then capture.provenance = copy_plain(handle.capture.provenance) or {} end
+    return capture
 end
 
 function Generation.cancel(player_index, job_id)

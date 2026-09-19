@@ -230,6 +230,7 @@ local function start_generation(context)
     --The player and engine paths share the service and its one registered blueprint kind.
     context.schema_version = 1
     context.player_index, context.sheet_id, context.deliver = player_index, sheet_id, false
+    context.source_kind, context.provenance = "runtime", copy_plain(EngineTestApi.build_id())
     local generation_id, reason = Generation.start(context)
     if not generation_id then error(reason or "generation request refused", 2) end
     next_job_id = next_job_id + 1
@@ -315,6 +316,7 @@ local function canonical(blueprint_string)
 end
 
 function EngineTestApi.register()
+    if not EngineTestApi.build_id().packaged then return false end
     if registered then return true end
     local remote = rawget(_G, "remote")
     if not remote then return false end
