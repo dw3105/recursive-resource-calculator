@@ -140,7 +140,7 @@ for _, shape in ipairs(H.shapes()) do
         input.pole = {name = "medium-electric-pole", quality = "legendary", tile_w = 1, tile_h = 1,
             supply_w = 5.5, supply_h = 5.5, wire_reach = 20}
         local legendary = finish(input)
-        H.equal(normal.pole_count, 3, "normal supply area needs three poles")
+        H.equal(normal.pole_count, 2, "normal supply area overlaps the three consumers with two poles")
         H.equal(legendary.pole_count, 1, "higher quality supply area needs one pole")
     end)
 

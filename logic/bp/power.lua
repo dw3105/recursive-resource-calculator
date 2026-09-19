@@ -66,7 +66,9 @@ local function value_for_quality(spec, key, quality)
         local value = qualities[quality][key]
         if value ~= nil then return value end
     end
-    return spec[key]
+    local direct = spec[key]
+    if type(direct) == "table" and direct[quality] ~= nil then return direct[quality] end
+    return direct
 end
 
 local function quality_name(value)
@@ -99,13 +101,17 @@ local function append_spec(specs, raw, quality)
     end
 
     local selected_quality = quality_name(raw.quality)
+    local supply_w = value_for_quality(raw, "supply_w", selected_quality)
+    local supply_h = value_for_quality(raw, "supply_h", selected_quality)
+    if supply_w == nil then supply_w = value_for_quality(raw, "supply_area_distance", selected_quality) end
+    if supply_h == nil then supply_h = value_for_quality(raw, "supply_area_distance_h", selected_quality) end
     local result = {
         name = raw.name or raw.prototype or "electric-pole",
         quality = selected_quality,
         tile_w = math.max(1, integer(raw.tile_w or raw.width, 1)),
         tile_h = math.max(1, integer(raw.tile_h or raw.height, 1)),
-        supply_w = finite(value_for_quality(raw, "supply_w", selected_quality), nil),
-        supply_h = finite(value_for_quality(raw, "supply_h", selected_quality), nil),
+        supply_w = finite(supply_w, nil),
+        supply_h = finite(supply_h, nil),
         wire_reach = finite(value_for_quality(raw, "wire_reach", selected_quality), nil),
         max_count = integer(raw.max_count or raw.count_limit, nil),
         fixed_x = finite(raw.x, nil),
@@ -245,13 +251,11 @@ local function consumer_covered(candidate, consumer)
     if not rect_valid(consumer.rect) then return false end
     local centre_x = candidate.rect.x + candidate.rect.w / 2
     local centre_y = candidate.rect.y + candidate.rect.h / 2
-    local left = centre_x - candidate.supply_w
-    local right = centre_x + candidate.supply_w
-    local top = centre_y - candidate.supply_h
-    local bottom = centre_y + candidate.supply_h
-    return left <= consumer.rect.x + EPSILON and top <= consumer.rect.y + EPSILON
-        and right + EPSILON >= consumer.rect.x + consumer.rect.w
-        and bottom + EPSILON >= consumer.rect.y + consumer.rect.h
+    local supply = {
+        x = centre_x - candidate.supply_w, y = centre_y - candidate.supply_h,
+        w = candidate.supply_w * 2, h = candidate.supply_h * 2,
+    }
+    return rect_intersects(supply, consumer.rect)
 end
 
 local function candidate_less(a, b, candidates)
@@ -359,6 +363,192 @@ local function addable(candidate_index, selected, candidates, specs, max_poles)
     return variant_allowed(candidate_index, selected, candidates, specs)
 end
 
+local function candidate_key(spec_index, x, y)
+    return tostring(spec_index) .. ":" .. tostring(x) .. ":" .. tostring(y)
+end
+
+local function append_candidate(work, candidate)
+    if not candidate then return false end
+    local key = candidate_key(candidate.spec_index, candidate.rect.x, candidate.rect.y)
+    if work.candidate_keys[key] then return false end
+    work.candidate_keys[key] = true
+    work.candidates[#work.candidates + 1] = candidate
+    return true
+end
+
+local function candidate_at(work, spec_index, x, y)
+    local spec = work.specs[spec_index]
+    if not spec then return nil end
+    local max_x, max_y = work.grid_w - spec.tile_w, work.grid_h - spec.tile_h
+    if x < 0 or y < 0 or x > max_x or y > max_y then return nil end
+    if spec.fixed_x ~= nil and x ~= integer(spec.fixed_x, 0) then return nil end
+    if spec.fixed_y ~= nil and y ~= integer(spec.fixed_y, 0) then return nil end
+
+    local rect = candidate_rect(spec, x, y)
+    for _, occupied in ipairs(work.occupied) do
+        if rect_intersects(rect, occupied.rect) then return nil end
+    end
+    local candidate = {
+        spec_index = spec_index, name = spec.name, quality = spec.quality,
+        rect = rect, supply_w = spec.supply_w, supply_h = spec.supply_h,
+        wire_reach = spec.wire_reach, covers = {},
+    }
+    for consumer_index, consumer in ipairs(work.consumers) do
+        if consumer_covered(candidate, consumer) then candidate.covers[#candidate.covers + 1] = consumer_index end
+    end
+    return candidate
+end
+
+local function range_for_node(spec, node, reach, axis)
+    local centre = (axis == "x" and node.rect.x + node.rect.w / 2 or node.rect.y + node.rect.h / 2)
+    local size = axis == "x" and spec.tile_w or spec.tile_h
+    return math.ceil(centre - reach - size / 2 - EPSILON),
+        math.floor(centre + reach - size / 2 + EPSILON)
+end
+
+local function relay_budget_check(work)
+    if work.relay_checks >= work.relay_check_limit then
+        work.relay_bound_hit = true
+        return false, true
+    end
+    work.relay_checks = work.relay_checks + 1
+    return true, false
+end
+
+local function relay_try(work, selected, spec_index, x, y)
+    if work.relay_candidates_used >= work.relay_candidate_limit then
+        work.relay_bound_hit = true
+        return false, true
+    end
+    local candidate = candidate_at(work, spec_index, x, y)
+    if candidate then
+        --The candidate is not in the list yet, so compare its rectangle directly to the selected poles.
+        for _, selected_index in ipairs(selected) do
+            if rect_intersects(candidate.rect, work.candidates[selected_index].rect) then candidate = nil; break end
+        end
+    end
+    if candidate and append_candidate(work, candidate) then
+        work.relay_candidates_used = work.relay_candidates_used + 1
+        return true, false
+    end
+    return false, false
+end
+
+local function relay_pairs(selected, candidates)
+    local pairs = {}
+    for left = 1, #selected do
+        for right = left + 1, #selected do
+            local a, b = selected[left], selected[right]
+            if candidates[a] and candidates[b] then
+                pairs[#pairs + 1] = {left = left, right = right, a = a, b = b}
+            end
+        end
+    end
+    return pairs
+end
+
+--The ordinary candidate list deliberately contains only a sparse relay lattice.  Once that list leaves two
+--components, inspect the small rectangles in which a legal bridge could exist.  This is local to the current
+--components and bounded separately from the ordinary candidate list, so a large empty sheet does not turn every
+--tile into a relay candidate.
+local function expand_local_relays(selected, work, graph)
+    if #selected < 2 then return false end
+    if work.relay_candidate_limit <= 0 or work.relay_check_limit <= 0 then
+        work.relay_bound_hit = true
+        return false
+    end
+
+    local pairs = relay_pairs(selected, work.candidates)
+
+    --First try the exact intersection of two endpoint reach regions.  This is the useful case for a single
+    --off-lattice bridge and is also the cheapest way to find one.
+    for _, pair in ipairs(pairs) do
+        if graph.root(pair.left) ~= graph.root(pair.right) then
+            local left, right = work.candidates[pair.a], work.candidates[pair.b]
+            for spec_index, spec in ipairs(work.specs) do
+                local left_reach = math.min(spec.wire_reach, left.wire_reach)
+                local right_reach = math.min(spec.wire_reach, right.wire_reach)
+                local left_x, left_x2 = range_for_node(spec, left, left_reach, "x")
+                local right_x, right_x2 = range_for_node(spec, right, right_reach, "x")
+                local left_y, left_y2 = range_for_node(spec, left, left_reach, "y")
+                local right_y, right_y2 = range_for_node(spec, right, right_reach, "y")
+                local min_x, max_x = math.max(left_x, right_x), math.min(left_x2, right_x2)
+                local min_y, max_y = math.max(left_y, right_y), math.min(left_y2, right_y2)
+                for y = min_y, max_y do
+                    for x = min_x, max_x do
+                        local checked = relay_budget_check(work)
+                        if not checked then return false end
+                        local candidate = candidate_at(work, spec_index, x, y)
+                        local legal = candidate and wire_legal(candidate, left) and wire_legal(candidate, right)
+                        if legal then
+                            local blocked = false
+                            for _, selected_index in ipairs(selected) do
+                                if rect_intersects(candidate.rect, work.candidates[selected_index].rect) then
+                                    blocked = true; break
+                                end
+                            end
+                            if not blocked then
+                                local added, bound = relay_try(work, selected, spec_index, x, y)
+                                if added or bound then return added end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    --If no one-pole bridge exists, grow a frontier from the side of a component nearest to another one.  The next
+    --iteration can then repeat this bounded step, which supports a long gap without reopening the whole grid.
+    for _, pair in ipairs(pairs) do
+        if graph.root(pair.left) ~= graph.root(pair.right) then
+            local source = work.candidates[pair.a]
+            local target = work.candidates[pair.b]
+            for spec_index, spec in ipairs(work.specs) do
+                local reach = math.min(spec.wire_reach, source.wire_reach)
+                local min_x, max_x = range_for_node(spec, source, reach, "x")
+                local min_y, max_y = range_for_node(spec, source, reach, "y")
+                local positions = {}
+                for y = min_y, max_y do
+                    for x = min_x, max_x do
+                        positions[#positions + 1] = {x = x, y = y}
+                    end
+                end
+                local target_x = target.rect.x + target.rect.w / 2
+                local target_y = target.rect.y + target.rect.h / 2
+                table.sort(positions, function(a, b)
+                    local ac = a.x + spec.tile_w / 2 - target_x
+                    local ay = a.y + spec.tile_h / 2 - target_y
+                    local bc = b.x + spec.tile_w / 2 - target_x
+                    local by = b.y + spec.tile_h / 2 - target_y
+                    local ad, bd = ac * ac + ay * ay, bc * bc + by * by
+                    if ad ~= bd then return ad < bd end
+                    if a.y ~= b.y then return a.y < b.y end
+                    return a.x < b.x
+                end)
+                for _, position in ipairs(positions) do
+                    local checked = relay_budget_check(work)
+                    if not checked then return false end
+                    local candidate = candidate_at(work, spec_index, position.x, position.y)
+                    if candidate and wire_legal(candidate, source) then
+                        local blocked = false
+                        for _, selected_index in ipairs(selected) do
+                            if rect_intersects(candidate.rect, work.candidates[selected_index].rect) then
+                                blocked = true; break
+                            end
+                        end
+                        if not blocked then
+                            local added, bound = relay_try(work, selected, spec_index, position.x, position.y)
+                            if added or bound then return added end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function greedy_selection(work, seed_index)
     local selected, selected_set = {}, {}
     local max_poles = work.max_poles
@@ -443,9 +633,18 @@ local function connect_selection(selected, work)
                 end
             end
         end
-        if best == nil then break end
-        selected[#selected + 1] = best
-        selected_set[best] = true
+        if best == nil then
+            --The sparse lattice is exhausted for this frontier.  Only then spend the bounded local relay search.
+            if expand_local_relays(selected, work, current) then
+                --The new candidate is deliberately left out of selected_set until the normal chooser accepts it.
+                --Repeating the scan keeps lattice candidates preferred whenever either set can make progress.
+            else
+                break
+            end
+        else
+            selected[#selected + 1] = best
+            selected_set[best] = true
+        end
     end
     return selected
 end
@@ -538,6 +737,10 @@ local function publish(state)
     local errors = {}
     if #uncovered > 0 then errors[#errors + 1] = {code = "BP_PW_UNCOVERED", ids = uncovered} end
     if graph.components > 1 then errors[#errors + 1] = {code = "BP_PW_DISCONNECTED", components = graph.components} end
+    if work.relay_bound_hit and graph.components > 1 then
+        errors[#errors + 1] = {code = "BP_PW_SEARCH_BOUND", candidates = work.relay_candidates_used,
+            limit = work.relay_candidate_limit, checks = work.relay_checks, check_limit = work.relay_check_limit}
+    end
 
     local connection_point
     if entities[1] then
@@ -608,6 +811,12 @@ function Power.begin(input)
     end
     local search_limit = integer(limits.max_search_seeds, 8)
     search_limit = math.max(1, search_limit)
+    local relay_candidate_limit = input.max_off_lattice_candidates or input.max_relay_candidates
+        or limits.max_off_lattice_candidates or limits.max_relay_candidates or limits.max_local_candidates
+    relay_candidate_limit = math.max(0, integer(relay_candidate_limit, 256) or 0)
+    local relay_check_limit = input.max_off_lattice_checks or input.max_relay_checks
+        or limits.max_off_lattice_checks or limits.max_relay_checks or limits.max_local_checks
+    relay_check_limit = math.max(0, integer(relay_check_limit, 4096) or 0)
 
     local total_units = candidate_limit + search_limit + 1
     local state = {
@@ -617,7 +826,9 @@ function Power.begin(input)
         _work = {
             grid_w = grid_w, grid_h = grid_h, specs = specs, consumers = consumers, occupied = occupied,
             max_poles = math.max(0, max_poles), candidate_limit = candidate_limit,
-            search_limit = search_limit, candidates = {}, best = nil,
+            search_limit = search_limit, candidates = {}, candidate_keys = {}, best = nil,
+            relay_candidate_limit = relay_candidate_limit, relay_check_limit = relay_check_limit,
+            relay_candidates_used = 0, relay_checks = 0, relay_bound_hit = false,
         },
     }
     return state
@@ -640,8 +851,10 @@ function Power.step(state, budget)
                 local max_y = work.grid_h - spec.tile_h
                 local x, y = state.cursor.x, state.cursor.y
                 if spec.fixed_x ~= nil or spec.fixed_y ~= nil then
-                    x, y = integer(spec.fixed_x, 0), integer(spec.fixed_y, 0)
-                    state.cursor.y = max_y + 1
+                    x = spec.fixed_x ~= nil and integer(spec.fixed_x, 0) or 0
+                    y = spec.fixed_y ~= nil and integer(spec.fixed_y, 0) or 0
+                    state.cursor.spec_index = spec_index + 1
+                    state.cursor.x, state.cursor.y = 0, 0
                 elseif max_x < 0 or max_y < 0 or y > max_y then
                     state.cursor.spec_index = spec_index + 1
                     state.cursor.x, state.cursor.y = 0, 0
@@ -670,7 +883,7 @@ function Power.step(state, budget)
                         --scan thousands of candidates that can never improve it.
                         local step = math.max(1, math.floor(finite(spec.wire_reach, 2) / 2))
                         if #candidate.covers > 0 or (x % step == 0 and y % step == 0) then
-                            work.candidates[#work.candidates + 1] = candidate
+                            append_candidate(work, candidate)
                         end
                     end
                 end
