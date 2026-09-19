@@ -273,14 +273,87 @@ local function materialize_candidate(state, candidate, placements)
     return blocks, entities, ports
 end
 
-local function power_consumers(entities, plan)
+local function lower_name(value)
+    return type(value) == "string" and value:lower() or ""
+end
+
+local function catalog_entity(catalog, name)
+    if type(catalog) ~= "table" or type(name) ~= "string" then return {} end
+    local entity = type(catalog.entity) == "table" and catalog.entity[name]
+    if entity then return entity end
+    for _, family in ipairs({"machine", "beacon", "inserter", "belt", "pipe"}) do
+        if type(catalog[family]) == "table" and catalog[family][name] then return catalog[family][name] end
+    end
+    return {}
+end
+
+local function electrical_kind(entity, catalog)
+    local declared = lower_name(entity.kind or entity.etype)
+    local typed = lower_name(entity.type)
+    local name = lower_name(entity.name or entity.entity or entity.prototype)
+    local spec = catalog_entity(catalog, entity.name or entity.entity or entity.prototype)
+    local catalog_kind = lower_name(spec.kind or spec.etype or spec.type)
+
+    local function classify(value)
+        if value == "roboport" or value == "robo" then return "roboport" end
+        if value == "machine" or value == "assembling-machine" or value == "furnace"
+            or value == "rocket-silo" or value == "lab" or value == "mining-drill" then return "machine" end
+        if value == "beacon" then return "beacon" end
+        if value == "inserter" then return "inserter" end
+        if value == "belt" or value == "lane" or value == "pipe"
+            or value == "transport-belt" or value == "underground-belt" or value == "splitter"
+            or value == "pipe-to-ground" then return "transport" end
+        return nil
+    end
+
+    --Route entities use type = input/output, so an entity kind or a prototype/catalog type wins over that field.
+    if declared == "roboport" or typed == "roboport" or catalog_kind == "roboport"
+        or name == "roboport" or name:find("roboport", 1, true) then return nil end
+    local result = classify(declared) or classify(catalog_kind)
+    if result == "roboport" then return nil end
+    if result then return result end
+    if typed ~= "input" and typed ~= "output" then
+        result = classify(typed)
+        if result == "roboport" then return nil end
+        if result then return result end
+    end
+
+    if name == "roboport" or name:find("roboport", 1, true) then return nil end
+    if name == "inserter" or name:find("inserter", 1, true) then return "inserter" end
+    if name == "beacon" or name:find("beacon", 1, true) then return "beacon" end
+    if name == "belt" or name:find("transport%-belt", 1) or name:find("underground%-belt", 1)
+        or name:find("splitter", 1, true) or name == "pipe" or name:find("pipe", 1, true) then
+        return "transport"
+    end
+    if name:find("assembling%-machine", 1) or name:find("furnace", 1, true)
+        or name:find("rocket%-silo", 1) or name:find("mining%-drill", 1)
+        or name:find("lab", 1, true) then return "machine" end
+    return nil
+end
+
+local function entity_rect(entity, catalog)
+    local name = entity.name or entity.entity or entity.prototype
+    local spec = catalog_entity(catalog, name)
+    local size = type(spec.size) == "table" and spec.size or {}
+    local w = finite(entity.w, finite(spec.tile_w, finite(size.w, 1)))
+    local h = finite(entity.h, finite(spec.tile_h, finite(size.h, 1)))
+    local position = type(entity.position) == "table" and entity.position or {}
+    local x = finite(entity.x, nil)
+    local y = finite(entity.y, nil)
+    if x == nil then x = finite(position.x, 0) - w / 2 end
+    if y == nil then y = finite(position.y, 0) - h / 2 end
+    return {x = x, y = y, w = w, h = h}
+end
+
+local function power_consumers(entities, plan, catalog)
     local step_by_id = {}
     for _, step in ipairs(plan and plan.steps or {}) do step_by_id[step.step_id] = step end
     local result = {}
     for _, entity in ipairs(entities or {}) do
-        if entity.kind == "machine" or entity.type == "machine" or entity.step_id ~= nil then
+        local kind = electrical_kind(entity, catalog)
+        if kind == "machine" or kind == "beacon" or kind == "inserter" or kind == "transport" then
             local step = step_by_id[entity.step_id]
-            result[#result + 1] = {id = entity.id, rect = {x = entity.x, y = entity.y, w = entity.w, h = entity.h},
+            result[#result + 1] = {id = entity.id, rect = entity_rect(entity, catalog),
                 power_w = finite(entity.power_w, finite(step and step.power_w, 0))}
         end
     end
@@ -305,7 +378,8 @@ end
 
 local function make_power_input(state, grid, entities, roboports, obstacles)
     local input = stage_input(state, {
-        grid_w = grid.w, grid_h = grid.h, consumers = power_consumers(entities, state.work.plan_result),
+        grid_w = grid.w, grid_h = grid.h,
+        consumers = power_consumers(entities, state.work.plan_result, state.work.input.catalog),
         occupied = occupied_rects(entities, roboports, obstacles),
     })
     input.grid = {w = grid.w, h = grid.h}
@@ -654,7 +728,7 @@ function Search.begin(input)
             plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil, orderings = nil,
             pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
             grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false,
-            candidate_beacon_lower_bound = nil, publication_reserved = false},
+            candidate_beacon_lower_bound = nil, publication_reserved = false, power_bound_hit = false},
     }
     state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
     state.initial_revisions = copy(state.revisions)
@@ -673,6 +747,7 @@ local function finish_grid_or_search(state)
     if not can_improve_beacons(state) then begin_serialization(state); return end
     if next_grid(state) then return end
     if state.work.grid_limit_hit then finish_search_budget(state); return end
+    if state.work.power_bound_hit then finish_search_budget(state); return end
     if state.incumbent then begin_serialization(state) else failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT") end
 end
 
@@ -819,7 +894,11 @@ function Search.step(container, budget)
         elseif state.phase == "power" then
             run_stage(state, "power", Power, budget)
             if stage_done(state.work.power) then
-                if not state.work.power.ok then discard_candidate(state)
+                if not state.work.power.ok then
+                    for _, power_error in ipairs(state.work.power.errors or {}) do
+                        if power_error.code == "BP_PW_SEARCH_BOUND" then state.work.power_bound_hit = true; break end
+                    end
+                    discard_candidate(state)
                 else
                     local route_result = state.work.route.result or {}
                     local power_result = state.work.power.result or {}
