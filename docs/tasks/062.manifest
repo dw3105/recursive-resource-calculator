@@ -1,0 +1,5 @@
+tests/golden/engine/mod/
+tests/test_engine_runtime_adapter.lua
+tests/test_engine_scenario.lua
+tests/test_companion_api_shapes.lua
+docs/engine-evidence/runner.md
