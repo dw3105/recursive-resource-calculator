@@ -464,9 +464,12 @@ def _discover_running(repo: Path, state_override: str | None, descriptors: Itera
 
 def _clash_problems(target: ManifestResult, running: Iterable[RunningLane], repo: Path) -> list[str]:
     problems: list[str] = []
+    reported_worktrees: set[Path] = set()
     for lane in running:
         if lane.worktree is not None and lane.worktree == repo:
-            problems.append(f"worktree already holds a running lane: {repo} ({lane.label})")
+            if lane.worktree not in reported_worktrees:
+                problems.append(f"worktree already holds a running lane: {repo} ({lane.label})")
+                reported_worktrees.add(lane.worktree)
         if lane.manifest is None or not lane.manifest.is_file():
             continue
         active_repo = lane.worktree or lane.manifest.parent
