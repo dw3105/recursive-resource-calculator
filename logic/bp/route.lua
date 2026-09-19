@@ -12,11 +12,786 @@
 --max_underground_distance. The exposed connection of a vanilla pipe-to-ground faces away from its partner.
 local Route = {}
 
+local Grid = require "logic.bp.grid"
+
+local EPSILON = 1e-9
+local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
+
+local function finite(value, fallback)
+    if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+        return value
+    end
+    return fallback
+end
+
+local function tolerance(value)
+    return math.max(EPSILON, math.abs(value or 0) * EPSILON)
+end
+
+local function copy_position(value)
+    if type(value) ~= "table" or type(value.x) ~= "number" or type(value.y) ~= "number" then return nil end
+    return {x = value.x, y = value.y}
+end
+
+local function copy_rect(value)
+    if type(value) ~= "table" then return nil end
+    local x, y = finite(value.x), finite(value.y)
+    local w, h = finite(value.w or value.width), finite(value.h or value.height)
+    if x == nil or y == nil or w == nil or h == nil then return nil end
+    return {x = x, y = y, w = w, h = h}
+end
+
+local function sorted_keys(map)
+    local keys = {}
+    for key, _ in pairs(map or {}) do keys[#keys + 1] = key end
+    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    return keys
+end
+
+local function flow_id_of(flow)
+    return flow and (flow.flow_id or flow.full_name or flow.id)
+end
+
+local function port_flow_id(port)
+    return port and (port.flow_id or port.full_name or port.flow)
+end
+
+local function role_of(port)
+    return port and (port.role or (port.direction == "in" and "in") or (port.direction == "out" and "out"))
+end
+
+local function step_id_of(value)
+    if type(value) == "table" then return value.step_id or value.id or value.block_id end
+    return value
+end
+
+local function share_of(value)
+    if type(value) ~= "table" then return finite(value, 0) end
+    return finite(value.share_per_second or value.rate_per_second or value.rate, 0)
+end
+
+local function coordinate_key(x, y)
+    return tostring(x) .. ":" .. tostring(y)
+end
+
+local function direction_from_step(x1, y1, x2, y2)
+    return Grid.dir_from_vector(x2 - x1, y2 - y1)
+end
+
+local function add_rect_cells(cells, rect, owner)
+    if not rect then return end
+    for y = rect.y, rect.y + rect.h - 1 do
+        for x = rect.x, rect.x + rect.w - 1 do cells[coordinate_key(x, y)] = owner end
+    end
+end
+
+local function placement_for(block, placements)
+    local placement = block.placement or {}
+    local id = block.block_id or block.id
+    if placements then
+        if placements[id] then placement = placements[id]
+        else
+            for _, candidate in ipairs(placements) do
+                if (candidate.block_id or candidate.id) == id then placement = candidate; break end
+            end
+        end
+    end
+    return {
+        x = finite(block.x, finite(placement.x, 0)),
+        y = finite(block.y, finite(placement.y, 0)),
+        dir = finite(block.dir, finite(placement.dir, Grid.NORTH)),
+    }
+end
+
+local function dimension_for(block, placement, key, fallback)
+    return finite(block[key], finite(placement[key], fallback))
+end
+
+local function turns_for(dir)
+    return math.floor((dir or Grid.NORTH) % 16 / 4)
+end
+
+local function rotate_connection(raw, placement_dir, endpoint_x, endpoint_y)
+    if type(raw) ~= "table" then return nil end
+    local result = {}
+    local direction = raw.direction or raw.dir or raw.connection_dir
+    local position = copy_position(raw.position)
+    if not position and type(raw.positions) == "table" then
+        position = copy_position(raw.positions[turns_for(placement_dir) + 1]) or copy_position(raw.positions[1])
+    end
+    if direction ~= nil and not raw.global_direction then direction = Grid.rotate_dir(direction, placement_dir) end
+    if position and raw.position ~= nil and raw.global_position then
+        result.x, result.y = math.floor(position.x), math.floor(position.y)
+    else
+        result.x, result.y = endpoint_x, endpoint_y
+    end
+    result.direction = direction
+    result.connection_type = raw.connection_type or raw.type
+    result.max_underground_distance = finite(raw.max_underground_distance, finite(raw.max_distance))
+    return result
+end
+
+local function connection_for(block, port, placement, catalog, endpoint_x, endpoint_y)
+    local raw = port.connection or port.pipe_connection or port.underground_connection
+    if not raw and (port.connection_type or port.connection_dir or port.connection_direction) then raw = port end
+    if raw then return rotate_connection(raw, placement.dir, endpoint_x, endpoint_y) end
+    local member = port.member_id and (block.members and block.members[port.member_id])
+    local machine_name = port.machine or (type(member) == "table" and member.name) or block.machine
+    local entity = catalog and catalog.entity and machine_name and catalog.entity[machine_name]
+    local boxes = entity and (entity.fluid_boxes or entity.fluidbox_prototypes)
+    if not boxes then return nil end
+    local wanted_box = port.fluidbox_index or port.box_index
+    local wanted_connection = port.connection_index or port.pipe_connection_index
+    for box_index, box in ipairs(boxes) do
+        if wanted_box == nil or wanted_box == box.index or wanted_box == box_index then
+            for connection_index, candidate in ipairs(box.connections or box.pipe_connections or {}) do
+                if wanted_connection == nil or wanted_connection == connection_index then
+                    return rotate_connection(candidate, placement.dir, endpoint_x, endpoint_y)
+                end
+            end
+        end
+    end
+    return nil
+end
+
+local function point_from(value)
+    if type(value) ~= "table" then return nil, nil end
+    local point = value.position or value
+    local x, y = finite(point.x), finite(point.y)
+    if x == nil or y == nil then return nil, nil end
+    return math.floor(x), math.floor(y)
+end
+
+local function perimeter_entries(input)
+    local source = input.perimeter_ports or input.perimeter or input.external_ports
+    if not source and type(input.ports) == "table" then source = input.ports end
+    local result = {}
+    if type(source) ~= "table" then return result end
+    if #source > 0 then
+        for _, port in ipairs(source) do result[#result + 1] = port end
+    else
+        for _, key in ipairs(sorted_keys(source)) do
+            local port = source[key]
+            if type(port) == "table" then
+                local copy = {}
+                for child_key, child in pairs(port) do copy[child_key] = child end
+                copy.port_id = copy.port_id or key
+                result[#result + 1] = copy
+            end
+        end
+    end
+    table.sort(result, function(a, b)
+        return tostring(a.port_id or a.id or "") < tostring(b.port_id or b.id or "")
+    end)
+    return result
+end
+
+local function map_blocks(input)
+    local source = input.blocks or {}
+    local result = {}
+    if #source > 0 then
+        for _, block in ipairs(source) do
+            local copy = {}
+            for key, value in pairs(block) do copy[key] = value end
+            result[#result + 1] = copy
+        end
+    else
+        for _, id in ipairs(sorted_keys(source)) do
+            local block = source[id]
+            if type(block) == "table" then
+                local copy = {}
+                for key, value in pairs(block) do copy[key] = value end
+                copy.block_id = copy.block_id or id
+                result[#result + 1] = copy
+            end
+        end
+    end
+    table.sort(result, function(a, b)
+        return tostring(a.block_id or a.id or "") < tostring(b.block_id or b.id or "")
+    end)
+    return result
+end
+
+local function map_placements(input)
+    local source = input.placements or {}
+    local result = {}
+    if #source > 0 then
+        for _, placement in ipairs(source) do result[placement.block_id or placement.id] = placement end
+    else
+        for id, placement in pairs(source) do result[id] = placement end
+    end
+    return result
+end
+
+local function flow_list(input)
+    local source = input.flows or (input.plan and input.plan.flows) or {}
+    local result = {}
+    if #source > 0 then
+        for _, flow in ipairs(source) do result[#result + 1] = flow end
+    else
+        for _, id in ipairs(sorted_keys(source)) do
+            local flow = source[id]
+            if type(flow) == "table" then
+                local copy = {}
+                for key, value in pairs(flow) do copy[key] = value end
+                copy.flow_id = copy.flow_id or id
+                result[#result + 1] = copy
+            end
+        end
+    end
+    table.sort(result, function(a, b) return tostring(flow_id_of(a)) < tostring(flow_id_of(b)) end)
+    return result
+end
+
+local function copy_grid(input)
+    local grid = input.grid
+    local w = finite(input.grid_w, finite(input.width))
+    local h = finite(input.grid_h, finite(input.height))
+    if type(grid) == "table" then w, h = finite(grid.w, w), finite(grid.h, h) end
+    local cells = {}
+    if type(grid) == "table" and type(grid.cells) == "table" then
+        for index, owner in pairs(grid.cells) do if owner ~= nil then cells[index] = owner end end
+    end
+    return {w = w, h = h, indexed_cells = cells}
+end
+
+local function indexed_cell(grid, x, y)
+    if grid.w == nil or grid.h == nil then return nil end
+    if x < 0 or y < 0 or x >= grid.w or y >= grid.h then return "__outside__" end
+    return grid.indexed_cells[y * grid.w + x + 1]
+end
+
+local function add_input_obstacles(work, input, blocks)
+    local cells = work.obstacles
+    local obstacles = input.obstacles or input.occupied or {}
+    if #obstacles > 0 then
+        for index, obstacle in ipairs(obstacles) do
+            local rect = copy_rect(obstacle.rect or obstacle)
+            if rect then add_rect_cells(cells, rect, obstacle.owner or obstacle.kind or index) end
+        end
+    else
+        for key, obstacle in pairs(obstacles) do
+            local rect = copy_rect(obstacle.rect or obstacle)
+            if rect then add_rect_cells(cells, rect, obstacle.owner or obstacle.kind or key) end
+        end
+    end
+    local roboports = input.roboports or input.roboport_rects or {}
+    for index, roboport in ipairs(roboports) do
+        local rect = copy_rect(roboport.rect or roboport)
+        if rect then add_rect_cells(cells, rect, "roboport:" .. tostring(index)) end
+    end
+    for _, block in ipairs(blocks) do
+        local placement = block._placement
+        local width, height = Grid.rotate_size(block._w, block._h, placement.dir)
+        add_rect_cells(cells, {x = placement.x, y = placement.y, w = width, h = height},
+            "machine:" .. tostring(block.block_id or block.id))
+    end
+end
+
+local function endpoint_position(block, placement, port)
+    local point = port.position or ((port.x ~= nil or port.y ~= nil) and port) or nil
+    local x, y = point_from(point)
+    if x ~= nil and y ~= nil then return x, y end
+    local placed = Grid.place_port(block, placement, port)
+    return placed.x, placed.y
+end
+
+local function endpoint_direction(port, placement, role)
+    local direction = port.travel_dir
+    if direction == nil and port.dir ~= nil then direction = port.dir end
+    if direction == nil then
+        local normal = port.normal_dir or Grid.NORTH
+        direction = role == "in" and normal or Grid.dir_opposite(normal)
+    end
+    return Grid.rotate_dir(direction, placement.dir)
+end
+
+local function normalize_endpoint(block, placement, port, catalog)
+    local role = role_of(port)
+    if role ~= "in" and role ~= "out" then return nil end
+    local x, y = endpoint_position(block, placement, port)
+    local endpoint = {
+        port_id = port.port_id or port.id or ((block.block_id or block.id or "block") .. ":" .. tostring(port.flow_id or port.full_name)),
+        block_id = block.block_id or block.id,
+        step_id = port.step_id or block.step_id or block.block_id or block.id,
+        role = role,
+        flow_id = port_flow_id(port),
+        kind = port.kind or (port.is_fluid and "fluid" or "item"),
+        rate_per_second = finite(port.rate_per_second, finite(port.rate, 0)),
+        x = x, y = y,
+        travel_dir = endpoint_direction(port, placement, role),
+    }
+    endpoint.connection = connection_for(block, port, placement, catalog, x, y)
+    return endpoint
+end
+
+local function normalize_perimeter(port)
+    local role = role_of(port)
+    if role ~= "in" and role ~= "out" then return nil end
+    local x, y = point_from(port)
+    if x == nil or y == nil then return nil end
+    return {
+        port_id = port.port_id or port.id,
+        step_id = "$external",
+        role = role,
+        flow_id = port_flow_id(port),
+        kind = port.kind or (port.is_fluid and "fluid" or "item"),
+        rate_per_second = finite(port.rate_per_second, finite(port.rate, 0)),
+        x = x, y = y,
+        travel_dir = port.travel_dir or port.dir or port.normal_dir,
+        perimeter = true,
+    }
+end
+
+local function capacity_for(work, flow)
+    if flow.is_fluid or flow.kind == "fluid" then
+        return finite(work.input_pipe_capacity, finite(work.pipe and work.pipe.throughput_per_second, math.huge)), "pipe"
+    end
+    return finite(work.input_belt_capacity, finite(work.belt and work.belt.items_per_second,
+        finite(work.belt and work.belt.capacity_per_second, math.huge))), "belt"
+end
+
+local function infrastructure(work, kind)
+    if kind == "pipe" then return (work.pipe and (work.pipe.pipe or work.pipe.name)) or work.input_pipe_name or "pipe" end
+    return (work.belt and (work.belt.belt or work.belt.name)) or work.input_belt_name or "transport-belt"
+end
+
+local function sink_key(endpoint)
+    if endpoint.perimeter then return "port:" .. tostring(endpoint.port_id) end
+    return "step:" .. tostring(endpoint.step_id)
+end
+
+local function endpoint_candidates(index, flow_id, role, step_id)
+    local by_flow = index[flow_id] or {}
+    local candidates = by_flow[role] or {}
+    local result = {}
+    for _, endpoint in ipairs(candidates) do
+        if step_id == nil or endpoint.step_id == step_id then result[#result + 1] = endpoint end
+    end
+    return result
+end
+
+local function first_endpoint(index, flow_id, role, step_id)
+    return endpoint_candidates(index, flow_id, role, step_id)[1]
+end
+
+local function perimeter_for(perimeter, flow_id, role, port_id)
+    for _, endpoint in ipairs(perimeter) do
+        if (port_id == nil or endpoint.port_id == port_id)
+            and endpoint.flow_id == flow_id and endpoint.role == role then return endpoint end
+    end
+    return nil
+end
+
+local function source_endpoint(work, flow_id, entry)
+    local step_id = step_id_of(entry)
+    if step_id == "$external" then return perimeter_for(work.perimeter, flow_id, "in", entry.port_id) end
+    return first_endpoint(work.endpoint_index, flow_id, "out", step_id)
+end
+
+local function target_endpoint(work, flow_id, entry)
+    local step_id = step_id_of(entry)
+    if step_id == "$external" then return perimeter_for(work.perimeter, flow_id, "out", entry.port_id) end
+    return first_endpoint(work.endpoint_index, flow_id, "in", step_id)
+end
+
+local function build_demands(work, flows)
+    local demands = {}
+    for _, flow in ipairs(flows) do
+        local id = flow_id_of(flow)
+        if id then
+            local producers, consumers = {}, {}
+            for _, entry in ipairs(flow.producers or {}) do
+                producers[#producers + 1] = {endpoint = source_endpoint(work, id, entry), remaining = share_of(entry)}
+            end
+            for _, entry in ipairs(flow.consumers or {}) do
+                consumers[#consumers + 1] = {endpoint = target_endpoint(work, id, entry), remaining = share_of(entry)}
+            end
+            if #producers == 0 and #consumers == 0 then
+                for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["out"] or {}) do
+                    producers[#producers + 1] = {endpoint = endpoint, remaining = endpoint.rate_per_second}
+                end
+                for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["in"] or {}) do
+                    consumers[#consumers + 1] = {endpoint = endpoint, remaining = endpoint.rate_per_second}
+                end
+            end
+            for _, producer in ipairs(producers) do
+                for _, consumer in ipairs(consumers) do
+                    local amount = math.min(producer.remaining, consumer.remaining)
+                    if amount > tolerance(amount) then
+                        demands[#demands + 1] = {flow = flow, flow_id = id, source = producer.endpoint, sink = consumer.endpoint,
+                            amount = amount, remaining = amount}
+                        producer.remaining, consumer.remaining = producer.remaining - amount, consumer.remaining - amount
+                    end
+                    if producer.remaining <= tolerance(producer.remaining) then break end
+                end
+            end
+            for _, producer in ipairs(producers) do
+                if producer.remaining > tolerance(producer.remaining) then
+                    work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = id, detail = "producer port is not bound"}
+                    return demands
+                end
+            end
+            for _, consumer in ipairs(consumers) do
+                if consumer.remaining > tolerance(consumer.remaining) then
+                    work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = id, detail = "consumer port is not bound"}
+                    return demands
+                end
+            end
+        end
+    end
+    return demands
+end
+
+local function segment_total(segment)
+    local total = 0
+    for _, allocation in ipairs(segment.allocations or {}) do total = total + allocation.rate_per_second end
+    return total
+end
+
+local function segment_allows(segment, demand, amount)
+    if not segment then return true end
+    if segment.flow_id ~= demand.flow_id then return false, segment.kind == "pipe" and "fluid_mix" or "occupied" end
+    if segment.kind ~= demand.kind then return false, "occupied" end
+    if segment_total(segment) + amount > segment.capacity_per_second + tolerance(segment.capacity_per_second) then return false, "capacity" end
+    return true
+end
+
+local function static_owner(work, x, y)
+    local owner = work.obstacles[coordinate_key(x, y)]
+    if owner ~= nil then return owner end
+    return indexed_cell(work.grid, x, y)
+end
+
+local function is_allowed_owner(owner)
+    return owner == nil or owner == Grid.RESERVED.corridor or owner == Grid.RESERVED.port
+end
+
+local function endpoint_is_blocked(work, endpoint)
+    if not endpoint then return true end
+    local owner = static_owner(work, endpoint.x, endpoint.y)
+    return owner ~= nil and not is_allowed_owner(owner)
+end
+
+local function connection_direction(endpoint)
+    return endpoint and endpoint.connection and endpoint.connection.direction
+end
+
+local function underground_distance(a, b)
+    return math.abs(a.x - b.x) + math.abs(a.y - b.y)
+end
+
+local function underground_candidate(demand, kind, work)
+    local source, sink = demand.source, demand.sink
+    if not source or not sink then return nil, "missing" end
+    local source_connection, sink_connection = source.connection, sink.connection
+    local requested = (source_connection and source_connection.connection_type == "underground")
+        or (sink_connection and sink_connection.connection_type == "underground")
+    if not requested then return nil, "not_requested" end
+    if not source_connection or not sink_connection
+        or source_connection.connection_type ~= "underground"
+        or sink_connection.connection_type ~= "underground" then return nil, "reversed" end
+    local dx, dy = sink.x - source.x, sink.y - source.y
+    if not ((dx == 0 and dy ~= 0) or (dy == 0 and dx ~= 0)) then return nil, "not_facing" end
+    local travel
+    if dx == 0 then travel = Grid.dir_from_vector(0, dy > 0 and 1 or -1)
+    else travel = Grid.dir_from_vector(dx > 0 and 1 or -1, 0) end
+    local reverse = Grid.dir_opposite(travel)
+    if connection_direction(source) ~= travel or connection_direction(sink) ~= reverse then return nil, "reversed" end
+    local distance = underground_distance(source, sink)
+    local family_max = kind == "pipe" and work.pipe and work.pipe.underground_max_distance
+        or work.belt and work.belt.underground_max_distance
+    local source_max = finite(source_connection.max_underground_distance, family_max)
+    local sink_max = finite(sink_connection.max_underground_distance, family_max)
+    if source_max ~= nil and distance > source_max + tolerance(source_max) then return nil, "range" end
+    if sink_max ~= nil and distance > sink_max + tolerance(sink_max) then return nil, "range" end
+    if endpoint_is_blocked(work, source) or endpoint_is_blocked(work, sink) then return nil, "blocked" end
+    return {source = source, sink = sink, direction = travel, distance = distance, kind = kind}, nil
+end
+
+local function add_allocation(segment, flow_id, sink, amount)
+    for _, allocation in ipairs(segment.allocations) do
+        if allocation.flow_id == flow_id and allocation.sink == sink then
+            allocation.rate_per_second = allocation.rate_per_second + amount
+            return
+        end
+    end
+    segment.allocations[#segment.allocations + 1] = {flow_id = flow_id, sink = sink, rate_per_second = amount}
+end
+
+local function entity_position(x, y)
+    return {x = x + 0.5, y = y + 0.5}
+end
+
+local function append_normal_path(work, demand, path, amount)
+    local sink = sink_key(demand.sink)
+    local first_segment
+    for index, cell in ipairs(path) do
+        local next_cell = path[index + 1] or path[index - 1] or cell
+        local direction = direction_from_step(cell.x, cell.y, next_cell.x, next_cell.y)
+        if index == #path and #path > 1 then direction = direction_from_step(path[index - 1].x, path[index - 1].y, cell.x, cell.y) end
+        local key = coordinate_key(cell.x, cell.y)
+        local segment = work.segments_by_cell[key]
+        if segment then
+            local allowed = segment_allows(segment, demand, amount)
+            if not allowed then return false, "capacity" end
+            if segment.direction ~= direction then
+                if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return false, "occupied" end
+                local entity = work.entity_by_segment[segment.segment_id]
+                entity.name = work.belt.splitter
+                entity.splitter = true
+                entity.direction = direction
+                entity.dir = direction
+            end
+        else
+            local capacity, kind = capacity_for(work, demand.flow)
+            segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
+                capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction}
+            local entity = {id = "r:" .. tostring(#work.entities + 1), name = infrastructure(work, kind),
+                position = entity_position(cell.x, cell.y), direction = direction, dir = direction, flow_id = demand.flow_id}
+            work.entities[#work.entities + 1] = entity
+            work.segments[#work.segments + 1] = segment
+            work.segments_by_cell[key] = segment
+            work.entity_by_segment[segment.segment_id] = entity
+        end
+        add_allocation(segment, demand.flow_id, sink, amount)
+        first_segment = first_segment or segment
+    end
+    if first_segment then
+        work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
+            sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id, rate_per_second = amount}
+    end
+    return true
+end
+
+local function append_underground(work, demand, candidate, amount)
+    local capacity, kind = capacity_for(work, demand.flow)
+    if amount > capacity + tolerance(capacity) then return false, "capacity" end
+    local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
+        capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = candidate.direction}
+    local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
+    local name = infrastructure(work, kind)
+    if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
+    else name = (work.belt and (work.belt.underground or work.belt.belt)) or name end
+    local first = {id = first_id, name = name, position = entity_position(candidate.source.x, candidate.source.y),
+        direction = candidate.direction, dir = candidate.direction, flow_id = demand.flow_id,
+        ug_role = "output", type = "output", ug_pair_id = second_id}
+    local second = {id = second_id, name = name, position = entity_position(candidate.sink.x, candidate.sink.y),
+        direction = candidate.direction, dir = candidate.direction, flow_id = demand.flow_id,
+        ug_role = "input", type = "input", ug_pair_id = first_id}
+    work.entities[#work.entities + 1] = first
+    work.entities[#work.entities + 1] = second
+    work.segments[#work.segments + 1] = segment
+    work.entity_by_segment[segment.segment_id] = first
+    add_allocation(segment, demand.flow_id, sink_key(demand.sink), amount)
+    work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
+        sink = sink_key(demand.sink), flow_id = demand.flow_id, segment_id = segment.segment_id, rate_per_second = amount}
+    return true
+end
+
+local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
+    local owner = static_owner(work, x, y)
+    if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
+    local segment = work.segments_by_cell[coordinate_key(x, y)]
+    if segment then
+        if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
+        local allowed, reason = segment_allows(segment, demand, amount)
+        if not allowed then
+            if reason == "capacity" then search.saw_capacity = true end
+            return false
+        end
+        if move_direction ~= nil and segment.direction ~= move_direction then
+            if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then search.saw_blocked = true; return false end
+            search.saw_branch = true
+        end
+    end
+    return true
+end
+
+local function begin_search(work, demand, amount)
+    local search = {demand = demand, amount = amount, queue = {{x = demand.source.x, y = demand.source.y}}, head = 1, tail = 1,
+        visited = {[coordinate_key(demand.source.x, demand.source.y)] = true}, parent = {}, neighbor_index = 1,
+        saw_capacity = false, saw_fluid_mix = false, saw_blocked = false}
+    local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
+    if source_segment then
+        local allowed, reason = segment_allows(source_segment, demand, amount)
+        if not allowed then
+            search.saw_capacity, search.saw_fluid_mix, search.queue, search.tail = reason == "capacity", reason == "fluid_mix", {}, 0
+        end
+    end
+    return search
+end
+
+local function reconstruct(search, target_key)
+    local reversed, key = {}, target_key
+    while key do
+        reversed[#reversed + 1] = search.points[key]
+        if key == search.source_key then break end
+        key = search.parent[key]
+    end
+    local path = {}
+    for index = #reversed, 1, -1 do path[#path + 1] = reversed[index] end
+    return path
+end
+
+local function search_step(work, search)
+    if not search.points then
+        search.points = {[coordinate_key(search.demand.source.x, search.demand.source.y)] = search.queue[1]}
+        search.source_key = coordinate_key(search.demand.source.x, search.demand.source.y)
+    end
+    if search.head > search.tail then return "failed" end
+    local current = search.queue[search.head]
+    local current_key = coordinate_key(current.x, current.y)
+    if current.x == search.demand.sink.x and current.y == search.demand.sink.y then return reconstruct(search, current_key) end
+    if search.neighbor_index > #DIRECTIONS then search.head, search.neighbor_index = search.head + 1, 1; return "continue" end
+    local direction = DIRECTIONS[search.neighbor_index]
+    search.neighbor_index = search.neighbor_index + 1
+    local dx, dy = Grid.dir_vector(direction)
+    local nx, ny = current.x + dx, current.y + dy
+    local target = nx == search.demand.sink.x and ny == search.demand.sink.y
+    local first = current.x == search.demand.source.x and current.y == search.demand.source.y
+    if first and search.demand.source.travel_dir ~= nil and search.demand.source.travel_dir ~= direction then return "continue" end
+    if target and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then return "continue" end
+    local key = coordinate_key(nx, ny)
+    if not search.visited[key] and path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search) then
+        search.visited[key], search.parent[key], search.points[key] = true, current_key, {x = nx, y = ny}
+        search.queue[search.tail + 1], search.tail = {x = nx, y = ny}, search.tail + 1
+    end
+    return "continue"
+end
+
+local function result_for(work)
+    local result = {entities = {}, segments = {}, port_bindings = work.bindings, bindings = work.bindings}
+    for _, entity in ipairs(work.entities) do result.entities[#result.entities + 1] = entity end
+    for _, segment in ipairs(work.segments) do
+        local copy = {segment_id = segment.segment_id, kind = segment.kind,
+            capacity_per_second = segment.capacity_per_second, allocations = {}}
+        for _, allocation in ipairs(segment.allocations) do
+            copy.allocations[#copy.allocations + 1] = {flow_id = allocation.flow_id, sink = allocation.sink,
+                rate_per_second = allocation.rate_per_second}
+        end
+        result.segments[#result.segments + 1] = copy
+    end
+    return result
+end
+
+local function normalize_input(input)
+    input = input or {}
+    local placements, blocks = map_placements(input), map_blocks(input)
+    local work = {
+        input_belt_capacity = finite(input.belt_capacity), input_pipe_capacity = finite(input.pipe_capacity),
+        input_belt_name = input.belt_name, input_pipe_name = input.pipe_name,
+        belt = input.belt or (input.catalog and input.catalog.belt) or {},
+        pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
+        grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
+        entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
+        max_expansions = finite(input.limits and input.limits.max_expansions, finite(input.max_expansions, 1000000)), expansions = 0,
+    }
+    for _, block in ipairs(blocks) do
+        local placement = placement_for(block, placements)
+        block._placement, block._w, block._h = placement, dimension_for(block, placement, "w", 1), dimension_for(block, placement, "h", 1)
+        for _, port in ipairs(block.ports or block.block_ports or {}) do
+            local endpoint = normalize_endpoint(block, placement, port, input.catalog or {})
+            if endpoint and endpoint.flow_id then
+                work.endpoint_index[endpoint.flow_id] = work.endpoint_index[endpoint.flow_id] or {["in"] = {}, ["out"] = {}}
+                work.endpoint_index[endpoint.flow_id][endpoint.role][#work.endpoint_index[endpoint.flow_id][endpoint.role] + 1] = endpoint
+            end
+        end
+    end
+    add_input_obstacles(work, input, blocks)
+    for _, port in ipairs(perimeter_entries(input)) do
+        local endpoint = normalize_perimeter(port)
+        if endpoint and endpoint.flow_id then work.perimeter[#work.perimeter + 1] = endpoint end
+    end
+    work.flows = flow_list(input)
+    work.demands = build_demands(work, work.flows)
+    return work
+end
+
 function Route.begin(input)
-    return {done = false, ok = nil, cursor = {}, progress = {phase = "routing", done_units = 0}}
+    local work = normalize_input(input or {})
+    return {done = false, ok = nil, cursor = {flow_index = 1, demand_index = 1, phase = "routing"},
+        progress = {phase = "routing", done_units = 0, total_units = #work.demands}, work = work}
 end
 
 function Route.step(state, budget)
+    if state.done then return state end
+    budget = budget or {ops = 1}
+    local ops = finite(budget.ops, 1)
+    if ops < 0 then ops = 0 end
+    local work = state.work
+    if work.initial_error then
+        if ops > 0 then
+            state.errors, state.done, state.ok = {work.initial_error}, true, false
+            state.progress.phase, ops = "failed", ops - 1
+        end
+        budget.ops = ops
+        return state
+    end
+    while ops > 0 and not state.done do
+        local demand = work.demands[state.cursor.demand_index]
+        if not demand then
+            state.result, state.done, state.ok = result_for(work), true, true
+            state.progress.phase = "done"
+            break
+        end
+        if demand.remaining <= tolerance(demand.remaining) then
+            state.cursor.demand_index, state.progress.done_units = state.cursor.demand_index + 1, state.progress.done_units + 1
+        else
+            local capacity, kind = capacity_for(work, demand.flow)
+            local amount = math.min(demand.remaining, capacity)
+            if amount <= 0 then
+                state.errors, state.done, state.ok = {{code = "BP_R_CAPACITY", flow_id = demand.flow_id}}, true, false
+                state.progress.phase, ops = "failed", ops - 1
+                break
+            end
+            demand.kind = kind
+            if not work.current then
+                if not demand.source or not demand.sink or endpoint_is_blocked(work, demand.source) or endpoint_is_blocked(work, demand.sink) then
+                    state.errors, state.done, state.ok = {{code = "BP_R_PORT_BLOCKED", flow_id = demand.flow_id}}, true, false
+                    state.progress.phase, ops = "failed", ops - 1
+                    break
+                end
+                local candidate, underground_reason = underground_candidate(demand, kind, work)
+                if candidate then
+                    local ok, reason = append_underground(work, demand, candidate, amount)
+                    ops = ops - 1
+                    if not ok then
+                        state.errors, state.done, state.ok = {{code = reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH", flow_id = demand.flow_id}}, true, false
+                        state.progress.phase = "failed"
+                    else demand.remaining = demand.remaining - amount end
+                elseif underground_reason ~= "not_requested" then
+                    state.errors, state.done, state.ok = {{code = underground_reason == "blocked" and "BP_R_PORT_BLOCKED" or "BP_R_NO_PATH", flow_id = demand.flow_id}}, true, false
+                    state.progress.phase, ops = "failed", ops - 1
+                else
+                    work.current = begin_search(work, demand, amount)
+                end
+            else
+                work.expansions = work.expansions + 1
+                if work.expansions > work.max_expansions then
+                    state.errors, state.done, state.ok = {{code = "BP_R_EXPANSIONS", flow_id = demand.flow_id}}, true, false
+                    state.progress.phase, work.current, ops = "failed", nil, ops - 1
+                    break
+                end
+                local outcome = search_step(work, work.current)
+                ops = ops - 1
+                if type(outcome) == "table" then
+                    local ok, reason = append_normal_path(work, demand, outcome, amount)
+                    work.current = nil
+                    if not ok then
+                        state.errors, state.done, state.ok = {{code = reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH", flow_id = demand.flow_id}}, true, false
+                        state.progress.phase = "failed"
+                    else demand.remaining = demand.remaining - amount end
+                elseif outcome == "failed" then
+                    local search = work.current
+                    local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
+                    state.errors, state.done, state.ok = {{code = code, flow_id = demand.flow_id}}, true, false
+                    state.progress.phase, work.current = "failed", nil
+                end
+            end
+        end
+    end
+    budget.ops = ops
     return state
 end
 
