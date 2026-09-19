@@ -676,6 +676,7 @@ function Groups.materialize(block, placement)
     placement = placement or {x = 0, y = 0, dir = NORTH}
     local px, py, dir = finite(placement.x, 0), finite(placement.y, 0), placement.dir or NORTH
     local placed = {entities = {}, ports = {}, envelope = nil}
+    local occupied = {}
     local oriented_w, oriented_h = Grid.rotate_size(block.w, block.h, dir)
     placed.envelope = {x = px, y = py, w = oriented_w, h = oriented_h, dir = dir}
     for _, member in ipairs(block.members or {}) do
@@ -696,6 +697,10 @@ function Groups.materialize(block, placement)
         entity.x, entity.y, entity.w, entity.h, entity.dir = geometry.x, geometry.y, geometry.w, geometry.h, geometry.dir
         entity.position = {x = geometry.x + geometry.w / 2, y = geometry.y + geometry.h / 2}
         placed.entities[#placed.entities + 1] = entity
+        occupied[#occupied + 1] = {
+            x = geometry.x, y = geometry.y, w = geometry.w, h = geometry.h,
+            owner = "machine:" .. tostring(block.block_id or block.id),
+        }
     end
     local slots = placement.port_slots or {}
     local function slot_for(port, index)
@@ -723,6 +728,11 @@ function Groups.materialize(block, placement)
         placed_port.normal_dir = geometry.dir
         placed_port.dir = geometry.dir
         placed_port.travel_dir = Grid.rotate_dir(source.travel_dir or NORTH, dir)
+        --The search carries placed ports into Route, but not the materialized entity list.  Keep the exact
+        --rotated member rectangles on the port so routing indexes the members themselves, not a rotated-again
+        --block envelope.  This is internal layout data and never becomes a blueprint entity.
+        placed_port._occupied = copy(occupied)
+        placed_port._block_w, placed_port._block_h = block.w, block.h
         placed.ports[#placed.ports + 1] = placed_port
     end
     table.sort(placed.entities, function(a, b) return a.id < b.id end)

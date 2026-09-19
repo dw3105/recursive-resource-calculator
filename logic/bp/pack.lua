@@ -245,10 +245,11 @@ end
 local function scan_region(state, block, region)
     for _, direction in ipairs(block.allowed_dirs) do
         local w, h = Grid.rotate_size(block.w, block.h, direction)
-        if region.w >= w and region.h >= h and placement_avoids_port_cells(state, region.x, region.y, w, h) then
+        local x, y = region.x, region.y
+        if region.w >= w and region.h >= h and placement_avoids_port_cells(state, x, y, w, h) then
             local short_side, long_side = Pack.bssf_score(region, w, h)
             local candidate = {
-                x = region.x, y = region.y, dir = direction, w = w, h = h,
+                x = x, y = y, dir = direction, w = w, h = h,
                 short_side = short_side, long_side = long_side,
             }
             if #block.ports == 0 then

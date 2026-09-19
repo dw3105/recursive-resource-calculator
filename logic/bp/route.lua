@@ -16,6 +16,12 @@ local Grid = require "logic.bp.grid"
 
 local EPSILON = 1e-9
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
+local DIRECTION_ORDERS = {
+    DIRECTIONS,
+    {Grid.SOUTH, Grid.EAST, Grid.NORTH, Grid.WEST},
+    {Grid.EAST, Grid.SOUTH, Grid.WEST, Grid.NORTH},
+    {Grid.EAST, Grid.NORTH, Grid.WEST, Grid.SOUTH},
+}
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
@@ -294,17 +300,36 @@ local function add_input_obstacles(work, input, blocks)
     end
     for _, block in ipairs(blocks) do
         local placement = block._placement
-        local width, height = Grid.rotate_size(block._w, block._h, placement.dir)
-        -- Search passes the already-materialized envelope and absolute port cells. Direct route callers pass a
-        -- local block rectangle plus a placement. Do not rotate the former a second time.
-        for _, port in ipairs(block.ports or block.block_ports or {}) do
-            if port.x ~= nil or port.y ~= nil then
-                width, height = block._w, block._h
-                break
+        local owner = "machine:" .. tostring(block.block_id or block.id)
+        local indexed_members = false
+        for _, entity in ipairs(block.entities or block.placed_entities or {}) do
+            local rect = copy_rect(entity.rect or entity)
+            if rect then
+                add_rect_cells(cells, rect, owner)
+                indexed_members = true
             end
         end
-        add_rect_cells(cells, {x = placement.x, y = placement.y, w = width, h = height},
-            "machine:" .. tostring(block.block_id or block.id))
+        if not indexed_members then
+            for _, port in ipairs(block.ports or block.block_ports or {}) do
+                for _, rect in ipairs(port._occupied or {}) do
+                    local copied = copy_rect(rect)
+                    if copied then add_rect_cells(cells, copied, rect.owner or owner); indexed_members = true end
+                end
+                if indexed_members then break end
+            end
+        end
+        if not indexed_members then
+            -- Search passes a materialized envelope and absolute port cells. Direct route callers pass a local
+            -- block rectangle plus a placement. Do not rotate the former a second time.
+            local width, height = Grid.rotate_size(block._w, block._h, placement.dir)
+            for _, port in ipairs(block.ports or block.block_ports or {}) do
+                if port.x ~= nil or port.y ~= nil then
+                    width, height = block._w, block._h
+                    break
+                end
+            end
+            add_rect_cells(cells, {x = placement.x, y = placement.y, w = width, h = height}, owner)
+        end
     end
 end
 
@@ -315,8 +340,8 @@ local function mirrored_port(block, port)
     --The attach coordinates are written in the block's own frame, so the mirror is computed there too. Reading
     --the rotated size here made a rotated block never mirror, and its port stayed one tile outside the world.
     local envelope = type(block.envelope) == "table" and block.envelope or block
-    local w = finite(block.w, finite(envelope.w, 1))
-    local h = finite(block.h, finite(envelope.h, 1))
+    local w = finite(port._block_w, finite(block.w, finite(envelope.w, 1)))
+    local h = finite(port._block_h, finite(block.h, finite(envelope.h, 1)))
     local mirrored = {}
     for key, value in pairs(port) do mirrored[key] = value end
     if port.attach_dy == -1 then
@@ -345,11 +370,13 @@ local function endpoint_position(block, placement, port, work)
     local point = port.position or ((port.x ~= nil or port.y ~= nil) and port) or nil
     local x, y = point_from(point)
     if x ~= nil and y ~= nil and (work == nil or inside_grid(work, x, y)) then return x, y end
-    local placed = Grid.place_port(block, placement, port)
+    local frame = block
+    if port._block_w ~= nil and port._block_h ~= nil then frame = {w = port._block_w, h = port._block_h} end
+    local placed = Grid.place_port(frame, placement, port)
     if work ~= nil and not inside_grid(work, placed.x, placed.y) then
         local mirrored = mirrored_port(block, port)
         if mirrored then
-            local other = Grid.place_port(block, placement, mirrored)
+            local other = Grid.place_port(frame, placement, mirrored)
             if inside_grid(work, other.x, other.y) then return other.x, other.y, mirrored end
         end
     end
@@ -461,27 +488,7 @@ end
 
 local function build_demands(work, flows)
     local demands = {}
-    local ordered = {}
-    for index, flow in ipairs(flows) do
-        local priority = 1
-        for _, entry in ipairs(flow.producers or {}) do
-            if step_id_of(entry) == "$external" then priority = 0; break end
-        end
-        if priority == 1 then
-            for _, entry in ipairs(flow.consumers or {}) do
-                if step_id_of(entry) == "$external" then priority = 2; break end
-            end
-        end
-        ordered[#ordered + 1] = {flow = flow, priority = priority, index = index}
-    end
-    table.sort(ordered, function(a, b)
-        if a.priority ~= b.priority then return a.priority < b.priority end
-        local aid, bid = tostring(flow_id_of(a.flow)), tostring(flow_id_of(b.flow))
-        if aid ~= bid then return aid < bid end
-        return a.index < b.index
-    end)
-    for _, ordered_flow in ipairs(ordered) do
-        local flow = ordered_flow.flow
+    for _, flow in ipairs(flows) do
         local id = flow_id_of(flow)
         if id then
             local producers, consumers = {}, {}
@@ -490,18 +497,6 @@ local function build_demands(work, flows)
             end
             for _, entry in ipairs(flow.consumers or {}) do
                 consumers[#consumers + 1] = {endpoint = target_endpoint(work, id, entry), remaining = share_of(entry)}
-            end
-            local anchor = producers[1] and producers[1].endpoint
-            if anchor then
-                table.sort(consumers, function(a, b)
-                    local function distance(value)
-                        if not value.endpoint then return -1 end
-                        return math.abs(value.endpoint.x - anchor.x) + math.abs(value.endpoint.y - anchor.y)
-                    end
-                    local ad, bd = distance(a), distance(b)
-                    if ad ~= bd then return ad > bd end
-                    return tostring(a.endpoint and a.endpoint.port_id or "") < tostring(b.endpoint and b.endpoint.port_id or "")
-                end)
             end
             if #producers == 0 and #consumers == 0 then
                 for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["out"] or {}) do
@@ -697,20 +692,6 @@ local function append_underground(work, demand, candidate, amount)
 end
 
 local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
-    local protected = work.protected_cells[coordinate_key(x, y)]
-    if protected then
-        local source, sink = demand.source, demand.sink
-        local first = source and x == source.x and y == source.y
-        local dx, dy = Grid.dir_vector(move_direction)
-        local source_access = source and source.role == "out" and dx ~= nil
-            and x == source.x + dx and y == source.y + dy
-        local sink_access = sink and sink.role == "in" and dx ~= nil
-            and x + dx == sink.x and y + dy == sink.y and move_direction == sink.travel_dir
-        if not is_target and not source_access and not sink_access then
-            search.saw_blocked = true
-            return false
-        end
-    end
     local owner = static_owner(work, x, y)
     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
@@ -719,6 +700,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         local allowed, reason = segment_allows(segment, demand, amount)
         if not allowed then
             if reason == "capacity" then search.saw_capacity = true end
+            if reason == "occupied" then search.saw_blocked = true end
             return false
         end
         if move_direction ~= nil and segment.direction ~= move_direction then
@@ -737,10 +719,12 @@ local function default_expansion_limit(input)
     return math.max(4096, math.floor(w * h * 16))
 end
 
-local function begin_search(work, demand, amount)
+local function begin_search(work, demand, amount, order_index)
+    order_index = order_index or 1
     local search = {demand = demand, amount = amount, queue = {{x = demand.source.x, y = demand.source.y}}, head = 1, tail = 1,
         visited = {[coordinate_key(demand.source.x, demand.source.y)] = true}, parent = {}, neighbor_index = 1,
-        saw_capacity = false, saw_fluid_mix = false, saw_blocked = false}
+        saw_capacity = false, saw_fluid_mix = false, saw_blocked = false,
+        directions = DIRECTION_ORDERS[order_index], order_index = order_index}
     local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
     if source_segment then
         local allowed, reason = segment_allows(source_segment, demand, amount)
@@ -772,8 +756,8 @@ local function search_step(work, search)
     local current = search.queue[search.head]
     local current_key = coordinate_key(current.x, current.y)
     if current.x == search.demand.sink.x and current.y == search.demand.sink.y then return reconstruct(search, current_key) end
-    if search.neighbor_index > #DIRECTIONS then search.head, search.neighbor_index = search.head + 1, 1; return "continue" end
-    local direction = DIRECTIONS[search.neighbor_index]
+    if search.neighbor_index > #search.directions then search.head, search.neighbor_index = search.head + 1, 1; return "continue" end
+    local direction = search.directions[search.neighbor_index]
     search.neighbor_index = search.neighbor_index + 1
     local dx, dy = Grid.dir_vector(direction)
     local nx, ny = current.x + dx, current.y + dy
@@ -813,7 +797,6 @@ local function normalize_input(input)
         belt = input.belt or (input.catalog and input.catalog.belt) or {},
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
-        protected_cells = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         --A path search visits cells, so the whole routing run is bounded by the grid it runs on. The old default
         --of one million let a single demand burn 1.2 million expansions on a 54 by 54 grid (2916 cells) without
@@ -835,39 +818,12 @@ local function normalize_input(input)
         end
     end
     add_input_obstacles(work, input, blocks)
-    if rawget(_G, "__rrc_probe") then
-        print("ROUTE_INPUT grid=" .. tostring(work.grid.w) .. "x" .. tostring(work.grid.h))
-        for _, block in ipairs(blocks) do
-            print(" BLOCK " .. tostring(block.block_id) .. " at=" .. tostring(block.x) .. "," .. tostring(block.y)
-                .. " size=" .. tostring(block.w) .. "x" .. tostring(block.h) .. " dir=" .. tostring(block.dir))
-            for _, port in ipairs(block.ports or {}) do
-                print("  PORT " .. tostring(port.port_id) .. " cell=" .. tostring(port.x) .. "," .. tostring(port.y)
-                    .. " travel=" .. tostring(port.travel_dir))
-            end
-        end
-    end
     for _, port in ipairs(perimeter_entries(input)) do
         local endpoint = normalize_perimeter(port)
         if endpoint and endpoint.flow_id then work.perimeter[#work.perimeter + 1] = endpoint end
     end
-    local function protect_endpoint(endpoint)
-        if not endpoint then return end
-        work.protected_cells[coordinate_key(endpoint.x, endpoint.y)] = true
-    end
-    for _, by_role in pairs(work.endpoint_index) do
-        for _, endpoint in ipairs(by_role["in"] or {}) do protect_endpoint(endpoint) end
-        for _, endpoint in ipairs(by_role["out"] or {}) do protect_endpoint(endpoint) end
-    end
-    for _, endpoint in ipairs(work.perimeter) do protect_endpoint(endpoint) end
     work.flows = flow_list(input)
     work.demands = build_demands(work, work.flows)
-    if rawget(_G, "__rrc_probe") then
-        for _, demand in ipairs(work.demands) do
-            print(" DEMAND " .. tostring(demand.flow_id) .. " src=" .. tostring(demand.source.x) .. "," .. tostring(demand.source.y)
-                .. "/" .. tostring(demand.source.travel_dir) .. " sink=" .. tostring(demand.sink.x) .. "," .. tostring(demand.sink.y)
-                .. "/" .. tostring(demand.sink.travel_dir))
-        end
-    end
     return work
 end
 
@@ -953,14 +909,15 @@ function Route.step(state, budget)
                     else demand.remaining = demand.remaining - amount end
                 elseif outcome == "failed" then
                     local search = work.current
-                    if rawget(_G, "__rrc_probe") then
-                        print(" FAIL_SEARCH " .. tostring(demand.flow_id) .. " src=" .. tostring(demand.source.x) .. "," .. tostring(demand.source.y)
-                            .. " sink=" .. tostring(demand.sink.x) .. "," .. tostring(demand.sink.y)
-                            .. " blocked=" .. tostring(search.saw_blocked) .. " cap=" .. tostring(search.saw_capacity))
+                    if search.saw_blocked and not search.saw_capacity and not search.saw_fluid_mix
+                        and search.order_index < #DIRECTION_ORDERS then
+                        work.expansions = 0
+                        work.current = begin_search(work, demand, amount, search.order_index + 1)
+                    else
+                        local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
+                        state.errors, state.done, state.ok = {{code = code, flow_id = demand.flow_id}}, true, false
+                        state.progress.phase, work.current = "failed", nil
                     end
-                    local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
-                    state.errors, state.done, state.ok = {{code = code, flow_id = demand.flow_id}}, true, false
-                    state.progress.phase, work.current = "failed", nil
                 end
             end
         end
