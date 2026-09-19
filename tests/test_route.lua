@@ -34,11 +34,12 @@ end
 local function run(input, ops)
     local state = Route.begin(input)
     local ticks = 0
-    while not state.done do
+    while not state.done and ticks < 600 do
         ticks = ticks + 1
-        H.equal(ticks < 10000, true, "route finishes")
         Route.step(state, {ops = ops or 100000})
     end
+    H.equal(state.done, true, "route finishes within 600 iterations; stopped in phase "
+        .. tostring(state.progress and state.progress.phase))
     return state
 end
 
@@ -97,6 +98,59 @@ local function underground_input(connection_a, connection_b, distance)
         flows = {{flow_id = "item/ore", is_fluid = false,
             producers = {{step_id = "source", share_per_second = 4}},
             consumers = {{step_id = "consumer", share_per_second = 4}}}},
+    }
+end
+
+local function perimeter_input(edge, role)
+    local sides = {
+        top = {attach_dx = 0, attach_dy = -1, x = 2, y = 0, outward = Grid.NORTH, inward = Grid.SOUTH},
+        right = {attach_dx = 1, attach_dy = 0, x = 4, y = 2, outward = Grid.EAST, inward = Grid.WEST},
+        bottom = {attach_dx = 0, attach_dy = 1, x = 2, y = 4, outward = Grid.SOUTH, inward = Grid.NORTH},
+        left = {attach_dx = -1, attach_dy = 0, x = 0, y = 2, outward = Grid.WEST, inward = Grid.EAST},
+    }
+    local side = sides[edge]
+    local block_role = role == "out" and "out" or "in"
+    local flow_id = "item/perimeter/" .. edge .. "/" .. role
+    local block_id = role == "out" and "source" or "sink"
+    local block_port_id = block_id .. "-port"
+    local perimeter_port_id = "perimeter-port"
+    local block_port = {
+        port_id = block_port_id, role = block_role, kind = "item", flow_id = flow_id, rate_per_second = 1,
+        attach_dx = side.attach_dx, attach_dy = side.attach_dy, normal_dir = side.inward,
+        travel_dir = role == "out" and side.outward or side.inward,
+    }
+    return {
+        grid = Grid.new(5, 5), catalog = {belt = {belt = "basic-belt", items_per_second = 10}},
+        blocks = {{block_id = block_id, x = 2, y = 2, w = 1, h = 1, ports = {block_port}}},
+        perimeter_ports = {{port_id = perimeter_port_id, role = role, kind = "item", flow_id = flow_id,
+            rate_per_second = 1, x = side.x, y = side.y, travel_dir = role == "out" and side.outward or side.inward}},
+        flows = {{flow_id = flow_id, producers = role == "out"
+                and {{step_id = block_id, share_per_second = 1}}
+                or {{step_id = "$external", port_id = perimeter_port_id, share_per_second = 1}},
+            consumers = role == "out"
+                and {{step_id = "$external", port_id = perimeter_port_id, share_per_second = 1}}
+                or {{step_id = block_id, share_per_second = 1}}}},
+    }
+end
+
+local function entity_at(result, x, y)
+    for _, entity in ipairs(result.entities or {}) do
+        local position = entity.position or {}
+        if math.floor(position.x) == x and math.floor(position.y) == y then return entity end
+    end
+end
+
+local function outside_perimeter_input()
+    return {
+        grid = Grid.new(5, 5), catalog = {belt = {belt = "basic-belt", items_per_second = 10}},
+        blocks = {{block_id = "source", x = 2, y = 2, w = 1, h = 1, ports = {{
+            port_id = "source-port", role = "out", kind = "item", flow_id = "item/outside", rate_per_second = 1,
+            attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.WEST,
+        }}}},
+        perimeter_ports = {{port_id = "outside-port", role = "out", kind = "item", flow_id = "item/outside",
+            rate_per_second = 1, x = -1, y = 2, travel_dir = Grid.WEST}},
+        flows = {{flow_id = "item/outside", producers = {{step_id = "source", share_per_second = 1}},
+            consumers = {{step_id = "$external", port_id = "outside-port", share_per_second = 1}}}},
     }
 end
 
@@ -236,6 +290,33 @@ for _, shape in ipairs(H.shapes()) do
             H.equal(x == 8 and y == 2, false, "route avoids consumer machine")
             H.equal(x >= 4 and x < 6 and y >= 1 and y < 4, false, "route avoids roboport")
         end
+    end)
+
+    H.test(shape .. " R10 perimeter ports on all four edge cells are routable", function()
+        local edges = {"top", "right", "bottom", "left"}
+        for _, edge in ipairs(edges) do
+            for _, role in ipairs({"out", "in"}) do
+                local state = run(perimeter_input(edge, role))
+                H.equal(state.ok, true, edge .. " " .. role .. " perimeter route succeeds")
+                local side = ({
+                    top = {x = 2, y = 0, direction = role == "out" and Grid.NORTH or Grid.SOUTH},
+                    right = {x = 4, y = 2, direction = role == "out" and Grid.EAST or Grid.WEST},
+                    bottom = {x = 2, y = 4, direction = role == "out" and Grid.SOUTH or Grid.NORTH},
+                    left = {x = 0, y = 2, direction = role == "out" and Grid.WEST or Grid.EAST},
+                })[edge]
+                local entity = entity_at(state.result, side.x, side.y)
+                H.equal(entity ~= nil, true, edge .. " " .. role .. " has a belt on its perimeter cell")
+                if entity then
+                    H.equal(entity.direction, side.direction, edge .. " " .. role .. " travel direction")
+                end
+            end
+        end
+    end)
+
+    H.test(shape .. " R10 a genuinely outside perimeter cell stays blocked", function()
+        local state = run(outside_perimeter_input())
+        H.equal(state.ok, false, "outside perimeter route fails")
+        H.equal(error_code(state), "BP_R_PORT_BLOCKED", "outside perimeter is blocked")
     end)
 end
 

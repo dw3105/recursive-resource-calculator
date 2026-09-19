@@ -302,6 +302,31 @@ local function make_power_input(state, grid, entities, roboports, obstacles)
     return input
 end
 
+--The factory perimeter is not a block envelope: its port occupies the edge cell of the grid.  Keep the
+--ordering, pitch and outward-facing direction of Grid.edge_slots without asking it for the tile outside the grid.
+local function perimeter_slots(grid, edge, pitch)
+    if pitch == nil or pitch <= 0 then error("perimeter slot pitch must be positive", 2) end
+    local slots = {}
+    local length, origin, direction
+    if edge == "top" then
+        length, origin, direction = grid.w, {x = 0, y = 0}, Grid.NORTH
+    elseif edge == "bottom" then
+        length, origin, direction = grid.w, {x = 0, y = grid.h - 1}, Grid.SOUTH
+    elseif edge == "left" then
+        length, origin, direction = grid.h, {x = 0, y = 0}, Grid.WEST
+    elseif edge == "right" then
+        length, origin, direction = grid.h, {x = grid.w - 1, y = 0}, Grid.EAST
+    else
+        error("unknown edge " .. tostring(edge), 2)
+    end
+    for offset = 0, length - 1, pitch do
+        local x, y = origin.x, origin.y
+        if edge == "top" or edge == "bottom" then x = x + offset else y = y + offset end
+        slots[#slots + 1] = {x = x, y = y, dir = direction}
+    end
+    return slots
+end
+
 local function make_route_input(state, grid, blocks, ports, obstacles)
     local external = state.work.input.perimeter_ports or state.work.input.perimeter
     if type(external) ~= "table" then
@@ -311,8 +336,8 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
         local output_edge = settings.output_edge or state.work.input.output_edge or "top"
         local pitch = finite(state.work.input.port_pitch, 1)
         local slots = {
-            ["in"] = Grid.edge_slots({x = 0, y = 0, w = grid.w, h = grid.h}, input_edge, pitch),
-            ["out"] = Grid.edge_slots({x = 0, y = 0, w = grid.w, h = grid.h}, output_edge, pitch),
+            ["in"] = perimeter_slots(grid, input_edge, pitch),
+            ["out"] = perimeter_slots(grid, output_edge, pitch),
         }
         local used = {input = 0, output = 0}
         for _, port in ipairs(state.work.plan_result.ports or {}) do

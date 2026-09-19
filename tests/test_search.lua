@@ -61,6 +61,12 @@ local function one_step_plan()
         modules = {}, beacon_groups = {}, inputs = {}, outputs = {}}}, flows = {}, ports = {}}
 end
 
+local function perimeter_plan()
+    return {steps = {{step_id = "one", machine = "assembler", machine_count = 1, power_w = 1, modules = {},
+        beacon_groups = {}, inputs = {}, outputs = {}}}, flows = {},
+        ports = {{port_id = "out:item/plate", role = "out", kind = "item", flow_id = "item/plate", rate_per_second = 0}}}
+end
+
 local function shared_plan()
     local group = {signature = "shared", name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {}}
     return {steps = {
@@ -162,6 +168,29 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.result ~= nil, true, "a complete result is published")
         H.equal(state.incumbent ~= nil, true, "a validated incumbent was retained")
         H.equal(state.incumbent.validation ~= nil, true, "the incumbent includes validation output")
+    end)
+
+    H.test(shape .. " BP-15 a real small plan serializes with in-grid perimeter ports", function()
+        local input = input_for(perimeter_plan(), {
+            grids = {{w = 3, h = 5}}, area = {x = 0, y = 1, w = 1, h = 4}, port_pitch = 1,
+            settings = {input_edge = "top", output_edge = "bottom"},
+            pole = {name = "medium-electric-pole", tile_w = 1, tile_h = 1, supply_w = 10, supply_h = 10,
+                wire_reach = 20, x = 2, y = 2},
+        })
+        local state = finish(input)
+        H.equal(state.ok, true, "the perimeter plan search succeeds in phase " .. tostring(state.phase)
+            .. " with " .. tostring(state.errors and state.errors[1] and state.errors[1].code))
+        H.equal(type(state.result), "table", "the perimeter plan has a serialized result")
+        H.equal(type(state.result.entities), "table", "the serialized result has entities")
+        local ports = state.incumbent and state.incumbent.candidate and state.incumbent.candidate.external_ports or {}
+        H.equal(#ports, 1, "the serialized candidate carries the perimeter port")
+        for _, port in ipairs(ports) do
+            H.equal(port.x >= 0 and port.x < input.grids[1].w and port.y >= 0 and port.y < input.grids[1].h,
+                true, port.port_id .. " is inside the grid")
+            H.equal(port.x, 0, "the output keeps the selected bottom-edge pitch slot")
+            H.equal(port.y, input.grids[1].h - 1, "the output sits on the grid's bottom edge cell")
+            H.equal(port.travel_dir, Grid.SOUTH, "the output travel direction leaves the grid")
+        end
     end)
 
     H.test(shape .. " BP-15 a roboport grid reaches a placement without raising", function()
