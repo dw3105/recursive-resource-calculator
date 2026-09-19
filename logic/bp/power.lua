@@ -583,6 +583,7 @@ function Power.begin(input)
                 best = nil, best_gain = -1, best_total = -1, mode = "candidate"},
             relay_candidate_limit = relay_candidate_limit, relay_check_limit = relay_check_limit,
             relay_candidates_used = 0, relay_checks = 0, relay_bound_hit = false,
+            pruning_enabled = limits.prune == true,
         },
     }
     return state
@@ -860,7 +861,7 @@ function Power.step(state, budget)
             repair.mode = "frontier_position"
 
         elseif phase == "prune" then
-            if work.prune_index <= 0 then
+            if not work.pruning_enabled or work.prune_index <= 0 then
                 start_publish(state)
             else
                 --The first pass only ever adds a pole for new coverage or a
