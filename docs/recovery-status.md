@@ -1,6 +1,6 @@
 # Round 8 board — one list, replaces every older "next step"
 
-Updated 2026-09-19 10:50 UTC, HEAD after merging 049, 050, 051, 052, by the integrator on host `legalcopilot-dev`. Branch
+Updated 2026-09-19 11:00 UTC, HEAD d412c38, by the integrator on host `legalcopilot-dev`. Branch
 `feat/round-8-blueprints`, never pushed, never merged to `main`. Dispatch follows
 `~/codex-reviews/rrc-parallel-execution-unblock-plan-2026-09-19-1014.md`: five disjoint lanes run beside every
 physical repair, and no lane waits on the blueprint pipeline for work it can finish alone.
@@ -10,7 +10,8 @@ physical repair, and no lane waits on the blueprint pipeline for work it can fin
 | Stream | Lane | Owner live? | Base SHA | Owns | State and next command |
 |---|---|---|---|---|---|
 | Repair: block port binding | 047 | no | binding-base 835a66e | `logic/bp/groups.lua`, `logic/bp/route.lua`, `tests/test_groups.lua`, `tests/test_route.lua` | **merged** 93fcfe3 |
-| S service lifecycle and capture | 048 | **yes** | unblock-base 93fcfe3 | `gui/blueprint_dialog.lua`, `logic/bp/generation.lua`, `logic/engine_test_api.lua`, two new test files, `tests/test_bp_settings.lua` | running; carries lane 039's checkpoint 17ca320 as its first commit |
+| S service lifecycle and capture | 048 | no | unblock-base 93fcfe3 | `gui/blueprint_dialog.lua`, `logic/bp/generation.lua`, `logic/engine_test_api.lua`, two new test files, `tests/test_bp_settings.lua` | **merged**; 20 lifecycle cases green, real-sheet gate red on purpose |
+| Repair: perimeter port collision | 053 | **yes** | collision-base d412c38 | `logic/bp/search.lua`, `tests/test_search.lua` | running; target is the red real-sheet gate |
 | C calculation result record | 049 | no | unblock-base 93fcfe3 | `logic/calc_pipeline.lua`, `logic/calculation_result.lua`, their two test files | **merged**; wired into `control.lua` by the integrator |
 | E real engine adapter | 050 | no | unblock-base 93fcfe3 | `tests/golden/engine/mod/`, `tests/test_engine_scenario.lua`, `tests/test_engine_runtime_adapter.lua`, `docs/engine-evidence/runner.md` | **merged**; 16 adapter cases drive the shipped adapter |
 | R evidence contract and release gate | 051 | no | unblock-base 93fcfe3 | `tools/release_gate.py`, its tests, new `tests/tools/test_evidence_contract.py`, `docs/release-preparation.md` | **merged**; verdict FAIL was my broken manifest, verified by hand |
@@ -38,7 +39,13 @@ per-category pickers are accepted. Two window defects reached the game first: `a
 `read_only`, and an invented style name (`draggable_space_with_no_left_margin`) crashed on open. Both classes now
 fail offline — `docs/api/2.0.77.styles.json` pins 582 core style names.
 
-## Two real defects found by running a real sheet
+## The suite is red on purpose right now
+
+`tests/test_blueprint_pipeline.lua` carries the mandatory real-sheet case, and it fails with
+`BP_FAIL_NO_LAYOUT_GRID_LIMIT`. That case is the gate for the whole feature and is never weakened to make the
+suite green. Lane 053 fixes the defect underneath it; when 053 merges, the suite goes green again.
+
+## Four real defects found by running a real sheet
 
 Both came from lane 039's end-to-end case, never from a unit test.
 
@@ -89,3 +96,16 @@ the companion mod calls on those classes. Extending the pin is integrator work a
 `docs/tasks/04*.manifest` and `docs/tasks/05*.manifest` were written with literal backslash-n bytes, so
 `tools/lane_ownership.py` read each as a single path and refused every changed file. Four lanes did their work
 correctly and reported the cause precisely. Each was audited by hand against the repaired manifest before merge.
+
+## Defect 4, found 2026-09-19 by probing the merged tree
+
+Both perimeter ports stood on cell `(0, 0)`:
+
+```text
+perimeter in:item/raw  role=in  x=0 y=0
+perimeter out:item/gear role=out x=0 y=0
+```
+
+`logic/bp/search.lua:343-354` takes slot 1 of each edge, and `logic/bp/settings.lua:14-15` makes the default
+edges `left` and `top`, whose first slots are the same corner. One cell carries one belt, so routing reported
+`BP_R_PORT_BLOCKED`. Every default sheet hits it. Lane 053 owns the fix.
