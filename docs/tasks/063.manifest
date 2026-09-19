@@ -4,5 +4,5 @@ tests/golden/cases/shared-intermediate-multi-target/
 tests/golden/cases/fluid-byproduct-chain/
 tests/golden/cases/assembler-chain-example/
 tests/golden/cases/repeatability/
-tests/test_corpus_setups.lua
-docs/golden-case-authoring.md
+!tests/test_corpus_setups.lua
+!docs/golden-case-authoring.md
