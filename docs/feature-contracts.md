@@ -262,4 +262,5 @@ written down here rather than a commit id, because a commit id moves whenever th
 | 1 | `wave-0-spine` | resolve with `git rev-parse wave-0-spine` |
 | 2 | `wave-1-green` | `git rev-parse wave-1-green` |
 | 3 | `wave-2-green` | `git rev-parse wave-2-green` |
+| 3 repair, plus lanes 022 and 023 | `wave-3-repair-base` | `git rev-parse wave-3-repair-base` |
 | 4 | `wave-3-green` | `git rev-parse wave-3-green` |
