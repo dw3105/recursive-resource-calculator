@@ -38,6 +38,7 @@ local Serialize = require "logic.bp.serialize"
 local engine_jobs = {}
 local next_job_id = 0
 local registered = false
+local ENGINE_PERSISTENCE_KEY = "engine_generation_jobs"
 
 local function copy_plain(value, seen)
     local value_type = type(value)
@@ -57,6 +58,51 @@ local function copy_plain(value, seen)
     end
     seen[value] = nil
     return result
+end
+
+--The remote interface handle is process-local, but the generation it names may outlive a save/load. Keep this small
+--view in plain storage so a freshly parsed control.lua can answer the same remote job id without owning a second
+--blueprint worker.
+local function engine_persistence(create)
+    local saved = rawget(_G, "storage")
+    if type(saved) ~= "table" then return nil end
+    local state = saved[ENGINE_PERSISTENCE_KEY]
+    if type(state) ~= "table" or getmetatable(state) ~= nil then
+        if not create then return nil end
+        state = {next_job_id = 0, jobs = {}}
+        saved[ENGINE_PERSISTENCE_KEY] = state
+    end
+    if type(state.jobs) ~= "table" or getmetatable(state.jobs) ~= nil then
+        if not create then return nil end
+        state.jobs = {}
+    end
+    return state
+end
+
+local function restore_engine_jobs()
+    local state = engine_persistence(false)
+    for job_id, record in pairs(state and state.jobs or {}) do
+        if type(job_id) == "number" and type(record) == "table" then
+            engine_jobs[job_id] = copy_plain(record) or {}
+            next_job_id = math.max(next_job_id, job_id)
+        end
+    end
+    if state and type(state.next_job_id) == "number" then
+        next_job_id = math.max(next_job_id, math.floor(state.next_job_id))
+    end
+end
+
+local function persist_engine_handle(job_id, handle)
+    if type(handle) ~= "table" then return end
+    local state = engine_persistence(true)
+    if not state then return end
+    local record = {
+        job_id = job_id, state = handle.state, player_index = handle.player_index, sheet_id = handle.sheet_id,
+        generation_id = handle.generation_id, progress = copy_plain(handle.progress) or {}, phase = handle.phase,
+        terminal = copy_plain(handle.terminal),
+    }
+    state.jobs[job_id] = copy_plain(record) or {}
+    state.next_job_id = math.max(type(state.next_job_id) == "number" and state.next_job_id or 0, job_id)
 end
 
 local function packaged_or_error()
@@ -233,10 +279,14 @@ local function start_generation(context)
     context.source_kind, context.provenance = "runtime", copy_plain(EngineTestApi.build_id())
     local generation_id, reason = Generation.start(context)
     if not generation_id then error(reason or "generation request refused", 2) end
-    next_job_id = next_job_id + 1
+    local saved = engine_persistence(true)
+    local highest = type(saved and saved.next_job_id) == "number" and saved.next_job_id or 0
+    for job_id, _ in pairs(engine_jobs) do highest = math.max(highest, type(job_id) == "number" and job_id or 0) end
+    next_job_id = math.max(next_job_id, math.floor(highest)) + 1
     local id = next_job_id
     engine_jobs[id] = {state = "pending", player_index = player_index, sheet_id = sheet_id,
         generation_id = generation_id, progress = {done_units = 0, total_units = nil}, phase = "queued"}
+    persist_engine_handle(id, engine_jobs[id])
     return id
 end
 
@@ -261,6 +311,7 @@ local function generation_status(id)
         result.stage = terminal.stage
     end
     if terminal.state ~= "pending" then handle.terminal = copy_plain(result) end
+    persist_engine_handle(id, handle)
     return result
 end
 
@@ -274,6 +325,7 @@ local function cancel_generation(id)
             handle.state = "cancelled"
             handle.phase = "cancelled"
             handle.terminal = {state = "cancelled", progress = copy_plain(handle.progress) or {done_units = 0, total_units = nil}, phase = "cancelled"}
+            persist_engine_handle(id, handle)
         else
             --A terminal service result wins a late cancel call.  Do not overwrite success or failure merely
             --because this interface handle had not polled it yet.
@@ -283,6 +335,7 @@ local function cancel_generation(id)
                 handle.phase = terminal.phase or handle.phase
                 handle.progress = copy_plain(terminal.progress) or handle.progress
                 handle.terminal = copy_plain(generation_status(id))
+                persist_engine_handle(id, handle)
             end
         end
     end
@@ -316,6 +369,7 @@ local function canonical(blueprint_string)
 end
 
 function EngineTestApi.register()
+    restore_engine_jobs()
     if not EngineTestApi.build_id().packaged then return false end
     if registered then return true end
     local remote = rawget(_G, "remote")

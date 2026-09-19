@@ -2,7 +2,7 @@
 --
 --The first job slice captures the sheet and its calculation.  Search then owns the remaining slices, while this
 --module owns publication, delivery and the terminal result.  The saved state contains only plain data; the live
---handle table is deliberately process-local and is rebuilt by callers after a fresh interface load.
+--handle table is process-local and is rebuilt from the saved lifecycle records after a fresh interface load.
 local Generation = {}
 
 local Jobs = require "logic.jobs"
@@ -16,6 +16,7 @@ local Settings = require "logic.bp.settings"
 
 Generation.SCHEMA_VERSION = 1
 
+local PERSISTENCE_KEY = "blueprint_generations"
 local registered = false
 local next_job_id = 0
 local handles = {}
@@ -42,6 +43,92 @@ local function copy_plain(value, seen)
     end
     seen[value] = nil
     return result
+end
+
+local function integer(value, fallback)
+    if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+        return math.max(0, math.floor(value))
+    end
+    return fallback
+end
+
+--This table is deliberately separate from the queued job.  Jobs owns resumable work; Generation owns the public
+--identity, capture and terminal result that must remain addressable after the queued job has been published.
+--The false form is read-only so rebuilding process-local callbacks during a save load never writes storage.
+local function persistence(create)
+    local saved = rawget(_G, "storage")
+    if type(saved) ~= "table" then return nil end
+    local state = saved[PERSISTENCE_KEY]
+    if type(state) ~= "table" or getmetatable(state) ~= nil then
+        if not create then return nil end
+        state = {next_job_id = 0, jobs = {}}
+        saved[PERSISTENCE_KEY] = state
+    end
+    if type(state.jobs) ~= "table" or getmetatable(state.jobs) ~= nil then
+        if not create then return nil end
+        state.jobs = {}
+    end
+    if create then state.next_job_id = integer(state.next_job_id, 0) end
+    return state
+end
+
+local function saved_record(job_id)
+    local state = persistence(false)
+    return state and state.jobs and state.jobs[job_id]
+end
+
+local function persist_handle(handle)
+    if type(handle) ~= "table" or type(handle.job_id) ~= "number" then return end
+    local state = persistence(true)
+    if not state then return end
+    local record = {
+        schema_version = Generation.SCHEMA_VERSION,
+        job_id = handle.job_id, state = handle.state, phase = handle.phase,
+        progress = copy_plain(handle.progress) or {done_units = 0, total_units = nil},
+        player_index = handle.player_index, sheet_id = handle.sheet_id,
+        revisions = copy_plain(handle.revisions) or {}, deliver = handle.deliver == true,
+    }
+    if handle.reason_codes then record.reason_codes = copy_plain(handle.reason_codes) or {} end
+    if handle.result then record.result = copy_plain(handle.result) or {} end
+    if handle.blueprint_string ~= nil then record.blueprint_string = handle.blueprint_string end
+    if handle.canonical_sha256 ~= nil then record.canonical_sha256 = handle.canonical_sha256 end
+    if handle.canonical_version ~= nil then record.canonical_version = handle.canonical_version end
+    if handle.canonical then record.canonical = copy_plain(handle.canonical) or {} end
+    if handle.capture then record.capture = copy_plain(handle.capture) or {} end
+    if handle.delivery_reason ~= nil then record.delivery_reason = handle.delivery_reason end
+    state.jobs[handle.job_id] = copy_plain(record) or {}
+    state.next_job_id = math.max(integer(state.next_job_id, 0), integer(handle.job_id, 0))
+end
+
+local function forget_persisted(job_id)
+    local state = persistence(false)
+    if state and state.jobs then state.jobs[job_id] = nil end
+end
+
+local function handle_from_record(record)
+    if type(record) ~= "table" or getmetatable(record) ~= nil then return nil end
+    local job_id = integer(record.job_id, nil)
+    if not job_id or record.player_index == nil or record.sheet_id == nil then return nil end
+    local state = record.state
+    if state ~= "success" and state ~= "failure" and state ~= "cancelled" and state ~= "pending" then
+        state = "pending"
+    end
+    local handle = {
+        job_id = job_id, state = state,
+        phase = type(record.phase) == "string" and record.phase or "queued",
+        progress = copy_plain(record.progress) or {done_units = 0, total_units = nil},
+        player_index = record.player_index, sheet_id = record.sheet_id,
+        revisions = copy_plain(record.revisions) or {}, deliver = record.deliver == true,
+    }
+    if record.reason_codes then handle.reason_codes = copy_plain(record.reason_codes) or {} end
+    if record.result then handle.result = copy_plain(record.result) or {} end
+    if record.blueprint_string ~= nil then handle.blueprint_string = record.blueprint_string end
+    if record.canonical_sha256 ~= nil then handle.canonical_sha256 = record.canonical_sha256 end
+    if record.canonical_version ~= nil then handle.canonical_version = record.canonical_version end
+    if record.canonical then handle.canonical = copy_plain(record.canonical) or {} end
+    if record.capture then handle.capture = copy_plain(record.capture) or {} end
+    if record.delivery_reason ~= nil then handle.delivery_reason = record.delivery_reason end
+    return handle
 end
 
 local function number(value, fallback)
@@ -271,17 +358,37 @@ local function copy_cursor(value)
     end
     if value_type ~= "table" or getmetatable(value) ~= nil then return {done = true, value = nil} end
     local target = {}
-    return {done = false, value = target, stack = {{source = value, target = target, keys = copy_keys(value), index = 1}}}
+    --Frames keep a path into value rather than a target-table alias. Jobs copies the cursor at every tick and
+    --deliberately does not preserve aliases, so an alias here would make the resumed copy write into a detached
+    --table after the first save boundary.
+    return {done = false, value = target, stack = {{source = value, path = {}, keys = copy_keys(value), index = 1}}}
 end
 
 local function consume(budget)
     if budget.ops > 0 then budget.ops = budget.ops - 1 end
 end
 
+local function target_at(root, path)
+    local target = root
+    for _, key in ipairs(path or {}) do
+        if type(target[key]) ~= "table" or getmetatable(target[key]) ~= nil then target[key] = {} end
+        target = target[key]
+    end
+    return target
+end
+
+local function append_path(path, key)
+    local result = {}
+    for index, value in ipairs(path or {}) do result[index] = value end
+    result[#result + 1] = key
+    return result
+end
+
 local function copy_cursor_step(cursor, budget)
     if cursor.done then return true end
     while budget.ops > 0 and #cursor.stack > 0 do
         local frame = cursor.stack[#cursor.stack]
+        local target = target_at(cursor.value, frame.path or {})
         local key = frame.keys[frame.index]
         if key == nil then
             table.remove(cursor.stack)
@@ -290,11 +397,13 @@ local function copy_cursor_step(cursor, budget)
             local child = frame.source[key]
             local child_type = type(child)
             if child == nil or child_type == "boolean" or child_type == "string" or child_type == "number" then
-                frame.target[key] = child_type == "number" and finite(child, nil) or child
+                target[key] = child_type == "number" and finite(child, nil) or child
             elseif child_type == "table" and getmetatable(child) == nil then
                 local nested = {}
-                frame.target[key] = nested
-                cursor.stack[#cursor.stack + 1] = {source = child, target = nested, keys = copy_keys(child), index = 1}
+                target[key] = nested
+                cursor.stack[#cursor.stack + 1] = {
+                    source = child, path = append_path(frame.path, key), keys = copy_keys(child), index = 1,
+                }
             end
             consume(budget)
         end
@@ -516,13 +625,18 @@ local function initial_provenance(input, job)
 end
 
 local function update_capture(handle, state, outcome, errors, stage)
-    if not handle or type(handle.capture) ~= "table" then return end
+    if not handle then return end
+    if type(handle.capture) ~= "table" then
+        persist_handle(handle)
+        return
+    end
     handle.capture.provenance = handle.capture.provenance or {}
     handle.capture.provenance.outcome = outcome
     if errors then handle.capture.provenance.reason_codes = copy_plain(codes(errors)) or {} end
     if stage then handle.capture.provenance.stage = stage end
     state = state or {}
     handle.capture.provenance.revisions = copy_plain(state.revisions or handle.revisions) or {}
+    persist_handle(handle)
 end
 
 local function terminal_failure(handle, job)
@@ -533,6 +647,7 @@ local function terminal_failure(handle, job)
     handle.progress = result_progress(job.progress)
     handle.reason_codes = code_list
     update_capture(handle, job.state and job.state.prepare and job.state.prepare.fields, "failure", job.errors, handle.phase)
+    persist_handle(handle)
     local report = Registry.generation_failure
     if type(report) == "function" then
         pcall(report, handle.player_index, {
@@ -548,13 +663,68 @@ local function terminal_cancel(handle, phase)
     handle.phase = phase or "cancelled"
     handle.progress = result_progress(handle.progress)
     update_capture(handle, nil, "cancelled", nil, handle.phase)
+    persist_handle(handle)
+end
+
+local function pending_handle_from_job(job)
+    local state = job and job.state
+    local input = state and state.input
+    local job_id = input and integer(input.generation_job_id, nil)
+    if job_id == nil then return nil end
+    local handle = handle_from_record(saved_record(job_id))
+    if not handle then
+        handle = {
+            job_id = job_id, state = "pending", phase = job.phase or "queued",
+            progress = copy_plain(job.progress) or {done_units = 0, total_units = nil},
+            player_index = job.player_index, sheet_id = job.sheet_id,
+            revisions = copy_plain(job.revisions) or {}, deliver = input.deliver == true,
+        }
+    end
+
+    --A save can be taken just after preparation completed and before this module writes the public copy. The job
+    --itself already contains the plain PreparedInput, so recover the capture locally without changing storage.
+    if not handle.capture and state and type(state.prepared) == "table" then
+        handle.capture = copy_plain(state.prepared) or {}
+        handle.capture.source_kind = capture_source_kind(input, state.prepared)
+        handle.capture.provenance = initial_provenance(input, job)
+    end
+    handles[job_id] = handle
+    next_job_id = math.max(next_job_id, job_id)
+    return handle
+end
+
+local function rebind_handles()
+    local state = persistence(false)
+    for job_id, record in pairs(state and state.jobs or {}) do
+        if type(job_id) == "number" then
+            local handle = handle_from_record(record)
+            if handle then
+                handles[handle.job_id] = handle
+                next_job_id = math.max(next_job_id, handle.job_id)
+            end
+        end
+    end
+
+    --The queued job is the authoritative owner while it is running. A record may be absent in a save produced by
+    --an older build, but a generation id in the queued input is enough to rebuild the process-local owner before
+    --the scheduler can execute the next slice.
+    local saved = rawget(_G, "storage")
+    if type(saved) ~= "table" then return end
+    for player_index, data in pairs(saved) do
+        if type(player_index) == "number" and type(data) == "table" and type(data.blueprint_job) == "table" then
+            local input = data.blueprint_job.state and data.blueprint_job.state.input
+            local job_id = input and integer(input.generation_job_id, nil)
+            if job_id ~= nil and not handles[job_id] then pending_handle_from_job(data.blueprint_job) end
+            if job_id ~= nil then next_job_id = math.max(next_job_id, job_id) end
+        end
+    end
 end
 
 local function handle_for(job)
     local state = job and job.state
     local input = state and state.input
     local id = input and input.generation_job_id
-    return id and handles[id] or nil
+    return id and (handles[id] or pending_handle_from_job(job)) or nil
 end
 
 local function encode_blueprint(result)
@@ -721,6 +891,14 @@ local function step(job, budget)
     budget.ops = math.max(0, math.floor(number(budget.ops, 0)))
     if job.done or budget.ops <= 0 then return job end
 
+    local owner = handle_for(job)
+    if not owner or owner.state ~= "pending" then
+        job.done, job.ok, job.phase = true, false, "cancelled"
+        job.errors = {{code = "BP_FAIL_CANCELLED"}}
+        state.phase = "cancelled"
+        return job
+    end
+
     if state.phase == "queued" or state.phase == "prepare" then
         state.phase = "prepare"
         local ok, prepared_or_reason, preparation_reason = pcall(prepared_input, state.input, job, state, budget)
@@ -752,6 +930,7 @@ local function step(job, budget)
                 handle.capture = copy_plain(prepared_or_reason) or {}
                 handle.capture.source_kind = capture_source_kind(state.input, prepared_or_reason)
                 handle.capture.provenance = initial_provenance(state.input, job)
+                persist_handle(handle)
             end
             local input = prepared_or_reason
             local search_input = search_input_for(input, job)
@@ -813,6 +992,7 @@ local function publish(job)
 end
 
 function Generation.register()
+    rebind_handles()
     if registered then return true end
     Jobs.register("blueprint", {begin = begin, step = step, publish = publish})
     registered = true
@@ -838,17 +1018,22 @@ function Generation.start(input)
         end
     end
 
-    next_job_id = next_job_id + 1
+    local saved = persistence(true)
+    local highest = integer(saved and saved.next_job_id, 0)
+    for id, _ in pairs(handles) do highest = math.max(highest, integer(id, 0)) end
+    next_job_id = math.max(next_job_id, highest) + 1
     local id = next_job_id
     input.generation_job_id = id
     handles[id] = {
         job_id = id, state = "pending", phase = "queued", progress = {done_units = 0, total_units = nil},
         player_index = player_index, sheet_id = sheet_id, revisions = copy_plain(input.revisions), deliver = input.deliver,
     }
+    persist_handle(handles[id])
     Generation.register()
     local job = Jobs.request_sheet(player_index, sheet_id, input)
     if not job then
         handles[id] = nil
+        forget_persisted(id)
         return nil, "BP_FAIL_REVISION_CHANGED"
     end
     return id, nil
@@ -870,7 +1055,8 @@ local function public_status(handle)
 end
 
 function Generation.status(player_index, job_id)
-    local handle = handles[job_id]
+    local handle = handles[job_id] or handle_from_record(saved_record(job_id))
+    if handle then handles[job_id] = handle end
     if not handle or handle.player_index ~= player_index then return nil end
     if handle.state == "pending" and type(storage) == "table" then
         local data = storage[player_index]
@@ -881,6 +1067,17 @@ function Generation.status(player_index, job_id)
             handle.progress = copy_plain(job.progress) or handle.progress
         elseif not sheet_for(player_index, handle.sheet_id) then
             terminal_cancel(handle, "cancelled")
+        elseif not job then
+            local revisions = current_revisions(player_index, handle.sheet_id)
+            if revisions.sheet ~= (handle.revisions and handle.revisions.sheet)
+                or revisions.config ~= (handle.revisions and handle.revisions.config) then
+                handle.state = "failure"
+                handle.phase = "search"
+                handle.reason_codes = {"BP_FAIL_REVISION_CHANGED"}
+                update_capture(handle, nil, "failure", handle.reason_codes, handle.phase)
+            else
+                terminal_cancel(handle, "cancelled")
+            end
         else
             local revisions = current_revisions(player_index, handle.sheet_id)
             if revisions.sheet ~= (handle.revisions and handle.revisions.sheet)
@@ -896,15 +1093,37 @@ function Generation.status(player_index, job_id)
 end
 
 function Generation.capture(player_index, generation_id)
-    local handle = handles[generation_id]
+    local handle = handles[generation_id] or handle_from_record(saved_record(generation_id))
+    if handle then handles[generation_id] = handle end
     if not handle or handle.player_index ~= player_index or type(handle.capture) ~= "table" then return nil end
     local capture = copy_plain(handle.capture)
-    if capture then capture.provenance = copy_plain(handle.capture.provenance) or {} end
+    if capture then
+        capture.provenance = copy_plain(handle.capture.provenance) or {}
+        local current = current_revisions(player_index, handle.sheet_id)
+        local revisions = capture.revisions or capture.provenance.revisions or {}
+        local current_state = current.sheet == number(revisions.sheet, current.sheet)
+            and current.config == number(revisions.config, current.config)
+        local snapshot = capture.snapshot
+        local fingerprint = snapshot and snapshot.fingerprint and snapshot.fingerprint.input
+        if current_state and type(fingerprint) == "string" then
+            local sheet = sheet_for(player_index, handle.sheet_id)
+            local snapshot_module = Registry.snapshot
+            if sheet and snapshot_module and type(snapshot_module.of_sheet) == "function" then
+                local ok, live = pcall(snapshot_module.of_sheet, sheet)
+                local live_fingerprint = live and live.fingerprint and live.fingerprint.input
+                current_state = ok and live_fingerprint == fingerprint
+            end
+        end
+        if not current_state and type(capture.snapshot) == "table" then
+            capture.snapshot.state = "stale"
+        end
+    end
     return capture
 end
 
 function Generation.cancel(player_index, job_id)
-    local handle = handles[job_id]
+    local handle = handles[job_id] or handle_from_record(saved_record(job_id))
+    if handle then handles[job_id] = handle end
     if not handle or handle.player_index ~= player_index or handle.state ~= "pending" then return false end
     Jobs.cancel(player_index, handle.sheet_id)
     terminal_cancel(handle, "cancelled")
