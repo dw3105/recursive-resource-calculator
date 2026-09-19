@@ -12,26 +12,50 @@ the raw result, stage diagnostics and a fresh `logic/bp/validate.lua` receipt.
 The Python side checks the canonical structure and digest again. Canonical
 versions must match. Compressed blueprint strings are never compared.
 
-## Add a case
+## Add a case from a real sheet
 
-Capture the debug export and provide generation options, including the frozen
-engine scenario:
+The capture is made by the real preparation job, before blueprint Search starts.
+That is why a routing or layout failure does not discard the reproducible input.
+Open the sheet's debug-export dialog after the generation attempt and save the
+complete selected string as `export.txt`; it contains `prepared_input`, the
+producer-written `source_kind`, `provenance`, and a name-only `source_export`.
+Then provide the generation options, including the frozen engine scenario:
 
 ```sh
 tests/golden/add_case iron-gear --export export.txt --options options.json
 ```
 
-The tool preserves `export.json` (and the original `export.txt` when supplied),
-`options.json`, a captured `prepared_input.json` when the export contains one,
-and `provenance.json`. The manifest is marked `state: "draft"` and the
-candidate placeholder is intentionally unfilled. A draft or placeholder cannot
-satisfy the release corpus; handwritten fixtures are supported only when an
-existing manifest explicitly has no captured input.
+The tool decodes the string with the same offline path used by the checks:
+
+```sh
+python3 -c 'from pathlib import Path; from tests.golden.lib.common import read_export; print(read_export(Path("export.txt"))[0]["format"])'
+```
+
+It preserves `export.json` (and the original `export.txt` when supplied),
+`options.json`, the captured `prepared_input.json`, and `provenance.json`. The
+manifest is marked `state: "draft"`, keeps `supported_outcome` (normally
+`production`), and records the separate `observed_outcome`, including a failed
+generation's stage such as `search`. The candidate placeholder is intentionally
+unfilled. A draft or placeholder cannot satisfy the release corpus.
+
+For a failed generation at search, the exact filing command is still the same:
+
+```sh
+tests/golden/add_case failed-routing --export export.txt --options options.json
+cat tests/golden/cases/failed-routing/manifest.json
+cat tests/golden/cases/failed-routing/prepared_input.json
+```
+
+The resulting case remains reproducible because `prepared_input.json` is copied
+from the completed preparation capture; the failed layout is an observation,
+not an accepted rejection.
 
 A captured input and a handwritten fixture are different provenance classes.
-The existing small canonical case is the latter because its frozen manifest has
-no prepared input; it exercises canonical comparison only. New production
-cases should be captured inputs.
+`source_kind` is copied from the capture (`runtime` or `harness`) and is never
+guessed from whether a layout succeeded. The existing small canonical case is
+the handwritten class because its frozen manifest has no prepared input; it
+exercises canonical comparison only. New production cases should be runtime
+captures.
 
 `--force` may replace a draft case only. It cannot replace a case with an
 accepted expectation, and it never changes an expectation.

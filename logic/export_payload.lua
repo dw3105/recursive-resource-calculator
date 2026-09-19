@@ -504,6 +504,90 @@ local function blueprint_attempt(player_data)
     return player_data.last_blueprint_attempt or player_data.blueprint_attempt or player_data.last_blueprint
 end
 
+local function add_generation_id(ids, seen, value)
+    if value == nil then return end
+    local value_type = type(value)
+    if value_type ~= "string" and value_type ~= "number" then return end
+    if not seen[value] then
+        seen[value] = true
+        ids[#ids + 1] = value
+    end
+end
+
+local function generation_id_from(value, ids, seen)
+    if type(value) ~= "table" then return end
+    for _, key in ipairs({"generation_id", "generation_job_id", "job_id", "id"}) do
+        add_generation_id(ids, seen, value[key])
+    end
+    generation_id_from(value.input, ids, seen)
+    generation_id_from(value.state, ids, seen)
+end
+
+--The generation service is loaded by control.lua after this module. It is therefore read through the registry at
+--use time, never required from the export handler. Older saves and the focused export tests do not publish that
+--entry; in those worlds there simply is no prepared capture to add.
+local function generation_capture(player_index, player_data, sheet_id)
+    local ok_service, generation = pcall(Registry.need, "generation")
+    if not ok_service or type(generation) ~= "table" or type(generation.capture) ~= "function" then return nil end
+
+    local ids, seen = {}, {}
+    for _, key in ipairs({"generation_id", "last_generation_id", "last_blueprint_generation_id"}) do
+        add_generation_id(ids, seen, player_data[key])
+    end
+    for _, key in ipairs({"last_blueprint_attempt", "blueprint_attempt", "last_blueprint", "blueprint_job"}) do
+        generation_id_from(player_data[key], ids, seen)
+    end
+
+    for _, generation_id in ipairs(ids) do
+        local ok_capture, capture, source_kind, provenance = pcall(generation.capture, player_index, generation_id)
+        if ok_capture and type(capture) == "table" then
+            local prepared = type(capture.prepared_input) == "table" and capture.prepared_input
+                or type(capture.prepared) == "table" and capture.prepared or capture
+            local captured_sheet_id = type(prepared) == "table" and (prepared.sheet_id
+                or type(prepared.snapshot) == "table" and prepared.snapshot.sheet_id) or nil
+            if captured_sheet_id == nil or captured_sheet_id == sheet_id then
+                return capture, source_kind, provenance
+            end
+        end
+    end
+    return nil
+end
+
+local function source_export_name(value)
+    if type(value) == "string" and value ~= "" then return value end
+    if type(value) == "table" then
+        if type(value.name) == "string" and value.name ~= "" then return value.name end
+        if type(value.format) == "string" and value.format ~= "" then return value.format end
+    end
+    --A producer from the generation lane may still hold the in-memory payload here. The exported name is stable,
+    --while copying that payload would nest the export inside itself.
+    return ExportPayload.FORMAT
+end
+
+local function capture_projection(capture, source_kind, provenance)
+    if type(capture) ~= "table" then return nil end
+    local prepared = type(capture.prepared_input) == "table" and capture.prepared_input
+        or type(capture.prepared) == "table" and capture.prepared or capture
+    if type(prepared) ~= "table" then return nil end
+
+    local kind = capture.source_kind or source_kind or prepared.source_kind
+    local proof = capture.provenance or provenance or prepared.provenance
+    local source_export = capture.source_export or prepared.source_export
+    local name = source_export_name(source_export)
+    --Generation.capture has already made PreparedInput plain data under the shared job budget. Carry a valid
+    --capture directly, so opening the dialog does not synchronously copy a large plan a second time. Only the
+    --legacy in-memory export shape needs a projection to remove a nested payload from source_export.
+    local projected = prepared
+    if type(prepared.source_export) ~= "string" or prepared.source_export ~= name then
+        projected = {}
+        for key, value in pairs(prepared) do
+            if key ~= "source_export" then projected[key] = value end
+        end
+        projected.source_export = name
+    end
+    return projected, kind, proof, name
+end
+
 function ExportPayload.build(player_index, sheet_flow)
     local snapshot = Snapshot().of_sheet(sheet_flow)
     local player_data = (type(storage) == "table" and type(storage[player_index]) == "table") and storage[player_index] or {}
@@ -549,6 +633,16 @@ function ExportPayload.build(player_index, sheet_flow)
         prototypes = copy_json(catalog),
         diagnostics = diagnostics,
     }
+    local capture, capture_source_kind, capture_provenance = generation_capture(player_index, player_data, snapshot.sheet_id)
+    local prepared, source_kind, provenance, source_export = capture_projection(capture, capture_source_kind, capture_provenance)
+    if prepared ~= nil then
+        --Generation.capture has already performed the bounded preparation copy. This projection only crosses the
+        --plain-data export boundary; it never starts preparation or waits for Search while a dialog opens.
+        payload.prepared_input = prepared
+        if source_kind ~= nil then payload.source_kind = copy_json(source_kind) end
+        if provenance ~= nil then payload.provenance = copy_json(provenance) end
+        payload.source_export = source_export
+    end
     return payload, state
 end
 

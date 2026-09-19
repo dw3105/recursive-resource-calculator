@@ -18,7 +18,8 @@ LIB = Path(__file__).resolve().parent / "lib"
 if str(LIB) not in sys.path:
     sys.path.insert(0, str(LIB))
 
-from common import CaseInputError, build_manifest, read_export, read_json, write_json  # noqa: E402
+from common import (CaseInputError, build_manifest, observed_outcome, read_export,
+                    read_json, validate_capture, write_json)  # noqa: E402
 
 
 def parser() -> argparse.ArgumentParser:
@@ -57,11 +58,23 @@ def main(argv: list[str] | None = None) -> int:
         if not isinstance(options, dict):
             raise CaseInputError("generation options must be a JSON object")
         manifest = build_manifest(case_id, export, options)
-        prepared = export.get("prepared_input") if isinstance(export.get("prepared_input"), dict) else export.get("prepared")
-        if not isinstance(prepared, dict):
-            prepared = None
+        capture = validate_capture(export, encoded)
+        prepared = capture["prepared_input"] if capture is not None else None
         captured = prepared is not None
-        manifest["source_kind"] = "captured" if captured else "handwritten_fixture"
+        # A source_kind supplied by Generation.capture is authoritative. The old
+        # prepared_input-only spelling remains readable for existing tool tests,
+        # but is not used by new runtime or harness captures.
+        if capture is not None and capture["source_kind"] is not None:
+            manifest["source_kind"] = capture["source_kind"]
+        else:
+            manifest["source_kind"] = "captured" if captured else "handwritten_fixture"
+        supported = options.get("supported_outcome", manifest.get("expected_outcome", "production"))
+        manifest["supported_outcome"] = supported
+        # expected_outcome is the frozen runner spelling; supported_outcome is
+        # the explicit policy field for a draft and is never changed by a failed
+        # generation observation.
+        manifest["expected_outcome"] = supported
+        manifest["observed_outcome"] = observed_outcome(export, capture)
         manifest["state"] = "draft"
         manifest["source_export"] = "export.json"
         if captured:
@@ -89,7 +102,15 @@ def main(argv: list[str] | None = None) -> int:
             "prepared_input_file": "prepared_input.json" if prepared is not None else None,
             "prepared_input_sha256": hashlib.sha256((case / "prepared_input.json").read_bytes()).hexdigest()
                 if prepared is not None else None,
+            "supported_outcome": manifest["supported_outcome"],
+            "observed_outcome": manifest["observed_outcome"],
         }
+        if capture is not None and capture["source_export"] is not None:
+            provenance["capture_source_export"] = capture["source_export"]
+        if capture is not None and isinstance(capture["provenance"], dict):
+            provenance["capture_provenance"] = capture["provenance"]
+            for key, value in capture["provenance"].items():
+                provenance.setdefault(key, value)
         write_json(case / "provenance.json", provenance)
         (case / "candidate.json").write_text("{\n  \"TODO\": \"capture candidate and review before accepting\"\n}\n",
                                                encoding="utf-8")
