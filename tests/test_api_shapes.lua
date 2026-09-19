@@ -100,6 +100,16 @@ local function world_with_infrastructure(shape)
 end
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " A0 the extract identifies its pinned source", function()
+        H.new_world(shape)
+        local spec = pinned_spec(shape)
+        H.equal(spec.source_url, "https://lua-api.factorio.com/" .. (shape == "2.0" and "2.0.77" or "2.1.19") .. "/runtime-api.json",
+            "source URL is pinned")
+        H.equal(spec.api_version, 6, "runtime API version is pinned")
+        H.equal(type(spec.description_sha256), "string", "download digest is recorded")
+        H.equal(#spec.description_sha256, 64, "download digest is SHA-256")
+    end)
+
     H.test(shape .. " A1 every mocked member exists in the pinned runtime API, as the right kind", function()
         local world = world_with_infrastructure(shape)
         local spec = pinned_spec(shape)
