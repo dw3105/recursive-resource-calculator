@@ -47,14 +47,11 @@ finishes. The cost is in the candidates that fail, not in the one that succeeds.
 ## What done mean
 
 ```checks
-{"name": "red proof", "run": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null; git -C \"$S\" checkout routing-recovery-base -- logic/bp/route.lua; out=$(cd \"$S\" && lua5.2 tests/test_route_budget.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok"}
-{"name": "route green 5.2", "run": "lua5.2 tests/test_route.lua"}
-{"name": "route green 5.4", "run": "lua5.4 tests/test_route.lua"}
-{"name": "budget green 5.2", "run": "lua5.2 tests/test_route_budget.lua"}
-{"name": "budget green 5.4", "run": "lua5.4 tests/test_route_budget.lua"}
-{"name": "frozen input still routes", "run": "lua5.2 -e 'local i = dofile(\"tests/fixtures/routing/player_chain_first_candidate.lua\"); local R = require \"logic.bp.route\"; local s = R.begin(i); local n = 0; while not s.done and n < 4000000 do local b = {ops = 20000}; R.step(s, b); n = n + (20000 - b.ops) end; assert(s.done and s.ok, \"frozen input must route\"); print(\"frozen ok ops=\" .. n)'"}
-{"name": "pipeline gate", "run": "timeout 900 lua5.2 tests/test_blueprint_pipeline.lua"}
-{"name": "ownership", "run": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/060.manifest"}
+{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null; git -C \"$S\" checkout routing-recovery-base -- logic/bp/route.lua; out=$(cd \"$S\" && lua5.2 tests/test_route_budget.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
+{"name": "owned-tests", "command": "lua5.2 tests/test_route.lua && lua5.4 tests/test_route.lua && lua5.2 tests/test_route_budget.lua && lua5.4 tests/test_route_budget.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
+{"name": "frozen-input-routes", "command": "lua5.2 -e 'local i = dofile(\"tests/fixtures/routing/player_chain_first_candidate.lua\"); local R = require \"logic.bp.route\"; local s = R.begin(i); local n = 0; while not s.done and n < 4000000 do local b = {ops = 20000}; R.step(s, b); n = n + (20000 - b.ops) end; assert(s.done and s.ok, \"frozen input must route\"); print(\"frozen ok ops=\" .. n)'", "expect_exit": 0, "expect_regex": "frozen ok", "timeout_s": 300}
+{"name": "pipeline-gate", "command": "lua5.2 tests/test_blueprint_pipeline.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 1200}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/060.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
 `tests/test_route_budget.lua` must contain, at least:

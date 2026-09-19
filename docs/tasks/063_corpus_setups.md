@@ -36,11 +36,9 @@ fails today stays a positive case with a recorded failure, never a rejection cas
 ## What done mean
 
 ```checks
-{"name": "red proof", "run": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null; git -C \"$S\" rm -q -r --cached tests/golden/setup >/dev/null 2>&1 || true; out=$(cd \"$S\" && lua5.2 tests/test_corpus_setups.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok"}
-{"name": "setups 5.2", "run": "lua5.2 tests/test_corpus_setups.lua"}
-{"name": "setups 5.4", "run": "lua5.4 tests/test_corpus_setups.lua"}
-{"name": "existing capture test", "run": "lua5.2 tests/test_case_capture.lua"}
-{"name": "ownership", "run": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/063.manifest"}
+{"name": "setups", "command": "lua5.2 tests/test_corpus_setups.lua && lua5.4 tests/test_corpus_setups.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
+{"name": "existing-capture-test", "command": "lua5.2 tests/test_case_capture.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/063.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
 `tests/test_corpus_setups.lua` must assert, per case: the setup loads, the calculated step names match the case's

@@ -39,14 +39,11 @@ against memory.
 ## What done mean
 
 ```checks
-{"name": "companion api 5.2", "run": "lua5.2 tests/test_companion_api_shapes.lua"}
-{"name": "companion api 5.4", "run": "lua5.4 tests/test_companion_api_shapes.lua"}
-{"name": "adapter 5.2", "run": "lua5.2 tests/test_engine_runtime_adapter.lua"}
-{"name": "adapter 5.4", "run": "lua5.4 tests/test_engine_runtime_adapter.lua"}
-{"name": "scenario 5.2", "run": "lua5.2 tests/test_engine_scenario.lua"}
-{"name": "api shapes unchanged", "run": "lua5.2 tests/test_api_shapes.lua"}
-{"name": "pins untouched", "run": "git diff --name-only routing-recovery-base HEAD | grep -q '^docs/api/' && exit 1 || echo pins-untouched"}
-{"name": "ownership", "run": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/062.manifest"}
+{"name": "companion-api", "command": "lua5.2 tests/test_companion_api_shapes.lua && lua5.4 tests/test_companion_api_shapes.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 600}
+{"name": "adapter-and-scenario", "command": "lua5.2 tests/test_engine_runtime_adapter.lua && lua5.4 tests/test_engine_runtime_adapter.lua && lua5.2 tests/test_engine_scenario.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
+{"name": "api-shapes-unchanged", "command": "lua5.2 tests/test_api_shapes.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 300}
+{"name": "pins-untouched", "command": "git diff --name-only routing-recovery-base HEAD | grep -q '^docs/api/' && exit 1; echo pins-untouched", "expect_exit": 0, "expect_regex": "pins-untouched", "timeout_s": 120}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/062.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
 ## Files this lane owns

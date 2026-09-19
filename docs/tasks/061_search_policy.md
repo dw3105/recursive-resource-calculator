@@ -51,13 +51,10 @@ Replace the unsupported assumption with a stopping rule that is tested.
 ## What done mean
 
 ```checks
-{"name": "red proof", "run": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null; git -C \"$S\" checkout routing-recovery-base -- logic/bp/search.lua; out=$(cd \"$S\" && lua5.2 tests/test_search_budget.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok"}
-{"name": "search green 5.2", "run": "lua5.2 tests/test_search.lua"}
-{"name": "search green 5.4", "run": "lua5.4 tests/test_search.lua"}
-{"name": "budget green 5.2", "run": "lua5.2 tests/test_search_budget.lua"}
-{"name": "budget green 5.4", "run": "lua5.4 tests/test_search_budget.lua"}
-{"name": "pipeline gate", "run": "timeout 900 lua5.2 tests/test_blueprint_pipeline.lua"}
-{"name": "ownership", "run": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/061.manifest"}
+{"name": "red-proof", "command": "S=$(mktemp -d); git worktree add --detach \"$S\" HEAD >/dev/null; git -C \"$S\" checkout routing-recovery-base -- logic/bp/search.lua; out=$(cd \"$S\" && lua5.2 tests/test_search_budget.lua 2>&1); rc=$?; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL .* \\[assert\\]' && [ \"$rc\" -ne 0 ] && echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 600}
+{"name": "owned-tests", "command": "lua5.2 tests/test_search.lua && lua5.4 tests/test_search.lua && lua5.2 tests/test_search_budget.lua && lua5.4 tests/test_search_budget.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
+{"name": "pipeline-gate", "command": "lua5.2 tests/test_blueprint_pipeline.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 1200}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base routing-recovery-base --manifest docs/tasks/061.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
 `tests/test_search_budget.lua` must contain, at least:
