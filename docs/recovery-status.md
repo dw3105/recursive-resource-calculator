@@ -140,3 +140,37 @@ No engine run has confirmed this; it is reasoning from the blueprint format, and
 blocks that occupy about 130 tiles. Every path search is a breadth-first sweep of up to 2916 cells, and a failed
 demand sweeps it four times, once per direction order. `Jobs.OPS_PER_TICK = 2000` then buys very little progress
 per tick. The fixture reaches `stage=route` and keeps working; it has not yet printed `REPRO state=success`.
+
+
+## Board, rebuilt from terminal records, host legalcopilot-dev, 2026-09-19 18:5x UTC
+
+Every earlier "running" label in this file is stale. Lanes 054 to 059 are all finished. Their verdicts stand as
+recorded; none is reinterpreted here.
+
+| Task | Live owner | Base SHA | Owns | Last checkpoint | Component proof | Integration blocker | Successor |
+|---|---|---|---|---|---|---|---|
+| 054 | none | - | dispatch checking | done | merged | none | - |
+| 055 | none | `2cfb3f7` | API pins + companion API test | merged as `13629d9` | `test_api_shapes` 16/16 | `test_companion_api_shapes` red by design | 062 |
+| 056 | none | - | reload handling | merged | - | none | - |
+| 057 | none | - | case capture | PASS, unacked | `test_case_capture` green | none | 063 |
+| 058 | none | - | block port placement | FAIL x3, lane closed | none | superseded | 060 |
+| 059 | none | `821b3e7` | port cells free | FAIL x2, work merged as `0bba0db` after hand audit | groups/pack/route green | none | 060 |
+| 060 | lane/060 | `routing-recovery-base` | `logic/bp/route.lua`, its tests, `tests/fixtures/routing/` | launched 2026-09-19 | - | - | - |
+| 061 | lane/061 | `routing-recovery-base` | `logic/bp/search.lua`, its tests | launched 2026-09-19 | - | - | - |
+| 062 | lane/062 | `routing-recovery-base` | companion mod, its tests, runner doc | launched 2026-09-19 | - | - | - |
+| 063 | lane/063 | `routing-recovery-base` | five corpus cases, setups | launched 2026-09-19 | - | - | - |
+
+`logic/bp/power.lua` is reserved to the integrator until a handoff; no lane owns it.
+
+### Known red on this base, on purpose
+
+`tests/test_companion_api_shapes.lua` fails for both shapes. It is the merged lane 055 test, and it names the
+three companion calls task 062 repairs: `LuaEntity.connect_neighbour`, `LuaGameScript.write_file` and, on 2.1,
+`LuaEntity.fluidbox`. Lane gates use focused tests, never `sh tests/run.sh`, while this stands.
+
+### Ready follow-ons
+
+- Remaining corpus partition: unsupported categories, connected poles, bottleneck handling, grid and beacon
+  improvement, the 100-machine 30-step boundary. Exact non-overlapping case directories, F's setup pattern.
+- Engine collection package: after 062, candidate and companion archives from one committed tree, their hashes,
+  per-case commands and output locations.
