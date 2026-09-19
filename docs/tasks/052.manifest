@@ -1,1 +1,6 @@
-logic/export_payload.lua\ntests/test_export_payload.lua\ntests/golden/add_case\ntests/golden/lib/common.py\n!tests/tools/test_capture_workflow.py\ndocs/golden-workflow.md\n
+logic/export_payload.lua
+tests/test_export_payload.lua
+tests/golden/add_case
+tests/golden/lib/common.py
+!tests/tools/test_capture_workflow.py
+docs/golden-workflow.md

@@ -1,1 +1,4 @@
-tests/golden/engine/mod/\ntests/test_engine_scenario.lua\n!tests/test_engine_runtime_adapter.lua\ndocs/engine-evidence/runner.md\n
+tests/golden/engine/mod/
+tests/test_engine_scenario.lua
+!tests/test_engine_runtime_adapter.lua
+docs/engine-evidence/runner.md

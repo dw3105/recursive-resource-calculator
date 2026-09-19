@@ -1,1 +1,4 @@
-logic/calc_pipeline.lua\n!logic/calculation_result.lua\ntests/test_calc_pipeline.lua\n!tests/test_calculation_result.lua\n
+logic/calc_pipeline.lua
+!logic/calculation_result.lua
+tests/test_calc_pipeline.lua
+!tests/test_calculation_result.lua
