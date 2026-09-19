@@ -1,6 +1,6 @@
 # Round 8 board — one list, replaces every older "next step"
 
-Updated 2026-09-19, HEAD c171fcf, by the integrator on host `legalcopilot-dev`. Branch `feat/round-8-blueprints`, never pushed,
+Updated 2026-09-19, HEAD 883c6fe merged, by the integrator on host `legalcopilot-dev`. Branch `feat/round-8-blueprints`, never pushed,
 never merged to `main`. This board supersedes the "next three steps" of `~/.claude/plans/rrc-round-8-handoff.md`.
 
 ## Streams
@@ -15,7 +15,7 @@ never merged to `main`. This board supersedes the "next three steps" of `~/.clau
 | Repair: obstacle shape | 043 | `logic/bp/search.lua`, `tests/test_search.lua` | **merged** |
 | Repair: perimeter ports | 044 | `logic/bp/search.lua`, `logic/bp/route.lua`, `tests/test_search.lua`, `tests/test_route.lua` | **merged** aba5d15 |
 | E coverage and scenarios | 045 | `tests/golden/cases/`, `tests/golden/required-matrix.json`, `tests/golden/lib/runner.py`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **merged**; 17 GOLD-09 rows, 19 draft cases, `--drafts report` |
-| Repair: draft case honesty | 046 | `tests/golden/cases/`, `required-matrix.json`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **running**, base `draft-honesty-base` = c171fcf |
+| Repair: draft case honesty | 046 | `tests/golden/cases/`, `required-matrix.json`, `docs/golden-coverage.md`, `tests/tools/test_golden_matrix.py` | **merged** |
 | Integrator | — | `tests/harness.lua`, `tests/run.sh`, locale files, `docs/feature-contracts.md`, `logic/registry.lua`, `control.lua` since 037 merged, `gui/export_dialog.lua`, task files, merges | active |
 
 ## What is done
@@ -51,9 +51,9 @@ Expect more of these. A unit-green module set says nothing about the path a play
   whether a click now ends with a blueprint in the player's hand. Nothing delivered yet.
 - One case in the matrix is accepted; 19 are drafts, every GOLD-09 category has a row, and `sh tests/golden/run
   --branch 2.0 --drafts report` names every gap and exits 1. `--branch 2.1` matches zero accepted cases.
-- Lane 045's 19 draft manifests copy the baseline's iron-gear-wheel sheet, and `belt-inserter-bottleneck` declares
-  `BP_R_CAPACITY`, which `logic/bp/reason_codes.lua:7` says the player never sees. Lane 046 repairs both and adds
-  the checks that keep them out.
+- Every draft's capture-dependent fields are empty and its reason codes are terminal, checked by
+  `tests/tools/test_golden_matrix.py` against the groups in `logic/bp/reason_codes.lua` (54 Python tests).
+  Nothing is captured yet: a capture needs the real preparation path, which is lane 039's deliverable.
 - Engine evidence: none, on either branch. 2.1 has no runtime here at all.
 
 ## Tag rule, learned the hard way
