@@ -1,6 +1,6 @@
 # 039 — Generate actually generates, and one service owns the job
 
-Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-039`, branch `lane/039`, base = `feat/round-8-blueprints`, tag `recovery-base` (resolve it with `git rev-parse recovery-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-039`, branch `lane/039`, base = `feat/round-8-blueprints`, tag `recovery-base-039b` (resolve it with `git rev-parse recovery-base-039b`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 Stream A of the recovery plan. This is the biggest missing player workflow: the dialog validates and stops.
 
@@ -22,6 +22,19 @@ Current facts:
 - `docs/feature-contracts.md` §17 freezes what you build: `Generation.register/start/status/cancel`, `GenerationInput`, `PreparedInput`, `TerminalResult`, and the rules for supersession, revisions, cancellation and a deleted sheet.
 - `Jobs` already services jobs from `Jobs.on_tick` under one shared budget, and the progress panel refreshes from `Registry.progress_refresh`.
 
+## What attempt 1 found, and what changed under you
+
+Attempt 1 stopped and reported rather than faking a pass, which was right. It reached
+`logic/bp/grid.lua:73: attempt to compare number with nil` from `Grid.free_regions` on the first layout tick,
+because `logic/bp/search.lua` handed `{rect, owner}` records to `Pack.begin`, which documents bare rectangles.
+
+Lane 043 fixed exactly that and is merged into this base: the search now passes bare rectangles to the packer and
+keeps owner-bearing records for the power stage and the router, with three cases covering all three consumers.
+
+Your worktree still holds your own uncommitted work from attempt 1. Keep it, rebuild on this base, and carry on
+from where the defect stopped you. If the positive case now fails at a **different** stage, stop and report that
+stage the same way; do not turn a positive case into a rejection.
+
 ## What to build
 
 1. `logic/bp/generation.lua` exactly as §17 describes. It registers the `blueprint` kind once, and `Generation.register()` is idempotent.
@@ -38,11 +51,11 @@ Current facts:
 {"name": "pipeline-tests", "command": "lua5.2 tests/test_blueprint_pipeline.lua && lua5.4 tests/test_blueprint_pipeline.lua && lua5.2 tests/test_engine_test_api.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "delivery-and-settings", "command": "lua5.2 tests/test_blueprint_delivery.lua && lua5.2 tests/test_bp_settings.lua && lua5.2 tests/test_no_runtime_require.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 900}
 {"name": "whole-suite", "command": "gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", "expect_exit": 0, "expect_regex": "(?s).*", "timeout_s": 5400}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base recovery-base --manifest docs/tasks/039.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base recovery-base-039b --manifest docs/tasks/039.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
 ```
 
 - Paste the end-to-end case failing before the service exists and passing after.
-- `git diff --stat recovery-base HEAD` pasted.
+- `git diff --stat recovery-base-039b HEAD` pasted.
 
 Run the checks as your **last** action, after your final commit: a commit afterwards moves the tree the proof was
 taken against, and the supervisor refuses it with the reason `tree-moved`.
