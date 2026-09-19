@@ -1,6 +1,6 @@
 --The window that shows the debug string.
 --
---Owned by lane W1-exportui. A scrollable, selectable, read-only text box with Select all and Close, an
+--Owned by lane W1-exportui. A scrollable, selectable, read-only text box with Copy and Close, an
 --explanation that says the string is not a blueprint, and a message when encoding failed. It reads the sheet and
 --changes nothing on it; opening or closing it leaves the report exactly as it was.
 local ExportPayload = require "logic.export_payload"
@@ -10,11 +10,12 @@ local ExportDialog = {}
 ExportDialog.FRAME_NAME = "hxrrc_export_dialog"
 local TEXT_NAME = "hxrrc_export_text"
 local STATE_NAME = "hxrrc_export_state"
-local SELECT_ALL_NAME = "hxrrc_export_select_all_button"
+local COPY_NAME = "hxrrc_export_copy_button"
 local CLOSE_NAME = "hxrrc_export_close_button"
 local FRAME_MIN_WIDTH = 600
 local TEXT_WIDTH = 600
 local TEXT_HEIGHT = 240
+local DISPLAY_LINE_LENGTH = 120
 
 --GUI handles are deliberately kept out of storage. This is only a runtime aid for noticing that the sheet which
 --owns an open window was destroyed; the saved part below contains only the sheet id and the displayed state.
@@ -39,6 +40,14 @@ local function find_type(root, element_type)
         local found = find_type(child, element_type)
         if found then return found end
     end
+end
+
+local function select_and_focus(frame)
+    local text_box = find_type(frame, "text-box")
+    if not text_box then return nil end
+    text_box.select_all()
+    text_box.focus()
+    return text_box
 end
 
 local function frame_of(player)
@@ -138,6 +147,15 @@ local function sheet_flow_of(element)
     return element
 end
 
+local function display_text(encoded)
+    if #encoded <= DISPLAY_LINE_LENGTH then return encoded end
+    local lines = {}
+    for start = 1, #encoded, DISPLAY_LINE_LENGTH do
+        lines[#lines + 1] = encoded:sub(start, start + DISPLAY_LINE_LENGTH - 1)
+    end
+    return table.concat(lines, "\n")
+end
+
 local function build_window(player, state, encoded, encode_error, sheet_id)
     local frame = player.gui.screen.add{
         type = "frame",
@@ -159,13 +177,14 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
         local text_box = frame.add{
             type = "text-box",
             name = TEXT_NAME,
-            text = encoded,
+            text = display_text(encoded),
             read_only = true,
             selectable = true,
             word_wrap = true,
         }
         text_box.style.width = TEXT_WIDTH
         text_box.style.height = TEXT_HEIGHT
+        select_and_focus(frame)
     else
         frame.add{
             type = "label",
@@ -182,8 +201,9 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
 
     local footer = frame.add{type = "flow", name = "hxrrc_export_footer", direction = "horizontal"}
     footer.style.horizontally_stretchable = true
-    footer.style.horizontal_align = "right"
-    footer.add{type = "button", name = SELECT_ALL_NAME, caption = {"hxrrc.export_select_all"}}
+    footer.style.horizontal_align = "left"
+    footer.add{type = "button", name = COPY_NAME, caption = {"hxrrc.export_copy"}}
+    --Keep an explicit Close button; this dialog does not rely on the title-bar close affordance.
     footer.add{type = "button", name = CLOSE_NAME, caption = {"hxrrc.export_close"}}
     return frame
 end
@@ -228,12 +248,13 @@ function ExportDialog.on_export_clicked(event)
     return ExportDialog.open(event.player_index, sheet_flow_of(event.element)) ~= nil
 end
 
-event_handlers.on_gui_click[SELECT_ALL_NAME] = function(event)
+event_handlers.on_gui_click[COPY_NAME] = function(event)
     local frame = frame_of(player_of(event.player_index))
-    local text_box = find_type(frame, "text-box")
-    if text_box then
-        text_box.select_all()
-        text_box.focus()
+    if select_and_focus(frame) then
+        player_of(event.player_index).create_local_flying_text{
+            text = {"hxrrc.export_copy_hint"},
+            create_at_cursor = true,
+        }
     end
 end
 

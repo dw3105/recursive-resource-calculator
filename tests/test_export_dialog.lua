@@ -67,12 +67,13 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(ExportDialog.is_open(1), true, "dialog is open")
         H.equal(find(frame, function(element) return element.caption == "debug-string" end), nil, "no duplicate string label")
 
-        event_handlers.on_gui_click.hxrrc_export_select_all_button({element = find(frame, function(element)
-            return element.name == "hxrrc_export_select_all_button"
-        end), player_index = 1})
-        H.equal(H.text_selected(box), true, "Select all marks the whole text")
-        H.equal(H.text_focused(box), true, "Select all focuses the text")
-        H.equal(world.flying_texts[1], nil, "no unrelated UI output")
+        H.equal(H.text_selected(box), true, "opening selects the whole text")
+        H.equal(H.text_focused(box), true, "opening focuses the text")
+        local copy = find(frame, function(element) return element.name == "hxrrc_export_copy_button" end)
+        event_handlers.on_gui_click.hxrrc_export_copy_button({element = copy, player_index = 1})
+        H.equal(H.text_selected(box), true, "Copy marks the whole text")
+        H.equal(H.text_focused(box), true, "Copy focuses the text")
+        H.equal(world.flying_texts[1][1], "hxrrc.export_copy_hint", "Copy shows its hint")
     end)
 
     H.test(shape .. " E2 Close destroys the frame and clears dialog state", function()
@@ -173,7 +174,7 @@ for _, shape in ipairs(H.shapes()) do
         local box = find(frame, function(element) return element.type == "text-box" end)
 
         H.equal(box ~= nil, true, "successful export has a text box")
-        H.equal(box.text, encoded, "text box carries the whole encoded string")
+        H.equal(box.text:gsub("%s", ""), encoded, "text box carries the whole encoded string")
         local decoded = assert(H.decode_export(box.text))
         H.equal(decoded.format, payload.format, "text box payload decodes")
         H.equal(decoded.note, payload.note, "decoded payload is not clipped")
@@ -196,6 +197,73 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(failure ~= nil, true, "failed dialog keeps the failure label")
         H.equal(find(frame, function(element) return element.type == "text-box" end), nil,
             "failed dialog has no text box")
+    end)
+
+    H.test(shape .. " E11 opens with the whole string selected and focused", function()
+        local _, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = "debug-string"})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local box = find(frame, function(element) return element.type == "text-box" end)
+
+        H.equal(H.text_selected(box), true, "opening selects the whole string")
+        H.equal(H.text_focused(box), true, "opening focuses the string")
+    end)
+
+    H.test(shape .. " E12 wraps the displayed string and still decodes", function()
+        local payload = {
+            format = "rrc-sheet-debug",
+            schema_version = 1,
+            note = string.rep("long-payload-", 100),
+        }
+        local encoded = helpers.encode_string(helpers.table_to_json(payload))
+        local _, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = encoded})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local box = find(frame, function(element) return element.type == "text-box" end)
+
+        H.equal(box.text:find("\n", 1, true) ~= nil, true, "long encoded text has display line breaks")
+        H.equal(box.text:gsub("%s", ""), encoded, "display line breaks do not change the payload")
+        local decoded = assert(H.decode_export(box.text))
+        H.equal(decoded.format, payload.format, "wrapped text decodes")
+        H.equal(decoded.note, payload.note, "wrapped text keeps the complete payload")
+    end)
+
+    H.test(shape .. " E13 Copy selects, focuses and shows its hint", function()
+        local world, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "current", text = "debug-string"})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local box = find(frame, function(element) return element.type == "text-box" end)
+        local copy = find(frame, function(element) return element.name == "hxrrc_export_copy_button" end)
+
+        H.equal(copy.caption[1], "hxrrc.export_copy", "Copy uses the copy locale key")
+        local footer = find(frame, function(element) return element.name == "hxrrc_export_footer" end)
+        H.equal(footer.style.horizontal_align, "left", "footer starts its buttons at the left")
+        H.equal(close_button(frame) ~= nil, true, "Close remains available")
+        H.equal(find(frame, function(element) return element.name == "hxrrc_export_select_all_button" end), nil,
+            "the old Select all button is gone")
+        event_handlers.on_gui_click.hxrrc_export_copy_button({element = copy, player_index = 1})
+        H.equal(H.text_selected(box), true, "Copy selects the whole string")
+        H.equal(H.text_focused(box), true, "Copy focuses the string")
+        H.equal(world.flying_texts[1][1], "hxrrc.export_copy_hint", "Copy shows its hint")
+    end)
+
+    H.test(shape .. " E14 keeps the state line and explanation", function()
+        local _, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "not_computed", text = "debug-string"})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local state = find(frame, function(element) return element.name == "hxrrc_export_state" end)
+        local explanation = find(frame, function(element) return element.name == "hxrrc_export_explanation" end)
+
+        H.equal(state.caption[1], "hxrrc.export_state_not_computed", "state line is still shown")
+        H.equal(explanation.caption[1], "hxrrc.export_explanation", "explanation is still shown")
+    end)
+
+    H.test(shape .. " E15 failure keeps the failure label and has no text box", function()
+        local _, _, sheet_flow, ExportDialog = world_with_export(shape, {state = "failed", error = "encode failed"})
+        local frame = ExportDialog.open(1, sheet_flow)
+        local failure = find(frame, function(element)
+            return type(element.caption) == "table" and element.caption[1] == "hxrrc.export_encoding_failed"
+        end)
+
+        H.equal(failure ~= nil, true, "failure label is still shown")
+        H.equal(find(frame, function(element) return element.type == "text-box" end), nil,
+            "failure still has no text box")
     end)
 end
 
