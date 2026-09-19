@@ -648,10 +648,10 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
     local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
         direction = direction, dir = direction, flow_id = demand.flow_id,
-        ug_role = "output", type = "output", ug_pair_id = second_id}
+        ug_role = "input", type = "input", ug_pair_id = second_id}
     local second = {id = second_id, name = name, position = entity_position(exit_cell.x, exit_cell.y),
         direction = direction, dir = direction, flow_id = demand.flow_id,
-        ug_role = "input", type = "input", ug_pair_id = first_id}
+        ug_role = "output", type = "output", ug_pair_id = first_id}
     work.entities[#work.entities + 1] = first
     work.entities[#work.entities + 1] = second
     work.segments[#work.segments + 1] = segment
@@ -715,6 +715,8 @@ local function append_normal_path(work, demand, path, amount)
     return true
 end
 
+--The tile items go down on is the entrance, and a blueprint spells that `type = "input"`; the tile they come up
+--on is `"output"`.  Transport runs from the demand's source to its sink, so the source end is the entrance.
 local function append_underground(work, demand, candidate, amount)
     local capacity, kind = capacity_for(work, demand.flow)
     if amount > capacity + tolerance(capacity) then return false, "capacity" end
@@ -726,10 +728,10 @@ local function append_underground(work, demand, candidate, amount)
     else name = (work.belt and (work.belt.underground or work.belt.belt)) or name end
     local first = {id = first_id, name = name, position = entity_position(candidate.source.x, candidate.source.y),
         direction = candidate.direction, dir = candidate.direction, flow_id = demand.flow_id,
-        ug_role = "output", type = "output", ug_pair_id = second_id}
+        ug_role = "input", type = "input", ug_pair_id = second_id}
     local second = {id = second_id, name = name, position = entity_position(candidate.sink.x, candidate.sink.y),
         direction = candidate.direction, dir = candidate.direction, flow_id = demand.flow_id,
-        ug_role = "input", type = "input", ug_pair_id = first_id}
+        ug_role = "output", type = "output", ug_pair_id = first_id}
     work.entities[#work.entities + 1] = first
     work.entities[#work.entities + 1] = second
     work.segments[#work.segments + 1] = segment
@@ -822,13 +824,16 @@ local function crossing_target(work, demand, search, current, direction, amount)
     if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return nil end
     local dx, dy = Grid.dir_vector(direction)
     for distance = 2, reach do
-        local x, y = current.x + dx * distance, current.y + dy * distance
-        if not inside_grid(work, x, y) then return nil end
+        local middle_x, middle_y = current.x + dx * (distance - 1), current.y + dy * (distance - 1)
+        if not inside_grid(work, middle_x, middle_y) then return nil end
         --A pair may not run under another pair of its own family: in the engine the two would connect to each
         --other instead of passing.
-        if work.underground_cells[coordinate_key(current.x + dx * (distance - 1), current.y + dy * (distance - 1))] then
-            return nil
-        end
+        if work.underground_cells[coordinate_key(middle_x, middle_y)] then return nil end
+        --Only tiles the search cannot walk are worth diving under. The moment one of them is walkable, walking
+        --it is shorter and costs no entities, so the dive stops there.
+        if path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, {}) then return nil end
+        local x, y = current.x + dx * distance, current.y + dy * distance
+        if not inside_grid(work, x, y) then return nil end
         local key = coordinate_key(x, y)
         if not search.visited[key] and not work.segments_by_cell[key] and not work.underground_cells[key]
             and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
@@ -857,10 +862,8 @@ local function search_step(work, search)
     if first and search.demand.source.travel_dir ~= nil and search.demand.source.travel_dir ~= direction then return "continue" end
     if target and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then return "continue" end
     local key = coordinate_key(nx, ny)
-    --A tile already reached on the surface needs no crossing: diving over it would spend an underground pair on
-    --a tile the search can simply walk.
-    if search.visited[key] then return "continue" end
-    if path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search) then
+    if not search.visited[key]
+        and path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search) then
         search.visited[key], search.parent[key], search.points[key] = true, current_key, {x = nx, y = ny}
         search.queue[search.tail + 1], search.tail = {x = nx, y = ny}, search.tail + 1
         return "continue"
@@ -963,8 +966,50 @@ local function normalize_input(input)
     end
     work.flows = flow_list(input)
     work.demands = build_demands(work, work.flows)
+    work.demand_order, work.demands_by_key = {}, {}
+    for index, demand in ipairs(work.demands) do
+        demand.order_key = index
+        work.demand_order[index] = demand
+        work.demands_by_key[index] = demand
+    end
     work.port_cells = reserve_port_cells(work)
     return work
+end
+
+--A demand that finds no path is often only the victim of the order it was routed in: the belts already on the
+--grid boxed its port in.  Instead of losing the whole candidate, the run rips every segment out and starts over
+--with that demand first.  Each demand may claim the front once, so the retries are bounded by the number of
+--demands and the order the run ends on is still a function of its input.
+local function restart_with_priority(state, work, demand)
+    if type(demand) ~= "table" or demand.order_key == nil then return false end
+    work.priority = work.priority or {}
+    for _, key in ipairs(work.priority) do
+        if key == demand.order_key then return false end
+    end
+    table.insert(work.priority, 1, demand.order_key)
+    local claimed, ordered = {}, {}
+    for _, key in ipairs(work.priority) do claimed[key] = true end
+    for _, key in ipairs(work.priority) do ordered[#ordered + 1] = work.demands_by_key[key] end
+    for _, entry in ipairs(work.demand_order) do
+        if not claimed[entry.order_key] then ordered[#ordered + 1] = entry end
+    end
+    work.demands = ordered
+    for _, entry in ipairs(ordered) do entry.remaining = entry.amount end
+    work.entities, work.segments, work.bindings = {}, {}, {}
+    work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
+    work.expansions, work.current = 0, nil
+    state.cursor.demand_index, state.progress.done_units = 1, 0
+    state.progress.phase = "routing"
+    return true
+end
+
+local function fail_demand(state, work, demand, code, detail)
+    if restart_with_priority(state, work, demand) then return false end
+    local record = {code = code, flow_id = demand and demand.flow_id}
+    if detail ~= nil then record.detail = detail end
+    state.errors, state.done, state.ok = {record}, true, false
+    state.progress.phase = "failed"
+    return true
 end
 
 function Route.begin(input)
@@ -1000,52 +1045,45 @@ function Route.step(state, budget)
             local capacity, kind = capacity_for(work, demand.flow)
             local amount = math.min(demand.remaining, capacity)
             if amount <= 0 then
-                state.errors, state.done, state.ok = {{code = "BP_R_CAPACITY", flow_id = demand.flow_id}}, true, false
-                state.progress.phase, ops = "failed", ops - 1
-                break
-            end
+                ops = ops - 1
+                if fail_demand(state, work, demand, "BP_R_CAPACITY") then break end
+            else
             demand.kind = kind
             if not work.current then
                 if not demand.source or not demand.sink or endpoint_is_blocked(work, demand.source) or endpoint_is_blocked(work, demand.sink) then
-                    state.errors, state.done, state.ok = {{code = "BP_R_PORT_BLOCKED", flow_id = demand.flow_id,
-                        detail = blocked_port_detail(work, demand.source, demand.sink)}}, true, false
-                    state.progress.phase, ops = "failed", ops - 1
-                    break
-                end
+                    ops = ops - 1
+                    if fail_demand(state, work, demand, "BP_R_PORT_BLOCKED",
+                        blocked_port_detail(work, demand.source, demand.sink)) then break end
+                else
                 local candidate, underground_reason = underground_candidate(demand, kind, work)
                 if candidate then
-                    local ok, reason = append_underground(work, demand, candidate, amount)
+                    local placed, reason = append_underground(work, demand, candidate, amount)
                     ops = ops - 1
-                    if not ok then
-                        state.errors, state.done, state.ok = {{code = reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH", flow_id = demand.flow_id}}, true, false
-                        state.progress.phase = "failed"
+                    if not placed then
+                        fail_demand(state, work, demand, reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH")
                     else demand.remaining = demand.remaining - amount end
                 elseif underground_reason ~= "not_requested" then
                     local code = underground_reason == "blocked" and "BP_R_PORT_BLOCKED" or "BP_R_NO_PATH"
-                    local error_record = {code = code, flow_id = demand.flow_id}
-                    if code == "BP_R_PORT_BLOCKED" then
-                        error_record.detail = blocked_port_detail(work, demand.source, demand.sink)
-                    end
-                    state.errors, state.done, state.ok = {error_record}, true, false
-                    state.progress.phase, ops = "failed", ops - 1
+                    ops = ops - 1
+                    fail_demand(state, work, demand, code,
+                        code == "BP_R_PORT_BLOCKED" and blocked_port_detail(work, demand.source, demand.sink) or nil)
                 else
                     work.current = begin_search(work, demand, amount)
+                end
                 end
             else
                 work.expansions = work.expansions + 1
                 if work.expansions > work.max_expansions then
-                    state.errors, state.done, state.ok = {{code = "BP_R_EXPANSIONS", flow_id = demand.flow_id}}, true, false
-                    state.progress.phase, work.current, ops = "failed", nil, ops - 1
-                    break
-                end
+                    work.current, ops = nil, ops - 1
+                    if fail_demand(state, work, demand, "BP_R_EXPANSIONS") then break end
+                else
                 local outcome = search_step(work, work.current)
                 ops = ops - 1
                 if type(outcome) == "table" then
-                    local ok, reason = append_normal_path(work, demand, outcome, amount)
+                    local placed, reason = append_normal_path(work, demand, outcome, amount)
                     work.current = nil
-                    if not ok then
-                        state.errors, state.done, state.ok = {{code = reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH", flow_id = demand.flow_id}}, true, false
-                        state.progress.phase = "failed"
+                    if not placed then
+                        fail_demand(state, work, demand, reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH")
                     else demand.remaining = demand.remaining - amount end
                 elseif outcome == "failed" then
                     local search = work.current
@@ -1055,10 +1093,12 @@ function Route.step(state, budget)
                         work.current = begin_search(work, demand, amount, search.order_index + 1)
                     else
                         local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
-                        state.errors, state.done, state.ok = {{code = code, flow_id = demand.flow_id}}, true, false
-                        state.progress.phase, work.current = "failed", nil
+                        work.current = nil
+                        fail_demand(state, work, demand, code)
                     end
                 end
+                end
+            end
             end
         end
     end
