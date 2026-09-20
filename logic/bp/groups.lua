@@ -267,8 +267,9 @@ local function append_inserters(block, step, machine, catalog, input)
     local ports = {}
     for _, port in ipairs(step.inputs or {}) do ports[#ports + 1] = {role = "input", port = port} end
     for _, port in ipairs(step.outputs or {}) do ports[#ports + 1] = {role = "output", port = port} end
-    -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane.  A
-    -- separate row per connection keeps the opaque member rectangles disjoint without guessing route geometry.
+    -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane. Keep
+    -- one horizontal row per machine; build_block reserves its full width, so adjacent machine strips stay
+    -- disjoint without spending one whole block row per connection.
     local inserter_y = machine.y + machine.h
     for index, entry in ipairs(ports) do
         block.inserters[#block.inserters + 1] = {
@@ -276,11 +277,10 @@ local function append_inserters(block, step, machine, catalog, input)
             kind = "inserter", type = "inserter", name = name,
             step_id = step.step_id, machine_id = machine.id, role = entry.role,
             flow_id = entry.port.flow_id or entry.port.full_name,
-            x = machine.x + math.max(0, math.min(machine.w - iw, index - 1)),
+            x = machine.x + (index - 1) * iw,
             y = inserter_y, w = iw, h = ih,
             dir = entry.role == "input" and NORTH or SOUTH,
         }
-        inserter_y = inserter_y + ih
     end
 end
 
@@ -385,12 +385,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         max_machine_h = math.max(max_machine_h, mh)
         local layout_w = mw
         local _, step_inserter_w = inserter_size(catalog, input and input.inserter)
-        for _, entry in ipairs(step.inputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
-        for _, entry in ipairs(step.outputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
+        local connection_count = #(step.inputs or {}) + #(step.outputs or {})
+        layout_w = math.max(layout_w, connection_count * step_inserter_w)
         for ordinal = 1, step.machine_count do
             machine_specs[#machine_specs + 1] = {step = step, ordinal = ordinal, w = mw, h = mh, layout_w = layout_w}
             machine_w = machine_w + layout_w
-            if #machine_specs > 1 then machine_w = machine_w + 1 end
         end
     end
 
@@ -422,7 +421,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         }
         block.machines[#block.machines + 1] = machine
         block.members[#block.members + 1] = machine
-        x = x + spec.layout_w + 1
+        x = x + spec.layout_w
         append_inserters(block, spec.step, machine, catalog, input)
     end
 
@@ -489,6 +488,20 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     block.w = w
     block.h = math.max(machine_y + max_machine_h, max_inserter_bottom, beacon_rows_h)
+
+    -- Route splitters occupy two tiles but their exact collision box reaches back into the first tile.  A member
+    -- flush with the block envelope can therefore collide with a legal route entity immediately outside it,
+    -- even though their integer occupancy cells are disjoint.  Inset every member by one tile.  Preserve slack
+    -- already present in the layout: only the missing side(s) enlarge the envelope, keeping the grid search's
+    -- footprint smaller than a fixed two-tile expansion.
+    local member_max_x, member_max_y = 0, 0
+    for _, member in ipairs(block.members) do
+        member.x, member.y = member.x + 1, member.y + 1
+        member_max_x = math.max(member_max_x, member.x + member.w)
+        member_max_y = math.max(member_max_y, member.y + member.h)
+    end
+    block.w = math.max(block.w, member_max_x + 1)
+    block.h = math.max(block.h, member_max_y + 1)
 
     -- Ports are stored in the block's own frame, but the validator checks their attachment against the placed
     -- envelope. Reserve the total top-row width in both dimensions: after a quarter-turn the source x range
