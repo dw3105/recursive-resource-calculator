@@ -26,6 +26,7 @@ coverage. Branches are the branches claimed by the required matrix.
 | matrix | retained baseline case | basic-canonical | 2.0 | production | accepted | accepted baseline corpus case |
 | matrix | retained baseline case | import-build-round-trip | 2.0, 2.1 | production | draft | open gap: capture pending; content arrives with capture; not coverage |
 | matrix | retained baseline case | export-decode | 2.0, 2.1 | export | draft | open gap: capture pending; content arrives with capture; not coverage |
+| matrix | player's exported speed-module chain | player-speed-module-chain | 2.0 | production | draft | open gap: capture pending; content arrives with capture; not coverage |
 
 The three retained baseline rows remain in the required matrix even where they
 are not a separate GOLD-09 category. The accepted baseline is the only current

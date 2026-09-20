@@ -9,9 +9,12 @@ then use the separate ``accept`` command when replacing one.
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
 import hashlib
 import json
+import re
 import sys
+from copy import deepcopy
 from pathlib import Path
 
 LIB = Path(__file__).resolve().parent / "lib"
@@ -20,6 +23,170 @@ if str(LIB) not in sys.path:
 
 from common import (CaseInputError, build_manifest, observed_outcome, read_export,
                     read_json, validate_capture, write_json)  # noqa: E402
+
+
+def _mapping(value: object) -> Mapping:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _branch_from_version(version: str | None) -> str | None:
+    if version is None:
+        return None
+    match = re.match(r"^(\d+)\.(\d+)(?:\.|$)", version)
+    return f"{match.group(1)}.{match.group(2)}" if match else None
+
+
+def _version_facts(export: Mapping, options: Mapping) -> tuple[str, str]:
+    """Return the short branch and exact base-game version separately.
+
+    A real export's environment is authoritative.  Options remain a fallback
+    for the small synthetic fixtures used by the offline tooling, but an
+    explicit 2.1 option cannot relabel a 2.0 engine export.
+    """
+    environment = _mapping(export.get("environment"))
+    exported_versions = _mapping(export.get("versions"))
+    exact = next(
+        (
+            candidate
+            for candidate in (
+                environment.get("base_game_version"),
+                exported_versions.get("base_game_version"),
+                export.get("base_game_version"),
+                options.get("base_game_version"),
+            )
+            if isinstance(candidate, str) and candidate.strip()
+        ),
+        None,
+    )
+    explicit = next(
+        (
+            candidate
+            for candidate in (
+                environment.get("factorio_branch"),
+                exported_versions.get("factorio_branch"),
+                export.get("factorio_branch"),
+                options.get("factorio_branch"),
+                options.get("factorio"),
+                options.get("branch"),
+            )
+            if isinstance(candidate, str) and candidate.strip()
+        ),
+        None,
+    )
+    branch = _branch_from_version(exact) or _branch_from_version(explicit) or explicit or "2.0"
+    return branch, exact or branch
+
+
+def _fact_sources(export: Mapping) -> list[Mapping]:
+    sources = [export]
+    for key in ("facts", "prepared_input", "prepared"):
+        value = export.get(key)
+        if isinstance(value, Mapping):
+            sources.append(value)
+    return sources
+
+
+def _nonempty_fact(value: object) -> bool:
+    return value is not None and value != {} and value != []
+
+
+def _has_catalog_recipe(export: Mapping) -> bool:
+    for source in _fact_sources(export):
+        if _nonempty_fact(source.get("catalog.recipe")):
+            return True
+        catalog = source.get("catalog")
+        if isinstance(catalog, Mapping) and _nonempty_fact(catalog.get("recipe")):
+            return True
+    return False
+
+
+def _has_effect_receiver(export: Mapping) -> bool:
+    for source in _fact_sources(export):
+        if _nonempty_fact(source.get("effect_receiver")):
+            return True
+        receiver_facts = source.get("effect_receivers")
+        if _nonempty_fact(receiver_facts):
+            return True
+        catalog = source.get("catalog")
+        entities = catalog.get("entity") if isinstance(catalog, Mapping) else None
+        if isinstance(entities, Mapping):
+            if any(
+                isinstance(entity, Mapping) and _nonempty_fact(entity.get("effect_receiver"))
+                for entity in entities.values()
+            ):
+                return True
+    return False
+
+
+def _facts_missing(export: Mapping, capture: Mapping | None) -> list[str]:
+    missing = []
+    if capture is None:
+        missing.append("prepared_input")
+    if not _has_catalog_recipe(export):
+        missing.append("catalog.recipe")
+    if not _has_effect_receiver(export):
+        missing.append("effect_receiver")
+    return missing
+
+
+def _uncaptured_observation(export: Mapping) -> dict:
+    """Preserve failure facts even when the export has no prepared capture."""
+    candidates: list[tuple[Mapping, bool]] = [(export, False)]
+    for key in ("provenance", "failure", "generation", "calculation"):
+        value = export.get(key)
+        if isinstance(value, Mapping):
+            if key == "calculation" and value.get("status") in {"ok", "success"}:
+                continue
+            candidates.append((value, key == "failure"))
+
+    state = None
+    stage = None
+    reason_codes = None
+    for index, (candidate, is_failure) in enumerate(candidates):
+        outcome_keys = ("terminal_outcome", "terminal_state", "outcome", "result")
+        if index:
+            outcome_keys += ("state", "status")
+        outcome = next(
+            (
+                candidate.get(key)
+                for key in outcome_keys
+                if candidate.get(key) is not None
+            ),
+            None,
+        )
+        if isinstance(outcome, Mapping):
+            stage = stage or outcome.get("stage")
+            reason_codes = reason_codes or next(
+                (outcome.get(key) for key in ("reason_codes", "reasons", "codes")
+                 if outcome.get(key) is not None),
+                None,
+            )
+            outcome = next(
+                (outcome.get(key) for key in ("state", "outcome", "status") if outcome.get(key) is not None),
+                None,
+            )
+        stage = stage or next(
+            (candidate.get(key) for key in ("stage", "failure_stage") if candidate.get(key) is not None),
+            None,
+        )
+        reason_codes = reason_codes or next(
+            (candidate.get(key) for key in ("reason_codes", "reasons", "codes")
+             if candidate.get(key) is not None),
+            None,
+        )
+        if state is None and outcome is not None:
+            state = outcome
+        if state is None and is_failure and (stage is not None or reason_codes is not None):
+            state = "failure"
+
+    if state is None and stage is None and reason_codes is None:
+        return {"state": "not_captured"}
+    result = {"state": state or "failure"}
+    if stage is not None:
+        result["stage"] = deepcopy(stage)
+    if reason_codes is not None:
+        result["reason_codes"] = deepcopy(reason_codes)
+    return result
 
 
 def parser() -> argparse.ArgumentParser:
@@ -61,6 +228,11 @@ def main(argv: list[str] | None = None) -> int:
         capture = validate_capture(export, encoded)
         prepared = capture["prepared_input"] if capture is not None else None
         captured = prepared is not None
+        branch, base_game_version = _version_facts(export, options)
+        manifest["factorio_branch"] = branch
+        manifest["versions"]["factorio"] = branch
+        manifest["versions"]["factorio_branch"] = branch
+        manifest["versions"]["base_game_version"] = base_game_version
         # A source_kind supplied by Generation.capture is authoritative. The old
         # prepared_input-only spelling remains readable for existing tool tests,
         # but is not used by new runtime or harness captures.
@@ -74,9 +246,20 @@ def main(argv: list[str] | None = None) -> int:
         # the explicit policy field for a draft and is never changed by a failed
         # generation observation.
         manifest["expected_outcome"] = supported
-        manifest["observed_outcome"] = observed_outcome(export, capture)
+        manifest["observed_outcome"] = (
+            observed_outcome(export, capture) if capture is not None else _uncaptured_observation(export)
+        )
         manifest["state"] = "draft"
         manifest["source_export"] = "export.json"
+        manifest["facts_missing"] = _facts_missing(export, capture)
+        if capture is None:
+            # The raw sheet stays in export.json.  These fields must not be
+            # promoted to prepared generation input without a real capture.
+            manifest["targets"] = []
+            manifest["setup"]["selection"] = []
+            manifest["capture_pending"] = (
+                "Capture this sheet through the real preparation path before accepting it."
+            )
         if captured:
             manifest["prepared_input"] = "prepared_input.json"
             # The generated result is intentionally not a checked-in actual.
@@ -104,6 +287,7 @@ def main(argv: list[str] | None = None) -> int:
                 if prepared is not None else None,
             "supported_outcome": manifest["supported_outcome"],
             "observed_outcome": manifest["observed_outcome"],
+            "facts_missing": manifest["facts_missing"],
         }
         if capture is not None and capture["source_export"] is not None:
             provenance["capture_source_export"] = capture["source_export"]

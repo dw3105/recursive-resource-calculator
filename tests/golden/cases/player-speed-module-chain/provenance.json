@@ -1,0 +1,20 @@
+{
+  "case_id": "player-speed-module-chain",
+  "export_sha256": "9929126c715a33f3548e53bde9827c3f125355825fb5c68e6c546d974193576e",
+  "facts_missing": [
+    "prepared_input",
+    "catalog.recipe",
+    "effect_receiver"
+  ],
+  "observed_outcome": {
+    "state": "not_captured"
+  },
+  "options_file": "options.json",
+  "options_sha256": "ca3d163bab055381827226140568f3bef7eaac187cebd76878e0b63e9e442356",
+  "prepared_input_file": null,
+  "prepared_input_sha256": null,
+  "source_export": "export.json",
+  "source_kind": "handwritten_fixture",
+  "state": "draft",
+  "supported_outcome": "production"
+}
