@@ -6,7 +6,8 @@
 --
 --  Step = {step_id, recipe, recipe_quality, machine, machine_quality, machine_count, crafts_per_second_total,
 --          crafts_per_second_per_machine, modules = {{name, quality, count}}, beacon_groups = {BeaconGroup},
---          has_quality_module, forbids_speed_beacon, power_w, pollution_per_min, inputs, outputs}
+--          has_quality_module, forbids_speed_beacon, receiver_status, recipe_facts_missing, power_w,
+--          pollution_per_min, inputs, outputs}
 --  Flow = {flow_id, full_name, item_name, quality, is_fluid, rate_per_second,
 --          producers = {{step_id, share_per_second}}, consumers = {{step_id, share_per_second}}}
 --          step_id "$external" is the world outside the blueprint, on both sides
@@ -16,6 +17,7 @@
 --and must never reach a physical count. Nothing downstream may call Utils.machine_amount; the validator counts
 --what was placed and compares it against this number instead of recomputing the requirement.
 local Plan = {}
+local QualityPolicy = require "logic.bp.quality_policy"
 
 Plan.SCHEMA_VERSION = 1
 
@@ -179,13 +181,82 @@ local function beacon_projection(beacon_name, beacon_quality, catalog)
     }
 end
 
-local function recipe_data(recipe_name, input)
+local RECIPE_FIELDS = {energy = true, ingredients = true, products = true}
+
+local function add_missing_fields(target, fields)
+    if type(fields) ~= "table" then return end
+    if #fields > 0 then
+        for _, field in ipairs(fields) do
+            if RECIPE_FIELDS[field] then target[field] = true end
+        end
+    else
+        for field, missing in pairs(fields) do
+            if missing and RECIPE_FIELDS[field] then target[field] = true end
+        end
+    end
+end
+
+local function recipe_missing_fields(recipe, declared)
+    local missing = {}
+    if type(recipe) ~= "table" then
+        for _, field in ipairs({"energy", "ingredients", "products"}) do missing[field] = true end
+        return missing
+    end
+    if type(recipe.energy) ~= "number" then missing.energy = true end
+    if type(recipe.ingredients) ~= "table" then missing.ingredients = true end
+    if type(recipe.products) ~= "table" or #recipe.products == 0 then
+        missing.products = true
+    else
+        for _, product in ipairs(recipe.products) do
+            if type(product) ~= "table" or product.name == nil or product.type == nil
+                or (product.amount == nil and product.amount_min == nil and product.amount_max == nil) then
+                missing.products = true
+                break
+            end
+        end
+    end
+    add_missing_fields(missing, type(recipe.facts) == "table" and recipe.facts.missing)
+    add_missing_fields(missing, declared)
+    return missing
+end
+
+local function recipe_gap(recipe_name, fields)
+    if next(fields or {}) == nil then return nil end
+    return {recipe = recipe_name, fields = fields}
+end
+
+local function mark_all_recipe_fields(fields)
+    for field, _ in pairs(RECIPE_FIELDS) do fields[field] = true end
+end
+
+local function recipe_data(recipe_name, input, inline_recipe)
+    local gap_fields = {}
+    local function projected(candidate, declared)
+        if candidate == nil or candidate == false then return nil end
+        local missing = recipe_missing_fields(candidate, declared)
+        if next(missing) == nil then return candidate end
+        for field, _ in pairs(missing) do gap_fields[field] = true end
+        return nil
+    end
+
+    local inline = projected(inline_recipe)
+    if inline then return inline, recipe_gap(recipe_name, gap_fields) end
+
     local recipes = input and (input.recipes or input.recipe)
-    local recipe = type(recipes) == "table" and recipes[recipe_name]
-    if recipe then return recipe end
-    local catalog_recipe = input and input.catalog and input.catalog.recipe
-    if type(catalog_recipe) == "table" and catalog_recipe[recipe_name] then return catalog_recipe[recipe_name] end
-    if rawget(_G, "prototypes") and prototypes.recipe then return prototypes.recipe[recipe_name] end
+    local prepared = type(recipes) == "table" and recipes[recipe_name]
+    local prepared_recipe = projected(prepared)
+    if prepared_recipe then return prepared_recipe, recipe_gap(recipe_name, gap_fields) end
+
+    local catalog = input and input.catalog or {}
+    local catalog_recipe = type(catalog.recipe) == "table" and catalog.recipe[recipe_name]
+    local coverage = type(catalog.recipe_coverage) == "table" and catalog.recipe_coverage.missing
+    local catalog_recipe_value = projected(catalog_recipe, type(coverage) == "table" and coverage[recipe_name])
+    if catalog_recipe_value then return catalog_recipe_value, recipe_gap(recipe_name, gap_fields) end
+    if catalog_recipe == nil or catalog_recipe == false then mark_all_recipe_fields(gap_fields) end
+
+    local runtime = rawget(_G, "prototypes") and prototypes.recipe
+    if runtime then return runtime[recipe_name], recipe_gap(recipe_name, gap_fields) end
+    return nil, recipe_gap(recipe_name, gap_fields)
 end
 
 local function product_amount(product)
@@ -290,7 +361,14 @@ local function stage_descriptor(column, stage, rate, stage_id, input, selections
     local machine_identifier = identifier_of(stage.machine or (selection and selection.machine) or column.machine or column.burner)
     local machine_quality = machine_identifier and machine_identifier.quality or "normal"
     local recipe_quality = quality_of(stage.recipe_quality or stage.quality or column.recipe_quality)
-    local recipe = stage.recipe_data or (recipe_name and recipe_data(recipe_name, input))
+    local recipe, recipe_facts_missing
+    local inline_recipe = type(stage.recipe_data) == "table" and stage.recipe_data
+        or (type(stage.recipe) == "table" and stage.recipe)
+    if inline_recipe then
+        recipe, recipe_facts_missing = recipe_data(recipe_name, input, inline_recipe)
+    elseif recipe_name then
+        recipe, recipe_facts_missing = recipe_data(recipe_name, input)
+    end
     local net_amounts = stage.net_amounts or column.net_amounts
     if not net_amounts and recipe then net_amounts = net_amounts_from_recipe(recipe) end
     local machine_rate = finite_number(stage.crafts_per_second_per_machine,
@@ -300,13 +378,20 @@ local function stage_descriptor(column, stage, rate, stage_id, input, selections
     local effects_speed = 0
     local effects_consumption = 0
     local effects_pollution = 0
-    local has_quality_module = false
+    local quality_step = {
+        machine = machine_identifier,
+        modules = setup.modules,
+        beacons = setup.beacons,
+        recipe = recipe,
+    }
+    local receiver = QualityPolicy.receiver(quality_step, catalog)
+    local has_quality_module = QualityPolicy.has_active_quality_module(quality_step, catalog)
+    local speed_beacon_contribution = QualityPolicy.speed_beacon_contribution(quality_step, catalog)
     for _, module in ipairs(expand_modules(setup.modules)) do
         local effects = module_effect(module.name, module.quality, catalog)
         effects_speed = effects_speed + finite_number(effects.speed, 0)
         effects_consumption = effects_consumption + finite_number(effects.consumption, 0)
         effects_pollution = effects_pollution + finite_number(effects.pollution, 0)
-        if finite_number(effects.quality, 0) > 0 then has_quality_module = true end
     end
 
     local count_by_beacon_name, beacon_total = {}, 0
@@ -371,7 +456,9 @@ local function stage_descriptor(column, stage, rate, stage_id, input, selections
         modules = compress_modules(setup.modules),
         beacon_groups = public_beacons,
         has_quality_module = has_quality_module,
-        forbids_speed_beacon = has_quality_module,
+        forbids_speed_beacon = has_quality_module or speed_beacon_contribution > 0,
+        receiver_status = receiver.status,
+        recipe_facts_missing = recipe_facts_missing,
         power_w = power_w,
         pollution_per_min = pollution,
         _net_amounts = copy_amounts(net_amounts),
@@ -429,6 +516,7 @@ local function direct_stage_specs(column, rate, input, selections, catalog)
         modules = column.modules or (selection and selection.modules),
         beacons = column.beacons or (selection and selection.beacons),
         setup = column.setup,
+        recipe_data = column.recipe_data or (type(column.recipe) == "table" and column.recipe),
         net_amounts = column.net_amounts,
         crafts_per_second_per_machine = column.crafts_per_second_per_machine or column.units_per_second_per_machine
             or column.burn_rate,
