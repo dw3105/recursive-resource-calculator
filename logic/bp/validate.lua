@@ -229,11 +229,6 @@ local function box_in_area(info, centre_x, centre_y, supply_w, supply_h)
         Geometry.supply_box(centre_x, centre_y, supply_w, supply_h))
 end
 
-local function point_in_area(info, centre_x, centre_y, supply_w, supply_h)
-    return info.cx >= centre_x - supply_w - EPSILON and info.cx <= centre_x + supply_w + EPSILON
-        and info.cy >= centre_y - supply_h - EPSILON and info.cy <= centre_y + supply_h + EPSILON
-end
-
 local function rect_of_entity(entity, spec)
     local cx, cy = entity_center(entity, spec)
     local w, h = finite(entity.w, spec and spec.tile_w or 1), finite(entity.h, spec and spec.tile_h or 1)
@@ -592,6 +587,19 @@ local function check_geometry(work, index)
     return index >= #work.infos
 end
 
+--A plain-data connection_distance is a compatibility override for fixtures and callers. The engine fact for a
+--roboport is logistic_radius, so the normal path derives the shared reach from that radius just as the planner does.
+local function robo_reach(info, catalog)
+    local entity, spec = info.entity, info.spec
+    local robo = catalog and (catalog.robo or catalog.roboport) or {}
+    local explicit = finite(entity.connection_distance,
+        finite(spec.connection_distance, finite(robo.connection_distance, nil)))
+    if explicit ~= nil then return explicit end
+    local logistic_radius = finite(entity.logistic_radius,
+        finite(spec.logistic_radius, finite(robo.logistic_radius, nil)))
+    return logistic_radius and logistic_radius * 2 or nil
+end
+
 local function check_robo(work)
     if #work.roboports <= 1 then return true end
     local parent = {}
@@ -603,12 +611,12 @@ local function check_robo(work)
     for first = 1, #work.roboports do
         for second = first + 1, #work.roboports do
             local a, b = work.roboports[first], work.roboports[second]
-            local reach_a = finite(a.entity.connection_distance, finite(a.spec.connection_distance,
-                finite(work.catalog.robo and work.catalog.robo.connection_distance, 0)))
-            local reach_b = finite(b.entity.connection_distance, finite(b.spec.connection_distance,
-                finite(work.catalog.robo and work.catalog.robo.connection_distance, 0)))
-            local dx, dy = a.cx - b.cx, a.cy - b.cy
-            if math.sqrt(dx * dx + dy * dy) <= math.min(reach_a, reach_b) + tolerance(math.min(reach_a, reach_b)) then join(a.id, b.id) end
+            local reach_a, reach_b = robo_reach(a, work.catalog), robo_reach(b, work.catalog)
+            if reach_a ~= nil and reach_b ~= nil then
+                local reach_limit = math.min(reach_a, reach_b)
+                local dx, dy = a.cx - b.cx, a.cy - b.cy
+                if math.sqrt(dx * dx + dy * dy) <= reach_limit + tolerance(reach_limit) then join(a.id, b.id) end
+            end
         end
     end
     local root = find(work.roboports[1].id); local disconnected = {}
@@ -622,7 +630,7 @@ local function check_beacons(work)
         local influencing, effects = {}, {speed = 0, consumption = 0, pollution = 0, quality = 0}
         for _, beacon in ipairs(work.beacons) do
             local projection = beacon_projection(beacon, work.catalog)
-            if point_in_area(machine, beacon.cx, beacon.cy, projection.supply_w, projection.supply_h) then
+            if box_in_area(machine, beacon.cx, beacon.cy, projection.supply_w, projection.supply_h) then
                 influencing[#influencing + 1] = beacon
                 if machine.entity.forbids_speed_beacon or machine.entity.has_quality_module
                     or (work.steps[machine.entity.step_id] and (work.steps[machine.entity.step_id].forbids_speed_beacon
