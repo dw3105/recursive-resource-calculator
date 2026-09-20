@@ -61,6 +61,103 @@ local function entity(id, name, x, extra)
     return result
 end
 
+local function fixture_positions()
+    local file = assert(io.open("tests/fixtures/engine/roboport-cell.json", "rb"))
+    local text = file:read("*a")
+    file:close()
+    local section = assert(text:match('"normalised_positions"%s*:%s*%[(.-)%]'), "fixture has normalized positions")
+    local result = {}
+    for entry in section:gmatch("{(.-)}") do
+        result[#result + 1] = {
+            name = assert(entry:match('"name"%s*:%s*"([^"]+)"')),
+            x = assert(tonumber(entry:match('"x"%s*:%s*(-?[%d%.]+)'))),
+            y = assert(tonumber(entry:match('"y"%s*:%s*(-?[%d%.]+)'))),
+        }
+    end
+    return result
+end
+
+local function robo_catalog()
+    return {robo = {name = "roboport", logistic_radius = 25}}
+end
+
+local function robo_entities(positions, translate, right_column_x)
+    local result = {}
+    for _, position in ipairs(positions) do
+        local x = position.x
+        if right_column_x ~= nil and x == 50 then x = right_column_x end
+        result[#result + 1] = {
+            id = (position.x == 50 and "right-" or "left-") .. tostring(position.y),
+            kind = "roboport", name = position.name, x = x + translate.x, y = position.y + translate.y, w = 1, h = 1,
+        }
+    end
+    return result
+end
+
+local function ids_contain(ids, wanted)
+    for _, id in ipairs(ids or {}) do if id == wanted then return true end end
+    return false
+end
+
+H.test("VS1 a beacon supplies by collision-box overlap, exactly as a pole does", function()
+    local test_catalog = catalog()
+    test_catalog.entity.beacon.collision_mask = {"beacon-layer"}
+    test_catalog.entity.pole.collision_mask = {"pole-layer"}
+    local state = finish({grid = {w = 4, h = 4}, catalog = test_catalog,
+        plan = {steps = {{step_id = "step", machine_count = 1,
+            beacon_groups = {{name = "beacon", count_per_machine = 1}}}}}, entities = {
+        entity("machine", "wide", 1.1, {step_id = "step", needs_power = true, y = 0.2}),
+        {id = "beacon", kind = "beacon", name = "beacon", x = 0, y = 1.2, w = 1, h = 1, supply_w = 1, supply_h = 1},
+        {id = "pole", kind = "pole", name = "pole", x = 0, y = 1.2, w = 1, h = 1, supply_w = 1, supply_h = 1},
+    }})
+    H.equal(state.ok, true, "the collision-box overlap supplies the machine through both consumers")
+    H.equal(has_code(state, "BP_V_BEACON_COVERAGE_SHORT"), false, "the beacon sees the overlapping machine")
+    H.equal(has_code(state, "BP_V_POWER_UNCOVERED"), false, "the pole sees the overlapping machine")
+end)
+
+H.test("VS2 the fractional-box counterexample is refused by the beacon rule and the pole rule alike", function()
+    local test_catalog = catalog()
+    test_catalog.entity.assembler.collision_box = {left_top = {x = -0.7, y = -0.7}, right_bottom = {x = 0.7, y = 0.7}}
+    test_catalog.entity.beacon.collision_mask = {"beacon-layer"}
+    test_catalog.entity.pole.collision_mask = {"pole-layer"}
+    local state = finish({grid = {w = 8, h = 8}, catalog = test_catalog,
+        plan = {steps = {{step_id = "step", machine_count = 1,
+            beacon_groups = {{name = "beacon", count_per_machine = 1}}}}}, entities = {
+        entity("machine", "assembler", 3, {step_id = "step", needs_power = true, y = 4, w = 3, h = 3}),
+        {id = "beacon", kind = "beacon", name = "beacon", x = 3, y = 0, w = 3, h = 3,
+            supply_w = 3, supply_h = 3},
+        {id = "pole", kind = "pole", name = "pole", x = 3, y = 0, w = 3, h = 3,
+            supply_w = 3, supply_h = 3},
+    }})
+    H.equal(state.ok, false, "the real fractional collision box is outside both supply decisions")
+    H.equal(has_code(state, "BP_V_BEACON_COVERAGE_SHORT"), true, "the beacon rejects the fractional-box counterexample")
+    H.equal(has_code(state, "BP_V_POWER_UNCOVERED"), true, "the pole rejects the fractional-box counterexample")
+end)
+
+H.test("VS3 the player's four-roboport cell validates as connected, before and after translation", function()
+    local positions = fixture_positions()
+    H.equal(#positions, 4, "the engine fixture supplies four roboport coordinates")
+    for _, translate in ipairs({{x = 0, y = 0}, {x = 137.25, y = -44.5}}) do
+        local state = finish({catalog = robo_catalog(), entities = robo_entities(positions, translate)})
+        H.equal(state.ok, true, "the fixture cell is connected at its translation")
+        H.equal(has_code(state, "BP_V_ROBO_DISCONNECTED"), false, "the fixture cell has no disconnected roboports")
+    end
+end)
+
+--Geometry only: the stated spacing is 50 tiles, so moving the whole right-hand column to x=51 removes every
+--cross-column edge. This deliberately asserts nothing about the engine's true rejection boundary.
+H.test("VS4 geometry only: a whole column moved past a stated spacing is disconnected and named", function()
+    local positions = fixture_positions()
+    local state = finish({catalog = robo_catalog(), entities = robo_entities(positions, {x = 0, y = 0}, 51)})
+    H.equal(state.ok, false, "the geometry-only wider column is rejected")
+    local disconnected = error_with_code(state, "BP_V_ROBO_DISCONNECTED")
+    H.equal(disconnected ~= nil, true, "the geometry-only rejection has the roboport reason")
+    H.equal(ids_contain(disconnected and disconnected.ids, "right-0"), true, "the upper moved roboport is named")
+    H.equal(ids_contain(disconnected and disconnected.ids, "right-50"), true, "the lower moved roboport is named")
+    H.equal(ids_contain(disconnected and disconnected.ids, "left-0"), false, "the left column remains the root component")
+    H.equal(ids_contain(disconnected and disconnected.ids, "left-50"), false, "the left column remains connected")
+end)
+
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " V1 touching collision boxes do not overlap", function()
         local state = finish({grid = {w = 3, h = 2}, catalog = catalog(), entities = {
