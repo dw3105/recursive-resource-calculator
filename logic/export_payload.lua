@@ -871,11 +871,36 @@ end
 --The generation service is loaded by control.lua after this module. It is therefore read through the registry at
 --use time, never required from the export handler. Older saves and the focused export tests do not publish that
 --entry; in those worlds there simply is no prepared capture to add.
+--The service's own per-sheet lookup, when this build has one. It is asked first and by sheet, because every
+--other route here is transient: logic/jobs.lua:405-407 clears data.blueprint_job while servicing a job and
+--:423-426 restores it only for a job that is not terminal, which is exactly the moment a player exports a
+--failure. A lookup that answers for a different sheet is refused rather than borrowed.
+local function service_attempt(generation, player_index, sheet_id)
+    if type(generation) ~= "table" then return nil end
+    local reader = generation.lookup or generation.attempt or generation.attempt_for_sheet
+    if type(reader) ~= "function" then return nil end
+    local ok, attempt = pcall(reader, player_index, sheet_id)
+    if not ok or type(attempt) ~= "table" then return nil end
+    --The service answers for every sheet, including one that was never generated, and says so plainly. That
+    --answer is not an attempt: the export keeps naming absence in its own vocabulary, so a reader never has to
+    --know which module happened to report it.
+    if attempt.present == false or attempt.found == false then return nil end
+    if attempt.status == "absent" or attempt.state == "absent" then return nil end
+    local owner = attempt.sheet_id
+    if owner ~= nil and owner ~= sheet_id then return nil end
+    return attempt
+end
+
 local function generation_capture(player_index, player_data, sheet_id)
     local ok_service, generation = pcall(Registry.need, "generation")
     if not ok_service or type(generation) ~= "table" or type(generation.capture) ~= "function" then return nil end
 
     local ids, seen = {}, {}
+    local attempt = service_attempt(generation, player_index, sheet_id)
+    if attempt ~= nil then
+        add_generation_id(ids, seen, attempt.generation_id)
+        add_generation_id(ids, seen, attempt.job_id)
+    end
     for _, key in ipairs({"generation_id", "last_generation_id", "last_blueprint_generation_id"}) do
         add_generation_id(ids, seen, player_data[key])
     end
@@ -898,17 +923,26 @@ local function generation_capture(player_index, player_data, sheet_id)
     return nil
 end
 
-local function generation_attempt(player_data, sheet_id, capture, provenance)
+local function generation_attempt(player_index, player_data, sheet_id, capture, provenance)
+    --Ask the service first. It answers for this sheet and keeps answering after the job is terminal, which the
+    --transient queue slot below does not.
+    local ok_service, generation = pcall(Registry.need, "generation")
+    local attempt = ok_service and service_attempt(generation, player_index, sheet_id) or nil
+    if attempt ~= nil then return copy_json(attempt) end
+
     local job = type(player_data) == "table" and player_data.blueprint_job or nil
     if type(job) == "table" and (job.sheet_id == nil or job.sheet_id == sheet_id) then
         return copy_json(job)
     end
+    --A build without the per-sheet lookup may still carry the service's plain-data bridge for this sheet.
+    local bridged = type(player_data) == "table" and type(player_data.blueprint_attempts) == "table"
+        and player_data.blueprint_attempts[sheet_id] or nil
+    if type(bridged) == "table" then return copy_json(bridged) end
     if type(capture) == "table" then
-        local attempt = copy_json(provenance or capture)
-        if type(attempt) == "table" then return attempt end
+        local carried = copy_json(provenance or capture)
+        if type(carried) == "table" then return carried end
     end
-    --The durable terminal lookup belongs to the generation lane. On this base, absence is a fact the export must
-    --name rather than a fabricated last attempt or another sheet's attempt.
+    --Absence is a fact the export names, never a fabricated last attempt and never another sheet's attempt.
     return {status = "absent", missing = {"generation_attempt"}}
 end
 
@@ -1030,7 +1064,7 @@ function ExportPayload.build(player_index, sheet_flow)
 
     local capture, capture_source_kind, capture_provenance = generation_capture(player_index, player_data, snapshot.sheet_id)
     local prepared, source_kind, provenance, source_export = capture_projection(capture, capture_source_kind, capture_provenance)
-    local generation = generation_attempt(player_data, snapshot.sheet_id, capture, provenance)
+    local generation = generation_attempt(player_index, player_data, snapshot.sheet_id, capture, provenance)
 
     local diagnostics = {
         missing_prototypes = {}, rejected_values = rejected_values(snapshot), catalog = sorted_diagnostics(catalog_diagnostics),
