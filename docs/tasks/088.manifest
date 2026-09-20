@@ -2,4 +2,4 @@ tests/golden/add_case
 tests/golden/required-matrix.json
 docs/golden-coverage.md
 !tests/tools/test_golden_capture.py
-tests/golden/cases/player-speed-module-chain/
+!tests/golden/cases/player-speed-module-chain/
