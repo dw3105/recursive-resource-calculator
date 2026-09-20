@@ -7,6 +7,7 @@
 --An unsupported choice that is inactive or running at zero rate does not block an otherwise supported sheet.
 --Nothing here is a claim about what is impossible: it is what this version can model.
 local ReasonCodes = require "logic.bp.reason_codes"
+local QualityPolicy = require "logic.bp.quality_policy"
 
 local Preflight = {}
 
@@ -76,10 +77,6 @@ local function item_of(catalog, name)
     return lookup(catalog and (catalog.item or catalog.items), name)
 end
 
-local function module_of(catalog, name)
-    return lookup(catalog and catalog.module, name) or lookup(catalog and catalog.modules, name)
-end
-
 local function recipe_of(catalog, column)
     if type(column) ~= "table" then return nil end
     return column.recipe or column.recipe_prototype or column.recipe_data
@@ -129,14 +126,6 @@ local function module_count(modules)
         end
     end
     return count
-end
-
-local function effect_of(catalog, module, effect)
-    local data = type(module) == "table" and module_of(catalog, name_of(module.name))
-    local effects = (data and (data.effects or data.module_effects))
-        or (type(module) == "table" and (module.effects or module.module_effects))
-    local amount = effects and effects[effect]
-    return type(amount) == "number" and amount or 0
 end
 
 local function rate_of(column, result)
@@ -207,17 +196,71 @@ local function count_steps(result)
     return count
 end
 
-local function recipe_products(recipe)
-    return recipe and (recipe.products or recipe.outputs or recipe.product) or {}
-end
-
 local function item_spoils(catalog, product, full_name)
     local data = item_of(catalog, product and product.name or full_name) or product
     return data and (data.spoil_result ~= nil or data.spoils == true or data.spoilage ~= nil)
 end
 
-local function product_reasons(reasons, seen, catalog, recipe, active_step)
-    if not active_step or type(recipe) ~= "table" then return end
+local function product_reasons(reasons, seen, catalog, recipe, active_step, recipe_id)
+    if not active_step then return end
+    recipe_id = recipe_id or name_of(recipe and recipe.name, "recipe")
+    local missing = {}
+    local missing_seen = {}
+    local function require_field(field)
+        if not missing_seen[field] then
+            missing_seen[field] = true
+            missing[#missing + 1] = field
+        end
+    end
+    if type(recipe) ~= "table" then
+        require_field("recipe")
+    else
+        if type(recipe.ingredients) ~= "table" then require_field("ingredients") end
+        local products = recipe.products
+        if type(products) ~= "table" then
+            require_field("products")
+        else
+            local entries = values(products)
+            if #entries == 0 then
+                require_field("products (at least one product)")
+            else
+                for index, product in ipairs(entries) do
+                    local prefix = "products[" .. tostring(index) .. "]"
+                    if type(product) ~= "table" then
+                        require_field(prefix .. ".name")
+                        require_field(prefix .. ".type")
+                        require_field(prefix .. ".amount")
+                    else
+                        if product.name == nil then require_field(prefix .. ".name") end
+                        if product.type == nil then require_field(prefix .. ".type") end
+                        if product.amount == nil and product.amount_min == nil and product.amount_max == nil then
+                            require_field(prefix .. ".amount")
+                        end
+                    end
+                end
+            end
+        end
+
+        --A producer's declaration is additional evidence. Optional fields such as probability are deliberately
+        --not in this set, so their engine defaults remain valid when absent.
+        local declared = type(recipe.facts) == "table" and recipe.facts.missing
+        if type(declared) == "table" then
+            for key, value in pairs(declared) do
+                local field = type(key) == "number" and value or key
+                if value ~= false and type(field) == "string"
+                    and (field == "ingredients" or field == "products"
+                        or field:match("^products[%.%[]") or field:match("^product[%.%[]")) then
+                    require_field(field)
+                end
+            end
+        end
+    end
+    if #missing > 0 then
+        table.sort(missing)
+        add(reasons, seen, "BP_REJ_PROTOTYPE_FACTS_MISSING", recipe_id, "recipe",
+            recipe_id .. " is missing prototype facts: " .. table.concat(missing, ", "))
+        return
+    end
     for _, ingredient in ipairs(values(recipe.ingredients or recipe.input)) do
         if type(ingredient) == "table" and ingredient.type ~= "fluid" and item_spoils(catalog, ingredient) then
             local full_name = ingredient.full_name or ((ingredient.type or "item") .. "/" .. tostring(ingredient.name))
@@ -225,7 +268,7 @@ local function product_reasons(reasons, seen, catalog, recipe, active_step)
                 full_name .. " spoils and cannot be modelled")
         end
     end
-    for _, product in ipairs(values(recipe_products(recipe))) do
+    for _, product in ipairs(values(recipe.products)) do
         if type(product) == "table" then
             local full_name = product.full_name or (product.type and product.name and product.type .. "/" .. product.name)
             local product_catalog = catalog.product or catalog.products
@@ -375,17 +418,7 @@ local function entity_reasons(reasons, seen, snapshot, catalog, options, column,
         add(reasons, seen, "BP_REJ_MODULE_SLOTS_EXCEEDED", machine_name, "machine",
             machine_name .. " has " .. module_count(modules) .. " modules but only " .. slots .. " slots", machine_quality)
     end
-    local has_quality, has_speed_beacon = false, false
-    for _, module in ipairs(modules) do
-        if effect_of(catalog, module, "quality") ~= 0 then has_quality = true end
-    end
     for _, group in ipairs(beacons_of(setup)) do
-        local count = tonumber(group.count) or 1
-        if count > 0 then
-            for _, module in ipairs(values(group.modules)) do
-                if effect_of(catalog, module, "speed") ~= 0 then has_speed_beacon = true end
-            end
-        end
         local beacon_name = name_of(group.name or group.type)
         local beacon = beacon_name and entity_of(catalog, {name = beacon_name, quality = quality_of(group)}, quality_of(group))
         if beacon and type(beacon.module_slots) == "number" and module_count(values(group.modules)) > beacon.module_slots then
@@ -393,11 +426,30 @@ local function entity_reasons(reasons, seen, snapshot, catalog, options, column,
                 beacon_name .. " has too many modules", quality_of(group))
         end
     end
-    if has_quality then
+
+    --Quality and receiver semantics belong to the shared policy. Build the policy step from the resolved setup
+    --because preflight columns store modules and beacons under setup while the policy consumes a production step.
+    local quality_step = {}
+    for key, value in pairs(column) do quality_step[key] = value end
+    quality_step.machine = machine
+    quality_step.recipe = column.recipe or recipe_of(catalog, column)
+    quality_step.modules = setup.modules or {}
+    quality_step.beacons = setup.beacons or {}
+    local effective_quality, supported, quality_reason = QualityPolicy.effective_quality(quality_step, catalog)
+    local has_quality = QualityPolicy.has_active_quality_module(quality_step, catalog)
+    local speed_beacon = QualityPolicy.speed_beacon_contribution(quality_step, catalog)
+    local receiver = QualityPolicy.receiver(quality_step, catalog)
+    if not supported then
+        local code = receiver.status == "missing" and "BP_REJ_PROTOTYPE_FACTS_MISSING"
+            or "BP_REJ_UNSUPPORTED_INTERFACE"
+        add(reasons, seen, code, machine_name, "machine",
+            machine_name .. " " .. tostring(quality_reason or receiver.reason or "receiver facts are unsupported"), machine_quality)
+    end
+    if effective_quality > 0 then
         add(reasons, seen, "BP_REJ_QUALITY_CHANGING", machine_name, "machine",
             machine_name .. " changes product quality", machine_quality)
     end
-    if has_quality and has_speed_beacon then
+    if has_quality and speed_beacon > 0 then
         add(reasons, seen, "BP_REJ_BEACON_SPEED_ON_QUALITY", machine_name, "machine",
             machine_name .. " has quality modules and speed beacons", machine_quality)
     end
@@ -592,7 +644,7 @@ function Preflight.check(snapshot, solver_result, catalog, options)
         local is_active = active(column, solver_result)
         if is_active then
             local entry = selections[recipe_name(column)]
-            product_reasons(reasons, seen, catalog, recipe_of(catalog, column), true)
+            product_reasons(reasons, seen, catalog, recipe_of(catalog, column), true, recipe_name(column))
             if not column.burner and not column.quality_loop then
                 entity_reasons(reasons, seen, snapshot, catalog, options, column, entry, true)
             end
