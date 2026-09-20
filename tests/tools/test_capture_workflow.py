@@ -285,12 +285,13 @@ class CaptureWorkflowTests(unittest.TestCase):
         runner = load_runner()
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            case = self.write_case(root, "interrupted-capture", expected=False)
+            case = self.write_case(root, "interrupted-capture", expected=True)
             self.write_matrix(root, [self.matrix_row("interrupted-capture")])
             manifest_path = case / "manifest.json"
             matrix_path = root / "required-matrix.json"
             before_manifest = manifest_path.read_bytes()
             before_matrix = matrix_path.read_bytes()
+            before_expected = (case / "expected_canonical.json").read_bytes()
             real_replace = runner.os.replace
             calls = {"count": 0}
 
@@ -307,7 +308,7 @@ class CaptureWorkflowTests(unittest.TestCase):
                         runner.accept_case(case, manifest, None, root / "artifacts")
             self.assertEqual(manifest_path.read_bytes(), before_manifest)
             self.assertEqual(matrix_path.read_bytes(), before_matrix)
-            self.assertFalse((case / "expected_canonical.json").exists())
+            self.assertEqual((case / "expected_canonical.json").read_bytes(), before_expected)
 
 
 if __name__ == "__main__":
