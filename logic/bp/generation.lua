@@ -107,6 +107,7 @@ local function persist_handle(handle)
         revisions = copy_plain(handle.revisions) or {}, deliver = handle.deliver == true,
         settings = copy_plain(handle.settings) or {},
         prepared_input_identity = copy_plain(handle.prepared_input_identity),
+        grid_spacing = copy_plain(handle.grid_spacing),
     }
     if handle.reason_codes then record.reason_codes = copy_plain(handle.reason_codes) or {} end
     if handle.reason_details then record.reason_details = copy_plain(handle.reason_details) or {} end
@@ -142,6 +143,7 @@ local function handle_from_record(record)
         revisions = copy_plain(record.revisions) or {}, deliver = record.deliver == true,
         settings = copy_plain(record.settings) or {},
         prepared_input_identity = copy_plain(record.prepared_input_identity),
+        grid_spacing = copy_plain(record.grid_spacing),
     }
     if record.reason_codes then handle.reason_codes = copy_plain(record.reason_codes) or {} end
     if record.reason_details then handle.reason_details = copy_plain(record.reason_details) or {} end
@@ -162,6 +164,7 @@ local function bridge_record(handle)
         sheet_id = handle.sheet_id, state = handle.state, phase = handle.phase,
         revisions = copy_plain(handle.revisions) or {}, settings = copy_plain(handle.settings) or {},
         prepared_input_identity = copy_plain(handle.prepared_input_identity),
+        grid_spacing = copy_plain(handle.grid_spacing),
     }
     if handle.reason_codes then result.reason_codes = copy_plain(handle.reason_codes) or {} end
     if handle.reason_details then result.reason_details = copy_plain(handle.reason_details) or {} end
@@ -779,6 +782,13 @@ local function update_capture(handle, state, outcome, errors, stage)
     persist_handle(handle)
 end
 
+local function search_grid_spacing(job)
+    local search = type(job) == "table" and type(job.state) == "table" and job.state.search or nil
+    if type(search) ~= "table" then return nil end
+    local spacing = search.grid_spacing or (type(search.work) == "table" and search.work.grid_spacing)
+    return copy_plain(spacing)
+end
+
 --Every code the player sees carries whatever the stage said about it: a raised Lua error's message, the blocked
 --cell and its owner, the prototype that failed to resolve. A code with no detail explains nothing.
 local function reason_details(errors)
@@ -788,14 +798,22 @@ local function reason_details(errors)
         if record.code ~= nil or record.detail ~= nil then
             local detail = record.detail
             if type(detail) ~= "string" then detail = detail ~= nil and tostring(detail) or nil end
-            local key = tostring(record.code) .. "\0" .. tostring(detail)
+            local candidate_size = record.candidate_size or {}
+            local grid_size = record.grid_size or {}
+            local key = table.concat({tostring(record.code), tostring(detail), tostring(record.flow_id),
+                tostring(record.block_id), tostring(record.available_ports), tostring(record.requested_ports),
+                tostring(candidate_size.area), tostring(candidate_size.width), tostring(candidate_size.height),
+                tostring(grid_size.w), tostring(grid_size.h)}, "\0")
             if not seen[key] and (record.code ~= nil or detail ~= nil) then
                 seen[key] = true
-                details[#details + 1] = {
-                    code = record.code ~= nil and tostring(record.code) or nil,
-                    detail = detail,
-                    flow_id = record.flow_id ~= nil and tostring(record.flow_id) or nil,
-                }
+                local copied = {}
+                for key_name, value in pairs(record) do
+                    if key_name ~= "reason_details" then copied[key_name] = copy_plain(value) end
+                end
+                copied.code = record.code ~= nil and tostring(record.code) or nil
+                copied.detail = detail
+                copied.flow_id = record.flow_id ~= nil and tostring(record.flow_id) or nil
+                details[#details + 1] = copied
             end
         end
         for _, child in ipairs(record) do add(child) end
@@ -817,6 +835,7 @@ local function terminal_failure(handle, job)
     handle.progress = result_progress(job.progress)
     handle.reason_codes = code_list
     handle.reason_details = reason_details(job.errors)
+    handle.grid_spacing = search_grid_spacing(job) or handle.grid_spacing
     update_capture(handle, job.state and job.state.prepare and job.state.prepare.fields, "failure", job.errors, handle.phase)
     persist_handle(handle)
     bridge_attempt(handle, false)
@@ -856,6 +875,7 @@ local function pending_handle_from_job(job)
             prepared_input_identity = prepared_input_identity(state and state.prepared, job.sheet_id, job.revisions),
         }
     end
+    if not handle.grid_spacing then handle.grid_spacing = search_grid_spacing(job) end
 
     --A save can be taken just after preparation completed and before this module writes the public copy. The job
     --itself already contains the plain PreparedInput, so recover the capture locally without changing storage.
@@ -1068,6 +1088,7 @@ local function search_input_for(input, job, context)
         revisions = input.revisions or job.revisions,
         player_index = job.player_index,
         sheet_id = job.sheet_id,
+        generation_job_id = input.generation_job_id or job.state and job.state.input and job.state.input.generation_job_id,
     }
     --Search has a deliberately flat input for bounded grids and limits. Keep GenerationInput's options field as
     --the public shape, while forwarding those data-only controls to the search boundary.
@@ -1136,6 +1157,7 @@ local function step(job, budget)
             local search_input = search_input_for(input, job, state.input)
             state.search = Search.begin(search_input)
             state.search.player_index, state.search.sheet_id = job.player_index, job.sheet_id
+            state.search.generation_job_id = input.generation_job_id or job.state.input.generation_job_id
             state.search.revisions = copy_plain(job.revisions) or {}
             state.phase = "search"
             job.phase = state.search.phase
@@ -1147,7 +1169,20 @@ local function step(job, budget)
         Search.step(state.search, budget)
         job.phase = state.search.phase
         job.progress = copy_plain(state.search.progress) or job.progress
+        local active_handle = handle_for(job)
+        local spacing = search_grid_spacing(job)
+        if active_handle and spacing and not active_handle.grid_spacing then
+            active_handle.grid_spacing = spacing
+            persist_handle(active_handle)
+            bridge_attempt(active_handle, false)
+        end
         if state.search.done then
+            local handle = handle_for(job)
+            if handle then
+                handle.grid_spacing = search_grid_spacing(job) or handle.grid_spacing
+                persist_handle(handle)
+                bridge_attempt(handle, false)
+            end
             job.done, job.ok = true, state.search.ok == true
             job.result = copy_plain(state.search.result)
             job.errors = copy_plain(state.search.errors)
@@ -1177,6 +1212,7 @@ local function publish(job)
     handle.phase = "done"
     handle.progress = {done_units = 1, total_units = 1}
     handle.result = blueprint
+    handle.grid_spacing = search_grid_spacing(job) or handle.grid_spacing
     handle.blueprint_string = encoded
     handle.canonical_version = version
     handle.canonical = canonical
@@ -1248,6 +1284,7 @@ local function public_status(handle)
     local result = {
         job_id = handle.job_id, state = handle.state, phase = handle.phase,
         progress = result_progress(handle.progress),
+        grid_spacing = copy_plain(handle.grid_spacing),
     }
     if handle.state == "success" then
         result.blueprint_string = handle.blueprint_string
@@ -1293,6 +1330,7 @@ local function public_attempt(handle, player_index, sheet_id)
         config_revision = handle.revisions and handle.revisions.config,
         settings = copy_plain(settings) or {}, actual_settings = copy_plain(settings) or {},
         prepared_input_identity = copy_plain(identity), reason_codes = reasons, reason_details = details,
+        grid_spacing = copy_plain(handle.grid_spacing),
         diagnostics = diagnostics, search_diagnostics = copy_plain(diagnostics) or {},
     }
     result.input_fingerprint = identity and identity.input_fingerprint or nil

@@ -72,7 +72,9 @@ end
 local function failing_search()
     local Search = require "logic.bp.search"
     Search.begin = function(input)
-        return {phase = "search", progress = {phase = "search", done_units = 0, total_units = 1}, input = input}
+        return {phase = "search", progress = {phase = "search", done_units = 0, total_units = 1}, input = input,
+            grid_spacing = {resolved = 50, kind = "derived", source = "logistic_radius", source_value = 25,
+                generation_job_id = input.generation_job_id}}
     end
     Search.step = function(state, budget)
         if budget.ops > 0 then budget.ops = budget.ops - 1 end
@@ -150,6 +152,11 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(attempt.revisions.config, 7, "the record keeps the configuration revision")
         H.equal(attempt.state, "failure", "the terminal state is explicit")
         H.equal(attempt.reason_codes[1], "BP_R_PORT_BLOCKED", "the search reason code is retained")
+        H.equal(attempt.grid_spacing.resolved, 50, "a failing attempt keeps resolved spacing")
+        H.equal(attempt.grid_spacing.kind, "derived", "a failing attempt keeps spacing kind")
+        H.equal(attempt.grid_spacing.source, "logistic_radius", "a failing attempt keeps spacing source")
+        H.equal(attempt.grid_spacing.source_value, 25, "a failing attempt keeps spacing source value")
+        H.equal(attempt.grid_spacing.generation_job_id, job_id, "a failing attempt keeps its job identity")
     end)
 
     H.test("AL3", function()
@@ -166,6 +173,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(attempt.state, "failure", "the terminal state survives reload")
         H.equal(attempt.reason_details[1].detail, "attempt-detail", "reason details survive reload")
         H.equal(attempt.reason_details[1].flow_id, "attempt-flow", "diagnostic identity survives reload")
+        H.equal(attempt.grid_spacing.generation_job_id, job_id, "spacing identity survives reload")
     end)
 
     H.test("AL4", function()

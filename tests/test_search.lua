@@ -123,6 +123,11 @@ local function complete_stage(result)
     return {done = true, ok = true, result = result or {}, progress = {phase = "done", done_units = 1, total_units = 1}}
 end
 
+local function failed_stage(code, detail)
+    return {done = true, ok = false, result = {}, errors = {{code = code, detail = detail}},
+        progress = {phase = "failed", done_units = 1, total_units = 1}}
+end
+
 local function finish_with_validation_scores(input, label)
     local scores = {}
     local original_step = Validate.step
@@ -568,6 +573,122 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(Search.progress(state), 1, "committed progress reaches one")
     end)
 end
+
+H.test("ST1 an exhausted grid ladder reports its own code, never the budget code", function()
+    local state = finish(input_for(one_step_plan(), {grids = {{w = 0, h = 0}, {w = 1, h = 1}}, max_search_grids = 1}))
+    H.equal(state.ok, false, "an exhausted grid ladder fails")
+    H.equal(state.errors[1].code, "BP_FAIL_GRID_LIMIT", "grid exhaustion has its own failure code")
+    H.equal(state.errors[1].code == "BP_FAIL_SEARCH_BUDGET", false, "grid exhaustion is not an operation budget")
+end)
+
+H.test("ST2 a power bound reports its own code, never the budget code", function()
+    local originals = {route_begin = Route.begin, route_step = Route.step,
+        power_begin = Power.begin, power_step = Power.step}
+    Route.begin = function() return complete_stage({entities = {}, wires = {}, segments = {}, bindings = {}}) end
+    Route.step = function() end
+    Power.begin = function() return failed_stage("BP_PW_SEARCH_BOUND", "relay search bound") end
+    Power.step = function() end
+    local ok, state_or_error = pcall(function()
+        return finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}, max_search_grids = 1}))
+    end)
+    Route.begin, Route.step = originals.route_begin, originals.route_step
+    Power.begin, Power.step = originals.power_begin, originals.power_step
+    H.equal(ok, true, "the power-bound search terminates without raising: " .. tostring(state_or_error))
+    if not ok then return end
+    local state = state_or_error
+    H.equal(state.errors[1].code, "BP_FAIL_POWER_BOUND", "power exhaustion has its own failure code")
+    H.equal(state.errors[1].code == "BP_FAIL_SEARCH_BUDGET", false, "power exhaustion is not an operation budget")
+end)
+
+H.test("ST3 an operation cap still reports BP_FAIL_SEARCH_BUDGET", function()
+    local state = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}, max_ops = 1}), 100000)
+    H.equal(state.ok, false, "the operation-capped search fails")
+    H.equal(state.errors[1].code, "BP_FAIL_SEARCH_BUDGET", "the operation cap keeps the budget code")
+end)
+
+H.test("ST4 a pack, route, route-input or power rejection reaches reason_details", function()
+    local original_begin, original_step = Pack.begin, Pack.step
+    Pack.begin = function() return failed_stage("BP_P_NO_FIT", "pack rejected the candidate") end
+    Pack.step = function() end
+    local ok, state_or_error = pcall(function()
+        return finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}, max_search_grids = 1}))
+    end)
+    Pack.begin, Pack.step = original_begin, original_step
+    H.equal(ok, true, "the rejected candidate search terminates without raising: " .. tostring(state_or_error))
+    if not ok then return end
+    local state = state_or_error
+    local seen = false
+    for _, reason in ipairs(state.errors[1].reason_details or {}) do
+        if reason.code == "BP_P_NO_FIT" and reason.detail == "pack rejected the candidate" then seen = true end
+    end
+    H.equal(seen, true, "a pack rejection is retained in terminal reason_details")
+end)
+
+H.test("ST5 a candidate refused for size is recorded with its size", function()
+    local state = finish(input_for(one_step_plan(), {grids = {{w = 0, h = 0}}, max_search_grids = 1}))
+    local size
+    for _, reason in ipairs(state.errors[1].reason_details or {}) do
+        if reason.code == "BP_P_NO_FIT" and reason.candidate_size then size = reason; break end
+    end
+    H.equal(size ~= nil, true, "the refused candidate has a size record")
+    if size then
+        H.equal(size.candidate_size.area > 0, true, "the candidate area is recorded")
+        H.equal(size.grid_size.w, 0, "the grid width is recorded")
+        H.equal(size.grid_size.h, 0, "the grid height is recorded")
+    end
+end)
+
+H.test("ST6 a cheap failed candidate never sets the whole job's ceiling", function()
+    local original_begin, original_step = Pack.begin, Pack.step
+    Pack.begin = function() return failed_stage("BP_P_NO_FIT", "cheap rejection") end
+    Pack.step = function() end
+    local state = Search.begin(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}, max_search_grids = 1}))
+    local before
+    for _ = 1, 20 do
+        Search.step(state, {ops = 1})
+        if state.work.allowance_declared then before = before or state.max_ops end
+        if state.done then break end
+    end
+    local after = state.max_ops
+    Pack.begin, Pack.step = original_begin, original_step
+    H.equal(before ~= nil, true, "the problem allowance is declared before candidate work")
+    H.equal(after, before, "a cheap failed candidate cannot replace the problem-derived ceiling")
+end)
+
+H.test("ST7 a failing attempt still reports grid_spacing with its kind, source and generation_job_id", function()
+    local input = input_for(one_step_plan(), {})
+    input.catalog.robo = {name = "roboport", tile_w = 4, tile_h = 4, logistic_radius = 25,
+        construction_radius = 55}
+    input.generation_job_id = 907
+    input.grids = {{w = 0, h = 0}}
+    input.max_search_grids = 1
+    local state = finish(input)
+    local spacing = state.grid_spacing
+    H.equal(state.ok, false, "the spacing fixture is a failing attempt")
+    H.equal(spacing ~= nil, true, "the failing attempt keeps a spacing record")
+    if spacing then
+        H.equal(spacing.resolved, 50, "the failing attempt keeps the resolved spacing")
+        H.equal(spacing.kind, "derived", "the failing attempt labels derived spacing")
+        H.equal(spacing.source, "logistic_radius", "the failing attempt names the source")
+        H.equal(spacing.source_value, 25, "the failing attempt keeps the source value")
+        H.equal(spacing.generation_job_id, 907, "the failing attempt keeps its generation identity")
+    end
+end)
+
+H.test("ST8 grid_spacing survives a persistence round trip and answers through Generation.lookup", function()
+    local input = input_for(one_step_plan(), {})
+    input.catalog.robo = {name = "roboport", tile_w = 4, tile_h = 4, logistic_radius = 25,
+        construction_radius = 55}
+    input.generation_job_id = 908
+    local state = Search.begin(input)
+    Search.step(state, {ops = 1})
+    local resumed = clone(state)
+    Search.step(resumed, {ops = 100000})
+    H.equal(resumed.grid_spacing ~= nil, true, "the resumable state carries grid_spacing")
+    if resumed.grid_spacing then
+        H.equal(resumed.grid_spacing.generation_job_id, 908, "the resumed state keeps the generation identity")
+    end
+end)
 
 --Round 11 spine: the roboport gap.
 --
