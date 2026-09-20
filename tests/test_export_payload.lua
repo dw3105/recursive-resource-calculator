@@ -395,6 +395,66 @@ for _, shape in ipairs(H.shapes()) do
         H.near_relative(decoded.prepared_input.snapshot.nested.rate, 1.2345678901234567, "prepared number after round trip")
         H.near_relative(decoded.prepared_input.solver_result.residual, 0.00000000012345678, "prepared residual after round trip")
     end)
+
+    H.test(shape .. " E25 the attempt spacing record survives the real export path unchanged", function()
+        world_with(shape)
+        local _, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        remember(sheet)
+        local Registry = require "logic.registry"
+        local previous_generation = Registry.generation
+        local spacing = {
+            resolved = 50, kind = "derived", source = "logistic_radius", source_value = 25,
+            generation_job_id = "generation-job-096",
+        }
+        Registry.generation = {
+            lookup = function(player_index, sheet_id)
+                return {player_index = player_index, sheet_id = sheet_id, status = "failure",
+                    grid_spacing = spacing}
+            end,
+        }
+        local ok, payload_or_error = pcall(build, sheet)
+        Registry.generation = previous_generation
+        if not ok then error(payload_or_error, 0) end
+        local payload = payload_or_error
+        H.equal(payload.generation.grid_spacing.resolved, 50, "attempt spacing is in the payload")
+        H.equal(payload.generation.grid_spacing.kind, "derived", "attempt spacing kind")
+        H.equal(payload.generation.grid_spacing.source, "logistic_radius", "attempt spacing source")
+        H.equal(payload.generation.grid_spacing.source_value, 25, "attempt spacing source value")
+        H.equal(payload.generation.grid_spacing.generation_job_id, "generation-job-096", "attempt identity")
+        local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
+        H.equal(decoded.generation.grid_spacing.resolved, 50, "decoded attempt spacing")
+        H.equal(decoded.generation.grid_spacing.kind, "derived", "decoded spacing kind")
+        H.equal(decoded.generation.grid_spacing.source, "logistic_radius", "decoded spacing source")
+        H.equal(decoded.generation.grid_spacing.source_value, 25, "decoded spacing source value")
+        H.equal(decoded.generation.grid_spacing.generation_job_id, "generation-job-096", "decoded attempt identity")
+    end)
+
+    H.test(shape .. " E26 an attempt without spacing names the absence and invents no default", function()
+        world_with(shape)
+        local _, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        remember(sheet)
+        local Registry = require "logic.registry"
+        local previous_generation = Registry.generation
+        Registry.generation = {
+            lookup = function(player_index, sheet_id)
+                return {player_index = player_index, sheet_id = sheet_id, status = "failure"}
+            end,
+        }
+        local ok, payload_or_error = pcall(build, sheet)
+        Registry.generation = previous_generation
+        if not ok then error(payload_or_error, 0) end
+        local payload = payload_or_error
+        H.equal(payload.generation.grid_spacing, nil, "an absent attempt does not invent spacing")
+        H.equal(payload.generation.missing[1], "grid_spacing", "the attempt names missing spacing")
+        local named = false
+        for _, fact in ipairs(payload.diagnostics.missing_facts or {}) do
+            if fact.fact == "generation.grid_spacing" then named = true end
+        end
+        H.equal(named, true, "the export diagnostics name missing spacing")
+        local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
+        H.equal(decoded.generation.grid_spacing, nil, "encoded export does not invent spacing")
+        H.equal(decoded.generation.missing[1], "grid_spacing", "encoded export names missing spacing")
+    end)
     --The record contracts §19 freezes lives at storage[pi].calc_results[sheet_id]. 1.1.47 shipped an export that
     --never read it, so a calculated sheet exported as state "not_computed" with no columns at all.
     H.test(shape .. " E24 the export reads the published calculation record", function()
