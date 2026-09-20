@@ -1,0 +1,3 @@
+logic/bp/generation.lua
+gui/blueprint_dialog.lua
+!tests/test_generation_attempt_lookup.lua

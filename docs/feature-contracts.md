@@ -532,3 +532,99 @@ per-tag key makes the whole configuration unloadable. `verify.default` therefore
 own base, because it demands a successful generation that today succeeds only while recipe and receiver facts are
 absent. The whole suite runs again, unchanged, once the producer and both consumers are integrated. Selecting no
 check is a failure, never a green result.
+
+## 23. Debug export completeness and attempt provenance (2026-09-20, round 10, frozen before lanes 091-093)
+
+The player reported `BP_FAIL_SEARCH_BUDGET [search]` and sent a debug export. The export could not explain the
+failure, because it carried no generation attempt, no recipe prototype facts and no calculated totals. Round 10
+therefore repairs the export **before** anything else. Search, the golden runner, the release lifecycle and
+evidence intake are all deferred until a complete fresh capture exists.
+
+### 23.1 Export completeness
+
+A debug export replays without a screenshot beside it. Per sheet row it carries:
+
+- selected machine and recipe identity, with quality and the product-to-recipe binding;
+- every module's name, quality and count;
+- every beacon group's prototype, quality, count, sharing value and installed modules, with an explicitly empty
+  selection preserved as empty rather than dropped;
+- the recipe prototype facts for every selected recipe: ingredients, products, crafting time;
+- targets, units, `round_up`, solved and external rates, calculated machine counts, effects, energy and
+  pollution, at full precision;
+- current against calculated settings with their sheet and revision identities, so stale or pending data is
+  named and never blended into "current".
+
+**A missing fact is an explicit diagnostic.** Never a default, never a silent gap, never another sheet's value.
+
+`reference_options` (`logic/export_payload.lua:262-270`) must forward `references.recipes`, which
+`collect_recipe_names` (`:475-482`) already builds; without it `Catalog.build` leaves `prototypes.recipe` empty
+(`logic/catalog.lua:349`). Forwarding that one field is necessary and **not** sufficient: dependency collection
+is audited for a current selection with no result, a stale result, column-local setups, nested quality-loop
+stages, and two distinct sheets.
+
+### 23.2 Generation attempt record
+
+For the sheet being exported, the export carries the appropriate attempt: its actual settings, prepared-input
+identity, sheet and revision identities, terminal state, reason codes, and whatever diagnostics the current
+search already produces. Information today's search does not produce is marked **absent by name**.
+
+No future diagnostic schema is required here. `search.lua:80-89` already replaces the terminal error list, so the
+exporter cannot recover stage history that was erased; richer search instrumentation is a later checkpoint and
+never a precondition of this contract.
+
+### 23.3 Durable attempt lookup
+
+Transient discovery already works: `logic/jobs.lua:202` and `:257` write `data.blueprint_job` while a blueprint
+job is queued or stored, and `logic/export_payload.lua:543-544` reads it. It is kept.
+
+What is added is durability. `logic/jobs.lua:405-407` clears `data.blueprint_job` when the job is serviced, and
+`:423-426` restores it only for a job that is **not** terminal, so an export taken after a failure — which is
+exactly when a player exports — finds nothing. The generation service therefore owns a durable map from player
+and sheet to the appropriate attempt, surviving terminal state, that cleanup, and reload.
+
+Selection rule, stated and tested: the newest terminal or pending attempt **for that sheet**. Another sheet's
+attempt is never a fallback. No attempt at all is an explicit absent record, never an omitted section.
+
+`persist_handle` (`logic/bp/generation.lua:80-100`) keeps `reason_details`, which `terminal_failure` (`:724`)
+sets and persistence currently drops.
+
+### 23.4 Export semantic comparison
+
+The release corpus runner cannot compare export payloads. `runner.py:1105-1114` skips draft and captured
+comparison before the accept branch at `:1115`, and `runner.py:850-893` offers only rejection-code or blueprint
+canonical comparison — `canonical()` (`:418-440`) keeps blueprint entities, so a full selection map and `{}` both
+reduce to `{"entities": []}`.
+
+Export comparison therefore lives in its own fixture and comparator with **hand-authored** expected values,
+never generated from the repaired output. Ordering and timestamps may be normalized; no semantic field ever may.
+Each required semantic field carries a negative control: removing or altering it alone must fail the comparison.
+A passing round trip, or a canonical match, is never sufficient.
+
+`tests/run.sh:6` globs only `tests/test_*.lua` and `:12` discovers Python only under `tests/tools`, so a
+comparator placed anywhere else is never reached by the routine suite. One top-level Lua entry point invokes the
+comparator and propagates its failure, so the focused lane command, the routine suite and the diagnostic archive
+check all reach the same code. A missing comparator file, a missing fixture, or zero executed comparisons is a
+failure, never a green run.
+
+### 23.5 Two archive transitions
+
+| Transition | Requires | Verdict | May be called fixed |
+|---|---|---|---|
+| diagnostic handoff | export-specific checks pass; exact build identity recorded; every current release blocker listed in the receipt | always `unverified_internal` | never |
+| verified promotion | the mandatory golden run **and** `tools/release_gate.py` against an existing archive and bound evidence | `verified`, per branch | yes, for that branch |
+
+A diagnostic archive is how engine evidence gets collected in the first place, so an incomplete release corpus
+must never block it — while a failing **export** check must. A diagnostic verdict can never become `verified`
+without the second transition. Branches are reported independently.
+
+### 23.6 Lane verification
+
+`tools/verify_round9_lane.sh` gains `--dispatch-only`, which resolves a tag and prints its selection without
+executing, so the dispatcher can be gated before a lane has written its new test. It also gains a Python
+dispatch, because the Lua loop would otherwise hand a `.py` file to `lua5.2`. A round-10 lane never runs the
+whole suite; full suites and the full golden matrix belong to integration, so a sibling's unmerged work is never
+charged to a lane. Selecting no check remains a failure.
+
+A red proof requires the **named** case to fail, nothing to error, and the run to have completed:
+`tests/harness.lua:2075-2083` can emit `[assert]` and `[error]` in one run, and `tests/harness.lua:2164-2166`
+prints the interpreter between the file name and the colon, as `test_x [Lua 5.2]: N cases, N passed, N failed`.

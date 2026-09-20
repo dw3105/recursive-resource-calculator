@@ -1,4 +1,10 @@
-"""The round 9 lane verifier picks one lane's checks, and can never pick none."""
+"""The lane verifier picks one lane's checks, and can never pick none.
+
+Round 10 adds three things this file pins: focused Lua sets for the export lanes, a Python dispatch for the
+handoff lane (the Lua loop would otherwise hand a .py file to lua5.2), and --dispatch-only, which resolves a
+tag and prints its selection without executing, so spine can gate the dispatcher before a lane has written its
+new test.
+"""
 
 from __future__ import annotations
 
@@ -24,21 +30,45 @@ CONSUMER_TESTS = {
         "tests/test_bp_plan.lua",
     ),
 }
-EVERY_TEST = sorted({path for paths in CONSUMER_TESTS.values() for path in paths})
+ROUND10_LUA_TESTS = {
+    "091_export_payload": (
+        "tests/test_export_completeness.lua",
+        "tests/test_export_payload.lua",
+    ),
+    "092_attempt_lookup": (
+        "tests/test_generation_attempt_lookup.lua",
+        "tests/test_generation_reload.lua",
+        "tests/test_generation_record_handoff.lua",
+    ),
+}
+PYTHON_TAG = "093_diagnostic_handoff"
+PYTHON_MODULE = "tests.tools.test_handoff"
+PYTHON_PATH = "tests/tools/test_handoff.py"
+
+EVERY_TEST = sorted(
+    {path for paths in CONSUMER_TESTS.values() for path in paths}
+    | {path for paths in ROUND10_LUA_TESTS.values() for path in paths}
+)
 
 
-def make_worktree(directory: Path, lua_exit: int = 0, gateslot_exit: int = 0) -> Path:
+def make_worktree(directory: Path, lua_exit: int = 0, gateslot_exit: int = 0,
+                  python_exit: int = 0) -> Path:
     """A worktree whose lua, lua5.4 and gateslot are harmless doubles that record their arguments."""
     worktree = directory / "worktree"
     (worktree / "tests" / "tools").mkdir(parents=True)
     for path in EVERY_TEST:
         (worktree / path).write_text("-- double\n")
     (worktree / "tests" / "run.sh").write_text("#!/bin/sh\nexit 0\n")
+    (worktree / "tests" / "tools" / "__init__.py").write_text("")
+    (worktree / PYTHON_PATH).write_text("# double\n")
 
     stubs = directory / "stubs"
     stubs.mkdir()
     log = directory / "calls.log"
-    for name, exit_code in (("lua5.2", lua_exit), ("lua5.4", lua_exit), ("gateslot", gateslot_exit)):
+    for name, exit_code in (
+        ("lua5.2", lua_exit), ("lua5.4", lua_exit),
+        ("gateslot", gateslot_exit), ("python3", python_exit),
+    ):
         script = stubs / name
         script.write_text(
             "#!/bin/sh\n"
@@ -55,6 +85,15 @@ def run(worktree: Path, tag: str, directory: Path, cwd: Path | None = None):
     return subprocess.run(
         ["sh", str(SCRIPT), str(worktree), tag],
         cwd=str(cwd or ROOT), text=True, capture_output=True, env=env, check=False,
+    )
+
+
+def dispatch_only(worktree: Path, tag: str, directory: Path):
+    env = dict(os.environ)
+    env["PATH"] = f"{directory / 'stubs'}{os.pathsep}{env['PATH']}"
+    return subprocess.run(
+        ["sh", str(SCRIPT), "--dispatch-only", str(worktree), tag],
+        cwd=str(ROOT), text=True, capture_output=True, env=env, check=False,
     )
 
 
@@ -149,6 +188,85 @@ class VerifyRound9LaneTests(unittest.TestCase):
             result = run(worktree, "086_preflight_facts", directory)
             self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
             self.assertIn("missing test", result.stderr)
+
+
+class Round10DispatchTests(unittest.TestCase):
+    def test_export_lane_tags_select_their_own_lua_checks(self):
+        for tag, expected in ROUND10_LUA_TESTS.items():
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                result = run(worktree, tag, directory)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                recorded = calls(directory)
+                for path in expected:
+                    self.assertIn(f"lua5.2 {path}", recorded)
+                    self.assertIn(f"lua5.4 {path}", recorded)
+                self.assertEqual(len(recorded), 2 * len(expected), recorded)
+                self.assertNotIn("gateslot", "".join(recorded))
+                self.assertNotIn("python3", "".join(recorded))
+
+    def test_the_handoff_lane_is_dispatched_through_python_never_lua(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory)
+            result = run(worktree, PYTHON_TAG, directory)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            recorded = "".join(calls(directory))
+            self.assertIn(f"python3 -m unittest -v {PYTHON_MODULE}", recorded)
+            #The Lua loop would have handed a .py file to an interpreter that cannot read it.
+            self.assertNotIn("lua5.2", recorded)
+            self.assertNotIn("lua5.4", recorded)
+            self.assertNotIn("gateslot", recorded)
+
+    def test_a_failing_python_module_fails_the_verifier(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory, python_exit=1)
+            result = run(worktree, PYTHON_TAG, directory)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_a_missing_python_module_is_refused_instead_of_selecting_nothing(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory)
+            (worktree / PYTHON_PATH).unlink()
+            result = run(worktree, PYTHON_TAG, directory)
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("missing test module", result.stderr)
+
+    def test_dispatch_only_resolves_without_executing_anything(self):
+        for tag in list(ROUND10_LUA_TESTS) + [PYTHON_TAG]:
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                result = dispatch_only(worktree, tag, directory)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(calls(directory), [], "dispatch-only ran a command")
+                self.assertIn("selected", result.stdout)
+
+    def test_dispatch_only_works_before_the_lane_writes_its_test(self):
+        #Spine gates this dispatcher while tests/test_export_completeness.lua does not exist yet. An ordinary
+        #run refuses a missing file, and it must keep refusing; only the resolution may run early.
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory)
+            (worktree / "tests" / "test_export_completeness.lua").unlink()
+            resolved = dispatch_only(worktree, "091_export_payload", directory)
+            self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
+            self.assertIn("tests/test_export_completeness.lua", resolved.stdout)
+            executed = run(worktree, "091_export_payload", directory)
+            self.assertEqual(executed.returncode, 1, executed.stdout + executed.stderr)
+            self.assertIn("missing test", executed.stderr)
+
+    def test_dispatch_only_names_the_whole_suite_for_an_unknown_tag(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory)
+            result = dispatch_only(worktree, "999_unknown", directory)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertIn("dispatch=suite", result.stdout)
+            self.assertEqual(calls(directory), [], "dispatch-only ran the suite")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,19 @@
+{
+ "active_mod_count": 54,
+ "authoritative": false,
+ "authoritative_note": "Historical evidence only. The incident fixture is the fresh capture of plan rev 5 checkpoint 2.",
+ "base_game_version": "2.0.77",
+ "calculation_status": "ok",
+ "captured_utc": "2026-09-20",
+ "decoded_payload_bytes": 1858798,
+ "decoded_payload_sha256": "57cad769cd3b826596c6e1d45142b7909f7dcd53425d3a81bfd2774581af7b38",
+ "export_text_chars": 116564,
+ "export_text_sha256": "1b8e7e5036cebdff1b00d6c82ac9bf6a0f325bae548c68e4d904cf117d623919",
+ "host": "legalcopilot-dev",
+ "incident_id": "2026-09-20-search-budget",
+ "mod_version": "1.1.51",
+ "reported_reason_code": "BP_FAIL_SEARCH_BUDGET",
+ "reported_stage": "search",
+ "screenshot_sha256": "548a136946163b30fad78bc271f7e2cf1f511aee79a0a63e2d77242f4177f90e",
+ "sheet_state": "current"
+}

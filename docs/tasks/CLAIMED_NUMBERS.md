@@ -99,3 +99,6 @@
 | `088` | `rrc/agent` | player export becomes a golden case | 2026-09-20 |
 | `089` | `rrc/agent` | handoff command | 2026-09-20 |
 | `090` | `rrc/agent` | acceptance digest instrumentation | 2026-09-20 |
+| `091` | `rrc/agent` | export payload completeness | 2026-09-20 |
+| `092` | `rrc/agent` | durable generation attempt lookup | 2026-09-20 |
+| `093` | `rrc/agent` | diagnostic handoff transition | 2026-09-20 |
