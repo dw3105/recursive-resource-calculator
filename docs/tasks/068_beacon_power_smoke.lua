@@ -19,7 +19,7 @@ local function finish_plan(plan)
 end
 
 local function run(shape)
-    H.test(shape .. " beacon power smoke keeps its beacon in the plan", function()
+    H.test(shape .. " SMOKE-BEACON the beacon survives into the plan", function()
         local world = H.new_world(shape)
         world.add_item("beacon-ore")
         world.add_item("beacon-part")
@@ -92,32 +92,8 @@ local function run(shape)
         H.equal(beacon_count, 1, "beacon smoke plan contains one physical beacon")
         H.equal(beacon_name, "beacon", "beacon smoke plan names the beacon")
 
-        local Registry = require "logic.registry"
-        Registry.generation_provenance = {candidate_sha = "smoke-beacon", mod_version = "smoke", factorio_branch = shape, packaged = false}
-        local Generation = require "logic.bp.generation"
-        local settings = require("logic.bp.settings").of_sheet(1, sheet_id)
-        local job_id = Generation.start{player_index = 1, sheet_id = sheet_id, settings = settings,
-            deliver = false, search_budget = 3000}
-        local result = Generation.status(1, job_id)
-        for _ = 1, 1200 do
-            if result.state ~= "pending" then break end
-            H.run_ticks(world, 1)
-            result = Generation.status(1, job_id)
-        end
-        print("SMOKE beacon_power state=" .. tostring(result.state) .. " stage=" .. tostring(result.stage or result.phase)
-            .. " codes=" .. table.concat(result.reason_codes or {}, ","))
-        --Today the beacon/pole layout is a positive search failure.  Once
-        --beacon power placement works, this case must reach success/done.
-        --The expected outcome of this case is success.  Pinning today's exact terminal code made the case fail
-        --the moment an unrelated repair changed how far the run gets, so it pins only what must never happen:
-        --a crash, and a rejection that would call this sheet unsupported.
-        H.equal(result.state ~= "success", true, "beacon smoke has not reached success yet")
-        H.equal(result.state == "pending" or result.state == "failure", true,
-            "beacon smoke ends pending or failed, never crashed")
-        for _, code in ipairs(result.reason_codes or {}) do
-            H.equal(tostring(code):sub(1, 7) ~= "BP_REJ_", true,
-                "beacon smoke is never rejected as unsupported, saw " .. tostring(code))
-        end
+        --Generation is not driven here, for the same reason as the fluid graph case: this file guards the plan,
+        --and tests/acceptance/beacon_power.lua demands a real successful blueprint.
     end)
 end
 

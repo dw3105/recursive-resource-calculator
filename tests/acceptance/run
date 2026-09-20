@@ -1,0 +1,8 @@
+#!/bin/sh
+#Delivery gate. Every case must reach a successful validated blueprint. Red here blocks a hand-over zip.
+status=0
+for case in "$(dirname "$0")"/*_case.lua; do
+    [ -f "$case" ] || continue
+    lua5.2 "$case" || status=1
+done
+exit $status

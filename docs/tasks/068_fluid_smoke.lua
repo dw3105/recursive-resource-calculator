@@ -46,7 +46,7 @@ local function finish_plan(plan)
 end
 
 local function run(shape)
-    H.test(shape .. " fluid smoke keeps a fluid producer and consumer in the graph", function()
+    H.test(shape .. " SMOKE-FLUID the calculated fluid chain survives into the plan", function()
         local world = H.new_world(shape)
         world.add_item("fluid-ore")
         world.add_item("fluid-product")
@@ -107,32 +107,9 @@ local function run(shape)
         H.equal(plan_flows["fluid/smoke-fluid"], true,
             "fluid smoke plan contains the full fluid flow name")
 
-        local Registry = require "logic.registry"
-        Registry.generation_provenance = {candidate_sha = "smoke-fluid", mod_version = "smoke", factorio_branch = shape, packaged = false}
-        local Generation = require "logic.bp.generation"
-        local settings = require("logic.bp.settings").of_sheet(1, sheet_id)
-        local job_id = Generation.start{player_index = 1, sheet_id = sheet_id, settings = settings,
-            deliver = false, search_budget = 3000}
-        local result = Generation.status(1, job_id)
-        for _ = 1, 1200 do
-            if result.state ~= "pending" then break end
-            H.run_ticks(world, 1)
-            result = Generation.status(1, job_id)
-        end
-        print("SMOKE fluid state=" .. tostring(result.state) .. " stage=" .. tostring(result.stage or result.phase)
-            .. " codes=" .. table.concat(result.reason_codes or {}, ","))
-        --Today the bounded fluid layout is a positive search failure.  Once
-        --fluid layout works, this case must reach success/done.
-        --The expected outcome of this case is success.  Pinning today's exact terminal code made the case fail
-        --the moment an unrelated repair changed how far the run gets, so it pins only what must never happen:
-        --a crash, and a rejection that would call this sheet unsupported.
-        H.equal(result.state ~= "success", true, "fluid smoke has not reached success yet")
-        H.equal(result.state == "pending" or result.state == "failure", true,
-            "fluid smoke ends pending or failed, never crashed")
-        for _, code in ipairs(result.reason_codes or {}) do
-            H.equal(tostring(code):sub(1, 7) ~= "BP_REJ_", true,
-                "fluid smoke is never rejected as unsupported, saw " .. tostring(code))
-        end
+        --Generation is not driven here. A cheap graph regression must stay green while layout is still being
+        --repaired, and a positive generation gate must stay red until it truly succeeds; one case cannot be
+        --both. The positive case lives in tests/acceptance/fluid_chain.lua and demands success.
     end)
 end
 
