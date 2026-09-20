@@ -68,6 +68,13 @@ integration, on the merged tree, never in this lane. Do not import that check he
 
 ## What done mean
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-11-base -- logic/bp/groups.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_groups.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL .*BG3 a machine configured for three beacons overlaps three supply areas .*\\[assert\\]' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -q '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^test_groups \\[Lua 5\\.[24]\\]: [1-9][0-9]* cases, ' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
+{"name": "no-tile-overlap-shortcut", "command": "grep -q 'Geometry' logic/bp/groups.lua || { echo 'groups.lua does not call the shared geometry'; exit 1; }; echo geometry-shared", "expect_exit": 0, "expect_regex": "geometry-shared", "timeout_s": 60}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 094_beacon_geometry", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-11-base --manifest docs/tasks/094.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+```
+
 Every check runs on both interpreters.
 
 ```
@@ -86,3 +93,11 @@ focused     sh tools/verify_round9_lane.sh "$PWD" 094_beacon_geometry
 ```
 
 Never reduce a configured beacon count to make a check pass.
+
+Your own tests must include, in `tests/test_groups.lua`, by these exact case names. The red proof greps for `BG3 a machine configured for three beacons overlaps three supply areas`, so a different spelling fails the launch rather than the work.
+
+- `BG1 a machine covered by its collision box is covered, and by its tile footprint alone is not`
+- `BG2 an asymmetric collision box survives all four placed directions`
+- `BG3 a machine configured for three beacons overlaps three supply areas`
+- `BG4 a block of five machines of differing sizes each gets its configured count`
+- `BG5 count_per_machine is never assigned to a physical beacon count`

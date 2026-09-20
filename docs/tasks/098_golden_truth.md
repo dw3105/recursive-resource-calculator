@@ -59,6 +59,13 @@ Files this lane owns: `tests/golden/lib/runner.py`, `tests/golden/accept`, `test
 
 ## What done mean
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-11-base -- tests/golden/lib/runner.py || exit 1; if out=$(cd \"$S\" && python3 -m unittest -v tests.tools.test_capture_workflow 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL: test_a_deleted_required_case_directory_fails_the_branch_check' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^ERROR:' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^FAILED \\(failures=[1-9]' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
+{"name": "tiny-chain-carve-out-kept", "command": "grep -q 'search_budget = 0' tests/golden/setup/tiny-chain.lua || { echo 'the tiny-chain fixture lost its carve-out'; exit 1; }; echo carve-out-kept", "expect_exit": 0, "expect_regex": "carve-out-kept", "timeout_s": 60}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 098_golden_truth", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-11-base --manifest docs/tasks/098.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+```
+
 ```
 red-proof   git checkout round-11-base -- tests/golden/lib/runner.py
             python3 -m unittest -v tests.tools.test_capture_workflow
@@ -75,3 +82,10 @@ focused     sh tools/verify_round9_lane.sh "$PWD" 098_golden_truth
 ```
 
 No case state is advanced to make any check pass.
+
+Your own tests must include, in `tests/tools/test_capture_workflow.py`, by these exact case names. The red proof greps for `test_a_deleted_required_case_directory_fails_the_branch_check`, so a different spelling fails the launch rather than the work.
+
+- `test_a_deleted_required_case_directory_fails_the_branch_check`
+- `test_a_production_case_carrying_a_search_budget_is_refused`
+- `test_one_captured_case_with_evidence_is_accepted_while_others_stay_draft`
+- `test_acceptance_without_evidence_never_reaches_accepted`

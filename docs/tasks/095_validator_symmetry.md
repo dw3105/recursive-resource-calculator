@@ -58,6 +58,13 @@ on the merged tree, never in this lane.
 
 ## What done mean
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-11-base -- logic/bp/validate.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_validate.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL .*VS1 a beacon supplies by collision-box overlap, exactly as a pole does .*\\[assert\\]' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -q '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^test_validate \\[Lua 5\\.[24]\\]: [1-9][0-9]* cases, ' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
+{"name": "beacon-uses-the-pole-rule", "command": "grep -qE 'point_in_area\\(machine' logic/bp/validate.lua && { echo 'check_beacons still uses the centre test'; exit 1; }; echo beacon-rule-shared", "expect_exit": 0, "expect_regex": "beacon-rule-shared", "timeout_s": 60}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 095_validator_symmetry", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-11-base --manifest docs/tasks/095.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+```
+
 Every check runs on both interpreters.
 
 ```
@@ -76,3 +83,10 @@ short       BP_V_BEACON_COVERAGE_SHORT still fires when a machine genuinely gets
 frozen      lua5.2 tests/test_validated_candidate.lua stays 2/2, or each change is explained case by case
 focused     sh tools/verify_round9_lane.sh "$PWD" 095_validator_symmetry
 ```
+
+Your own tests must include, in `tests/test_validate.lua`, by these exact case names. The red proof greps for `VS1 a beacon supplies by collision-box overlap, exactly as a pole does`, so a different spelling fails the launch rather than the work.
+
+- `VS1 a beacon supplies by collision-box overlap, exactly as a pole does`
+- `VS2 the fractional-box counterexample is refused by the beacon rule and the pole rule alike`
+- `VS3 the player's four-roboport cell validates as connected, before and after translation`
+- `VS4 geometry only: a whole column moved past a stated spacing is disconnected and named`

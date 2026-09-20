@@ -98,6 +98,14 @@ end-to-end export check belongs to integration.
 
 ## What done mean
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-11-base -- logic/bp/search.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_search.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL .*ST1 an exhausted grid ladder reports its own code, never the budget code .*\\[assert\\]' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -q '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^test_search \\[Lua 5\\.[24]\\]: [1-9][0-9]* cases, ' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
+{"name": "mandated-allowance-test-written", "command": "test -f tests/test_search_allowance.lua || { echo 'docs/tasks/084_search_allowance.md mandates tests/test_search_allowance.lua'; exit 1; }; echo allowance-test-present", "expect_exit": 0, "expect_regex": "allowance-test-present", "timeout_s": 60}
+{"name": "spacing-stays-derived", "command": "grep -q 'robo.logistic_radius' logic/bp/search.lua || { echo 'the derived roboport gap was lost'; exit 1; }; echo spacing-derived", "expect_exit": 0, "expect_regex": "spacing-derived", "timeout_s": 60}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 097_search_truth", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-11-base --manifest docs/tasks/097.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+```
+
 Every Lua check runs on both interpreters.
 
 ```
@@ -120,3 +128,14 @@ isolation    another sheet's or another player's newer attempt never supplies th
 locale       lua5.2 tests/test_locale_keys.lua green with every new code present in en, cs and ro
 focused      sh tools/verify_round9_lane.sh "$PWD" 097_search_truth
 ```
+
+Your own tests must include, in `tests/test_search.lua`, by these exact case names. The red proof greps for `ST1 an exhausted grid ladder reports its own code, never the budget code`, so a different spelling fails the launch rather than the work.
+
+- `ST1 an exhausted grid ladder reports its own code, never the budget code`
+- `ST2 a power bound reports its own code, never the budget code`
+- `ST3 an operation cap still reports BP_FAIL_SEARCH_BUDGET`
+- `ST4 a pack, route, route-input or power rejection reaches reason_details`
+- `ST5 a candidate refused for size is recorded with its size`
+- `ST6 a cheap failed candidate never sets the whole job's ceiling`
+- `ST7 a failing attempt still reports grid_spacing with its kind, source and generation_job_id`
+- `ST8 grid_spacing survives a persistence round trip and answers through Generation.lookup`

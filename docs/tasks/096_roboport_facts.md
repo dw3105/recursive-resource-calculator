@@ -62,6 +62,13 @@ fails" check belongs to integration, on the merged tree.
 
 ## What done mean
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-11-base -- logic/catalog.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_catalog.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL .*RF1 the roboport catalog names a missing engine fact .*\\[assert\\]' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -q '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^test_catalog \\[Lua 5\\.[24]\\]: [1-9][0-9]* cases, ' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
+{"name": "invalid-read-stays-gone", "command": "grep -q 'entity.connection_distance' logic/catalog.lua && { echo 'the rolling-stock read came back'; exit 1; }; echo read-stays-gone", "expect_exit": 0, "expect_regex": "read-stays-gone", "timeout_s": 60}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 096_roboport_facts", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-11-base --manifest docs/tasks/096.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+```
+
 Every Lua check runs on both interpreters.
 
 ```
@@ -79,3 +86,9 @@ absence     given an attempt with no grid_spacing, the export names the absence 
             asserting a default value here is the failure this check exists to catch
 focused     sh tools/verify_round9_lane.sh "$PWD" 096_roboport_facts
 ```
+
+Your own tests must include, in `tests/test_catalog.lua`, by these exact case names. The red proof greps for `RF1 the roboport catalog names a missing engine fact`, so a different spelling fails the launch rather than the work.
+
+- `RF1 the roboport catalog names a missing engine fact`
+- `RF2 connection_distance is never named as a missing roboport fact`
+- `RF3 a default-infrastructure roboport reports an empty facts.missing`

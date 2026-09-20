@@ -58,6 +58,13 @@ and never writes it.
 
 ## What done mean
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-11-base -- tools/handoff.sh || exit 1; if out=$(cd \"$S\" && python3 -m unittest -v tests.tools.test_handoff 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -q '^FAIL: test_a_red_corpus_refuses_a_non_diagnostic_handoff' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^ERROR:' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '^FAILED \\(failures=[1-9]' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
+{"name": "diagnostic-still-survives-a-red-corpus", "command": "grep -q 'unverified_internal' tools/handoff.sh || { echo 'the diagnostic verdict was lost'; exit 1; }; echo diagnostic-kept", "expect_exit": 0, "expect_regex": "diagnostic-kept", "timeout_s": 60}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 099_release_lifecycle", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-11-base --manifest docs/tasks/099.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+```
+
 ```
 red-proof   git checkout round-11-base -- tools/handoff.sh
             python3 -m unittest -v tests.tools.test_handoff
@@ -72,3 +79,10 @@ diagnostic  --diagnostic with a red corpus still exits 0, lists every blocker, a
 never       no test writes into the operator's handover directory; the ambient-env scrub stays
 focused     sh tools/verify_round9_lane.sh "$PWD" 099_release_lifecycle
 ```
+
+Your own tests must include, in `tests/tools/test_handoff.py`, by these exact case names. The red proof greps for `test_a_red_corpus_refuses_a_non_diagnostic_handoff`, so a different spelling fails the launch rather than the work.
+
+- `test_a_red_corpus_refuses_a_non_diagnostic_handoff`
+- `test_a_handoff_runs_the_corpus_for_its_own_branch`
+- `test_promotion_accepts_an_existing_archive_and_never_rebuilds`
+- `test_a_diagnostic_run_survives_a_red_corpus_and_stays_unverified_internal`
