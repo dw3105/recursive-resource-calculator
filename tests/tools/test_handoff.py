@@ -114,6 +114,9 @@ exit "${FAKE_ACCEPTANCE_RC:-0}"
         self._write(
             "tests/golden/run",
             """#!/bin/sh
+if [ -n "${FAKE_GOLDEN_LOG:-}" ]; then
+    printf '%s\\n' "$*" >> "$FAKE_GOLDEN_LOG"
+fi
 echo 'golden: 0 passed, 1 failed, 1 drafts, 0 captured'
 exit "${FAKE_GOLDEN_RC:-9}"
 """,
@@ -123,10 +126,29 @@ exit "${FAKE_GOLDEN_RC:-9}"
         self._write("tests/tools/__init__.py", "")
         self._write("tests/tools/test_fixture.py", "import unittest\n\nclass FixtureTest(unittest.TestCase):\n    def test_fixture(self):\n        pass\n")
         self._write("tools/handoff.sh", SCRIPT.read_text(encoding="utf-8"), executable=True)
+        self._write("prepare_release.sh", (ROOT / "prepare_release.sh").read_text(encoding="utf-8"), executable=True)
+        self._write(
+            "tools/release_gate.py",
+            """#!/usr/bin/env python3
+import os
+from pathlib import Path
+import sys
+
+log = os.environ.get('FAKE_RELEASE_GATE_LOG')
+if log:
+    with Path(log).open('a', encoding='utf-8') as stream:
+        stream.write(' '.join(sys.argv[1:]) + '\\n')
+raise SystemExit(int(os.environ.get('FAKE_RELEASE_GATE_RC', '0')))
+""",
+            executable=True,
+        )
         self._write(
             "tools/build_test_zip.sh",
             """#!/bin/sh
 set -eu
+if [ -n "${FAKE_BUILD_MARKER:-}" ]; then
+    : > "$FAKE_BUILD_MARKER"
+fi
 sha=$1
 v20=$2
 v21=$3
@@ -151,7 +173,8 @@ make_zip "$v21" 2.1
     #for them. An ambient RRC_HANDOFF_KEEP_ARCHIVES once made this suite copy its own 1.0.0 doubles into the
     #operator's handover directory, beside the archives a player was about to receive.
     AMBIENT = ("RRC_HANDOFF_KEEP_ARCHIVES", "RRC_SHAPES", "LUAS", "FAKE_GATE_RC", "FAKE_ACCEPTANCE_RC",
-               "FAKE_GOLDEN_RC", "FAKE_EXPORT_RC", "FAKE_BUILD_TAG")
+               "FAKE_GOLDEN_RC", "FAKE_EXPORT_RC", "FAKE_BUILD_TAG", "FAKE_GOLDEN_LOG",
+               "FAKE_RELEASE_GATE_RC", "FAKE_RELEASE_GATE_LOG", "FAKE_BUILD_MARKER")
 
     def run(self, diagnostic: bool = False, **environment: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
@@ -164,6 +187,21 @@ make_zip "$v21" 2.1
         command.extend([self.candidate, "1.0.0", "1.0.0"])
         return subprocess.run(
             command,
+            cwd=self.root,
+            text=True,
+            capture_output=True,
+            env=env,
+            check=False,
+        )
+
+    def promote(self, archive: Path, **environment: str) -> subprocess.CompletedProcess[str]:
+        env = os.environ.copy()
+        for name in self.AMBIENT:
+            env.pop(name, None)
+        env.update(environment)
+        return subprocess.run(
+            ["sh", str(self.root / "prepare_release.sh"), "1.0.0", "2.0",
+             "--archive", str(archive), "--candidate", self.candidate],
             cwd=self.root,
             text=True,
             capture_output=True,
@@ -249,7 +287,7 @@ class HandoffTests(unittest.TestCase):
         raw, fixture = self.fixture()
         with raw:
             kept = fixture.root / "kept"
-            result = fixture.run(FAKE_GATE_RC="0", FAKE_GOLDEN_RC="1",
+            result = fixture.run(FAKE_GATE_RC="0", FAKE_GOLDEN_RC="0",
                                  RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
@@ -274,18 +312,64 @@ class HandoffTests(unittest.TestCase):
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             self.assertFalse(kept.exists() and any(kept.iterdir()), "a refusal hands over nothing")
 
-    def test_informational_corpus_failure_does_not_refuse(self):
+    def test_a_red_corpus_refuses_a_non_diagnostic_handoff(self):
         raw, fixture = self.fixture()
         with raw:
             result = fixture.run(FAKE_GOLDEN_RC="19")
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
-            corpus = [check for check in record["informational"] if check["name"] == "golden-corpus-status"]
+            corpus = [check for check in record["checks"] if check["name"] == "golden-corpus"]
             self.assertEqual(len(corpus), 2)
             self.assertTrue(all(check["exit"] == 19 for check in corpus))
-            self.assertEqual(record["result"], "pass")
+            self.assertEqual({check["branch"] for check in corpus}, {"2.0", "2.1"})
+            self.assertEqual(record["result"], "refused")
+            self.assertFalse(record["informational"])
 
-    def test_a_diagnostic_run_is_always_unverified_internal(self):
+    def test_a_handoff_runs_the_corpus_for_its_own_branch(self):
+        raw, fixture = self.fixture()
+        with raw:
+            log = fixture.root / "golden-args.log"
+            result = fixture.run(FAKE_GOLDEN_RC="0", FAKE_GOLDEN_LOG=str(log))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(log.read_text(encoding="utf-8").splitlines(),
+                             ["--branch 2.0 --drafts report", "--branch 2.1 --drafts report"])
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            corpus = [check for check in record["checks"] if check["name"] == "golden-corpus"]
+            self.assertEqual({(check["name"], check["branch"]) for check in corpus},
+                             {("golden-corpus", "2.0"), ("golden-corpus", "2.1")})
+            self.assertTrue(all(check["log_sha256"] for check in corpus))
+
+    def test_promotion_accepts_an_existing_archive_and_never_rebuilds(self):
+        raw, fixture = self.fixture()
+        with raw:
+            archive = fixture.root / "existing.zip"
+            archive.write_bytes(b"archive that already exists")
+            build_marker = fixture.root / "build-called"
+            golden_log = fixture.root / "promotion-golden.log"
+            gate_log = fixture.root / "promotion-gate.log"
+            result = fixture.promote(
+                archive,
+                FAKE_GOLDEN_RC="0",
+                FAKE_GOLDEN_LOG=str(golden_log),
+                FAKE_RELEASE_GATE_LOG=str(gate_log),
+                FAKE_BUILD_MARKER=str(build_marker),
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(build_marker.exists(), "promotion rebuilt an existing archive")
+            self.assertEqual(golden_log.read_text(encoding="utf-8").splitlines(),
+                             ["--branch 2.0"])
+            self.assertIn("--archive " + str(archive), gate_log.read_text(encoding="utf-8"))
+            self.assertIn("release verdict: verified", result.stdout)
+
+            refused = fixture.promote(
+                archive,
+                FAKE_GOLDEN_RC="0",
+                FAKE_RELEASE_GATE_RC="7",
+            )
+            self.assertEqual(refused.returncode, 7, refused.stdout + refused.stderr)
+            self.assertNotIn("verified", refused.stdout + refused.stderr)
+
+    def test_a_diagnostic_run_survives_a_red_corpus_and_stays_unverified_internal(self):
         raw, fixture = self.fixture()
         with raw:
             kept = fixture.root / "kept"
@@ -298,6 +382,7 @@ class HandoffTests(unittest.TestCase):
                 [archive["verdict"] for archive in record["archives"]],
                 ["unverified_internal", "unverified_internal"],
             )
+            self.assertEqual(record["result"], "pass")
 
     def test_a_diagnostic_run_can_never_write_verified(self):
         raw, fixture = self.fixture()
@@ -379,13 +464,15 @@ class HandoffTests(unittest.TestCase):
         raw, fixture = self.fixture()
         with raw:
             kept = fixture.root / "kept"
-            result = fixture.run(FAKE_GOLDEN_RC="19", RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            result = fixture.run(FAKE_GOLDEN_RC="0", RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
             self.assertNotIn("mode", record)
             self.assertEqual(record["result"], "pass")
             self.assertTrue(all("verdict" not in archive for archive in record["archives"]))
-            self.assertEqual(len(record["informational"]), 2)
+            self.assertEqual(len(record["informational"]), 0)
+            self.assertEqual(len([check for check in record["checks"]
+                                 if check["name"] == "golden-corpus"]), 2)
 
 
 if __name__ == "__main__":

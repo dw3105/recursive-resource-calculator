@@ -59,30 +59,30 @@ else
     done
 fi
 
-TEMP=
-cleanup() {
-    if [ -n "$TEMP" ] && [ -d "$TEMP" ]; then
-        rm -rf "$TEMP"
+run_golden() {
+    golden_branch=$1
+    if ! (cd "$ROOT" && sh tests/golden/run --branch "$golden_branch"); then
+        echo "release refused: golden corpus failed for branch $golden_branch" >&2
+        exit 2
     fi
 }
-trap cleanup 0 1 2 15
 
 if [ "$MODE" = single ]; then
-    if [ -z "$ARCHIVE" ]; then
-        TEMP=$(mktemp -d "${TMPDIR:-/tmp}/rrc-release.XXXXXX")
-        # The generated archive is explicitly a TEST BUILD.  It is used once;
-        # a later invocation must not pretend that it promotes the old bytes.
-        sh "$ROOT/tools/build_test_zip.sh" "$CANDIDATE" "$VERSION" "$VERSION" "$TEMP" >&2
-        ARCHIVE="$TEMP/RRC-Fork_${VERSION}_factorio-${BRANCH}-test.zip"
+    if [ -z "$ARCHIVE" ] || [ ! -f "$ARCHIVE" ]; then
+        echo "release refused: promotion requires an existing archive" >&2
+        exit 2
     fi
+    run_golden "$BRANCH"
     set -- "$ROOT/tools/release_gate.py" "$BRANCH" --candidate "$CANDIDATE" \
         --archive "$ARCHIVE" --version "$VERSION"
 else
-    if [ -z "$ARCHIVE_DIR" ]; then
-        TEMP=$(mktemp -d "${TMPDIR:-/tmp}/rrc-release.XXXXXX")
-        sh "$ROOT/tools/build_test_zip.sh" "$CANDIDATE" "$VERSION" "$VERSION" "$TEMP" >&2
-        ARCHIVE_DIR=$TEMP
+    if [ -z "$ARCHIVE_DIR" ] || [ ! -d "$ARCHIVE_DIR" ]; then
+        echo "release refused: promotion requires an existing archive directory" >&2
+        exit 2
     fi
+    for release_branch in 2.0 2.1; do
+        run_golden "$release_branch"
+    done
     set -- "$ROOT/tools/release_gate.py" --release --candidate "$CANDIDATE" \
         --archive-dir "$ARCHIVE_DIR" --version "$VERSION"
 fi
@@ -92,3 +92,4 @@ fi
 [ -n "$GOLDEN_ROOT" ] && set -- "$@" --golden-root "$GOLDEN_ROOT"
 cd "$ROOT"
 python3 "$@"
+echo "release verdict: verified"

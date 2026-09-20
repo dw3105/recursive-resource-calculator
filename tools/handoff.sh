@@ -37,6 +37,9 @@ BUILD_DIR=$WORK/archives
 STAGE20=$WORK/2.0
 STAGE21=$WORK/2.1
 CHECKS_FILE=$WORK/checks.tsv
+# Kept as an empty compatibility field in the record.  Every check now has a
+# name and branch in the gating set; the corpus is not an informational escape
+# for an ordinary handoff.
 INFO_FILE=$WORK/informational.tsv
 REASONS_FILE=$WORK/reasons.txt
 BLOCKERS_FILE=$WORK/blockers.tsv
@@ -302,13 +305,8 @@ run_check() {
             refuse "$failure_reason"
         fi
     fi
-    if [ "$gating" = false ]; then
-        status=informational
-    fi
-    output_file=$CHECKS_FILE
-    [ "$gating" = true ] || output_file=$INFO_FILE
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$branch" "$name" "$command" "$rc" "$status" "$expected_cases" "$executed_cases" "$log_sha256" >> "$output_file"
+        "$branch" "$name" "$command" "$rc" "$status" "$expected_cases" "$executed_cases" "$log_sha256" >> "$CHECKS_FILE"
 }
 
 run_package() {
@@ -351,9 +349,9 @@ run_package() {
         "$acceptance_discovery" "$acceptance_file_count"
     run_check "$package_root" "$branch" quality-policy 'lua5.2 tests/test_quality_policy.lua' true \
         "$quality_discovery" 1
-    # The corpus is intentionally informational: draft/captured cases and the
-    # branch-2.1 empty accepted set are expected on this host.
-    run_check "$package_root" "$branch" golden-corpus 'sh tests/golden/run --branch 2.0 --drafts report' false 0 0
+    # A red corpus refuses an ordinary handoff.  Diagnostic mode still turns
+    # this failed check into a named blocker so it can collect engine evidence.
+    run_check "$package_root" "$branch" golden-corpus "sh tests/golden/run --branch $branch --drafts report" true 0 0
 }
 
 #The census is discovered, never assumed. A fixed expected count silently refuses a real run the moment the
@@ -403,6 +401,7 @@ for line in Path(checks_path).read_text(encoding="utf-8").splitlines():
         continue
     branch, name, command, exit_code, check_state, expected, executed, log_sha256 = line.split("\t")
     checks.append({
+        "branch": branch,
         "name": name,
         "command": command,
         "expected_cases": int(expected),
@@ -416,7 +415,11 @@ for line in Path(info_path).read_text(encoding="utf-8").splitlines():
         continue
     branch, name, command, exit_code, check_state, expected, executed, log_sha256 = line.split("\t")
     informational.append({
-        "name": "golden-corpus-status",
+        "branch": branch,
+        "name": name,
+        "command": command,
+        "expected_cases": int(expected),
+        "executed_cases": int(executed),
         "exit": int(exit_code),
         "log_sha256": log_sha256,
     })
