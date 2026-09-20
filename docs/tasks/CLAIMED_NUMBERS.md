@@ -91,3 +91,4 @@
 | `080` | `rrc/agent` | first layout corridor | 2026-09-20 |
 | `081` | `rrc/agent` | corridor candidate validates | 2026-09-20 |
 | `082` | `rrc/agent` | route the clean base | 2026-09-20 |
+| `083` | `rrc/agent` | expansion budget for many ports | 2026-09-20 |
