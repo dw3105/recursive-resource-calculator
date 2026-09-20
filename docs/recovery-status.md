@@ -237,3 +237,55 @@ read. It is green again, and a captured corpus case now has a state whose rules 
   harness. F6 asks for stage, persistence and status cost to be measured apart before any further tuning.
 - Lane 084's work is preserved at tag `lane-084-preserved` (`60906ff`) and was not merged: its own checks
   passed, its fixture gates failed, and a 6000-tick run showed it still ends `pending` with `BP_R_NO_PATH`.
+
+## 2026-09-20 round 9 wave 1: the quality rule and the facts boundary
+
+HEAD `32bb7f9`, tag `round-9-wave-1-green`, branch `feat/round-8-blueprints`, never pushed, `main` untouched.
+
+Answers `~/codex-reviews/rrc-quality-rejection-adversarial-review-2026-09-20.md` and the seven plan reviews that
+followed it. Plan rev 8 at `~/.claude/plans/let-s-implement-this-feature-recursive-lighthouse.md`.
+
+```text
+sh tests/run.sh                    exit 0; 3358 Lua cases, 0 failed; 97 python tests OK
+sh tests/acceptance/run            3 chains success + gate digest 4 cases, 0 failed
+test_generation_boundary_rules     20 cases, 0 failed, both branch shapes
+058_reproducer.lua                 REPRO state=success stage=done codes=
+tools/handoff.sh                   pass; 3376 cases inside each extracted package
+```
+
+### The two reported defects
+
+- `preflight.lua:380` asked whether a module's quality effect was non-zero. A speed module's effect is `-0.25`,
+  so an ordinary sheet was refused as quality-changing production. One shared rule now answers three separate
+  questions in `logic/bp/quality_policy.lua`, and every active machine needs a receiver decision.
+- No recipe or receiver facts ever reached the checker, so a chance-based product passed as supported. The
+  catalog now projects them, and thin facts are `BP_REJ_PROTOTYPE_FACTS_MISSING`.
+
+Probe on the player's own export, current code: 11 reasons, all `BP_REJ_PROTOTYPE_FACTS_MISSING`, zero
+`BP_REJ_QUALITY_CHANGING`. That export predates the projection; enrichment is lane 094.
+
+### Lanes
+
+085 PASS 855 s, 086 PASS 522 s, 087 PASS 761 s, 088 PASS 956 s, 090 PASS 1691 s, 089 engine-timeout 2900 s with
+work committed and audited green. Six dispatched in parallel, one background shell each.
+
+### Caught by hand audit, missed by lane gates
+
+1. Lane 087 wrote `forbids_speed_beacon = has_quality_module or speed_beacon > 0`, which would have made
+   `validate.lua:639-642` refuse every ordinary speed-beacon factory. Corrected, pinned by case `BR10`.
+2. Two suite cases asserted "this is a source checkout" and could never hold inside a package, so the first
+   real handoff refused. Both now assert one rule in either tree.
+3. The handoff command deleted the archives it verified. `RRC_HANDOFF_KEEP_ARCHIVES` keeps exactly those bytes.
+
+### Delivered
+
+```text
+RRC-Fork_1.1.51_factorio-2.0-test.zip  24773c53f56a556db10404c1f4f4844acf1ccc666779e7a85f528c4a1db3c03e
+RRC-Fork_1.1.52_factorio-2.1-test.zip  f3cbb941287df9bcf05677ba576680f451f6ebe9d0bf7436d9a8b26c521f67ce
+```
+
+### Not done
+
+M3 stays blocked: no Factorio on this host, 1 accepted golden case, 0 engine observations. Wave 2 (091 real-data
+acceptance, 092 capacity model, 093 export facts, 094 the reported chain to delivery, 095 publication freeze) is
+dispatched from `round-9-wave-1-green`.
