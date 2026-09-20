@@ -720,6 +720,11 @@ function Groups.materialize(block, placement)
     local occupied = {}
     local oriented_w, oriented_h = Grid.rotate_size(block.w, block.h, dir)
     placed.envelope = {x = px, y = py, w = oriented_w, h = oriented_h, dir = dir}
+    -- Route receives these occupied cells through the ports because Search carries the block envelope separately.
+    -- Keep the whole placed envelope reserved: an empty margin is still part of the opaque block, and a two-wide
+    -- route entity placed in that hole could reach back into a member's exact collision box.
+    occupied[#occupied + 1] = {x = px, y = py, w = oriented_w, h = oriented_h,
+        owner = "machine:" .. tostring(block.block_id or block.id)}
     for _, member in ipairs(block.members or {}) do
         local geometry = Grid.place_member(block, {x = px, y = py, dir = dir}, member)
         local entity = copy(member)
