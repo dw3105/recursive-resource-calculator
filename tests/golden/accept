@@ -9,6 +9,6 @@ fi
 case_name=$1
 candidate=${2-}
 if [ -n "$candidate" ]; then
-    exec python3 "$root/run" accept --root "$root/cases" --candidate "$candidate" "$case_name"
+    exec python3 "$root/lib/runner.py" accept --root "$root/cases" --candidate "$candidate" "$case_name"
 fi
-exec python3 "$root/run" accept --root "$root/cases" "$case_name"
+exec python3 "$root/lib/runner.py" accept --root "$root/cases" "$case_name"

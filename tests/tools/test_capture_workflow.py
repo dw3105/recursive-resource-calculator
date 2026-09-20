@@ -1,14 +1,28 @@
 import base64
+import importlib.util
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
 ADD_CASE = ROOT / "tests" / "golden" / "add_case"
+RUNNER_PATH = ROOT / "tests" / "golden" / "lib" / "runner.py"
+
+
+def load_runner():
+    spec = importlib.util.spec_from_file_location("rrc_capture_workflow_runner", RUNNER_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {RUNNER_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def encode_export(value):
@@ -66,6 +80,64 @@ class CaptureWorkflowTests(unittest.TestCase):
              "--cases", str(root / "cases")],
             cwd=ROOT, text=True, capture_output=True, check=False,
         )
+
+    def write_matrix(self, root, rows):
+        (root / "required-matrix.json").write_text(
+            json.dumps({"schema_version": 1, "cases": rows}, indent=2) + "\n", encoding="utf-8"
+        )
+
+    def write_case(self, root, case_id, state="captured", source_kind="runtime", prepared=True,
+                   packaged=True, options=None, expected=True):
+        case = root / "cases" / case_id
+        case.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "schema_version": 1,
+            "case_id": case_id,
+            "factorio_branch": "2.0",
+            "state": state,
+            "source_kind": source_kind,
+            "expected_outcome": "production",
+            "expected": "expected_canonical.json",
+            "actual": "candidate.json",
+            "prepared_input": "prepared_input.json" if prepared else None,
+        }
+        (case / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        if prepared:
+            prepared_value = {
+                "schema_version": 1,
+                "source_kind": source_kind,
+                "provenance": {
+                    "candidate_sha": "fixture-candidate",
+                    "packaged": packaged,
+                    "factorio_branch": "2.0",
+                },
+                "options": options or {},
+            }
+            (case / "prepared_input.json").write_text(
+                json.dumps(prepared_value, indent=2) + "\n", encoding="utf-8"
+            )
+            (case / "provenance.json").write_text(json.dumps({
+                "candidate_sha": "fixture-candidate",
+                "packaged": packaged,
+                "source_kind": source_kind,
+            }, indent=2) + "\n", encoding="utf-8")
+        else:
+            (case / "candidate.json").write_text('{"entities": []}\n', encoding="utf-8")
+        if expected:
+            (case / "expected_canonical.json").write_text('{"entities": []}\n', encoding="utf-8")
+        return case
+
+    @staticmethod
+    def matrix_row(case_id, state="captured", branches=None):
+        return {
+            "case_id": case_id,
+            "branches": branches or ["2.0"],
+            "mods": ["base"],
+            "outcome_kind": "production",
+            "clauses": ["FIXTURE"],
+            "state": state,
+            "prepared_input": "prepared_input.json" if state == "captured" else None,
+        }
 
     def test_runtime_capture_round_trips_and_files_a_draft(self):
         export = capture_export()
@@ -138,6 +210,104 @@ class CaptureWorkflowTests(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("accepted baseline", result.stderr)
             self.assertEqual(sentinel.read_text(encoding="utf-8"), '{"sentinel":true}\n')
+
+    def test_a_deleted_required_case_directory_fails_the_branch_check(self):
+        runner = load_runner()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            cases = root / "cases"
+            self.write_case(root, "surviving", state="accepted", prepared=False)
+            self.write_matrix(root, [
+                self.matrix_row("surviving", state="accepted"),
+                self.matrix_row("deleted", state="accepted"),
+            ])
+            message = runner.check_branch_requirements(
+                cases, runner.discover(cases, []), "2.0"
+            )
+            self.assertIsNotNone(message)
+            self.assertIn("deleted@2.0", message)
+
+    def test_a_production_case_carrying_a_search_budget_is_refused(self):
+        runner = load_runner()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = self.write_case(root, "capped-case", options={"search_budget": 2500})
+            self.write_matrix(root, [self.matrix_row("capped-case")])
+            manifest = json.loads((case / "manifest.json").read_text(encoding="utf-8"))
+            with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
+                with self.assertRaisesRegex(runner.GoldenError, r"capped-case.*search_budget"):
+                    runner.accept_case(case, manifest, None, root / "artifacts", root / "cases")
+
+    def test_one_captured_case_with_evidence_is_accepted_while_others_stay_draft(self):
+        runner = load_runner()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = self.write_case(root, "runtime-capture", expected=False)
+            self.write_case(root, "still-draft", state="draft", prepared=False)
+            self.write_case(root, "still-captured", state="captured", source_kind="harness")
+            self.write_matrix(root, [
+                self.matrix_row("runtime-capture"),
+                self.matrix_row("still-draft", state="draft"),
+                self.matrix_row("still-captured", state="captured"),
+            ])
+            with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
+                result = runner.main(["accept", "--root", str(root / "cases"), "runtime-capture"])
+            self.assertEqual(result, 0)
+            self.assertEqual(json.loads((target / "manifest.json").read_text())["state"], "accepted")
+            self.assertTrue((target / "expected_canonical.json").exists())
+            matrix = json.loads((root / "required-matrix.json").read_text())
+            states = {row["case_id"]: row["state"] for row in matrix["cases"]}
+            self.assertEqual(states, {
+                "runtime-capture": "accepted",
+                "still-draft": "draft",
+                "still-captured": "captured",
+            })
+
+    def test_acceptance_without_evidence_never_reaches_accepted(self):
+        runner = load_runner()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = self.write_case(root, "unbound-capture", source_kind="harness", prepared=False)
+            self.write_matrix(root, [self.matrix_row("unbound-capture")])
+            before_manifest = (case / "manifest.json").read_bytes()
+            before_matrix = (root / "required-matrix.json").read_bytes()
+            before_expected = (case / "expected_canonical.json").read_bytes()
+            manifest = json.loads(before_manifest)
+            with self.assertRaisesRegex(runner.GoldenError, "evidence"):
+                runner.accept_case(case, manifest, None, root / "artifacts", root / "cases")
+            self.assertEqual((case / "manifest.json").read_bytes(), before_manifest)
+            self.assertEqual((root / "required-matrix.json").read_bytes(), before_matrix)
+            self.assertEqual(json.loads((case / "manifest.json").read_text())["state"], "captured")
+            self.assertEqual((case / "expected_canonical.json").read_bytes(), before_expected)
+            self.assertEqual(json.loads((root / "required-matrix.json").read_text())["cases"][0]["state"], "captured")
+
+    def test_interrupted_acceptance_rolls_back_all_three_baseline_files(self):
+        runner = load_runner()
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = self.write_case(root, "interrupted-capture", expected=False)
+            self.write_matrix(root, [self.matrix_row("interrupted-capture")])
+            manifest_path = case / "manifest.json"
+            matrix_path = root / "required-matrix.json"
+            before_manifest = manifest_path.read_bytes()
+            before_matrix = matrix_path.read_bytes()
+            real_replace = runner.os.replace
+            calls = {"count": 0}
+
+            def interrupt_on_matrix(source, target):
+                calls["count"] += 1
+                if calls["count"] == 3:
+                    raise OSError("simulated interrupted acceptance")
+                return real_replace(source, target)
+
+            manifest = json.loads(before_manifest)
+            with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
+                with mock.patch.object(runner.os, "replace", side_effect=interrupt_on_matrix):
+                    with self.assertRaisesRegex(OSError, "interrupted"):
+                        runner.accept_case(case, manifest, None, root / "artifacts", root / "cases")
+            self.assertEqual(manifest_path.read_bytes(), before_manifest)
+            self.assertEqual(matrix_path.read_bytes(), before_matrix)
+            self.assertFalse((case / "expected_canonical.json").exists())
 
 
 if __name__ == "__main__":

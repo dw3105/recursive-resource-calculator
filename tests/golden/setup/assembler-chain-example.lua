@@ -38,7 +38,6 @@ return {
         steps = {"assemble-machine-gear", "assemble-example-machine"},
         flows = {"item/steel-plate", "item/electronic-circuit", "item/machine-gear", "item/example-machine"},
     },
-    generation = {search_budget = 2500},
     engine_scenario = Common.scenario(
         {{full_name = "item/steel-plate", rate_per_second = 4},
          {full_name = "item/electronic-circuit", rate_per_second = 3}},

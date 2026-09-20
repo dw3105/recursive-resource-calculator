@@ -38,7 +38,6 @@ return {
         steps = {"make-repeatable-part", "make-repeatable-product"},
         flows = {"item/repeatable-ore", "item/repeatable-part", "item/repeatable-product"},
     },
-    generation = {search_budget = 2500},
     engine_scenario = Common.scenario(
         {{full_name = "item/repeatable-ore", rate_per_second = 3}},
         {{full_name = "item/repeatable-product", rate_per_second = 1}}),

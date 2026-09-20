@@ -14,6 +14,7 @@ import base64
 import copy
 import difflib
 import hashlib
+import importlib.util
 import json
 import math
 import os
@@ -21,6 +22,7 @@ import re
 import shutil
 import sys
 import subprocess
+import tempfile
 import time
 import zlib
 from pathlib import Path
@@ -38,6 +40,8 @@ SEMANTIC_ASSERTIONS = {
     "beacon_coverage", "power_connectivity", "grid_containment", "machine_counts", "capacities",
     "wire_legality", "port_edges", "collisions",
 }
+FORBIDDEN_GENERATION_OPTIONS = ("search_budget", "max_ops", "max_search_grids", "max_grid_trials")
+_SHARED_MATRIX_READER = None
 
 
 def read_json(path: Path) -> Any:
@@ -76,6 +80,20 @@ def sha256_value(value: Any) -> str:
 def write_json(path: Path, value: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(value, indent=2, sort_keys=True, ensure_ascii=False) + "\n", encoding="utf-8")
+
+
+def _shared_matrix_reader():
+    """Load the release gate's matrix reader without making tools a package."""
+    global _SHARED_MATRIX_READER
+    if _SHARED_MATRIX_READER is None:
+        path = REPO_ROOT / "tools" / "release_gate.py"
+        spec = importlib.util.spec_from_file_location("rrc_golden_release_gate", path)
+        if spec is None or spec.loader is None:
+            raise GoldenError(f"cannot load shared matrix reader: {path}")
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        _SHARED_MATRIX_READER = module.load_matrix
+    return _SHARED_MATRIX_READER
 
 
 def stable_json(value: Any) -> str:
@@ -934,9 +952,180 @@ def expected_write_path(case: Path, existing: Optional[Path]) -> Path:
     return existing or case / "expected_canonical.json"
 
 
-def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Optional[Path], artifact_root: Path) -> None:
-    expected_raw, _, old_path = expected_value(case, manifest)
+def _provenance_for_acceptance(case: Path, manifest: Mapping[str, Any], input_path: Optional[Path]) -> Dict[str, Any]:
+    value: Dict[str, Any] = {}
+    declared = manifest.get("provenance")
+    if isinstance(declared, Mapping):
+        value.update(declared)
+    path = provenance_path(case)
+    if path:
+        loaded = read_json(path)
+        if isinstance(loaded, Mapping):
+            for key, item in loaded.items():
+                value.setdefault(key, item)
+    if input_path:
+        prepared = read_json(input_path)
+        if isinstance(prepared, Mapping):
+            source_kind = prepared.get("source_kind")
+            if source_kind is not None:
+                value.setdefault("source_kind", source_kind)
+            prepared_provenance = prepared.get("provenance")
+            if isinstance(prepared_provenance, Mapping):
+                for key, item in prepared_provenance.items():
+                    value.setdefault(key, item)
+    return value
+
+
+def _require_bound_evidence(case: Path, manifest: Mapping[str, Any], input_path: Optional[Path]) -> None:
+    if input_path is None:
+        raise GoldenError(f"{case.name} refused: captured case has no bound PreparedInput evidence")
+    source_kind = manifest.get("source_kind")
+    provenance = _provenance_for_acceptance(case, manifest, input_path)
+    source_kind = source_kind or provenance.get("source_kind")
+    if source_kind not in ("runtime", "engine"):
+        raise GoldenError(f"{case.name} refused: acceptance requires runtime/engine evidence, got {source_kind!r}")
+    candidate_sha = provenance.get("candidate_sha")
+    if not isinstance(candidate_sha, str) or not candidate_sha:
+        raise GoldenError(f"{case.name} refused: bound evidence has no candidate SHA")
+    if provenance.get("packaged") is not True:
+        raise GoldenError(f"{case.name} refused: bound evidence is not from a packaged candidate")
+
+
+def _reject_capped_production_case(case: Path, manifest: Mapping[str, Any], input_path: Optional[Path]) -> None:
+    expected = manifest.get("expected_outcome", manifest.get("outcome", "production"))
+    if str(expected).lower() not in {"production", "success", "accepted"} or case.name == "tiny-chain":
+        return
+    sources = []
+    if input_path is not None:
+        sources.append((input_path, read_json(input_path)))
+    for name in ("options.json",):
+        path = case / name
+        if path.exists():
+            sources.append((path, read_json(path)))
+    for path, value in sources:
+        if not isinstance(value, Mapping):
+            continue
+        for key in FORBIDDEN_GENERATION_OPTIONS:
+            if key in value:
+                raise GoldenError(f"{case.name} refused: production case carries {key}; use default configuration")
+        nested = value.get("options")
+        if isinstance(nested, Mapping):
+            for key in FORBIDDEN_GENERATION_OPTIONS:
+                if key in nested:
+                    raise GoldenError(f"{case.name} refused: production case carries {key}; use default configuration")
+
+
+def _matrix_path(root: Path) -> Optional[Path]:
+    default_root = Path(__file__).resolve().parent.parent / "cases"
+    candidates = [root.parent / "required-matrix.json"]
+    if root.resolve() == default_root.resolve():
+        candidates.append(REPO_ROOT / "tests" / "golden" / "required-matrix.json")
+    return next((path for path in candidates if path.exists()), None)
+
+
+def _matrix_with_path(root: Path) -> Tuple[Optional[Dict[str, Any]], Optional[Path]]:
+    path = _matrix_path(root)
+    if path is None:
+        return None, None
+    try:
+        matrix = _shared_matrix_reader()(path)
+    except Exception as exc:
+        if isinstance(exc, GoldenError):
+            raise
+        raise GoldenError(str(exc)) from exc
+    return dict(matrix), path
+
+
+def _acceptance_matrix(root: Path, case: Path, manifest: Mapping[str, Any]) -> Tuple[Dict[str, Any], Path]:
+    matrix, path = _matrix_with_path(root)
+    if matrix is None or path is None:
+        raise GoldenError(f"{case.name} refused: required matrix is missing")
+    case_id = manifest.get("case_id", case.name)
+    branch = case_branch(manifest)
+    for entry in matrix.get("cases", []):
+        if not isinstance(entry, Mapping) or entry.get("case_id") != case_id:
+            continue
+        if branch is None or branch in entry.get("branches", []):
+            return matrix, path
+    pair = f"{case_id}@{branch or '<unknown>'}"
+    raise GoldenError(f"{case.name} refused: no required matrix pair {pair}")
+
+
+def _staged_json(path: Path, value: Any) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(pretty_json(value))
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        try:
+            Path(temporary).unlink()
+        except OSError:
+            pass
+        raise
+    return Path(temporary)
+
+
+def _commit_acceptance(files: Mapping[Path, Any]) -> None:
+    staged: Dict[Path, Path] = {}
+    originals: Dict[Path, Optional[bytes]] = {}
+    replaced: List[Path] = []
+    try:
+        for target, value in files.items():
+            originals[target] = target.read_bytes() if target.exists() else None
+            staged[target] = _staged_json(target, value)
+        for target, temporary in staged.items():
+            os.replace(temporary, target)
+            replaced.append(target)
+    except BaseException:
+        for target in reversed(replaced):
+            original = originals[target]
+            try:
+                if original is None:
+                    target.unlink(missing_ok=True)
+                else:
+                    descriptor, restore_name = tempfile.mkstemp(
+                        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+                    )
+                    try:
+                        with os.fdopen(descriptor, "wb") as stream:
+                            stream.write(original)
+                        os.replace(restore_name, target)
+                    finally:
+                        try:
+                            Path(restore_name).unlink()
+                        except OSError:
+                            pass
+            except BaseException:
+                # The original exception remains the useful failure; the next invocation
+                # still sees the staged files cleaned below and can repair the target.
+                pass
+        raise
+    finally:
+        for temporary in staged.values():
+            try:
+                temporary.unlink()
+            except OSError:
+                pass
+
+
+def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Optional[Path], artifact_root: Path,
+                root: Optional[Path] = None) -> None:
+    if manifest.get("state", manifest.get("status")) != "captured":
+        raise GoldenError(f"{case.name} refused: only captured cases may be accepted")
     input_path = prepared_input_path(case, manifest)
+    _reject_capped_production_case(case, manifest, input_path)
+    _require_bound_evidence(case, manifest, input_path)
+    try:
+        expected_raw, _, old_path = expected_value(case, manifest)
+    except GoldenError as exc:
+        if "has no expected result" not in str(exc):
+            raise
+        expected_raw, old_path = {}, None
     actual_file = actual_path(case, manifest, candidate_override)
     if input_path:
         if candidate_override:
@@ -987,20 +1176,25 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
                                               "canonical_sha256": sha256_value(new_value) if not negative else None,
                                               "validation_failures": failures})
     target = expected_write_path(case, old_path)
+    matrix, matrix_path = _acceptance_matrix(root or case.parent, case, manifest)
+    updated_matrix = deep_copy(matrix)
+    case_id = manifest.get("case_id", case.name)
+    for entry in updated_matrix.get("cases", []):
+        if isinstance(entry, dict) and entry.get("case_id") == case_id:
+            entry["state"] = "accepted"
+            break
+    updated_manifest = dict(manifest)
+    updated_manifest["state"] = "accepted"
+    expectation_value = new_value
     # Preserve a wrapper manifest if expected.json stores more than the canonical value.
     if target.name == "expected.json":
         original = read_json(target)
         if isinstance(original, dict) and "canonical" in original:
-            original["canonical"] = new_value
-            write_json(target, original)
+            original["canonical"] = expectation_value
+            expectation_value = original
         else:
-            write_json(target, new_value)
-    else:
-        write_json(target, new_value)
-    manifest_file = manifest_path(case)
-    updated_manifest = dict(manifest)
-    updated_manifest["state"] = "accepted"
-    write_json(manifest_file, updated_manifest)
+            expectation_value = new_value
+    _commit_acceptance({target: expectation_value, manifest_path(case): updated_manifest, matrix_path: updated_matrix})
 
 
 def parser() -> argparse.ArgumentParser:
@@ -1015,15 +1209,8 @@ def parser() -> argparse.ArgumentParser:
 
 
 def required_matrix(root: Path) -> Optional[Dict[str, Any]]:
-    default_root = Path(__file__).resolve().parent.parent / "cases"
-    candidates = [root.parent / "required-matrix.json"]
-    if root.resolve() == default_root.resolve():
-        candidates.append(REPO_ROOT / "tests" / "golden" / "required-matrix.json")
-    for path in candidates:
-        if path.exists():
-            value = read_json(path)
-            return value if isinstance(value, dict) else None
-    return None
+    matrix, _ = _matrix_with_path(root)
+    return matrix
 
 
 def check_branch_requirements(root: Path, cases: Sequence[Path], branch: Optional[str]) -> Optional[str]:
@@ -1032,24 +1219,23 @@ def check_branch_requirements(root: Path, cases: Sequence[Path], branch: Optiona
     matrix = required_matrix(root)
     if matrix is None:
         return None
-    entries = [entry for entry in matrix.get("cases", []) if isinstance(entry, dict) and branch in entry.get("branches", [])]
-    accepted = 0
-    for entry in entries:
-        if entry.get("state") != "accepted":
+    discovered: Dict[str, List[Path]] = {}
+    for case in cases:
+        try:
+            manifest = read_json(manifest_path(case))
+        except GoldenError:
             continue
-        for case in cases:
-            try:
-                manifest = read_json(manifest_path(case))
-            except GoldenError:
-                continue
-            if (manifest.get("case_id", case.name) == entry.get("case_id")
-                    and case_branch(manifest) == branch
-                    and manifest.get("state", manifest.get("status", "accepted"))
-                        not in ("draft", "captured")):
-                accepted += 1
-                break
-    if accepted == 0:
-        return f"branch {branch} matches zero accepted required cases"
+        case_id = manifest.get("case_id", case.name)
+        if isinstance(case_id, str):
+            discovered.setdefault(case_id, []).append(case)
+    entries = [entry for entry in matrix.get("cases", [])
+               if isinstance(entry, Mapping) and branch in entry.get("branches", [])]
+    for entry in entries:
+        case_id = entry.get("case_id")
+        if not isinstance(case_id, str) or not case_id:
+            return f"branch {branch} has a required matrix row without a case id"
+        if case_id not in discovered:
+            return f"branch {branch} missing required pair {case_id}@{branch} (case directory)"
     return None
 
 
@@ -1081,10 +1267,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             return 1
         print("golden: no cases")
         return 0
-    requirement_failure = check_branch_requirements(root, cases, args.branch)
-    if requirement_failure:
-        print("FAIL " + requirement_failure, file=sys.stderr)
-        return 1
+    if not explicit_accept:
+        requirement_failure = check_branch_requirements(root, cases, args.branch)
+        if requirement_failure:
+            print("FAIL " + requirement_failure, file=sys.stderr)
+            return 1
     failures = 0
     drafts = 0
     captured = 0
@@ -1099,10 +1286,11 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 print(f"NOT_APPLICABLE {case.name} (declared branch {declared_branch}, selected {args.branch})")
                 continue
             processed += 1
-            #A captured case carries a real harness capture and still lacks its engine observation, so it is
-            #reported apart from a draft and is never a pass.
+            #A captured case carries a real capture and still lacks an accepted expectation, so it is
+            #reported apart from a draft and is never a pass. Explicit acceptance is an intake operation;
+            #branch readiness is deliberately not a precondition for it.
             state = manifest.get("state", manifest.get("status"))
-            if state in ("draft", "captured"):
+            if state in ("draft", "captured") and not explicit_accept:
                 if args.drafts == "report":
                     if state == "captured":
                         captured += 1
@@ -1115,7 +1303,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             if explicit_accept:
                 if len(cases) != 1:
                     raise GoldenError("accept names exactly one case")
-                accept_case(case, manifest, Path(args.candidate) if args.candidate else None, artifact_root)
+                accept_case(case, manifest, Path(args.candidate) if args.candidate else None, artifact_root, root)
                 print(f"ACCEPT {case.name}")
                 continue
             ok, details = compare_case(case, manifest, Path(args.candidate) if args.candidate else None, artifact_root)
