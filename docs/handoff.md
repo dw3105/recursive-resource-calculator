@@ -33,10 +33,11 @@ The gating set is run once for each extracted branch package:
 * `sh tests/run.sh`
 * `sh tests/acceptance/run`
 * `lua5.2 tests/test_quality_policy.lua`
+* `sh tests/golden/run --branch <branch> --drafts report`
 
-`sh tests/golden/run --branch 2.0 --drafts report` is recorded as
-informational. Its non-zero status is expected for draft or captured corpus
-cases and cannot make a handoff refuse.
+The corpus receives the extracted package's own branch. Its non-zero status
+refuses an ordinary handoff. Diagnostic mode keeps the same run but records a
+failed corpus as a named blocker so the archive can collect engine evidence.
 
 ## Record shape
 
@@ -55,16 +56,27 @@ order:
 ```
 
 The record has schema version `1`, the resolved `candidate_sha`, `result`
-(`pass` or `refused`), an `archives` array, every gating check's command,
-`exit`, case counts and `log_sha256`, a separate `informational` array for the
-corpus, and refusal reasons. A missing archive is recorded as a null archive
-hash. Diagnostic records additionally carry `mode`, named `blockers`, and the
-per-archive internal verdict. If an identical digest already exists, an
-`-attempt-N` suffix is used so an earlier attempt is never overwritten.
+(`pass` or `refused`), an `archives` array, every branch-tagged check's name,
+command, `exit`, case counts and `log_sha256`, and refusal reasons. The log
+digest remains in the record after the temporary work directory is cleaned up.
+A missing archive is recorded as a null archive hash. Diagnostic records
+additionally carry `mode`, named `blockers`, and the per-archive internal
+verdict. If an identical digest already exists, an `-attempt-N` suffix is used
+so an earlier attempt is never overwritten.
 
-The result is `pass` only when both archives exist, all three gating commands
+The result is `pass` only when both archives exist, all four gating commands
 pass for both packages, every expected case is executed, and all production
 modules resolve inside the extracted package. There is no force mode.
+
+## Verified promotion
+
+`prepare_release.sh` is the promotion transition. It requires an existing
+archive (or archive directory), runs the mandatory golden corpus for the
+requested branch or both branches, then runs `tools/release_gate.py` against
+those exact archive bytes and the bound engine evidence. Only when both steps
+exit successfully does it print `release verdict: verified`; it never rebuilds
+an archive. Diagnostic handoffs remain `unverified_internal` and are never
+promoted by changing their verdict in place.
 
 ## Keeping the archives a passing run verified
 
