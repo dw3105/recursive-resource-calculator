@@ -18,6 +18,7 @@
 local Groups = {}
 
 local Grid = require "logic.bp.grid"
+local Geometry = require "logic.bp.geometry"
 
 local NORTH, EAST, SOUTH, WEST = Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST
 
@@ -62,7 +63,10 @@ local function list_copy(list)
 end
 
 local function first_number(values, fallback)
-    for _, value in ipairs(values) do
+    -- Several callers intentionally put optional fields before a catalog fallback.  ipairs stops at the first
+    -- nil, which would silently discard the catalog value; scan the small fixed-size precedence lists directly.
+    for index = 1, math.max(#values, 10) do
+        local value = values[index]
         local number = finite(value)
         if number ~= nil then return number end
     end
@@ -236,28 +240,11 @@ local function inserter_size(catalog, input)
     return name or "inserter", dimensions(catalog, name, "inserter", 1, 1)
 end
 
-local function machine_center(member)
-    return member.x + member.w / 2, member.y + member.h / 2
-end
-
-local function rects_overlap(a, b)
-    return a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
-end
-
-local function rect_contains(a, b)
-    return a.x <= b.x and a.y <= b.y and a.x + a.w >= b.x + b.w and a.y + a.h >= b.y + b.h
-end
-
-local function covers(beacon, machine, supply_w, supply_h)
-    -- The validator measures supply from the placed beacon centre.  Do not expand the beacon's occupied
-    -- rectangle here: that would add half its footprint to the reach and can hide a one-tile layout gap.
-    -- A quarter-turn swaps the two axes, so the smaller configured reach is the only source-frame bound that
-    -- guarantees this relationship survives all four placements.
-    local reach = math.min(finite(supply_w, 0), finite(supply_h, 0))
-    local beacon_x, beacon_y = beacon.x + beacon.w / 2, beacon.y + beacon.h / 2
-    local cx, cy = machine_center(machine)
-    return cx >= beacon_x - reach and cx <= beacon_x + reach
-        and cy >= beacon_y - reach and cy <= beacon_y + reach
+local function covers(beacon, machine, machine_spec, supply_w, supply_h)
+    -- Supply is measured from the beacon centre, but the supplied entity is its collision box.  Keeping the
+    -- conversion in Geometry is important: a tile footprint is a deliberate fallback, not a second predicate.
+    local beacon_x, beacon_y = Geometry.center(beacon)
+    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y, supply_w, supply_h)
 end
 
 local function append_inserters(block, step, machine, catalog, input)
@@ -361,10 +348,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             if not existing then
                 existing = copy(group)
                 existing.required_machines = {}
-                existing.count = 0
                 beacon_groups[group.signature] = existing
             end
-            existing.count = math.max(existing.count, group.count_per_machine)
+            -- This is a per-machine requirement.  The number of physical beacons is determined below by the
+            -- rows and their actual overlap, so it must never be stored in this field.
+            existing.count_per_machine = math.max(existing.count_per_machine, group.count_per_machine)
             existing.has_speed_module = existing.has_speed_module or group.has_speed_module
             seen_groups[group.signature] = true
         end
@@ -373,49 +361,76 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, group in pairs(beacon_groups) do ordered_groups[#ordered_groups + 1] = group end
     table.sort(ordered_groups, function(a, b) return a.signature < b.signature end)
 
-    -- Put the machines in a compact deterministic strip.  Beacon rows are above it, so a shared beacon is
-    -- genuinely offered as a shared strip instead of being added after an arbitrary machine packing.
+    -- Put the machines in a compact deterministic strip.  Beacon rows are built on both sides, so a shared
+    -- beacon is genuinely offered as a shared strip instead of being added after arbitrary machine packing.
     local machine_specs = {}
+    local machine_specs_by_id = {}
     local max_machine_h = 1
     local machine_w = 0
     for _, step in ipairs(steps) do
         local mw, mh = machine_size(step, catalog)
+        local machine_spec = lookup_entity(catalog, step.machine, "machine")
         max_machine_h = math.max(max_machine_h, mh)
         local layout_w = mw
         local _, step_inserter_w = inserter_size(catalog, input and input.inserter)
         for _, entry in ipairs(step.inputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for _, entry in ipairs(step.outputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for ordinal = 1, step.machine_count do
-            machine_specs[#machine_specs + 1] = {step = step, ordinal = ordinal, w = mw, h = mh, layout_w = layout_w}
+            local spec = {step = step, ordinal = ordinal, w = mw, h = mh, layout_w = layout_w,
+                machine_spec = machine_spec}
+            spec.id = member_id("machine", step.step_id, ordinal)
+            machine_specs[#machine_specs + 1] = spec
+            machine_specs_by_id[spec.id] = spec
             machine_w = machine_w + layout_w
             if #machine_specs > 1 then machine_w = machine_w + 1 end
         end
     end
 
-    local beacon_rows_h, max_beacon_row_w = 0, 0
-    local beacon_row_specs = {}
+    -- Every requested signature has a row on each side of the machine strip.  Starting both rows at the
+    -- configured requirement gives sharing a chance, while the loop below adds only the physical beacons that
+    -- the source-frame collision boxes actually need.
+    local beacon_rows_h = 0
+    local top_rows, bottom_rows, beacon_row_specs = {}, {}, {}
     for _, group in ipairs(ordered_groups) do
-        local bw, bh = dimensions(catalog, group.name, "beacon", 3, 3)
-        local row_w = math.max(1, group.count) * bw + math.max(0, group.count - 1)
-        max_beacon_row_w = math.max(max_beacon_row_w, row_w)
-        beacon_row_specs[#beacon_row_specs + 1] = {group = group, w = bw, h = bh, y = beacon_rows_h}
-        beacon_rows_h = beacon_rows_h + bh + 1
+        if group.count_per_machine > 0 then
+            local bw, bh = dimensions(catalog, group.name, "beacon", 3, 3)
+            local count = math.max(1, group.count_per_machine)
+            local top = {group = group, w = bw, h = bh, count = count, side = "top"}
+            local bottom = {group = group, w = bw, h = bh, count = count, side = "bottom"}
+            top_rows[#top_rows + 1] = top
+            bottom_rows[#bottom_rows + 1] = bottom
+            beacon_row_specs[#beacon_row_specs + 1] = top
+            beacon_row_specs[#beacon_row_specs + 1] = bottom
+            beacon_rows_h = beacon_rows_h + bh + 1
+        end
     end
     if beacon_rows_h > 0 then beacon_rows_h = beacon_rows_h - 1 end
+
+    local function row_width(row)
+        if row.count <= 0 then return 0 end
+        return row.count * row.w + row.count - 1
+    end
+
+    local function rows_width()
+        local result = 0
+        for _, row in ipairs(beacon_row_specs) do result = math.max(result, row_width(row)) end
+        return result
+    end
 
     local input_count, output_count = 0, 0
     for _, port in ipairs(ports or {}) do
         if port.role == "out" then output_count = output_count + 1 else input_count = input_count + 1 end
     end
-    local w = math.max(1, machine_w, max_beacon_row_w, input_count, output_count)
+    local w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
     local machine_y = beacon_rows_h > 0 and beacon_rows_h + 1 or 0
     if beacon_rows_h > 0 then
-        -- Keep the established spacer when it is within reach, but remove it when the placed validator would
-        -- reject the relationship.  The compact case leaves no unoccupied tile between the actual rectangles.
+        -- Keep the established spacer when the collision box still reaches the row, but remove it when the
+        -- actual y extent would leave a gap.  This is deliberately a world-box test, not a centre comparison.
         local needs_tighter_row = false
-        for _, row in ipairs(beacon_row_specs) do
-            local reach = math.min(finite(row.group.supply_w, 0), finite(row.group.supply_h, 0))
-            local beacon_y = row.y + row.h / 2
+        local row_y = 0
+        for _, row in ipairs(top_rows) do
+            row.y = row_y
+            row_y = row_y + row.h + 1
             for _, spec in ipairs(machine_specs) do
                 local requests = false
                 for _, entry in ipairs(spec.step._groups or {}) do
@@ -424,7 +439,13 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                         break
                     end
                 end
-                if requests and math.abs(machine_y + spec.h / 2 - beacon_y) > reach then
+                local beacon = {x = 0, y = row.y, w = row.w, h = row.h}
+                local box = Geometry.world_box({x = 0, y = machine_y, w = spec.w, h = spec.h}, spec.machine_spec)
+                local beacon_x, beacon_y = Geometry.center(beacon)
+                local supply = Geometry.supply_box(beacon_x, beacon_y, row.group.supply_w, row.group.supply_h)
+                local y_overlap = box.top < supply.bottom + Geometry.EPSILON
+                    and supply.top - Geometry.EPSILON < box.bottom
+                if requests and not y_overlap then
                     needs_tighter_row = true
                     break
                 end
@@ -436,7 +457,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local x = 0
     for _, spec in ipairs(machine_specs) do
         local machine = {
-            id = member_id("machine", spec.step.step_id, spec.ordinal),
+            id = spec.id,
             kind = "machine", type = "machine", name = spec.step.machine, entity = spec.step.machine,
             quality = spec.step.machine_quality, step_id = spec.step.step_id, ordinal = spec.ordinal,
             x = x, y = machine_y, w = spec.w, h = spec.h,
@@ -459,9 +480,82 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         block.members[#block.members + 1] = inserter
     end
 
+    local bottom_y = inserter_bottom + 1
+    local bottom_row_y = bottom_y
+    for _, row in ipairs(bottom_rows) do
+        row.y = bottom_row_y
+        bottom_row_y = bottom_row_y + row.h + 1
+    end
+
+    local function row_x(row)
+        return math.max(0, math.floor((w - row_width(row)) / 2))
+    end
+
+    local function required_count(machine, group)
+        local step
+        for _, candidate in ipairs(steps) do
+            if candidate.step_id == machine.step_id then step = candidate; break end
+        end
+        for _, entry in ipairs(step and step._groups or {}) do
+            if entry.signature == group.signature then return entry.count_per_machine end
+        end
+        return 0
+    end
+
+    local function prospective_beacon(row, index)
+        return {x = row_x(row) + (index - 1) * (row.w + 1), y = row.y, w = row.w, h = row.h}
+    end
+
+    -- A centred row can shift as it grows.  Re-evaluate all machines after every addition so the block is
+    -- sized from the final world boxes, including machines at either edge of a long strip.
+    for _ = 1, 512 do
+        w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
+        local deficient_group, deficient_top, deficient_bottom
+        for _, group in ipairs(ordered_groups) do
+            for _, machine in ipairs(block.machines) do
+                local required = required_count(machine, group)
+                if required > 0 then
+                    local top, bottom = 0, 0
+                    local machine_spec = machine_specs_by_id[machine.id].machine_spec
+                    for _, row in ipairs(top_rows) do
+                        if row.group.signature == group.signature then
+                            for index = 1, row.count do
+                                if covers(prospective_beacon(row, index), machine, machine_spec,
+                                    group.supply_w, group.supply_h) then top = top + 1 end
+                            end
+                        end
+                    end
+                    for _, row in ipairs(bottom_rows) do
+                        if row.group.signature == group.signature then
+                            for index = 1, row.count do
+                                if covers(prospective_beacon(row, index), machine, machine_spec,
+                                    group.supply_w, group.supply_h) then bottom = bottom + 1 end
+                            end
+                        end
+                    end
+                    if top + bottom < required then
+                        deficient_group = group
+                        deficient_top, deficient_bottom = top, bottom
+                        break
+                    end
+                end
+            end
+            if deficient_group then break end
+        end
+        if not deficient_group then break end
+        local target_rows = top_rows
+        if deficient_bottom < deficient_top then target_rows = bottom_rows end
+        for _, row in ipairs(target_rows) do
+            if row.group.signature == deficient_group.signature then row.count = row.count + 1; break end
+        end
+    end
+
+    w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
+
+    local group_beacon_indices = {}
     for _, row in ipairs(beacon_row_specs) do
         local group = row.group
-        local row_x = math.max(0, math.floor((w - (math.max(1, group.count) * row.w + math.max(0, group.count - 1))) / 2))
+        local placed_row_x = row_x(row)
         local required = {}
         for _, machine in ipairs(block.machines) do
             local step = nil
@@ -474,14 +568,16 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             end
         end
         group.required_machines = required
-        for beacon_index = 1, math.max(0, group.count) do
-            local beacon_x = row_x + (beacon_index - 1) * (row.w + 1)
+        group_beacon_indices[group.signature] = group_beacon_indices[group.signature] or 0
+        for beacon_index = 1, row.count do
+            group_beacon_indices[group.signature] = group_beacon_indices[group.signature] + 1
+            local beacon_x = placed_row_x + (beacon_index - 1) * (row.w + 1)
             local beacon = {
                 --A beacon group signature describes a loadout, not a place: two blocks sharing one loadout
                 --produced two beacons with one id, and every reader that indexes entities by id then saw one
                 --beacon standing in two places. The block owns its members, so the block belongs in the id.
                 id = member_id("beacon", tostring(block.id or block.block_id) .. "|" .. tostring(group.signature),
-                    beacon_index),
+                    group_beacon_indices[group.signature]),
                 kind = "beacon", type = "beacon", name = group.name, quality = group.quality,
                 signature = group.signature, group_signature = group.signature,
                 has_speed_module = group.has_speed_module, modules = list_copy(group.modules),
@@ -491,7 +587,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             local covered = {}
             for _, machine_id in ipairs(required) do
                 for _, machine in ipairs(block.machines) do
-                    if machine.id == machine_id and covers(beacon, machine, group.supply_w, group.supply_h) then
+                    local machine_spec = machine_specs_by_id[machine.id].machine_spec
+                    if machine.id == machine_id and covers(beacon, machine, machine_spec,
+                        group.supply_w, group.supply_h) then
                         covered[#covered + 1] = machine_id
                         break
                     end
@@ -514,7 +612,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         max_inserter_bottom = math.max(max_inserter_bottom, inserter.y + inserter.h)
     end
     block.w = w
-    block.h = math.max(machine_y + max_machine_h, max_inserter_bottom, beacon_rows_h)
+    block.h = math.max(machine_y + max_machine_h, max_inserter_bottom, beacon_rows_h, bottom_row_y - 1)
 
     -- Ports are stored in the block's own frame, but the validator checks their attachment against the placed
     -- envelope. Reserve the total top-row width in both dimensions: after a quarter-turn the source x range
@@ -557,20 +655,20 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     for _, machine in ipairs(block.machines) do
         for _, group in ipairs(ordered_groups) do
-            local required = false
+            local required = 0
             local step
             for _, candidate in ipairs(steps) do if candidate.step_id == machine.step_id then step = candidate break end end
             for _, entry in ipairs(step and step._groups or {}) do
-                if entry.signature == group.signature and entry.count_per_machine > 0 then required = true break end
+                if entry.signature == group.signature then required = entry.count_per_machine break end
             end
-            if required then
+            if required > 0 then
                 local got = 0
                 for _, beacon_id in ipairs(block.beacon_coverage[machine.id]) do
                     for _, beacon in ipairs(block.beacons) do
                         if beacon.id == beacon_id and beacon.signature == group.signature then got = got + 1 end
                     end
                 end
-                if got < group.count then block.invalid_coverage = true end
+                if got < required then block.invalid_coverage = true end
             end
         end
     end
