@@ -1,0 +1,73 @@
+FAIL EC1 every selected recipe's prototype facts reach the payload: ingredients, products, crafting time [assert]
+  tests/test_export_completeness.lua:141: RRC-ASSERT: hand-authored export comparator accepts the complete recipe export: export_golden: $['sheet']['selection']['1']['modules'] expected 1 entries, got 2
+  : expected true, got false
+  stack traceback:
+  	[C]: in function 'error'
+  	./tests/harness.lua:2110: in function 'equal'
+  	tests/test_export_completeness.lua:141: in function <tests/test_export_completeness.lua:137>
+  	[C]: in function 'xpcall'
+  	./tests/harness.lua:2076: in function 'test'
+  	tests/test_export_completeness.lua:137: in main chunk
+  	[C]: in ?
+FAIL EC4 module names, qualities and counts survive, including two rows with different setups [assert]
+  tests/test_export_completeness.lua:179: RRC-ASSERT: first row module count: expected 1, got nil
+  stack traceback:
+  	[C]: in function 'error'
+  	./tests/harness.lua:2110: in function 'equal'
+  	tests/test_export_completeness.lua:179: in function <tests/test_export_completeness.lua:171>
+  	[C]: in function 'xpcall'
+  	./tests/harness.lua:2076: in function 'test'
+  	tests/test_export_completeness.lua:171: in main chunk
+  	[C]: in ?
+FAIL EC5 beacon prototype, quality, count, sharing and installed modules survive [assert]
+  tests/test_export_completeness.lua:197: RRC-ASSERT: beacon module count: expected 2, got nil
+  stack traceback:
+  	[C]: in function 'error'
+  	./tests/harness.lua:2110: in function 'equal'
+  	tests/test_export_completeness.lua:197: in function <tests/test_export_completeness.lua:187>
+  	[C]: in function 'xpcall'
+  	./tests/harness.lua:2076: in function 'test'
+  	tests/test_export_completeness.lua:187: in main chunk
+  	[C]: in ?
+FAIL EC8 current against calculated settings carry their sheet and revision identities, and a stale result is named stale rather than blended into current [assert]
+  tests/test_export_completeness.lua:225: RRC-ASSERT: current sheet identity: expected sheet-1, got nil
+  stack traceback:
+  	[C]: in function 'error'
+  	./tests/harness.lua:2110: in function 'equal'
+  	tests/test_export_completeness.lua:225: in function <tests/test_export_completeness.lua:222>
+  	[C]: in function 'xpcall'
+  	./tests/harness.lua:2076: in function 'test'
+  	tests/test_export_completeness.lua:222: in main chunk
+  	[C]: in ?
+FAIL EC9 a fact the runtime could not supply is an explicit named diagnostic [assert]
+  tests/test_export_completeness.lua:240: RRC-ASSERT: missing facts are named: expected table, got nil
+  stack traceback:
+  	[C]: in function 'error'
+  	./tests/harness.lua:2110: in function 'equal'
+  	tests/test_export_completeness.lua:240: in function <tests/test_export_completeness.lua:237>
+  	[C]: in function 'xpcall'
+  	./tests/harness.lua:2076: in function 'test'
+  	tests/test_export_completeness.lua:237: in main chunk
+  	[C]: in ?
+FAIL EC10 no-result, current, stale and failed states each export honestly [assert]
+  tests/test_export_completeness.lua:251: RRC-ASSERT: no-result selection still requests its recipe prototype: expected true, got false
+  stack traceback:
+  	[C]: in function 'error'
+  	./tests/harness.lua:2110: in function 'equal'
+  	tests/test_export_completeness.lua:251: in function <tests/test_export_completeness.lua:245>
+  	[C]: in function 'xpcall'
+  	./tests/harness.lua:2076: in function 'test'
+  	tests/test_export_completeness.lua:245: in main chunk
+  	[C]: in ?
+FAIL EC12 with no attempt available, the payload carries the explicit absent marker, never a fabricated section [assert]
+  tests/test_export_completeness.lua:288: RRC-ASSERT: generation attempt section exists: expected table, got nil
+  stack traceback:
+  	[C]: in function 'error'
+  	./tests/harness.lua:2110: in function 'equal'
+  	tests/test_export_completeness.lua:288: in function <tests/test_export_completeness.lua:285>
+  	[C]: in function 'xpcall'
+  	./tests/harness.lua:2076: in function 'test'
+  	tests/test_export_completeness.lua:285: in main chunk
+  	[C]: in ?
+test_export_completeness [Lua 5.2]: 36 cases, 29 passed, 7 failed
+old exporter exit=1
