@@ -1,6 +1,10 @@
 #!/bin/sh
 # Build, test, and record the exact archives that are ready to hand to a player.
 # Usage: handoff.sh <commit-ish> <2.0 version> <2.1 version>
+#
+# RRC_HANDOFF_KEEP_ARCHIVES=<dir> copies the two archives this command verified into <dir>, so what reaches a
+# player is the same bytes the record names. Rebuilding instead would produce a different sha256, and the record
+# would then describe an archive nobody holds. Archives are copied only when the record passes.
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
@@ -398,6 +402,13 @@ if [ "$OVERALL_FAILURE" -eq 0 ]; then
     if ! PACKAGE21=$(stage_archive "$ARCHIVE21" "$STAGE21"); then :; fi
 fi
 
+keep_archives() {
+    [ -n "${RRC_HANDOFF_KEEP_ARCHIVES:-}" ] || return 0
+    mkdir -p "$RRC_HANDOFF_KEEP_ARCHIVES" || return 1
+    cp "$ARCHIVE20" "$ARCHIVE21" "$RRC_HANDOFF_KEEP_ARCHIVES/" || return 1
+    printf 'handoff archives kept: %s\n' "$RRC_HANDOFF_KEEP_ARCHIVES"
+}
+
 if [ "$OVERALL_FAILURE" -eq 0 ]; then
     if ! DISC20=$(discover_cases "$PACKAGE20" "$DISCOVERY" tests); then
         refuse "2.0 test case discovery failed"
@@ -436,6 +447,11 @@ fi
 
 write_record
 if [ "$OVERALL_FAILURE" -ne 0 ]; then
+    exit 2
+fi
+#Only a passing handoff may hand over archives, and only the ones it verified.
+if ! keep_archives; then
+    echo "handoff refused: cannot keep archives in $RRC_HANDOFF_KEEP_ARCHIVES" >&2
     exit 2
 fi
 exit 0

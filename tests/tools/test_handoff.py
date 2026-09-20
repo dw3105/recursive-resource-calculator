@@ -8,6 +8,7 @@ record. No agent, game, merge, or live checkout is involved.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -204,6 +205,35 @@ class HandoffTests(unittest.TestCase):
             record = json.loads(records[0].read_text(encoding="utf-8"))
             self.assertEqual(record["result"], "refused")
             self.assertTrue(record["reasons"])
+
+    def test_a_passing_run_can_keep_exactly_the_archives_it_verified(self):
+        raw, fixture = self.fixture()
+        with raw:
+            kept = fixture.root / "kept"
+            result = fixture.run(FAKE_GATE_RC="0", FAKE_GOLDEN_RC="1",
+                                 RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            self.assertEqual(record["result"], "pass")
+            names = sorted(path.name for path in kept.iterdir())
+            self.assertEqual(len(names), 2, names)
+            kept_digests = {
+                hashlib.sha256((kept / name).read_bytes()).hexdigest() for name in names
+            }
+            self.assertEqual(
+                kept_digests,
+                {entry["sha256"] for entry in record["archives"]},
+                "the kept bytes are the verified bytes",
+            )
+
+    def test_a_refused_run_hands_over_no_archive(self):
+        raw, fixture = self.fixture()
+        with raw:
+            kept = fixture.root / "kept"
+            result = fixture.run(FAKE_GATE_RC="7", FAKE_GOLDEN_RC="0",
+                                 RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertFalse(kept.exists() and any(kept.iterdir()), "a refusal hands over nothing")
 
     def test_informational_corpus_failure_does_not_refuse(self):
         raw, fixture = self.fixture()

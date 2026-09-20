@@ -50,3 +50,14 @@ an earlier attempt is never overwritten.
 The result is `pass` only when both archives exist, all three gating commands
 pass for both packages, every expected case is executed, and all production
 modules resolve inside the extracted package. There is no force mode.
+
+## Keeping the archives a passing run verified
+
+```sh
+RRC_HANDOFF_KEEP_ARCHIVES=~/share sh tools/handoff.sh <sha> <2.0 version> <2.1 version>
+```
+
+The command builds its archives in a temporary workspace and deletes it. Rebuilding afterwards produces
+different bytes and therefore a different sha256, so the record would describe an archive nobody holds. With
+this variable the two archives it verified are copied out, and only when the record passes: a refused run hands
+over nothing.
