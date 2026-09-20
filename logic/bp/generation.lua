@@ -52,6 +52,21 @@ local function integer(value, fallback)
     return fallback
 end
 
+local function prepared_input_identity(prepared, fallback_sheet_id, fallback_revisions)
+    prepared = type(prepared) == "table" and prepared or {}
+    local snapshot = type(prepared.snapshot) == "table" and prepared.snapshot or {}
+    local fingerprint = type(snapshot.fingerprint) == "table" and snapshot.fingerprint or {}
+    local revisions = type(prepared.revisions) == "table" and prepared.revisions or fallback_revisions or {}
+    local sheet_id = prepared.sheet_id or snapshot.sheet_id or fallback_sheet_id
+    if sheet_id == nil and revisions.sheet == nil and revisions.config == nil and fingerprint.input == nil then return nil end
+    return {
+        sheet_id = sheet_id,
+        sheet_revision = finite(revisions.sheet, nil),
+        config_revision = finite(revisions.config, nil),
+        input_fingerprint = fingerprint.input,
+    }
+end
+
 --This table is deliberately separate from the queued job.  Jobs owns resumable work; Generation owns the public
 --identity, capture and terminal result that must remain addressable after the queued job has been published.
 --The false form is read-only so rebuilding process-local callbacks during a save load never writes storage.
@@ -67,6 +82,9 @@ local function persistence(create)
     if type(state.jobs) ~= "table" or getmetatable(state.jobs) ~= nil then
         if not create then return nil end
         state.jobs = {}
+    end
+    if type(state.lookup) ~= "table" or getmetatable(state.lookup) ~= nil then
+        if create then state.lookup = {} end
     end
     if create then state.next_job_id = integer(state.next_job_id, 0) end
     return state
@@ -87,8 +105,11 @@ local function persist_handle(handle)
         progress = copy_plain(handle.progress) or {done_units = 0, total_units = nil},
         player_index = handle.player_index, sheet_id = handle.sheet_id,
         revisions = copy_plain(handle.revisions) or {}, deliver = handle.deliver == true,
+        settings = copy_plain(handle.settings) or {},
+        prepared_input_identity = copy_plain(handle.prepared_input_identity),
     }
     if handle.reason_codes then record.reason_codes = copy_plain(handle.reason_codes) or {} end
+    if handle.reason_details then record.reason_details = copy_plain(handle.reason_details) or {} end
     if handle.result then record.result = copy_plain(handle.result) or {} end
     if handle.blueprint_string ~= nil then record.blueprint_string = handle.blueprint_string end
     if handle.canonical_sha256 ~= nil then record.canonical_sha256 = handle.canonical_sha256 end
@@ -119,8 +140,11 @@ local function handle_from_record(record)
         progress = copy_plain(record.progress) or {done_units = 0, total_units = nil},
         player_index = record.player_index, sheet_id = record.sheet_id,
         revisions = copy_plain(record.revisions) or {}, deliver = record.deliver == true,
+        settings = copy_plain(record.settings) or {},
+        prepared_input_identity = copy_plain(record.prepared_input_identity),
     }
     if record.reason_codes then handle.reason_codes = copy_plain(record.reason_codes) or {} end
+    if record.reason_details then handle.reason_details = copy_plain(record.reason_details) or {} end
     if record.result then handle.result = copy_plain(record.result) or {} end
     if record.blueprint_string ~= nil then handle.blueprint_string = record.blueprint_string end
     if record.canonical_sha256 ~= nil then handle.canonical_sha256 = record.canonical_sha256 end
@@ -129,6 +153,77 @@ local function handle_from_record(record)
     if record.capture then handle.capture = copy_plain(record.capture) or {} end
     if record.delivery_reason ~= nil then handle.delivery_reason = record.delivery_reason end
     return handle
+end
+
+local function bridge_record(handle)
+    if type(handle) ~= "table" then return nil end
+    local result = {
+        generation_id = handle.job_id, job_id = handle.job_id, player_index = handle.player_index,
+        sheet_id = handle.sheet_id, state = handle.state, phase = handle.phase,
+        revisions = copy_plain(handle.revisions) or {}, settings = copy_plain(handle.settings) or {},
+        prepared_input_identity = copy_plain(handle.prepared_input_identity),
+    }
+    if handle.reason_codes then result.reason_codes = copy_plain(handle.reason_codes) or {} end
+    if handle.reason_details then result.reason_details = copy_plain(handle.reason_details) or {} end
+    return result
+end
+
+--The exporter is deliberately frozen in this lane. Keep a small, plain-data identity on player storage for its
+--existing generation-id walk, while the complete per-sheet index below remains owned by this service.
+local function bridge_attempt(handle, remember)
+    if type(storage) ~= "table" or type(handle) ~= "table" then return end
+    local data = storage[handle.player_index]
+    if type(data) ~= "table" then return end
+    if type(data.blueprint_attempts) ~= "table" then data.blueprint_attempts = {} end
+    data.blueprint_attempts[handle.sheet_id] = bridge_record(handle)
+    if remember then
+        data.blueprint_attempt = {
+            generation_id = handle.job_id, job_id = handle.job_id, sheet_id = handle.sheet_id,
+            state = data.blueprint_attempt,
+        }
+    end
+    data.last_blueprint_attempt = bridge_record(handle)
+end
+
+local function index_handle(handle)
+    if type(handle) ~= "table" or handle.player_index == nil or handle.sheet_id == nil then return end
+    local state = persistence(true)
+    if not state then return end
+    state.lookup[handle.player_index] = state.lookup[handle.player_index] or {}
+    local previous = integer(state.lookup[handle.player_index][handle.sheet_id], nil)
+    if previous == nil or handle.job_id >= previous then
+        state.lookup[handle.player_index][handle.sheet_id] = handle.job_id
+    end
+end
+
+local function attempt_state(state)
+    return state == "pending" or state == "success" or state == "failure" or state == "cancelled"
+end
+
+local function latest_handle(player_index, sheet_id)
+    local latest, latest_id
+    local state = persistence(false)
+    local indexed = state and type(state.lookup) == "table" and state.lookup[player_index]
+    local indexed_id = indexed and integer(indexed[sheet_id], nil)
+    if indexed_id ~= nil then
+        local indexed_handle = handles[indexed_id] or handle_from_record(saved_record(indexed_id))
+        if indexed_handle and indexed_handle.player_index == player_index and indexed_handle.sheet_id == sheet_id
+            and attempt_state(indexed_handle.state) then
+            latest, latest_id = indexed_handle, indexed_id
+        end
+    end
+
+    local function consider(job_id, candidate)
+        job_id = integer(job_id, nil)
+        if not candidate or job_id == nil or candidate.player_index ~= player_index or candidate.sheet_id ~= sheet_id
+            or not attempt_state(candidate.state) then return end
+        if latest_id == nil or job_id > latest_id then latest, latest_id = candidate, job_id end
+    end
+    for job_id, handle in pairs(handles) do consider(job_id, handle) end
+    for job_id, record in pairs(state and state.jobs or {}) do
+        if type(job_id) == "number" then consider(job_id, handles[job_id] or handle_from_record(record)) end
+    end
+    return latest
 end
 
 local function number(value, fallback)
@@ -724,6 +819,7 @@ local function terminal_failure(handle, job)
     handle.reason_details = reason_details(job.errors)
     update_capture(handle, job.state and job.state.prepare and job.state.prepare.fields, "failure", job.errors, handle.phase)
     persist_handle(handle)
+    bridge_attempt(handle, false)
     local report = Registry.generation_failure
     if type(report) == "function" then
         pcall(report, handle.player_index, {
@@ -741,6 +837,7 @@ local function terminal_cancel(handle, phase)
     handle.progress = result_progress(handle.progress)
     update_capture(handle, nil, "cancelled", nil, handle.phase)
     persist_handle(handle)
+    bridge_attempt(handle, false)
 end
 
 local function pending_handle_from_job(job)
@@ -755,6 +852,8 @@ local function pending_handle_from_job(job)
             progress = copy_plain(job.progress) or {done_units = 0, total_units = nil},
             player_index = job.player_index, sheet_id = job.sheet_id,
             revisions = copy_plain(job.revisions) or {}, deliver = input.deliver == true,
+            settings = copy_plain(input.settings or state and state.prepared and state.prepared.settings) or {},
+            prepared_input_identity = prepared_input_identity(state and state.prepared, job.sheet_id, job.revisions),
         }
     end
 
@@ -762,6 +861,10 @@ local function pending_handle_from_job(job)
     --itself already contains the plain PreparedInput, so recover the capture locally without changing storage.
     if not handle.capture and state and type(state.prepared) == "table" then
         handle.capture = copy_plain(state.prepared) or {}
+        if type(handle.settings) ~= "table" or next(handle.settings) == nil then
+            handle.settings = copy_plain(state.prepared.settings) or {}
+        end
+        handle.prepared_input_identity = prepared_input_identity(state.prepared, handle.sheet_id, handle.revisions)
         handle.capture.source_kind = capture_source_kind(input, state.prepared)
         handle.capture.provenance = initial_provenance(input, job)
     end
@@ -777,6 +880,7 @@ local function rebind_handles()
             local handle = handle_from_record(record)
             if handle then
                 handles[handle.job_id] = handle
+                index_handle(handle)
                 next_job_id = math.max(next_job_id, handle.job_id)
             end
         end
@@ -792,6 +896,7 @@ local function rebind_handles()
             local input = data.blueprint_job.state and data.blueprint_job.state.input
             local job_id = input and integer(input.generation_job_id, nil)
             if job_id ~= nil and not handles[job_id] then pending_handle_from_job(data.blueprint_job) end
+            if job_id ~= nil and handles[job_id] then index_handle(handles[job_id]) end
             if job_id ~= nil then next_job_id = math.max(next_job_id, job_id) end
         end
     end
@@ -1018,9 +1123,14 @@ local function step(job, budget)
             local handle = handle_for(job)
             if handle and not handle.capture then
                 handle.capture = copy_plain(prepared_or_reason) or {}
+                if type(handle.settings) ~= "table" or next(handle.settings) == nil then
+                    handle.settings = copy_plain(prepared_or_reason.settings) or {}
+                end
+                handle.prepared_input_identity = prepared_input_identity(prepared_or_reason, handle.sheet_id, handle.revisions)
                 handle.capture.source_kind = capture_source_kind(state.input, prepared_or_reason)
                 handle.capture.provenance = initial_provenance(state.input, job)
                 persist_handle(handle)
+                bridge_attempt(handle, false)
             end
             local input = prepared_or_reason
             local search_input = search_input_for(input, job, state.input)
@@ -1072,6 +1182,7 @@ local function publish(job)
     handle.canonical = canonical
     handle.canonical_sha256 = canonical_digest(canonical)
     update_capture(handle, nil, "success", nil, "done")
+    bridge_attempt(handle, false)
 
     if handle.deliver then
         local ok, reason = BlueprintDelivery.deliver(handle.player_index, blueprint)
@@ -1103,7 +1214,7 @@ function Generation.start(input)
     input.kind = "blueprint"
 
     for id, handle in pairs(handles) do
-        if handle.player_index == player_index and handle.state == "pending" then
+        if handle.player_index == player_index and handle.sheet_id == sheet_id and handle.state == "pending" then
             terminal_cancel(handle, "superseded")
         end
     end
@@ -1117,8 +1228,12 @@ function Generation.start(input)
     handles[id] = {
         job_id = id, state = "pending", phase = "queued", progress = {done_units = 0, total_units = nil},
         player_index = player_index, sheet_id = sheet_id, revisions = copy_plain(input.revisions), deliver = input.deliver,
+        settings = copy_plain(input.settings or input.prepared_input and input.prepared_input.settings) or {},
+        prepared_input_identity = prepared_input_identity(input.prepared_input, sheet_id, input.revisions),
     }
     persist_handle(handles[id])
+    index_handle(handles[id])
+    bridge_attempt(handles[id], true)
     Generation.register()
     local job = Jobs.request_sheet(player_index, sheet_id, input)
     if not job then
@@ -1145,6 +1260,60 @@ local function public_status(handle)
     return result
 end
 
+local function public_attempt(handle, player_index, sheet_id)
+    if not handle then
+        return {
+            schema_version = Generation.SCHEMA_VERSION, present = false, found = false,
+            player_index = player_index, sheet_id = sheet_id, state = "absent", terminal_state = "absent",
+            status = "absent", outcome = "absent", terminal_outcome = "absent", phase = "absent",
+            revisions = {}, settings = {}, reason_codes = {}, reason_details = {},
+            diagnostics = {state = "absent"},
+        }
+    end
+    local capture = type(handle.capture) == "table" and handle.capture or nil
+    local settings = handle.settings
+    if type(settings) ~= "table" or next(settings) == nil then settings = capture and capture.settings or {} end
+    local identity = handle.prepared_input_identity
+        or prepared_input_identity(capture, handle.sheet_id, handle.revisions)
+    local reasons = copy_plain(handle.reason_codes) or {}
+    local details = copy_plain(handle.reason_details) or {}
+    local diagnostics = {
+        state = handle.state, phase = handle.phase, progress = copy_plain(handle.progress) or {},
+        reason_codes = copy_plain(reasons) or {}, reason_details = copy_plain(details) or {},
+    }
+    if capture and capture.provenance then diagnostics.provenance = copy_plain(capture.provenance) or {} end
+    local result = {
+        schema_version = Generation.SCHEMA_VERSION, present = true, found = true,
+        job_id = handle.job_id, generation_id = handle.job_id, player_index = handle.player_index,
+        sheet_id = handle.sheet_id, state = handle.state, status = handle.state, outcome = handle.state,
+        terminal_outcome = handle.state ~= "pending" and handle.state or nil,
+        terminal_state = handle.state ~= "pending" and handle.state or nil, phase = handle.phase,
+        progress = result_progress(handle.progress), revisions = copy_plain(handle.revisions) or {},
+        sheet_revision = handle.revisions and handle.revisions.sheet,
+        config_revision = handle.revisions and handle.revisions.config,
+        settings = copy_plain(settings) or {}, actual_settings = copy_plain(settings) or {},
+        prepared_input_identity = copy_plain(identity), reason_codes = reasons, reason_details = details,
+        diagnostics = diagnostics, search_diagnostics = copy_plain(diagnostics) or {},
+    }
+    result.input_fingerprint = identity and identity.input_fingerprint or nil
+    if capture then
+        result.prepared_input = copy_plain(capture) or {}
+        result.capture = copy_plain(capture) or {}
+    end
+    if handle.result then result.result = copy_plain(handle.result) or {} end
+    return result
+end
+
+--Returns a plain record even when the player has never generated this sheet. The scan is intentionally per sheet:
+--a newer attempt on another sheet is not a valid fallback.
+function Generation.lookup(player_index, sheet_id)
+    return public_attempt(latest_handle(player_index, sheet_id), player_index, sheet_id)
+end
+
+Generation.attempt = Generation.lookup
+Generation.attempt_for_sheet = Generation.lookup
+Generation.lookup_attempt = Generation.lookup
+
 function Generation.status(player_index, job_id)
     local handle = handles[job_id] or handle_from_record(saved_record(job_id))
     if handle then handles[job_id] = handle end
@@ -1166,6 +1335,8 @@ function Generation.status(player_index, job_id)
                 handle.phase = "search"
                 handle.reason_codes = {"BP_FAIL_REVISION_CHANGED"}
                 update_capture(handle, nil, "failure", handle.reason_codes, handle.phase)
+                persist_handle(handle)
+                bridge_attempt(handle, false)
             else
                 terminal_cancel(handle, "cancelled")
             end
@@ -1177,6 +1348,8 @@ function Generation.status(player_index, job_id)
                 handle.phase = "search"
                 handle.reason_codes = {"BP_FAIL_REVISION_CHANGED"}
                 update_capture(handle, nil, "failure", handle.reason_codes, handle.phase)
+                persist_handle(handle)
+                bridge_attempt(handle, false)
             end
         end
     end
@@ -1221,6 +1394,7 @@ function Generation.cancel(player_index, job_id)
     return true
 end
 
+Registry.generation = Generation
 Generation.register()
 
 return Generation
