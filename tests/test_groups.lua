@@ -3,6 +3,11 @@ local H = require "tests.harness"
 
 local Groups = require "logic.bp.groups"
 local Grid = require "logic.bp.grid"
+local Geometry = require "logic.bp.geometry"
+
+local function corners(left, top, right, bottom)
+    return {left_top = {x = left, y = top}, right_bottom = {x = right, y = bottom}}
+end
 
 local function catalog()
     return {
@@ -74,6 +79,44 @@ local function real_one_step_plan()
     }
 end
 
+local function three_beacon_plan()
+    return {
+        steps = {{step_id = "three", machine = "assembler", machine_count = 3,
+            beacon_groups = {{signature = "three", name = "beacon", count_per_machine = 3,
+                has_speed_module = false, modules = {}}}}},
+        flows = {}, ports = {},
+    }
+end
+
+local function differing_machine_plan()
+    local specs = {
+        {id = "small", machine = "small", count = 1},
+        {id = "medium", machine = "medium", count = 2},
+        {id = "wide", machine = "wide", count = 3},
+        {id = "tall", machine = "tall", count = 1},
+        {id = "square", machine = "square", count = 4},
+    }
+    local steps = {}
+    for _, spec in ipairs(specs) do
+        steps[#steps + 1] = {step_id = spec.id, machine = spec.machine, machine_count = 1,
+            beacon_groups = {{signature = "differing", name = "beacon", count_per_machine = spec.count,
+                has_speed_module = false, modules = {}}}}
+    end
+    return {steps = steps, flows = {}, ports = {}, specs = specs}
+end
+
+local function differing_machine_catalog()
+    local result = catalog()
+    result.entity.beacon.beacon.supply_w, result.entity.beacon.beacon.supply_h = 10, 10
+    result.beacon.beacon.supply_w, result.beacon.beacon.supply_h = 10, 10
+    result.entity.small = {name = "small", tile_w = 2, tile_h = 2}
+    result.entity.medium = {name = "medium", tile_w = 3, tile_h = 2}
+    result.entity.wide = {name = "wide", tile_w = 5, tile_h = 3}
+    result.entity.tall = {name = "tall", tile_w = 2, tile_h = 5}
+    result.entity.square = {name = "square", tile_w = 4, tile_h = 4}
+    return result
+end
+
 local function finish(input, ops)
     local state = Groups.begin(input)
     for _ = 1, 600 do
@@ -106,7 +149,7 @@ local function assert_block_invariants(block)
         H.equal(seen[machine.id], nil, "machine ids are unique")
         seen[machine.id] = true
         local coverage = block.beacon_coverage[machine.id]
-        H.equal(#coverage, 1, "the configured one-beacon minimum is met")
+        H.equal(#coverage >= 1, true, "the configured one-beacon minimum is met")
     end
     for index, member in ipairs(block.members) do
         for other_index = index + 1, #block.members do
@@ -275,6 +318,78 @@ for _, shape in ipairs(H.shapes()) do
             H.equal(on_horizontal or on_vertical, true, tostring(port.port_id) .. " attaches on a bounded edge")
         end
         H.equal(type(block.port_sides), "table", "the block names the sides its ports use")
+    end)
+
+    H.test(shape .. " BG1 a machine covered by its collision box is covered, and by its tile footprint alone is not", function()
+        local beacon = {x = -2, y = 1.5, w = 3, h = 3}
+        local beacon_x, beacon_y = Geometry.center(beacon)
+        local machine = {x = 3, y = 4, w = 3, h = 3}
+        local supply = Geometry.supply_box(beacon_x, beacon_y, 3, 3)
+        local footprint = Geometry.world_box(machine, {})
+        local collision = Geometry.world_box(machine, {collision_box = corners(-2.5, -0.7, -1.5, 0.7)})
+        H.equal(Geometry.box_overlaps_supply(footprint, supply), false,
+            "the tile footprint misses the explicit supply edge")
+        H.equal(Geometry.box_overlaps_supply(collision, supply), true,
+            "the declared collision box is the geometry that is covered")
+    end)
+
+    H.test(shape .. " BG2 an asymmetric collision box survives all four placed directions", function()
+        local beacon = {x = 3, y = 0, w = 3, h = 3, supply_w = 3, supply_h = 3}
+        local spec = {collision_box = corners(-1.5, -0.25, 0.5, 0.25)}
+        local beacon_x, beacon_y = Geometry.center(beacon)
+        for _, dir in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
+            local machine = {x = 3, y = 3, w = 3, h = 3, dir = dir}
+            H.equal(Geometry.box_in_supply(machine, spec, beacon_x, beacon_y, 3, 3), true,
+                "the asymmetric box overlaps in direction " .. tostring(dir))
+        end
+    end)
+
+    H.test(shape .. " BG3 a machine configured for three beacons overlaps three supply areas", function()
+        local tight = catalog()
+        tight.entity.beacon.beacon.supply_w, tight.entity.beacon.beacon.supply_h = 3, 3
+        tight.beacon.beacon.supply_w, tight.beacon.beacon.supply_h = 3, 3
+        local all = candidates(finish({plan = three_beacon_plan(), catalog = tight}))
+        H.equal(#all > 0, true, "three configured beacons produce a candidate")
+        if #all > 0 then
+            local block = all[1].blocks[1]
+            for _, machine in ipairs(block.machines) do
+                H.equal(#block.beacon_coverage[machine.id] >= 3, true,
+                    "machine " .. tostring(machine.id) .. " overlaps three physical supply areas")
+            end
+        end
+    end)
+
+    H.test(shape .. " BG4 a block of five machines of differing sizes each gets its configured count", function()
+        local input = differing_machine_plan()
+        local all = candidates(finish({plan = input, catalog = differing_machine_catalog(), limits = {max_candidates = 1}}))
+        local grouped = find_by_blocks(all, 1)
+        H.equal(grouped ~= nil, true, "the five differing machines share a block")
+        if grouped then
+            local requested = {}
+            for _, spec in ipairs(input.specs) do requested[spec.id] = spec.count end
+            for _, machine in ipairs(grouped.blocks[1].machines) do
+                H.equal(#grouped.blocks[1].beacon_coverage[machine.id] >= requested[machine.step_id], true,
+                    "machine " .. tostring(machine.step_id) .. " gets its configured count")
+            end
+        end
+    end)
+
+    H.test(shape .. " BG5 count_per_machine is never assigned to a physical beacon count", function()
+        local input = three_beacon_plan()
+        input.steps[1].machine_count = 1
+        local all = candidates(finish({plan = input, catalog = catalog()}))
+        H.equal(#all > 0, true, "the three-beacon block exists")
+        if #all > 0 then
+            local block = all[1].blocks[1]
+            H.equal(block.physical_beacon_count, #block.beacons,
+                "the block reports the physical placement count")
+            H.equal(block.beacon_count, block.physical_beacon_count,
+                "the compatibility beacon count is physical")
+            H.equal(block.physical_beacon_count > 3, true,
+                "the physical count is not the per-machine requirement")
+            H.equal(#block.beacon_coverage[block.machines[1].id] >= 3, true,
+                "the configured requirement remains three")
+        end
     end)
 end
 
