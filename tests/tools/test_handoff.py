@@ -327,7 +327,9 @@ class HandoffTests(unittest.TestCase):
                                  RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(kept.exists() and any(kept.iterdir()), "a refused diagnostic hands over nothing")
-            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            records = fixture.records()
+            self.assertEqual(len(records), 1, result.stdout + result.stderr)
+            record = json.loads(records[0].read_text(encoding="utf-8"))
             self.assertEqual(record["result"], "refused")
             export_checks = [check for check in record["checks"]
                              if check["name"] == "export-completeness"]
