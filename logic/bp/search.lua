@@ -82,39 +82,52 @@ local function failure(state, code, details)
     state.phase = "failed"
     state.cursor.phase = "failed"
     state.progress.phase = "failed"
+    --The terminal cause is the first record.  Rejections are evidence about that stop, not a replacement for it;
+    --keep both in the same plain-data record so Generation can expose the cause and its reasons separately.
+    local previous = type(state.errors) == "table" and copy(state.errors) or {}
     state.errors = {{code = code}}
     if type(details) == "table" then
         for key, value in pairs(details) do state.errors[1][key] = copy(value) end
     end
+    local reason_details = state.errors[1].reason_details
+    if type(reason_details) ~= "table" then reason_details = {} end
+    for _, record in ipairs(previous) do
+        local duplicate = false
+        for _, existing in ipairs(reason_details) do
+            if existing.code == record.code and existing.detail == record.detail then duplicate = true; break end
+        end
+        if not duplicate and type(record) == "table" and record.code ~= nil then
+            reason_details[#reason_details + 1] = copy(record)
+        end
+    end
+    if #reason_details > 0 then state.errors[1].reason_details = reason_details end
     state.result = nil
 end
 
 local function record_rejection(state, errors)
-    local counts = state.work.rejections or {}
-    state.work.rejections = counts
+    local records = state.work.rejections or {}
+    state.work.rejections = records
     local seen = false
     for _, entry in ipairs(errors or {}) do
-        local code = type(entry) == "table" and (entry.code or entry.reason) or tostring(entry)
-        if code ~= nil then
-            counts[code] = (counts[code] or 0) + 1
+        local record
+        if type(entry) == "table" then
+            record = copy(entry)
+            record.code = record.code or record.reason
+        elseif entry ~= nil then
+            record = {code = tostring(entry)}
+        end
+        if type(record) == "table" and record.code ~= nil then
+            records[#records + 1] = record
             seen = true
         end
     end
-    if not seen then counts["BP_V_UNSPECIFIED"] = (counts["BP_V_UNSPECIFIED"] or 0) + 1 end
+    if not seen then records[#records + 1] = {code = "BP_V_UNSPECIFIED"} end
 end
 
 local function rejection_details(state)
-    local counts = state.work and state.work.rejections
-    if type(counts) ~= "table" then return nil end
-    local codes = {}
-    for code in pairs(counts) do codes[#codes + 1] = code end
-    if #codes == 0 then return nil end
-    table.sort(codes)
-    local details = {}
-    for _, code in ipairs(codes) do
-        details[#details + 1] = {code = code, detail = tostring(code) .. " x" .. tostring(counts[code])}
-    end
-    return details
+    local records = state.work and state.work.rejections
+    if type(records) ~= "table" or #records == 0 then return nil end
+    return list_copy(records)
 end
 
 local function search_limits(input)
@@ -127,13 +140,14 @@ local function search_limits(input)
     return limits, maximum
 end
 
+local CANDIDATE_ALLOWANCE = 4
+
 local function grid_trial_limit(input, limits, grid_count)
     local maximum = input.max_search_grids or input.max_grid_trials
         or limits.max_search_grids or limits.max_grid_trials
-    --A sheet may describe the familiar 7x7 grid matrix, but a search job must not turn that
-    --description into 49 full pack/route/power searches by default.  Callers with a deliberate
-    --larger bound can opt in explicitly; the operation budget still remains authoritative.
-    maximum = integer(maximum, 12)
+    --The default breadth is the same declared allowance used for improvement work.  A caller may deliberately
+    --raise it, but an implicit 12-grid cap over a 49-grid ladder must not contradict the job's other bound.
+    maximum = integer(maximum, CANDIDATE_ALLOWANCE)
     return math.max(1, math.min(grid_count, maximum))
 end
 
@@ -173,14 +187,51 @@ local function ordered_grid_specs(input)
     return result
 end
 
+local function spacing_override(input, raw, source)
+    local catalog = type(input and input.catalog) == "table" and input.catalog or {}
+    local robo = catalog.robo or catalog.roboport or {}
+    local candidates = {}
+    local function add(value) candidates[#candidates + 1] = value end
+    add(raw and raw.max_connection_distance); add(raw and raw.connection_distance)
+    add(input and input.max_connection_distance); add(input and input.connection_distance)
+    add(source and source.max_connection_distance); add(source and source.connection_distance)
+    add(robo and robo.max_connection_distance); add(robo and robo.connection_distance)
+    local supplied = input and input.grid_spacing
+    if type(supplied) == "table" then
+        candidates[#candidates + 1] = supplied.resolved or supplied.value
+    end
+    for _, value in ipairs(candidates) do
+        value = finite(value, nil)
+        if value ~= nil then return value end
+    end
+end
+
+local function resolved_grid_spacing(input, raw)
+    local source = type(input.grid) == "table" and input.grid or {}
+    local catalog = type(input.catalog) == "table" and input.catalog or {}
+    local robo = catalog.robo or catalog.roboport or {}
+    local override = spacing_override(input, raw, source)
+    if override ~= nil then
+        local supplied = input.grid_spacing
+        local source_value = type(supplied) == "table" and finite(supplied.source_value, override) or override
+        return {resolved = override, kind = "override", source = "caller", source_value = source_value,
+            generation_job_id = input.generation_job_id}
+    end
+    local radius = finite(robo.logistic_radius, 0)
+    return {resolved = radius * 2, kind = "derived", source = "logistic_radius", source_value = radius,
+        generation_job_id = input.generation_job_id}
+end
+
 local function grid_model(input, raw)
     local source = type(input.grid) == "table" and input.grid or {}
     local catalog = input.catalog or {}
     local robo = catalog.robo or catalog.roboport or {}
     local result = copy(raw) or {}
+    local spacing = resolved_grid_spacing(input, raw)
     if result.w ~= nil and result.h ~= nil and result.cols == nil then
         result.w, result.h = finite(result.w, 0), finite(result.h, 0)
         result.roboports = list_copy(result.roboports)
+        result.grid_spacing = spacing
         return result
     end
     result.cols, result.rows = integer(raw.cols, 2), integer(raw.rows, 2)
@@ -193,13 +244,12 @@ local function grid_model(input, raw)
     --The old literal 1 fell back to a one-tile gap on the real engine, because it asked catalog.robo for
     --connection_distance, a member only rolling stock has. An 8x8 grid then measured 11x11 tiles and no
     --candidate could ever fit.
-    result.max_connection_distance = finite(raw.max_connection_distance,
-        finite(source.max_connection_distance,
-            finite(robo.connection_distance, finite(robo.logistic_radius, 0) * 2)))
+    result.max_connection_distance = spacing.resolved
     local built = Grid.robo_grid(result)
     built.cols, built.rows = result.cols, result.rows
     built.tile_w, built.tile_h = result.tile_w, result.tile_h
     built.max_connection_distance = result.max_connection_distance
+    built.grid_spacing = spacing
     return built
 end
 
@@ -648,12 +698,20 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
         external, complete = generated_perimeter_ports(state, grid, input_edge, output_edge, pitch,
             perimeter_blocked_cells(blocks, obstacles))
         state.work.perimeter_ports = external
-        if not complete then return nil end
+        if not complete then
+            state.work.route_input_error = {
+                code = "BP_R_PORT_BLOCKED", detail = "no free perimeter port slot",
+                grid_size = {w = grid.w, h = grid.h}, available_ports = #external,
+                requested_ports = #(state.work.plan_result.ports or {}),
+            }
+            return nil
+        end
     else
         external = list_copy(external)
     end
     state.work.perimeter_ports = external
     state.work.generated_perimeter_ports = generated
+    state.work.route_input_error = nil
     local input = stage_input(state, {
         grid = {w = grid.w, h = grid.h}, blocks = blocks, perimeter_ports = external,
         flows = state.work.plan_result.flows, obstacles = obstacles,
@@ -731,6 +789,7 @@ local function make_candidate(state, grid, blocks, entities, ports, route_result
         external_ports = external_ports,
         flows = state.work.plan_result.flows, plan = state.work.plan_result, route = route_result, power = power_result,
         settings = state.work.input.settings, infrastructure = state.work.input.settings,
+        grid_spacing = copy(grid.grid_spacing or state.work.grid_spacing),
     }
     append_all(candidate.entities, roboports)
     append_all(candidate.entities, entities)
@@ -785,6 +844,7 @@ local function sync_job(container, state)
     container.phase, container.cursor, container.progress = state.phase, state.cursor, state.progress
     container.done, container.ok, container.result, container.errors = state.done, state.ok, state.result, state.errors
     container.incumbent = state.incumbent
+    container.grid_spacing = state.grid_spacing
 end
 
 local function state_of(container)
@@ -822,6 +882,8 @@ local function start_grid(state)
     local grid = grid_model(state.work.input, raw)
     local robo_obstacles, roboports = roboport_obstacles(grid, state.work.input)
     state.work.grid = grid
+    state.work.grid_spacing = copy(grid.grid_spacing)
+    state.grid_spacing = copy(grid.grid_spacing)
     state.work.robo_obstacles = robo_obstacles
     state.work.roboports = roboports
     state.work.groups = Groups.begin(stage_input(state, {plan = state.work.plan_result, grid = grid}))
@@ -902,38 +964,67 @@ local function begin_serialization(state)
     return true
 end
 
---Good-enough allowance. A generation job must finish one whole candidate, keep the first valid layout, spend
---a small bounded allowance looking for a better one, and publish. One route's expansion count is not that
---allowance: it pays for no packing, no power, no validation and no publication, so a job sized by it dies
---before its first candidate is ever checked.
---
---The size of one candidate's pipeline is not known before a candidate runs, and guessing it from grid area was
---wrong by an order of magnitude on the measured chains. So the first candidate runs without an operation
---ceiling (every stage it uses is itself finite), its real cost is measured, and that measurement sets one hard
---ceiling for the rest of the job. The ceiling is never replenished.
-local CANDIDATE_ALLOWANCE = 4
-
-local function note_candidate_start(state)
-    if state.work.candidate_start_ops == nil then state.work.candidate_start_ops = state.ops_used end
+--A derived job has two budgets.  Feasibility is a deterministic bound for the complete candidate set on every
+--permitted grid.  Once a validated incumbent exists, a separate improvement allowance pays for more grids and
+--candidates.  Neither is measured from a candidate: in particular, a cheap pack or route rejection cannot set the
+--ceiling for the rest of the job.
+local function grid_area_bound(input, specs)
+    local source = type(input.grid) == "table" and input.grid or {}
+    local catalog = type(input.catalog) == "table" and input.catalog or {}
+    local robo = catalog.robo or catalog.roboport or {}
+    local tile_w = finite(source.tile_w, finite(robo.tile_w, 1))
+    local tile_h = finite(source.tile_h, finite(robo.tile_h, 1))
+    local result = 1
+    for _, raw in ipairs(specs or {}) do
+        local width, height
+        if raw.w ~= nil and raw.h ~= nil then
+            width, height = finite(raw.w, 1), finite(raw.h, 1)
+        else
+            local spacing = resolved_grid_spacing(input, raw)
+            width = tile_w + math.max(0, integer(raw.cols, 2) - 1) * spacing.resolved
+            height = tile_h + math.max(0, integer(raw.rows, 2) - 1) * spacing.resolved
+        end
+        result = math.max(result, math.ceil(math.max(1, width) * math.max(1, height)))
+    end
+    return result
 end
 
-local function derive_allowance(state)
-    --Only a job without a caller-supplied budget derives one; an explicit search_budget stays authoritative.
-    if not state.work.allowance_derived or state.max_ops ~= nil then return end
-    local started = state.work.candidate_start_ops
-    if started == nil then return end
-    local cost = math.max(1, state.ops_used - started)
-    state.max_ops = state.ops_used + cost * (CANDIDATE_ALLOWANCE - 1)
-    state.work.derived_candidate_cost = cost
+local function declare_allowance(state)
+    if not state.work.allowance_derived or state.max_ops ~= nil or state.work.allowance_declared then return end
+    local candidates = state.work.groups and state.work.groups.result and state.work.groups.result.candidates or {}
+    local input, plan = state.work.input or {}, state.work.plan_result or {}
+    local area = grid_area_bound(input, state.work.grid_specs)
+    local steps, flows = math.max(1, #(plan.steps or {})), math.max(1, #(plan.flows or {}))
+    local demand_bound = math.max(1, steps * flows)
+    local candidate_count = math.max(1, #candidates)
+    --The square term covers power's candidate-position sweep and the linear term covers pack/route/validate/
+    --serialize work.  It is intentionally a declared problem bound, not a sample of whichever candidate happens
+    --to fail first.  Keep the arithmetic finite for malformed but finite caller inputs.
+    local per_candidate = math.max(256, area * area * math.max(16, demand_bound * 8 + steps * 4)
+        + area * math.max(1, steps + flows) * 64)
+    local grids = math.max(1, state.work.grid_trial_limit)
+    local feasibility = math.max(1, per_candidate * candidate_count * grids)
+    local improvement = math.max(1, per_candidate * candidate_count * math.max(1, grids - 1))
+    state.work.feasibility_limit = state.ops_used + feasibility
+    state.work.improvement_budget = improvement
+    state.work.allowance_declared = true
+    state.max_ops = state.work.feasibility_limit
 end
 
-local function finish_candidate(state)
-    derive_allowance(state)
-    state.work.candidate_start_ops = nil
+local function begin_improvement_budget(state)
+    if not state.work.allowance_derived or not state.work.allowance_declared or state.work.improvement_started then return end
+    state.work.improvement_started = true
+    state.work.improvement_start_ops = state.ops_used
+    state.max_ops = state.ops_used + math.max(1, state.work.improvement_budget or 1)
 end
 
 local function finish_search_budget(state)
     if state.incumbent then begin_serialization(state) else fail_budget(state) end
+end
+
+local function finish_search_bound(state, code)
+    if state.incumbent then begin_serialization(state)
+    else failure(state, code, {reason_details = rejection_details(state)}) end
 end
 
 --The electrical demand projection is public so a test can measure it without rebuilding a whole search.
@@ -944,7 +1035,7 @@ function Search.begin(input)
     local limits, max_ops = search_limits(input)
     local state = {
         done = false, ok = nil, phase = "plan", cursor = {phase = "plan", grid_index = 1, candidate_index = 1, order_index = 1},
-        incumbent = nil, result = nil, errors = nil, ops_used = 0, max_ops = max_ops,
+        incumbent = nil, result = nil, errors = nil, ops_used = 0, max_ops = max_ops, grid_spacing = nil,
         revisions = copy(input.revisions) or {sheet = 0, config = 0}, current_revisions = copy(input.current_revisions),
         progress = {phase = "planning", done_units = 0, total_units = nil},
         work = {input = input, limits = limits, grid_specs = ordered_grid_specs(input), plan_state = nil,
@@ -952,7 +1043,9 @@ function Search.begin(input)
             pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
             grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false, generated_perimeter_ports = false,
             candidate_beacon_lower_bound = nil, publication_reserved = false, power_bound_hit = false,
-            allowance_derived = max_ops == nil, candidate_start_ops = nil, derived_candidate_cost = nil},
+            grid_spacing = nil, route_input_error = nil, rejections = {},
+            allowance_derived = max_ops == nil, allowance_declared = false, feasibility_limit = nil,
+            improvement_budget = nil, improvement_started = false, improvement_start_ops = nil},
     }
     state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
     state.initial_revisions = copy(state.revisions)
@@ -969,9 +1062,9 @@ end
 
 local function finish_grid_or_search(state)
     if not can_improve_beacons(state) then begin_serialization(state); return end
+    if state.work.power_bound_hit then finish_search_bound(state, "BP_FAIL_POWER_BOUND"); return end
     if next_grid(state) then return end
-    if state.work.grid_limit_hit then finish_search_budget(state); return end
-    if state.work.power_bound_hit then finish_search_budget(state); return end
+    if state.work.grid_limit_hit then finish_search_bound(state, "BP_FAIL_GRID_LIMIT"); return end
     if state.incumbent then begin_serialization(state)
     else failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", {reason_details = rejection_details(state)}) end
 end
@@ -991,11 +1084,15 @@ local function candidate_fits_grid(state, candidate)
         widest = math.max(widest, math.min(w, h))
         tallest = math.max(tallest, math.max(w, h))
     end
-    if needed > grid.w * grid.h then return false end
+    local fits = needed <= grid.w * grid.h
     --A block fits in one orientation or the other, so its shorter side must fit the shorter side of the grid.
-    if widest > math.min(grid.w, grid.h) then return false end
-    if tallest > math.max(grid.w, grid.h) then return false end
-    return true
+    fits = fits and widest <= math.min(grid.w, grid.h) and tallest <= math.max(grid.w, grid.h)
+    if not fits then
+        record_rejection(state, {{code = "BP_P_NO_FIT", detail = "candidate does not fit this grid",
+            candidate_size = {area = needed, width = widest, height = tallest},
+            grid_size = {w = grid.w, h = grid.h}}})
+    end
+    return fits
 end
 
 local function prepare_candidate(state)
@@ -1021,7 +1118,6 @@ local function prepare_candidate(state)
     append_all(obstacles, bare_rects(state.work.input.obstacles))
     append_all(obstacles, bare_rects(state.work.input.occupied))
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
-    note_candidate_start(state)
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
         blocks = ordering.blocks, limits = state.work.input.limits or {}})
     set_phase(state, "pack")
@@ -1029,7 +1125,6 @@ local function prepare_candidate(state)
 end
 
 local function discard_candidate(state)
-    finish_candidate(state)
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
     state.cursor.order_index = state.cursor.order_index + 1
     if state.work.orderings and state.cursor.order_index <= #state.work.orderings then
@@ -1082,6 +1177,7 @@ function Search.step(container, budget)
             run_stage(state, "groups", Groups, budget)
             if stage_done(state.work.groups) then
                 record_candidate_bound(state)
+                declare_allowance(state)
                 if state.work.groups.ok == false and not (state.work.groups.result and state.work.groups.result.candidates) then
                     if not next_grid(state) then finish_grid_or_search(state) end
                 else
@@ -1092,7 +1188,9 @@ function Search.step(container, budget)
         elseif state.phase == "pack" then
             run_stage(state, "pack", Pack, budget)
             if stage_done(state.work.pack) then
-                if not state.work.pack.ok then discard_candidate(state)
+                if not state.work.pack.ok then
+                    record_rejection(state, state.work.pack.errors)
+                    discard_candidate(state)
                 else
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
                         state.work.pack.result and state.work.pack.result.placements)
@@ -1102,6 +1200,7 @@ function Search.step(container, budget)
                         state.work.route = Route.begin(route_input)
                         set_phase(state, "route")
                     else
+                        record_rejection(state, {state.work.route_input_error})
                         discard_candidate(state)
                     end
                 end
@@ -1109,7 +1208,9 @@ function Search.step(container, budget)
         elseif state.phase == "route" then
             run_stage(state, "route", Route, budget)
             if stage_done(state.work.route) then
-                if not state.work.route.ok then discard_candidate(state)
+                if not state.work.route.ok then
+                    record_rejection(state, state.work.route.errors)
+                    discard_candidate(state)
                 else
                     local power_entities = list_copy(state.work.materialized.entities)
                     append_all(power_entities, state.work.route.result and state.work.route.result.entities)
@@ -1122,10 +1223,15 @@ function Search.step(container, budget)
             run_stage(state, "power", Power, budget)
             if stage_done(state.work.power) then
                 if not state.work.power.ok then
+                    record_rejection(state, state.work.power.errors)
                     for _, power_error in ipairs(state.work.power.errors or {}) do
                         if power_error.code == "BP_PW_SEARCH_BOUND" then state.work.power_bound_hit = true; break end
                     end
-                    discard_candidate(state)
+                    if state.work.power_bound_hit then
+                        finish_search_bound(state, "BP_FAIL_POWER_BOUND")
+                    else
+                        discard_candidate(state)
+                    end
                 else
                     local route_result = state.work.route.result or {}
                     local power_result = state.work.power.result or {}
@@ -1152,6 +1258,7 @@ function Search.step(container, budget)
                         state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
                             validation = copy(state.work.validate.result)}
                     end
+                    begin_improvement_budget(state)
                     if can_stop_implicit_perimeter_search(state, score) then
                         local candidates = state.work.groups.result.candidates or {}
                         state.cursor.grid_index = #state.work.grid_specs

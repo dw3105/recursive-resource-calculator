@@ -48,6 +48,8 @@ local function controlled_search()
         if budget.ops > 0 then budget.ops = budget.ops - 1 end
         state.done, state.ok, state.phase = true, true, "done"
         state.result = {entities = {{name = "assembler", position = {x = 0, y = 0}}}}
+        state.grid_spacing = {resolved = 50, kind = "derived", source = "logistic_radius", source_value = 25,
+            generation_job_id = state.input and state.input.generation_job_id}
         state.progress = {phase = "done", done_units = 1, total_units = 1}
     end
 end
@@ -84,11 +86,20 @@ for _, shape in ipairs(H.shapes()) do
             if result and result.state ~= "pending" then break end
         end
         H.equal(ReloadedGeneration.status(1, first).state, "success", "the resumed job publishes exactly once")
+        local attempt = ReloadedGeneration.lookup(1, sheet_id)
+        H.equal(attempt.grid_spacing.resolved, 50, "a successful attempt exposes its resolved spacing")
+        H.equal(attempt.grid_spacing.kind, "derived", "a successful attempt exposes its spacing kind")
+        H.equal(attempt.grid_spacing.source, "logistic_radius", "a successful attempt exposes its spacing source")
+        H.equal(attempt.grid_spacing.source_value, 25, "a successful attempt exposes its source value")
+        H.equal(attempt.grid_spacing.generation_job_id, first, "a successful attempt exposes its job identity")
         H.equal(ReloadedGeneration.capture(1, first) ~= nil, true, "the capture remains addressable after reload")
 
         reload_control()
         ReloadedGeneration = require "logic.bp.generation"
         H.equal(ReloadedGeneration.status(1, first).state, "success", "the terminal result survives another reload")
+        local reloaded_attempt = ReloadedGeneration.lookup(1, sheet_id)
+        H.equal(reloaded_attempt.grid_spacing.generation_job_id, first,
+            "the spacing record survives persistence and lookup")
         storage[1].sheet_revision[sheet_id] = 1
         H.equal(ReloadedGeneration.capture(1, first).snapshot.state, "stale",
             "a capture with a changed sheet revision is never served as current")
