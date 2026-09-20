@@ -21,7 +21,7 @@
 --  pipe = {pipe, underground, quality, underground_max_distance, throughput_per_second}
 --  inserter = {name, quality, items_per_second, pickup_offset, drop_offset, drop_position}
 --  pole = {name, quality, tile_w, tile_h, supply_w, supply_h, wire_reach}
---  robo = {name, quality, tile_w, tile_h, logistic_radius, construction_radius, connection_distance}
+--  robo = {name, quality, tile_w, tile_h, logistic_radius, construction_radius}
 --
 --An identity that no longer resolves is reported, never guessed and never crashed on.
 local Catalog = {}
@@ -699,6 +699,9 @@ local function build_robo(catalog, diagnostics, options, requests)
     if not entity then return end
     local quality = selected_quality(quality_name, diagnostics, catalog._quality_cache)
     if quality then project_quality(catalog, quality, quality_name) end
+    --connection_distance is not a roboport member. It is subclasses ["RollingStock"] in the pinned 2.0.77 and
+    --2.1.19 runtime API, so reading it here raised on the real engine and yielded nil in every capture. The
+    --roboport gap is derived from logistic_radius by the planner instead; see logic/bp/search.lua grid_model.
     catalog.robo = {
         name = entity.name,
         quality = quality_name,
@@ -706,7 +709,6 @@ local function build_robo(catalog, diagnostics, options, requests)
         tile_h = entity.tile_height,
         logistic_radius = entity.logistic_radius,
         construction_radius = entity.construction_radius,
-        connection_distance = entity.connection_distance,
     }
 end
 

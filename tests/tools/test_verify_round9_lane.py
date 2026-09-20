@@ -41,6 +41,36 @@ ROUND10_LUA_TESTS = {
         "tests/test_generation_record_handoff.lua",
     ),
 }
+ROUND11_LUA_TESTS = {
+    "094_beacon_geometry": (
+        "tests/test_groups.lua",
+        "tests/test_beacon_coverage.lua",
+    ),
+    "095_validator_symmetry": (
+        "tests/test_validate.lua",
+        "tests/test_power_semantics.lua",
+        "tests/test_validated_candidate.lua",
+    ),
+    "096_roboport_facts": (
+        "tests/test_catalog.lua",
+        "tests/test_export_payload.lua",
+        "tests/test_export_completeness.lua",
+    ),
+    "097_search_truth": (
+        "tests/test_search.lua",
+        "tests/test_search_budget.lua",
+        "tests/test_search_allowance.lua",
+        "tests/test_generation_reload.lua",
+        "tests/test_generation_attempt_lookup.lua",
+        "tests/test_blueprint_pipeline.lua",
+        "tests/test_external_ports.lua",
+        "tests/test_locale_keys.lua",
+    ),
+}
+ROUND11_PYTHON_TAGS = {
+    "098_golden_truth": "tests.tools.test_capture_workflow",
+    "099_release_lifecycle": "tests.tools.test_handoff",
+}
 PYTHON_TAG = "093_diagnostic_handoff"
 PYTHON_MODULE = "tests.tools.test_handoff"
 PYTHON_PATH = "tests/tools/test_handoff.py"
@@ -48,7 +78,9 @@ PYTHON_PATH = "tests/tools/test_handoff.py"
 EVERY_TEST = sorted(
     {path for paths in CONSUMER_TESTS.values() for path in paths}
     | {path for paths in ROUND10_LUA_TESTS.values() for path in paths}
+    | {path for paths in ROUND11_LUA_TESTS.values() for path in paths}
 )
+EVERY_PYTHON_MODULE = sorted({PYTHON_MODULE} | set(ROUND11_PYTHON_TAGS.values()))
 
 
 def make_worktree(directory: Path, lua_exit: int = 0, gateslot_exit: int = 0,
@@ -60,7 +92,8 @@ def make_worktree(directory: Path, lua_exit: int = 0, gateslot_exit: int = 0,
         (worktree / path).write_text("-- double\n")
     (worktree / "tests" / "run.sh").write_text("#!/bin/sh\nexit 0\n")
     (worktree / "tests" / "tools" / "__init__.py").write_text("")
-    (worktree / PYTHON_PATH).write_text("# double\n")
+    for module in EVERY_PYTHON_MODULE:
+        (worktree / (module.replace(".", "/") + ".py")).write_text("# double\n")
 
     stubs = directory / "stubs"
     stubs.mkdir()
@@ -267,6 +300,59 @@ class Round10DispatchTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertIn("dispatch=suite", result.stdout)
             self.assertEqual(calls(directory), [], "dispatch-only ran the suite")
+
+
+class Round11DispatchTests(unittest.TestCase):
+    """Round 11 keeps the round 10 rule: one lane, one focused set, never the whole suite."""
+
+    def test_each_round11_lua_tag_selects_its_own_checks(self):
+        for tag, expected in ROUND11_LUA_TESTS.items():
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                result = run(worktree, tag, directory)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                recorded = calls(directory)
+                for path in expected:
+                    self.assertIn(f"lua5.2 {path}", recorded)
+                    self.assertIn(f"lua5.4 {path}", recorded)
+                self.assertEqual(len(recorded), 2 * len(expected), recorded)
+                self.assertNotIn("gateslot", "".join(recorded))
+
+    def test_each_round11_python_tag_is_dispatched_through_python(self):
+        for tag, module in ROUND11_PYTHON_TAGS.items():
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                result = run(worktree, tag, directory)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                recorded = "".join(calls(directory))
+                self.assertIn(f"python3 -m unittest -v {module}", recorded)
+                self.assertNotIn("lua5.2", recorded)
+                self.assertNotIn("gateslot", recorded)
+
+    def test_no_round11_tag_ever_runs_the_whole_suite(self):
+        for tag in list(ROUND11_LUA_TESTS) + list(ROUND11_PYTHON_TAGS):
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                run(worktree, tag, directory)
+                self.assertNotIn("tests/run.sh", "".join(calls(directory)))
+
+    def test_the_search_lane_resolves_before_it_writes_its_mandated_test(self):
+        #docs/tasks/084_search_allowance.md mandates tests/test_search_allowance.lua and it has never been
+        #written. Spine gates this dispatcher before lane 097 starts, so resolution must not need the file,
+        #while an ordinary run must still refuse it.
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory)
+            (worktree / "tests" / "test_search_allowance.lua").unlink()
+            resolved = dispatch_only(worktree, "097_search_truth", directory)
+            self.assertEqual(resolved.returncode, 0, resolved.stdout + resolved.stderr)
+            self.assertIn("tests/test_search_allowance.lua", resolved.stdout)
+            executed = run(worktree, "097_search_truth", directory)
+            self.assertEqual(executed.returncode, 1, executed.stdout + executed.stderr)
+            self.assertIn("missing test", executed.stderr)
 
 
 if __name__ == "__main__":

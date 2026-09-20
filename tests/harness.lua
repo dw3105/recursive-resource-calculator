@@ -109,7 +109,9 @@ local ENTITY_GATES = {
     inserter_max_belt_stack_size = gate({"inserter"}),
     logistic_radius = gate({"roboport"}),
     construction_radius = gate({"roboport"}),
-    connection_distance = gate({"roboport"}),
+    --LuaEntityPrototype::connection_distance is subclasses ["RollingStock"] in the pinned 2.0.77 and 2.1.19
+    --runtime API. A roboport never supplies it; roboports carry logistic_radius and construction_radius.
+    connection_distance = gate({"locomotive", "cargo-wagon", "fluid-wagon", "artillery-wagon"}),
     get_supply_area_distance = gate({"electric-pole", "beacon"}),
     quality_affects_supply_area_distance = gate({"electric-pole", "beacon"}),
     get_max_wire_distance = gate({"electric-pole", "power-switch"}),
@@ -1694,13 +1696,15 @@ function H.new_world(shape)
              end})
     end
 
-    --spec: {name, tile_width (default 4), logistic_radius (default 25), construction_radius (default 55), connection_distance (default 50)}
+    --spec: {name, tile_width (default 4), logistic_radius (default 25), construction_radius (default 55)}
+    --No connection_distance: that member belongs to rolling stock, so a roboport prototype must not answer it.
+    --Fabricating one here hid a production defect for the whole of rounds 1-10 - search fell back to a 1-tile
+    --roboport gap on the real engine, and no test could see it.
     function world.add_roboport(spec)
         return infrastructure({name = spec.name, type = "roboport", tile_width = spec.tile_width or 4, tile_height = spec.tile_height or spec.tile_width or 4,
                 energy_kw = spec.energy_kw or 50},
             {logistic_radius = spec.logistic_radius or 25,
-             construction_radius = spec.construction_radius or 55,
-             connection_distance = spec.connection_distance or 50})
+             construction_radius = spec.construction_radius or 55})
     end
 
     --The vanilla-shaped set every blueprint fixture starts from: one belt family, inserter, pipes, pole, roboport

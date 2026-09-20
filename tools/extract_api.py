@@ -66,20 +66,34 @@ CONCEPTS = [
 
 
 def members(cls_by_name, name, seen=None):
-    """Return attributes and methods, including the complete parent chain."""
+    """Return attributes, methods and per-member subclass applicability, including the parent chain.
+
+    Applicability is the part a flattened name list cannot carry. LuaEntityPrototype::connection_distance is
+    subclasses ["RollingStock"]: the member exists on the class, and a roboport can never answer it. Round 11
+    shipped a catalog that read it anyway and a mock that fabricated a value for it, and no test could see the
+    difference, because the extract recorded only that the name existed.
+    """
     seen = set() if seen is None else seen
     if name in seen or name not in cls_by_name:
-        return set(), set()
+        return set(), set(), {}
     seen.add(name)
     cls = cls_by_name[name]
     attrs = {a["name"] for a in cls.get("attributes", [])}
     meths = {m["name"] for m in cls.get("methods", [])}
+    applicability = {}
+    for member in list(cls.get("attributes", [])) + list(cls.get("methods", [])):
+        subclasses = member.get("subclasses")
+        if subclasses:
+            applicability[member["name"]] = sorted(subclasses)
     parent = cls.get("parent")
     if parent:
-        parent_attrs, parent_methods = members(cls_by_name, parent, seen)
+        parent_attrs, parent_methods, parent_applicability = members(cls_by_name, parent, seen)
         attrs |= parent_attrs
         meths |= parent_methods
-    return attrs, meths
+        # A subclass restriction declared on the parent still applies unless the child restates it.
+        for member_name, subclasses in parent_applicability.items():
+            applicability.setdefault(member_name, subclasses)
+    return attrs, meths, applicability
 
 
 def extract(raw, source_url):
@@ -99,11 +113,13 @@ def extract(raw, source_url):
     for name in CLASSES:
         if name not in cls_by_name:
             continue
-        attrs, meths = members(cls_by_name, name)
+        attrs, meths, applicability = members(cls_by_name, name)
         out["classes"][name] = {
             "parent": cls_by_name[name].get("parent"),
             "attributes": sorted(attrs),
             "methods": sorted(meths),
+            # member name -> the subclasses that may answer it. Absent means every instance may.
+            "applicability": {key: applicability[key] for key in sorted(applicability)},
         }
     for name in CONCEPTS:
         concept = con_by_name.get(name)

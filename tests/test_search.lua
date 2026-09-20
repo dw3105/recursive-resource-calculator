@@ -569,4 +569,75 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+--Round 11 spine: the roboport gap.
+--
+--catalog.robo carries no connection_distance, because LuaEntityPrototype::connection_distance is
+--subclasses ["RollingStock"] in the pinned 2.0.77 and 2.1.19 runtime API. The gap is derived from the
+--roboport's own logistic radius instead. Two roboports share a network when their logistic areas meet, so the
+--widest spacing is logistic_radius * 2.
+--
+--Measured against a player blueprint of four unmodded roboports at maximum connection distance, 2.0.77:
+--adjacent centres exactly 50 tiles apart, logistic_radius 25.
+--
+--Restoring the old literal 1 fallback makes these cases fail. That fallback made an 8x8 roboport grid measure
+--11x11 tiles while one block of the player's sheet needed 387, so no candidate could ever fit.
+local function grid_of(input)
+    local state = Search.begin(input)
+    local ticks = 0
+    while state.work.grid == nil and not state.done and ticks < 50 do
+        ticks = ticks + 1
+        Search.step(state, {ops = 1})
+    end
+    H.equal(state.work.grid ~= nil, true, "the search reaches a grid; stopped in phase " .. tostring(state.phase))
+    return state.work.grid
+end
+
+--cols and rows count roboports, never cells: an 8x8 lattice is 64 roboports bounding 49 cells.
+local function engine_shaped_roboport_input(cols, rows)
+    local catalog = base_catalog()
+    catalog.robo = {name = "roboport", tile_w = 4, tile_h = 4, logistic_radius = 25, construction_radius = 55}
+    local input = input_for(one_step_plan(), {})
+    input.catalog = catalog
+    input.include_roboports = true
+    input.grids = {{cols = cols or 8, rows = rows or 8}}
+    return input
+end
+
+H.test("BP-11 the roboport gap is derived from the logistic radius, never a one-tile fallback", function()
+    local grid = grid_of(engine_shaped_roboport_input(8, 8))
+    H.equal(grid.spacing_x, 50, "adjacent roboports sit logistic_radius * 2 apart")
+    H.equal(grid.spacing_y, 50, "the gap is the same on both axes")
+    H.equal(grid.w, 4 + 7 * 50, "an 8x8 roboport lattice spans tile_w + 7 gaps")
+    H.equal(grid.h, 4 + 7 * 50, "the envelope is the same on both axes")
+end)
+
+--The player's own cell: four unmodded roboports at maximum connection distance, 2.0.77, adjacent centres
+--exactly 50 tiles apart. Two by two roboports bound one cell.
+H.test("BP-11 a two by two roboport lattice reproduces the player's measured 50-tile cell", function()
+    local grid = grid_of(engine_shaped_roboport_input(2, 2))
+    H.equal(#grid.roboports, 4, "four roboports bound one cell")
+    H.equal(grid.roboports[1].x, 0, "the first roboport sits at the origin")
+    H.equal(grid.roboports[2].x, 50, "its neighbour sits 50 tiles along x")
+    H.equal(grid.roboports[3].y, 50, "and 50 tiles down y")
+    H.equal(grid.roboports[4].x, 50, "the far corner is diagonal from the origin")
+    H.equal(grid.roboports[4].y, 50, "on both axes")
+end)
+
+H.test("BP-11 an explicit connection distance still outranks the derived gap", function()
+    local input = engine_shaped_roboport_input(8, 8)
+    input.grid = {max_connection_distance = 11}
+    local grid = grid_of(input)
+    H.equal(grid.spacing_x, 11, "an explicit caller value wins")
+    H.equal(grid.w, 4 + 7 * 11, "and sizes the envelope")
+end)
+
+--A plain-data catalog that still carries connection_distance is a compatibility input, never an engine fact.
+--Existing fixtures and golden cases hold one, and they keep working.
+H.test("BP-11 a plain-data connection distance is still honoured as a compatibility input", function()
+    local input = engine_shaped_roboport_input(8, 8)
+    input.catalog.robo.connection_distance = 7
+    local grid = grid_of(input)
+    H.equal(grid.spacing_x, 7, "a supplied distance outranks the derived gap")
+end)
+
 H.done("test_search")

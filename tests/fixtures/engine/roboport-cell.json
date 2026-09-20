@@ -1,0 +1,80 @@
+{
+ "does_not_prove": [
+  "the engine's rejection boundary: no wider attempt is encoded here, and no engine observation of one exists",
+  "network membership, power state, or any prototype radius - the string carries positions and names only",
+  "whether connectivity is measured by Euclidean distance or by overlapping areas: the horizontal and",
+  "vertical edges of this square already connect all four, so the two rules agree on it",
+  "any diagonal or corner-touch rule"
+ ],
+ "fixture_id": "roboport-cell",
+ "measured": {
+  "adjacent_spacing_x": 50,
+  "adjacent_spacing_y": 50,
+  "cell_count": 1,
+  "entity_count": 4,
+  "normalised_positions": [
+   {
+    "name": "roboport",
+    "x": 0,
+    "y": 0
+   },
+   {
+    "name": "roboport",
+    "x": 50,
+    "y": 0
+   },
+   {
+    "name": "roboport",
+    "x": 0,
+    "y": 50
+   },
+   {
+    "name": "roboport",
+    "x": 50,
+    "y": 50
+   }
+  ],
+  "raw_positions": [
+   {
+    "name": "roboport",
+    "x": -62,
+    "y": 73
+   },
+   {
+    "name": "roboport",
+    "x": -12,
+    "y": 73
+   },
+   {
+    "name": "roboport",
+    "x": -62,
+    "y": 123
+   },
+   {
+    "name": "roboport",
+    "x": -12,
+    "y": 123
+   }
+  ],
+  "translation_applied": {
+   "x": 62,
+   "y": -73
+  }
+ },
+ "provenance": {
+  "blueprint_string": "0eNqtkssKgzAQRf9l1unCd82vlCJqp2VAJzaJpSL59ya6cOGm0m4CCfeewzCZoelGHDSxBTkDtYoNyMsMhh5cd+GN6x5BglaNGpS24AQQ3/ANMnJXAciWLOHaWi5TxWPfoPYBsWsLGJTxBcWB7SGnPBYwgSwSD9b4HNHY6k6dRW1CxGAb0it/Ezsndrr4G130N11yYLoo/t2XHhjvuM+vkiz2nr79CAEvX1voWR6XaVlm5zQv/OHcB+JHwT8=",
+  "blueprint_string_sha256": "3b61f33cb79f8a25a2c8482620101ee96f0a650ec4b827d1e5033cde148b6a7d",
+  "blueprint_version": 562949958467584,
+  "described_as": "4 unmodded roboports at maximum connection distance - decided by supply area of roboport",
+  "game_version": "2.0.77.0",
+  "source": "user supplied, pasted into the round 11 planning session",
+  "supplied_on": "2026-09-20"
+ },
+ "proves": [
+  "four roboports bound exactly one cell; cell count is never roboport count",
+  "adjacent centre-to-centre spacing is 50 tiles on both axes",
+  "50 equals logistic_radius * 2 for the vanilla roboport, whose logistic_radius is 25",
+  "the geometry is unchanged by translation"
+ ],
+ "schema_version": 1
+}

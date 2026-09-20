@@ -62,7 +62,10 @@ local function harness_members(world, shape)
                 {"inserter_stack_size_bonus", inserter.inserter_stack_size_bonus},
                 {"inserter_max_belt_stack_size", inserter.inserter_max_belt_stack_size},
                 {"logistic_radius", roboport.logistic_radius}, {"construction_radius", roboport.construction_radius},
-                {"connection_distance", roboport.connection_distance},
+                --connection_distance is deliberately absent from this list. It is subclasses ["RollingStock"],
+                --so probing it on a roboport is exactly the invalid read this round removed from production.
+                --Its existence and its owning subclass are pinned in tests/tools/test_api_applicability.py,
+                --which also checks the harness gate against the same pinned extracts.
                 {"quality_affects_supply_area_distance", pole.quality_affects_supply_area_distance},
                 {"energy_usage", machine.energy_usage}, {"distribution_effectivity", beacon.distribution_effectivity},
                 --round 9: the quality policy reads the receiver, the capacity model reads inserter speeds

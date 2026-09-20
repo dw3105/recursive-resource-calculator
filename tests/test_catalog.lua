@@ -79,16 +79,30 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(normal.pole.supply_w ~= legendary.pole.supply_w, true, "quality changes supply area")
     end)
 
-    H.test(shape .. " C3 roboport radii and connection distance come from the prototype", function()
+    H.test(shape .. " C3 roboport radii come from the prototype", function()
         local world = H.new_world(shape)
         Catalog = require "logic.catalog"
         world.add_roboport({name = "custom-robo", tile_width = 6, logistic_radius = 31,
-            construction_radius = 67, connection_distance = 43})
+            construction_radius = 67})
         local catalog = Catalog.build(1, {quality = "legendary", robo = "custom-robo"})
         H.equal(catalog.robo.tile_w, 6, "roboport tile width")
         H.equal(catalog.robo.logistic_radius, 31, "logistic radius")
         H.equal(catalog.robo.construction_radius, 67, "construction radius")
-        H.equal(catalog.robo.connection_distance, 43, "connection distance")
+    end)
+
+    --LuaEntityPrototype::connection_distance is subclasses ["RollingStock"] in the pinned 2.0.77 and 2.1.19
+    --runtime API, so a roboport never answers it. Reading it anyway is what left the planner deriving a
+    --one-tile roboport gap on the real engine, which no test could see while the mock fabricated a value.
+    --Reintroducing that read makes Catalog.build raise, and this case names it.
+    H.test(shape .. " C3b the roboport catalog never reads the rolling-stock connection distance", function()
+        local world = H.new_world(shape)
+        Catalog = require "logic.catalog"
+        world.add_roboport({name = "gap-robo", logistic_radius = 25, construction_radius = 55})
+        local ok, catalog = pcall(Catalog.build, 1, {robo = "gap-robo"})
+        H.equal(ok, true, "building a roboport catalog reads no rolling-stock member: " .. tostring(catalog))
+        H.equal(catalog.robo.connection_distance, nil, "no connection distance is recorded for a roboport")
+        H.equal(catalog.robo.logistic_radius, 25, "the roboport keeps its logistic radius")
+        H.equal(catalog.robo.construction_radius, 55, "the roboport keeps its construction radius")
     end)
 
     H.test(shape .. " C4 belt speed becomes total and per-lane item throughput", function()
@@ -215,17 +229,17 @@ for _, shape in ipairs(H.shapes()) do
         local world = H.new_world(shape)
         Catalog = require "logic.catalog"
         world.add_roboport({name = "quality-robo", tile_width = 6, logistic_radius = 31,
-            construction_radius = 67, connection_distance = 43})
+            construction_radius = 67})
         local normal = Catalog.build(1, {quality = "normal", robo = "quality-robo"})
         local legendary = Catalog.build(1, {quality = "legendary", robo = "quality-robo"})
         H.equal(normal.robo ~= nil, true, "normal roboport is projected")
         H.equal(legendary.robo ~= nil, true, "legendary roboport is projected")
         H.equal(normal.robo.quality, "normal", "normal roboport quality")
         H.equal(legendary.robo.quality, "legendary", "legendary roboport quality")
-        H.deep_equal({normal.robo.logistic_radius, normal.robo.construction_radius, normal.robo.connection_distance},
-            {31, 67, 43}, "normal roboport radii")
-        H.deep_equal({legendary.robo.logistic_radius, legendary.robo.construction_radius, legendary.robo.connection_distance},
-            {31, 67, 43}, "legendary roboport radii")
+        H.deep_equal({normal.robo.logistic_radius, normal.robo.construction_radius},
+            {31, 67}, "normal roboport radii")
+        H.deep_equal({legendary.robo.logistic_radius, legendary.robo.construction_radius},
+            {31, 67}, "legendary roboport radii")
     end)
 end
 

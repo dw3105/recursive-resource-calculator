@@ -186,8 +186,16 @@ local function grid_model(input, raw)
     result.cols, result.rows = integer(raw.cols, 2), integer(raw.rows, 2)
     result.tile_w = finite(raw.tile_w, finite(source.tile_w, finite(robo.tile_w, 1)))
     result.tile_h = finite(raw.tile_h, finite(source.tile_h, finite(robo.tile_h, 1)))
+    --Roboport gap. An explicit caller value still wins. Otherwise it is derived from the roboport's own
+    --logistic radius: two roboports share a network when their logistic areas meet, so the widest spacing is
+    --logistic_radius * 2. Measured against a player blueprint of four unmodded roboports at maximum
+    --connection distance, 2.0.77: adjacent centres exactly 50 tiles apart, logistic_radius 25.
+    --The old literal 1 fell back to a one-tile gap on the real engine, because it asked catalog.robo for
+    --connection_distance, a member only rolling stock has. An 8x8 grid then measured 11x11 tiles and no
+    --candidate could ever fit.
     result.max_connection_distance = finite(raw.max_connection_distance,
-        finite(source.max_connection_distance, finite(robo.connection_distance, 1)))
+        finite(source.max_connection_distance,
+            finite(robo.connection_distance, finite(robo.logistic_radius, 0) * 2)))
     local built = Grid.robo_grid(result)
     built.cols, built.rows = result.cols, result.rows
     built.tile_w, built.tile_h = result.tile_w, result.tile_h

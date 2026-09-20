@@ -102,3 +102,9 @@
 | `091` | `rrc/agent` | export payload completeness | 2026-09-20 |
 | `092` | `rrc/agent` | durable generation attempt lookup | 2026-09-20 |
 | `093` | `rrc/agent` | diagnostic handoff transition | 2026-09-20 |
+| `094` | `rrc/agent` | beacon geometry: overlap rule and real beacon rows | 2026-09-20 |
+| `095` | `rrc/agent` | validator symmetry: beacons use the pole rule | 2026-09-20 |
+| `096` | `rrc/agent` | roboport facts and their export | 2026-09-20 |
+| `097` | `rrc/agent` | search truth, bounds and spacing provenance | 2026-09-20 |
+| `098` | `rrc/agent` | golden runner truth | 2026-09-20 |
+| `099` | `rrc/agent` | release lifecycle | 2026-09-20 |

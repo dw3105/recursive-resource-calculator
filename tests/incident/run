@@ -1,0 +1,11 @@
+#!/bin/sh
+#Replay the player's captured sheet against the current generator.
+#
+#Separate from tests/run.sh on purpose: this one asks a single question, "what does the real reported input do
+#today", and records the answer. It is the evidence stage 2 and stage 3 are planned from.
+#
+#Note the invocation: python3 runs the .py module directly. Handing it a /bin/sh wrapper is the bug that has
+#kept tests/golden/accept broken, and it is not repeated here.
+set -eu
+root=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+exec python3 "$root/replay.py" "$@"

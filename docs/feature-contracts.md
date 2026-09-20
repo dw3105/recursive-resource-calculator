@@ -628,3 +628,122 @@ charged to a lane. Selecting no check remains a failure.
 A red proof requires the **named** case to fail, nothing to error, and the run to have completed:
 `tests/harness.lua:2075-2083` can emit `[assert]` and `[error]` in one run, and `tests/harness.lua:2164-2166`
 prints the interpreter between the file name and the colon, as `test_x [Lua 5.2]: N cases, N passed, N failed`.
+
+## 24. Supply geometry, roboport facts and honest search failure (2026-09-20, round 11, frozen before lanes 094-099)
+
+Round 11 exists because a player's blueprint never got built and the mod could not say why. Replaying that
+player's own capture offline named four defects. These are the rules the repair holds to. Each one is stated
+once, here, so two lanes cannot implement two different versions of it.
+
+### 24.1 Supply rule
+
+**An entity is supplied when its collision box overlaps the supply area. Never when its centre sits inside.**
+
+This was already written down at `logic/bp/validate.lua` and already applied to electric poles. Beacons used a
+centre test instead, in both the planner and the validator. On the player's sheet that produced `covered=0` on
+3744 of 3744 beacon placements: the beacon row sits above the machine row, and a 5x5 machine's centre is
+further from the beacon centre than the reach, even with the beacon directly over it.
+
+The same rule now governs beacons, poles and anything else that asks the question.
+
+### 24.2 Geometry rule
+
+**One conversion from a local prototype collision box to a world box, shared by everyone who needs it.**
+
+`logic/bp/geometry.lua` owns it. The planner and the validator both call it and neither owns it, because they
+disagreed for ten rounds while each stayed internally consistent. The validator resolved and rotated a
+collision box; the planner used tile dimensions. Those are different shapes, and a machine could be grouped as
+covered and then rejected as uncovered.
+
+The module states its conventions rather than leaving them to be inferred:
+
+- a tile rectangle is `{x, y, w, h}` with `x..x+w-1` occupied;
+- a world box is `{left, top, right, bottom}` in absolute tiles, already rotated;
+- rotation is by corners, so an asymmetric box survives a quarter turn - swapping width and height does not;
+- a prototype with no collision box falls back to its tile footprint, and the fallback is **reported**, so a
+  caller can tell a real box from a substituted one;
+- a supply area is a **distance from the supplying entity's centre** on each axis, exactly as
+  `get_supply_area_distance` reports it, never half of a width, and never expanded by the supplier's own
+  footprint;
+- there are **two** overlap rules, deliberately different at the boundary: collision overlap is strict, because
+  Factorio places entities edge to edge; supply overlap is tolerant by one epsilon, because an entity sitting
+  exactly on the boundary is supplied.
+
+Substituting tile-rectangle overlap for collision-box overlap is not an implementation of this rule. A 3x3
+machine at `3,4` overlaps a beacon supply area reaching `y 4.5` on its tile footprint and does not overlap it
+with a `[-0.7, 0.7]` collision box, whose top edge is `4.8`.
+
+### 24.3 Beacon requirement rule
+
+**`count_per_machine` is a per-machine requirement. It is never reused as a block-wide physical count.**
+
+The planner merged the two: it took the largest per-machine requirement in a block and placed exactly that many
+beacons, in one centred row, then demanded every machine in the block be covered by all of them. With three
+beacons of reach 3 spaced four tiles apart, their supply areas intersect in about one tile. On the player's
+sheet `got` reached 2 at most and never 3, in 2280 coverage checks.
+
+The physical beacon count is an **output** of placement. Blocks are laid out so that every machine genuinely
+overlaps at least its configured count of beacon supply areas of that signature.
+
+### 24.4 Roboport fact rule
+
+Three layers, kept apart:
+
+| layer | what it is | rule |
+|---|---|---|
+| engine fact | `logistic_radius`, `construction_radius`, `tile_w`, `tile_h` | read from the prototype; a genuine absence is recorded by name |
+| compatibility input | a plain-data `connection_distance` in a hand-written fixture, golden case or caller option | still honoured, labelled an override, never called an engine fact |
+| derived policy | `spacing = logistic_radius * 2` | labelled derived, with its source input named |
+
+`LuaEntityPrototype::connection_distance` is `subclasses: ["RollingStock"]` in the pinned 2.0.77 and 2.1.19
+runtime API. A roboport can never answer it. Reading it anyway raised on the real engine and yielded nil in
+every capture, and the planner then fell back to a **one-tile** roboport gap, making its largest grid 11x11
+tiles against a block needing 387. It is therefore not a missing roboport fact to record; it is a wrong field
+to stop reading.
+
+Resolution order is: explicit caller override, then derived from `logistic_radius`. Never a literal 1, never a
+literal 0.
+
+The derived value is measured, not assumed. A player blueprint of four unmodded roboports at maximum connection
+distance, 2.0.77, places adjacent centres exactly 50 tiles apart, and the vanilla roboport's `logistic_radius`
+is 25. That blueprint is kept at `tests/fixtures/engine/roboport-cell.json` with a written statement of what it
+proves and what it does not: it fixes positions and names, it bounds **one cell** with four roboports, and it
+establishes no rejection boundary, no network state and no diagonal rule.
+
+**Applicability is checked, not assumed.** The pinned API extracts record which subclass may answer each
+member, because a flattened list of member names cannot: changing a member's owning subclass leaves such a list
+identical. The mock is checked against those extracts, so a fabricated member cannot hide a production defect
+again.
+
+### 24.5 Mock fidelity rule
+
+**A mock that answers a member the engine refuses is a defect, not a convenience.**
+
+The roboport mock fabricated `connection_distance` unconditionally, on the default path every fixture uses. The
+whole suite therefore ran on a branch the engine never takes, and no test could see the one-tile gap. Engine
+applicability gates apply on the default path, not only in an opt-in case.
+
+### 24.6 Failure rule
+
+**One stop, one cause, and the reasons are kept.**
+
+`BP_FAIL_SEARCH_BUDGET` stood for three unrelated things: an operation cap, an exhausted grid ladder, and a
+power bound. The player saw it for a grid ladder that had run out while no operation cap had ever been derived.
+Each cause gets its own code. The operation cap keeps `BP_FAIL_SEARCH_BUDGET`, because that is what it is.
+
+Rejections are recorded, not discarded. Pack, route-input, route and power rejections reach the failure record
+the same way validator rejections already do, a candidate refused for not fitting the grid says so instead of
+being skipped in silence, and the terminal failure stops erasing the stage list it was handed.
+
+### 24.7 Evidence rule
+
+An offline replay is offline replay evidence. It is never reported as an in-game fix.
+
+A fitting candidate is an intermediate milestone. A passing offline test, a diagnostic archive and a delivered
+blueprint are three different things, and only the third is what the player asked for.
+
+Configured inputs are never weakened to make a regression pass. Reducing a beacon count or injecting a
+connection distance is a diagnostic counterfactual, recorded as such, and never a fixture.
+
+No case is marked accepted without validated, case-specific engine evidence bound to the candidate and archive;
+states and expected results are never changed merely to make a gate green.

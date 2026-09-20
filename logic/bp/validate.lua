@@ -9,6 +9,8 @@
 local Validate = {}
 
 local Grid = require "logic.bp.grid"
+--The world-box conversion is shared with the planner, so the two can never drift apart again.
+local Geometry = require "logic.bp.geometry"
 
 local EPSILON = 1e-9
 local INF = math.huge
@@ -180,29 +182,14 @@ local function masks_collide(a, b)
     return false
 end
 
+--Shared with logic/bp/groups.lua through logic/bp/geometry.lua. Rotation is by corners, so an asymmetric
+--collision box survives a quarter turn.
 local function corners_box(box, dir)
-    if type(box) ~= "table" or type(box.left_top) ~= "table" or type(box.right_bottom) ~= "table" then return nil end
-    local left, top = finite(box.left_top.x), finite(box.left_top.y)
-    local right, bottom = finite(box.right_bottom.x), finite(box.right_bottom.y)
-    if not left or not top or not right or not bottom then return nil end
-    local points = {{x = left, y = top}, {x = left, y = bottom}, {x = right, y = top}, {x = right, y = bottom}}
-    local min_x, min_y, max_x, max_y = INF, INF, -INF, -INF
-    for _, point in ipairs(points) do
-        local x, y = Grid.rotate_vector(point.x, point.y, dir or Grid.NORTH)
-        min_x, min_y = math.min(min_x, x), math.min(min_y, y)
-        max_x, max_y = math.max(max_x, x), math.max(max_y, y)
-    end
-    return {left = min_x, top = min_y, right = max_x, bottom = max_y}
+    return Geometry.local_box(box, dir)
 end
 
 local function entity_center(entity, spec)
-    if entity.position and type(entity.position) == "table" then
-        local x, y = finite(entity.position.x), finite(entity.position.y)
-        if x and y then return x, y end
-    end
-    local w = finite(entity.w, spec and spec.tile_w or 1)
-    local h = finite(entity.h, spec and spec.tile_h or 1)
-    return finite(entity.x, 0) + w / 2, finite(entity.y, 0) + h / 2
+    return Geometry.center(entity, spec)
 end
 
 local function physical_info(entity, catalog, ordinal)
@@ -211,8 +198,7 @@ local function physical_info(entity, catalog, ordinal)
     local dir = finite(entity.dir or entity.direction, Grid.NORTH)
     local box = corners_box(spec.collision_box or entity.collision_box, dir)
     if not box then
-        local w, h = finite(entity.w, spec.tile_w or 1), finite(entity.h, spec.tile_h or 1)
-        box = {left = -w / 2, top = -h / 2, right = w / 2, bottom = h / 2}
+        box = Geometry.tile_box(finite(entity.w, spec.tile_w or 1), finite(entity.h, spec.tile_h or 1))
     end
     return {
         entity = entity, id = id_of(entity, tostring(ordinal)), name = name_of(entity), spec = spec,
@@ -228,17 +214,19 @@ local function box_world(info)
     }
 end
 
+--Collision: strict. Touching edges are legal placements, not collisions.
 local function boxes_overlap(a, b)
-    return a.left < b.right and b.left < a.right and a.top < b.bottom and b.top < a.bottom
+    return Geometry.boxes_overlap(a, b)
 end
 
 --Engine rule: an entity is supplied when its collision box overlaps the supply area, not when its centre sits
 --inside it. A 3x3 machine beside a pole overlaps that area while its centre stays outside, so the centre test
 --rejected layouts the game powers, and it disagreed with the planner, which already places poles by overlap.
+--Supply: tolerant, so an entity exactly on the boundary is supplied. Deliberately a different rule from
+--collision above. Beacons use this too now, not the centre test that used to sit beside it.
 local function box_in_area(info, centre_x, centre_y, supply_w, supply_h)
-    local world = box_world(info)
-    return world.left < centre_x + supply_w + EPSILON and centre_x - supply_w - EPSILON < world.right
-        and world.top < centre_y + supply_h + EPSILON and centre_y - supply_h - EPSILON < world.bottom
+    return Geometry.box_overlaps_supply(box_world(info),
+        Geometry.supply_box(centre_x, centre_y, supply_w, supply_h))
 end
 
 local function point_in_area(info, centre_x, centre_y, supply_w, supply_h)

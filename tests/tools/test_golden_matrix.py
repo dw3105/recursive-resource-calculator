@@ -130,9 +130,19 @@ def assert_draft_content_is_honest(manifest, case_id, baseline):
             )
 
 
+#A captured case says how it was captured, because the two kinds carry different weight. A harness capture is
+#synthetic and reproducible here; a capture taken from a player's running game is real evidence of what the
+#engine and the player's own sheet actually did. Neither is coverage until an engine observation is bound.
 CAPTURED_COVERAGE = (
     "open gap: harness capture only; engine observation pending; not coverage"
 )
+CAPTURED_COVERAGE_BY_SOURCE = {
+    "harness": CAPTURED_COVERAGE,
+    "engine": (
+        "open gap: captured from the player's game; today it does not deliver a blueprint; engine "
+        "observation pending; not coverage"
+    ),
+}
 
 DRAFT_COVERAGE = "open gap: capture pending; content arrives with capture; not coverage"
 
@@ -229,7 +239,7 @@ def assert_matrix_and_cases(matrix_path: Path, cases_root: Path) -> None:
                 raise AssertionError(f"rejection declares blueprint fields: {case_id}")
 
 
-def assert_coverage_document(matrix_path: Path, coverage_path: Path) -> None:
+def assert_coverage_document(matrix_path: Path, coverage_path: Path, cases_root: Path = CASES_ROOT) -> None:
     rows = matrix_rows(matrix_path)
     ids = {row["case_id"] for row in rows}
     doc_rows = coverage_rows(coverage_path)
@@ -251,7 +261,12 @@ def assert_coverage_document(matrix_path: Path, coverage_path: Path) -> None:
             if row[6] != DRAFT_COVERAGE:
                 raise AssertionError(f"draft is not reported as an open gap: {row[2]}")
         elif matrix_row["state"] == "captured":
-            if row[6] != CAPTURED_COVERAGE:
+            manifest_path = cases_root / row[2] / "manifest.json"
+            source_kind = "harness"
+            if manifest_path.is_file():
+                source_kind = read_json(manifest_path).get("source_kind", "harness")
+            expected = CAPTURED_COVERAGE_BY_SOURCE.get(source_kind, CAPTURED_COVERAGE)
+            if row[6] != expected:
                 raise AssertionError(f"captured case is not reported as an open gap: {row[2]}")
         elif row[6] in (DRAFT_COVERAGE, CAPTURED_COVERAGE):
             raise AssertionError(f"accepted case is reported as a gap: {row[2]}")

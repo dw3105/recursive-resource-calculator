@@ -3,6 +3,7 @@
  "application_version": "2.1.19",
  "classes": {
   "LuaBootstrap": {
+   "applicability": {},
    "attributes": [
     "active_mods",
     "feature_flags",
@@ -42,6 +43,7 @@
    "parent": null
   },
   "LuaBurnerPrototype": {
+   "applicability": {},
    "attributes": [
     "auto_refuel",
     "burner_usage",
@@ -64,6 +66,7 @@
    "parent": null
   },
   "LuaControl": {
+   "applicability": {},
    "attributes": [
     "build_distance",
     "cargo_pod",
@@ -157,6 +160,7 @@
    "parent": null
   },
   "LuaElectricEnergySourcePrototype": {
+   "applicability": {},
    "attributes": [
     "buffer_capacity",
     "drain",
@@ -174,6 +178,825 @@
    "parent": null
   },
   "LuaEntity": {
+   "applicability": {
+    "absorbed_pollution": [
+     "Spawner"
+    ],
+    "add_autopilot_destination": [
+     "SpiderVehicle"
+    ],
+    "add_market_item": [
+     "Market"
+    ],
+    "ai_settings": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "alert_parameters": [
+     "ProgrammableSpeaker"
+    ],
+    "allow_dispatching_robots": [
+     "Character",
+     "Vehicle"
+    ],
+    "always_on": [
+     "Lamp"
+    ],
+    "amount": [
+     "ResourceEntity"
+    ],
+    "armed": [
+     "LandMine"
+    ],
+    "artillery_auto_targeting": [
+     "ArtilleryTurret",
+     "ArtilleryWagon"
+    ],
+    "associated_player": [
+     "Character"
+    ],
+    "attached_cargo_pod": [
+     "RocketSiloRocket"
+    ],
+    "autopilot_destination": [
+     "SpiderVehicle"
+    ],
+    "autopilot_destinations": [
+     "SpiderVehicle"
+    ],
+    "autopilot_patrol_size": [
+     "SpiderVehicle"
+    ],
+    "base_damage_modifiers": [
+     "Projectile"
+    ],
+    "belt_neighbours": [
+     "TransportBeltConnectable"
+    ],
+    "belt_shape": [
+     "TransportBelt"
+    ],
+    "belt_to_ground_type": [
+     "UndergroundBelt"
+    ],
+    "bonus_damage_modifiers": [
+     "Projectile"
+    ],
+    "bonus_progress": [
+     "CraftingMachine"
+    ],
+    "can_shoot": [
+     "Character"
+    ],
+    "cargo_bay_connection_owner": [
+     "CargoBay"
+    ],
+    "cargo_pod_destination": [
+     "CargoPod"
+    ],
+    "cargo_pod_origin": [
+     "CargoPod"
+    ],
+    "cargo_pod_state": [
+     "CargoPod"
+    ],
+    "chain_signal_state": [
+     "RailChainSignal"
+    ],
+    "character_corpse_death_cause": [
+     "CharacterCorpse"
+    ],
+    "character_corpse_player_index": [
+     "CharacterCorpse"
+    ],
+    "character_corpse_tick_of_death": [
+     "CharacterCorpse"
+    ],
+    "clear_market_items": [
+     "Market"
+    ],
+    "clear_stored_durability": [
+     "Lab"
+    ],
+    "cliff_neighbours": [
+     "Cliff"
+    ],
+    "cliff_orientation": [
+     "Cliff"
+    ],
+    "combat_robot_owner": [
+     "CombatRobot"
+    ],
+    "combinator_description": [
+     "ArithmeticCombinator",
+     "ConstantCombinator",
+     "DeciderCombinator",
+     "SelectorCombinator"
+    ],
+    "connect_linked_belts": [
+     "LinkedBelt"
+    ],
+    "connect_rolling_stock": [
+     "RollingStock"
+    ],
+    "connected_rail": [
+     "TrainStop"
+    ],
+    "connected_rail_direction": [
+     "TrainStop"
+    ],
+    "consumption_modifier": [
+     "Car"
+    ],
+    "copy_color_from_train_stop": [
+     "RollingStock"
+    ],
+    "corpse_expires": [
+     "Corpse"
+    ],
+    "corpse_immune_to_entity_placement": [
+     "Corpse"
+    ],
+    "crafting_progress": [
+     "CraftingMachine"
+    ],
+    "crafting_speed": [
+     "Character",
+     "CraftingMachine"
+    ],
+    "crane_destination": [
+     "AgriculturalTower"
+    ],
+    "crane_destination_3d": [
+     "AgriculturalTower"
+    ],
+    "crane_end_position_3d": [
+     "AgriculturalTower"
+    ],
+    "crane_grappler_destination": [
+     "AgriculturalTower"
+    ],
+    "crane_grappler_destination_3d": [
+     "AgriculturalTower"
+    ],
+    "create_cargo_pod": [
+     "CargoLandingPad",
+     "RocketSilo",
+     "SpacePlatformHub"
+    ],
+    "created_by_corpse": [
+     "EntityGhost"
+    ],
+    "damage": [
+     "EntityWithHealth"
+    ],
+    "damage_dealt": [
+     "Turret"
+    ],
+    "deplete": [
+     "ResourceEntity"
+    ],
+    "disabled_by_control_behavior": [
+     "UpdatableEntity"
+    ],
+    "disabled_by_recipe": [
+     "UpdatableEntity"
+    ],
+    "disabled_by_script": [
+     "UpdatableEntity"
+    ],
+    "disconnect_linked_belts": [
+     "LinkedBelt"
+    ],
+    "disconnect_rolling_stock": [
+     "RollingStock"
+    ],
+    "display_panel_always_show": [
+     "DisplayPanel"
+    ],
+    "display_panel_icon": [
+     "DisplayPanel"
+    ],
+    "display_panel_show_in_chart": [
+     "DisplayPanel"
+    ],
+    "display_panel_text": [
+     "DisplayPanel"
+    ],
+    "draw_data": [
+     "RollingStock"
+    ],
+    "driver_is_gunner": [
+     "Car",
+     "SpiderVehicle"
+    ],
+    "effective_speed": [
+     "Unit"
+    ],
+    "effectivity_modifier": [
+     "Car"
+    ],
+    "electric_interface_mode": [
+     "ElectricEnergyInterface"
+    ],
+    "electric_network_statistics": [
+     "ElectricPole"
+    ],
+    "enable_logistics_while_moving": [
+     "Vehicle"
+    ],
+    "energy_generated_last_tick": [
+     "Generator"
+    ],
+    "follow_offset": [
+     "SpiderVehicle"
+    ],
+    "follow_target": [
+     "SpiderVehicle"
+    ],
+    "force_finish_ascending": [
+     "CargoPod"
+    ],
+    "force_finish_descending": [
+     "CargoPod"
+    ],
+    "friction_modifier": [
+     "Car"
+    ],
+    "frozen": [
+     "FreezableEntity"
+    ],
+    "get_beacon_effect_receivers": [
+     "Beacon"
+    ],
+    "get_beam_source": [
+     "Beam"
+    ],
+    "get_beam_target": [
+     "Beam"
+    ],
+    "get_cargo_bays": [
+     "CargoLandingPad",
+     "SpacePlatformHub"
+    ],
+    "get_child_signals": [
+     "RailChainSignal"
+    ],
+    "get_connected_rail": [
+     "Rail"
+    ],
+    "get_connected_rails": [
+     "RailChainSignal",
+     "RailSignal"
+    ],
+    "get_connected_rolling_stock": [
+     "RollingStock"
+    ],
+    "get_driver": [
+     "Vehicle"
+    ],
+    "get_fluid_source_fluid": [
+     "OffshorePump"
+    ],
+    "get_fluid_source_tile": [
+     "OffshorePump"
+    ],
+    "get_heat_setting": [
+     "HeatInterface"
+    ],
+    "get_inbound_signals": [
+     "Rail"
+    ],
+    "get_infinity_container_filter": [
+     "InfinityCargoWagon",
+     "InfinityContainer"
+    ],
+    "get_infinity_pipe_filter": [
+     "InfinityPipe"
+    ],
+    "get_inventory_size_override": [
+     "CargoWagon",
+     "ContainerEntity"
+    ],
+    "get_item_insert_specification": [
+     "TransportBeltConnectable"
+    ],
+    "get_line_item_position": [
+     "TransportBeltConnectable"
+    ],
+    "get_market_items": [
+     "Market"
+    ],
+    "get_max_transport_line_index": [
+     "TransportBeltConnectable"
+    ],
+    "get_movement": [
+     "Asteroid",
+     "CombatRobot"
+    ],
+    "get_outbound_signals": [
+     "Rail"
+    ],
+    "get_parent_signals": [
+     "RailChainSignal",
+     "RailSignal"
+    ],
+    "get_passenger": [
+     "Car",
+     "CargoPod",
+     "SpiderVehicle"
+    ],
+    "get_rail_end": [
+     "Rail"
+    ],
+    "get_rail_segment_end": [
+     "Rail"
+    ],
+    "get_rail_segment_length": [
+     "Rail"
+    ],
+    "get_rail_segment_overlaps": [
+     "Rail"
+    ],
+    "get_rail_segment_rails": [
+     "Rail"
+    ],
+    "get_rail_segment_signal": [
+     "Rail"
+    ],
+    "get_rail_segment_stop": [
+     "Rail"
+    ],
+    "get_recipe": [
+     "CraftingMachine"
+    ],
+    "get_spider_legs": [
+     "SpiderVehicle"
+    ],
+    "get_stopped_train": [
+     "TrainStop"
+    ],
+    "get_stored_durability": [
+     "Lab"
+    ],
+    "get_train_stop_trains": [
+     "TrainStop"
+    ],
+    "get_transport_line": [
+     "TransportBeltConnectable"
+    ],
+    "ghost_has_flag": [
+     "EntityGhost"
+    ],
+    "ghost_localised_description": [
+     "Ghost"
+    ],
+    "ghost_localised_name": [
+     "Ghost"
+    ],
+    "ghost_name": [
+     "Ghost"
+    ],
+    "ghost_prototype": [
+     "Ghost"
+    ],
+    "ghost_type": [
+     "Ghost"
+    ],
+    "ghost_unit_number": [
+     "EntityGhost"
+    ],
+    "held_stack": [
+     "Inserter"
+    ],
+    "held_stack_position": [
+     "Inserter"
+    ],
+    "highlight_box_blink_interval": [
+     "HighlightBox"
+    ],
+    "highlight_box_type": [
+     "HighlightBox"
+    ],
+    "ignore_unprioritised_targets": [
+     "Turret"
+    ],
+    "infinity_container_filters": [
+     "InfinityCargoWagon",
+     "InfinityContainer"
+    ],
+    "initial_amount": [
+     "ResourceEntity"
+    ],
+    "input_flow_limit": [
+     "ElectricEnergyInterface"
+    ],
+    "insert_plan": [
+     "EntityGhost",
+     "ItemRequestProxy"
+    ],
+    "inserter_filter_mode": [
+     "Inserter"
+    ],
+    "inserter_spoil_priority": [
+     "Inserter"
+    ],
+    "inserter_stack_size_override": [
+     "Inserter"
+    ],
+    "inserter_target_pickup_count": [
+     "Inserter"
+    ],
+    "is_closed": [
+     "Gate"
+    ],
+    "is_closing": [
+     "Gate"
+    ],
+    "is_crafting": [
+     "CraftingMachine"
+    ],
+    "is_headed_to_trains_front": [
+     "RollingStock"
+    ],
+    "is_opened": [
+     "Gate"
+    ],
+    "is_opening": [
+     "Gate"
+    ],
+    "is_rail_in_same_rail_block_as": [
+     "Rail"
+    ],
+    "is_rail_in_same_rail_segment_as": [
+     "Rail"
+    ],
+    "kills": [
+     "Turret"
+    ],
+    "last_user": [
+     "DeconstructibleTileProxy",
+     "EntityWithOwner",
+     "TileGhost"
+    ],
+    "launch_rocket": [
+     "RocketSilo"
+    ],
+    "link_id": [
+     "LinkedContainer"
+    ],
+    "linked_belt_neighbour": [
+     "LinkedBelt"
+    ],
+    "linked_belt_type": [
+     "LinkedBelt"
+    ],
+    "loader_belt_stack_size_override": [
+     "Loader"
+    ],
+    "loader_container": [
+     "Loader"
+    ],
+    "loader_filter_mode": [
+     "Loader"
+    ],
+    "loader_type": [
+     "Loader"
+    ],
+    "mining_area": [
+     "MiningDrill"
+    ],
+    "mining_drill_filter_mode": [
+     "MiningDrill"
+    ],
+    "mining_target": [
+     "MiningDrill"
+    ],
+    "neighbour_bonus": [
+     "Reactor"
+    ],
+    "neighbour_connectable_connections": [
+     "FusionReactor",
+     "Reactor"
+    ],
+    "output_flow_limit": [
+     "ElectricEnergyInterface"
+    ],
+    "override_logistic_mode": [
+     "InfinityContainer"
+    ],
+    "owned_plants": [
+     "AgriculturalTower"
+    ],
+    "parameters": [
+     "ProgrammableSpeaker"
+    ],
+    "pickup_from_left_lane": [
+     "Inserter"
+    ],
+    "pickup_from_right_lane": [
+     "Inserter"
+    ],
+    "pickup_position": [
+     "Inserter"
+    ],
+    "pickup_target": [
+     "Inserter"
+    ],
+    "play_note": [
+     "ProgrammableSpeaker"
+    ],
+    "player": [
+     "Character"
+    ],
+    "power_production": [
+     "ElectricEnergyInterface"
+    ],
+    "power_switch_state": [
+     "PowerSwitch"
+    ],
+    "power_usage": [
+     "ElectricEnergyInterface"
+    ],
+    "previous_recipe": [
+     "Furnace"
+    ],
+    "priority_targets": [
+     "Turret"
+    ],
+    "procession_tick": [
+     "CargoPod"
+    ],
+    "products_finished": [
+     "CraftingMachine"
+    ],
+    "providing_to_other_platforms": [
+     "SpacePlatformHub"
+    ],
+    "proxy_target": [
+     "ItemRequestProxy"
+    ],
+    "proxy_target_entity": [
+     "ProxyContainer"
+    ],
+    "proxy_target_inventory": [
+     "ProxyContainer"
+    ],
+    "pump_input_rail_targets": [
+     "Pump"
+    ],
+    "pump_output_rail_targets": [
+     "Pump"
+    ],
+    "pumped_last_tick": [
+     "OffshorePump",
+     "Pump"
+    ],
+    "radar_scan_progress": [
+     "Radar"
+    ],
+    "rail_layer": [
+     "RailChainSignal",
+     "RailSignal"
+    ],
+    "rail_length": [
+     "Rail"
+    ],
+    "recipe_locked": [
+     "AssemblingMachine"
+    ],
+    "register_tree": [
+     "AgriculturalTower"
+    ],
+    "release_from_spawner": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "removal_plan": [
+     "ItemRequestProxy"
+    ],
+    "remove_market_item": [
+     "Market"
+    ],
+    "remove_unfiltered_items": [
+     "InfinityCargoWagon",
+     "InfinityContainer"
+    ],
+    "request_missing_construction_materials": [
+     "SpacePlatformHub"
+    ],
+    "request_to_close": [
+     "Gate"
+    ],
+    "request_to_open": [
+     "Gate"
+    ],
+    "result_quality": [
+     "CraftingMachine"
+    ],
+    "revive": [
+     "Ghost"
+    ],
+    "robot_order_queue": [
+     "ConstructionRobot",
+     "LogisticRobot"
+    ],
+    "rocket_parts": [
+     "RocketSilo"
+    ],
+    "rocket_silo_status": [
+     "RocketSilo"
+    ],
+    "saved_request_filters": [
+     "InfinityContainer"
+    ],
+    "saved_request_from_buffers": [
+     "InfinityContainer"
+    ],
+    "saved_set_requests": [
+     "InfinityContainer"
+    ],
+    "saved_storage_filters": [
+     "InfinityContainer"
+    ],
+    "script_reservations_count": [
+     "TrainStop"
+    ],
+    "segmented_unit": [
+     "Segment"
+    ],
+    "selected_gun_index": [
+     "Car",
+     "Character",
+     "SpiderVehicle"
+    ],
+    "send_to_orbit_automatically": [
+     "RocketSilo"
+    ],
+    "set_beam_source": [
+     "Beam"
+    ],
+    "set_beam_target": [
+     "Beam"
+    ],
+    "set_driver": [
+     "Vehicle"
+    ],
+    "set_heat_setting": [
+     "HeatInterface"
+    ],
+    "set_infinity_container_filter": [
+     "InfinityCargoWagon",
+     "InfinityContainer"
+    ],
+    "set_infinity_pipe_filter": [
+     "InfinityPipe"
+    ],
+    "set_inventory_size_override": [
+     "CargoWagon",
+     "ContainerEntity"
+    ],
+    "set_movement": [
+     "Asteroid",
+     "CombatRobot"
+    ],
+    "set_passenger": [
+     "Car",
+     "CargoPod",
+     "SpiderVehicle"
+    ],
+    "set_recipe": [
+     "AssemblingMachine"
+    ],
+    "set_stored_durability": [
+     "Lab"
+    ],
+    "shooting_target": [
+     "Turret"
+    ],
+    "signal_state": [
+     "RailChainSignal",
+     "RailSignal"
+    ],
+    "silent_revive": [
+     "Ghost"
+    ],
+    "spawn_shift": [
+     "Spawner"
+    ],
+    "spawning_cooldown": [
+     "Spawner"
+    ],
+    "splitter_filter": [
+     "LaneSplitter",
+     "Splitter"
+    ],
+    "splitter_input_priority": [
+     "LaneSplitter",
+     "Splitter"
+    ],
+    "splitter_output_priority": [
+     "LaneSplitter",
+     "Splitter"
+    ],
+    "stack": [
+     "ItemEntity"
+    ],
+    "start_fading_out": [
+     "SpeechBubble"
+    ],
+    "sticked_to": [
+     "Sticker"
+    ],
+    "stop_spider": [
+     "SpiderVehicle"
+    ],
+    "tick_grown": [
+     "Plant"
+    ],
+    "tick_of_last_attack": [
+     "Character"
+    ],
+    "tick_of_last_damage": [
+     "Character"
+    ],
+    "time_to_live": [
+     "CombatRobot",
+     "HighlightBox",
+     "Smoke",
+     "Sticker"
+    ],
+    "time_to_next_effect": [
+     "SmokeWithTrigger"
+    ],
+    "timeout": [
+     "LandMine"
+    ],
+    "to_be_looted": [
+     "ItemEntity"
+    ],
+    "torso_orientation": [
+     "SpiderVehicle"
+    ],
+    "train_reservations_count": [
+     "TrainStop"
+    ],
+    "train_stop_priority": [
+     "TrainStop"
+    ],
+    "trains_count": [
+     "TrainStop"
+    ],
+    "trains_in_block": [
+     "Rail"
+    ],
+    "trains_limit": [
+     "TrainStop"
+    ],
+    "transitional_request_target": [
+     "RocketSilo"
+    ],
+    "tree_color_index": [
+     "Tree"
+    ],
+    "tree_color_index_max": [
+     "Tree"
+    ],
+    "tree_gray_stage_index": [
+     "Tree"
+    ],
+    "tree_gray_stage_index_max": [
+     "Tree"
+    ],
+    "tree_stage_index": [
+     "Tree"
+    ],
+    "tree_stage_index_max": [
+     "Tree"
+    ],
+    "underground_belt_neighbour": [
+     "UndergroundBelt"
+    ],
+    "units": [
+     "Spawner"
+    ],
+    "use_filters": [
+     "Inserter"
+    ],
+    "use_transitional_requests": [
+     "RocketSilo"
+    ],
+    "valve_threshold_override": [
+     "Valve"
+    ],
+    "vehicle_automatic_targeting_parameters": [
+     "SpiderVehicle"
+    ],
+    "wall_neighbours": [
+     "Gate",
+     "Wall"
+    ]
+   },
    "attributes": [
     "absorbed_pollution",
     "active",
@@ -703,6 +1526,1736 @@
    "parent": "LuaControl"
   },
   "LuaEntityPrototype": {
+   "applicability": {
+    "absorptions_per_second": [
+     "Spawner"
+    ],
+    "absorptions_to_join_attack": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "acceleration": [
+     "Projectile"
+    ],
+    "acceleration_rate": [
+     "SegmentedUnit"
+    ],
+    "accepted_seeds": [
+     "AgriculturalTower"
+    ],
+    "action": [
+     "SmokeWithTrigger"
+    ],
+    "action_cooldown": [
+     "SmokeWithTrigger"
+    ],
+    "action_triggered_automatically": [
+     "Beam"
+    ],
+    "activation_buffer_ratio": [
+     "FluidTurret"
+    ],
+    "activation_distance": [
+     "Gate"
+    ],
+    "active_energy_usage": [
+     "Combinator",
+     "RocketSilo"
+    ],
+    "add_fuel_cooldown": [
+     "Fire"
+    ],
+    "affected_by_tiles": [
+     "Unit"
+    ],
+    "agricultural_tower_radius": [
+     "AgriculturalTower"
+    ],
+    "ai_settings": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "air_resistance": [
+     "RollingStock"
+    ],
+    "alarm_trigger": [
+     "RocketSilo"
+    ],
+    "alert_after_time": [
+     "TemporaryContainer"
+    ],
+    "alert_when_attacking": [
+     "ArtilleryTurret",
+     "Turret"
+    ],
+    "alert_when_damaged": [
+     "EntityWithHealth"
+    ],
+    "allow_access_to_all_forces": [
+     "Market"
+    ],
+    "allow_blueprint_connection": [
+     "LinkedBelt"
+    ],
+    "allow_burner_leech": [
+     "Inserter"
+    ],
+    "allow_clone_connection": [
+     "LinkedBelt"
+    ],
+    "allow_container_interaction": [
+     "Loader"
+    ],
+    "allow_custom_vectors": [
+     "Inserter"
+    ],
+    "allow_manual_color": [
+     "RollingStock"
+    ],
+    "allow_passengers": [
+     "Vehicle"
+    ],
+    "allow_rail_interaction": [
+     "Loader"
+    ],
+    "allow_robot_dispatch_in_automatic_mode": [
+     "RollingStock"
+    ],
+    "allow_run_time_change_of_is_military_target": [
+     "EntityWithOwner"
+    ],
+    "allow_side_loading": [
+     "LinkedBelt"
+    ],
+    "allow_turning_when_starting_attack": [
+     "Turret"
+    ],
+    "allow_unloading": [
+     "CargoBay"
+    ],
+    "always_on": [
+     "Lamp"
+    ],
+    "ammo_category": [
+     "LandMine"
+    ],
+    "ammo_stack_limit": [
+     "ArtilleryTurret",
+     "ArtilleryWagon"
+    ],
+    "animation_speed_coefficient": [
+     "BeltConnectable"
+    ],
+    "arm_angular_speed_cap_base": [
+     "AsteroidCollector"
+    ],
+    "arm_angular_speed_cap_quality_scaling": [
+     "AsteroidCollector"
+    ],
+    "arm_color_gradient": [
+     "AsteroidCollector"
+    ],
+    "arm_count_base": [
+     "AsteroidCollector"
+    ],
+    "arm_count_quality_scaling": [
+     "AsteroidCollector"
+    ],
+    "arm_energy_usage": [
+     "AsteroidCollector"
+    ],
+    "arm_inventory_size_quality_increase": [
+     "AsteroidCollector"
+    ],
+    "arm_slow_energy_usage": [
+     "AsteroidCollector"
+    ],
+    "arm_speed_base": [
+     "AsteroidCollector"
+    ],
+    "arm_speed_quality_scaling": [
+     "AsteroidCollector"
+    ],
+    "arms_speed_modifier_per_quality_level": [
+     "RocketSilo"
+    ],
+    "attach_to_target": [
+     "SmokeWithTrigger"
+    ],
+    "attack_reaction": [
+     "EntityWithHealth"
+    ],
+    "attack_target_mask": [
+     "Turret"
+    ],
+    "attacking_speed": [
+     "SegmentedUnit"
+    ],
+    "attractor_hit_effect": [
+     "Lightning"
+    ],
+    "auto_connect_up_to_n_wires": [
+     "ElectricPole"
+    ],
+    "auto_setup_collision_box": [
+     "Corpse"
+    ],
+    "auto_sort_inventory": [
+     "Car"
+    ],
+    "automated_ammo_count": [
+     "AmmoTurret",
+     "ArtilleryTurret",
+     "ArtilleryWagon"
+    ],
+    "automatic_weapon_cycling": [
+     "SpiderVehicle"
+    ],
+    "beacon_counter": [
+     "Beacon"
+    ],
+    "belt_distance": [
+     "Loader"
+    ],
+    "belt_length": [
+     "Loader"
+    ],
+    "belt_speed": [
+     "TransportBeltConnectable"
+    ],
+    "boiler_mode": [
+     "Boiler"
+    ],
+    "braking_force": [
+     "Vehicle"
+    ],
+    "build_distance": [
+     "Character"
+    ],
+    "bulk": [
+     "Inserter"
+    ],
+    "burns_fluid": [
+     "FusionGenerator",
+     "Generator"
+    ],
+    "call_for_help_radius": [
+     "Spawner",
+     "Turret"
+    ],
+    "can_launch_without_landing_pads": [
+     "RocketSilo"
+    ],
+    "can_open_gates": [
+     "Unit"
+    ],
+    "can_retarget_while_starting_attack": [
+     "Turret"
+    ],
+    "cant_insert_at_source_message_key": [
+     "Furnace"
+    ],
+    "capture_speed": [
+     "CaptureRobot"
+    ],
+    "captured_spawner_entity": [
+     "Spawner"
+    ],
+    "cargo_pod_entity": [
+     "RocketSiloRocket"
+    ],
+    "cargo_station_parameters": [
+     "CargoLandingPad",
+     "SpacePlatformHub"
+    ],
+    "chain_shooting_cooldown_modifier": [
+     "SpiderVehicle"
+    ],
+    "character_corpse": [
+     "Character"
+    ],
+    "chunk_exploration_radius": [
+     "Vehicle"
+    ],
+    "clamps_off_trigger": [
+     "RocketSilo"
+    ],
+    "clamps_on_trigger": [
+     "RocketSilo"
+    ],
+    "cliff_explosive_prototype": [
+     "Cliff"
+    ],
+    "cliff_removal_probability": [
+     "ResourceEntity"
+    ],
+    "close_door_trigger_effect": [
+     "Roboport"
+    ],
+    "collection_box_offset": [
+     "AsteroidCollector"
+    ],
+    "collision_mask_allow_on_deep_oil_ocean": [
+     "RailRamp",
+     "RailSupport"
+    ],
+    "combat_robot_friction": [
+     "CombatRobot"
+    ],
+    "connectable_box": [
+     "CargoBay",
+     "CargoLandingPad"
+    ],
+    "connection_category": [
+     "FluidWagon"
+    ],
+    "connection_distance": [
+     "RollingStock"
+    ],
+    "connects_to_other_radars": [
+     "Radar"
+    ],
+    "construction_radius": [
+     "Roboport"
+    ],
+    "consumption": [
+     "Car"
+    ],
+    "container_distance": [
+     "Loader"
+    ],
+    "corpses": [
+     "EntityWithHealth"
+    ],
+    "count_as_rock_for_filtered_deconstruction": [
+     "SimpleEntity"
+    ],
+    "crafting_categories": [
+     "Character",
+     "CraftingMachine"
+    ],
+    "crafting_speed_quality_multiplier": [
+     "CraftingMachine"
+    ],
+    "crane_energy_usage": [
+     "AgriculturalTower"
+    ],
+    "creation_shift": [
+     "ArtilleryFlare"
+    ],
+    "custom_input_slot_tooltip_key": [
+     "Furnace"
+    ],
+    "damage": [
+     "Lightning",
+     "Sticker"
+    ],
+    "damage_hit_tint": [
+     "Character"
+    ],
+    "damage_interval": [
+     "Beam",
+     "Sticker"
+    ],
+    "damage_multiplier_decrease_per_tick": [
+     "Fire"
+    ],
+    "damage_multiplier_increase_per_added_fuel": [
+     "Fire"
+    ],
+    "damage_per_hp": [
+     "Asteroid"
+    ],
+    "damage_per_tick": [
+     "Fire"
+    ],
+    "damaged_trigger_effect": [
+     "EntityWithHealth"
+    ],
+    "darkness_for_all_lamps_off": [
+     "Lamp"
+    ],
+    "darkness_for_all_lamps_on": [
+     "Lamp"
+    ],
+    "default_available_construction_output_signal": [
+     "Roboport"
+    ],
+    "default_available_logistic_output_signal": [
+     "Roboport"
+    ],
+    "default_blue_output_signal": [
+     "RailSignalBase"
+    ],
+    "default_blue_signal": [
+     "Lamp"
+    ],
+    "default_copy_color_from_train_stop": [
+     "RollingStock"
+    ],
+    "default_day_length_output_signal": [
+     "SelectorCombinator"
+    ],
+    "default_day_tick_output_signal": [
+     "SelectorCombinator"
+    ],
+    "default_game_tick_output_signal": [
+     "SelectorCombinator"
+    ],
+    "default_green_output_signal": [
+     "RailSignalBase"
+    ],
+    "default_green_signal": [
+     "Lamp"
+    ],
+    "default_orange_output_signal": [
+     "RailSignalBase"
+    ],
+    "default_output_signal": [
+     "Accumulator"
+    ],
+    "default_recipe_finished_signal": [
+     "AssemblingMachine"
+    ],
+    "default_red_output_signal": [
+     "RailSignalBase"
+    ],
+    "default_red_signal": [
+     "Lamp"
+    ],
+    "default_rgb_signal": [
+     "Lamp"
+    ],
+    "default_roboport_count_output_signal": [
+     "Roboport"
+    ],
+    "default_stack_control_input_signal": [
+     "Inserter"
+    ],
+    "default_status": [
+     "Container"
+    ],
+    "default_technology_level_signal": [
+     "Lab"
+    ],
+    "default_temperature_signal": [
+     "Reactor"
+    ],
+    "default_total_construction_output_signal": [
+     "Roboport"
+    ],
+    "default_total_logistic_output_signal": [
+     "Roboport"
+    ],
+    "default_universe_channel": [
+     "Radar"
+    ],
+    "default_working_signal": [
+     "AssemblingMachine"
+    ],
+    "delay_between_initial_flames": [
+     "Fire"
+    ],
+    "deposit_radius": [
+     "AsteroidCollector"
+    ],
+    "destroy_action": [
+     "CaptureRobot",
+     "CombatRobot",
+     "RobotWithLogisticInterface"
+    ],
+    "destroy_non_fuel_fluid": [
+     "Generator"
+    ],
+    "destroy_on_empty": [
+     "TemporaryContainer"
+    ],
+    "direction_count": [
+     "Container"
+    ],
+    "direction_only": [
+     "Projectile"
+    ],
+    "disable_automatic_firing": [
+     "ArtilleryTurret",
+     "ArtilleryWagon"
+    ],
+    "disabled_when_recipe_not_researched": [
+     "AssemblingMachine"
+    ],
+    "distraction_cooldown": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "distribution_effectivity": [
+     "Beacon"
+    ],
+    "distribution_effectivity_bonus_per_quality_level": [
+     "Beacon"
+    ],
+    "door_opening_speed": [
+     "RocketSilo"
+    ],
+    "doors_trigger": [
+     "RocketSilo"
+    ],
+    "draw_cargo": [
+     "RobotWithLogisticsInterface"
+    ],
+    "drive_over_elevated_tie_trigger": [
+     "RollingStock"
+    ],
+    "drive_over_tie_trigger": [
+     "RollingStock"
+    ],
+    "drive_over_tie_trigger_minimal_speed": [
+     "RollingStock"
+    ],
+    "drop_item_distance": [
+     "Character"
+    ],
+    "drops_full_belt_stacks": [
+     "MiningDrill"
+    ],
+    "dying_explosion": [
+     "EntityWithHealth"
+    ],
+    "dying_speed": [
+     "Corpse"
+    ],
+    "dying_trigger_effect": [
+     "EntityWithHealth"
+    ],
+    "early_death_ticks": [
+     "ArtilleryFlare"
+    ],
+    "effect_duration": [
+     "Lightning"
+    ],
+    "effect_receiver": [
+     "AgriculturalTower",
+     "CraftingMachine",
+     "Lab",
+     "MiningDrill"
+    ],
+    "effectivity": [
+     "Car",
+     "FusionGenerator",
+     "Generator"
+    ],
+    "elevated_collision_mask": [
+     "RailSignalBase",
+     "RollingStock"
+    ],
+    "elevated_selection_boxes": [
+     "RailSupport"
+    ],
+    "elevated_selection_priority": [
+     "RailSignalBase",
+     "RollingStock"
+    ],
+    "ended_in_water_trigger_effect": [
+     "ArtilleryFlare"
+    ],
+    "energy": [
+     "Lightning"
+    ],
+    "energy_fraction_to_connect": [
+     "Radar"
+    ],
+    "energy_fraction_to_disconnect": [
+     "Radar"
+    ],
+    "energy_per_hit_point": [
+     "Vehicle"
+    ],
+    "energy_per_item": [
+     "Loader"
+    ],
+    "energy_per_move": [
+     "FlyingRobot"
+    ],
+    "energy_per_movement": [
+     "Inserter"
+    ],
+    "energy_per_nearby_scan": [
+     "Radar"
+    ],
+    "energy_per_rotation": [
+     "Inserter"
+    ],
+    "energy_per_sector": [
+     "Radar"
+    ],
+    "energy_per_shot": [
+     "AmmoTurret"
+    ],
+    "energy_per_tick": [
+     "FlyingRobot"
+    ],
+    "energy_usage_quality_multiplier": [
+     "CraftingMachine"
+    ],
+    "energy_usage_quality_scaling": [
+     "AsteroidCollector"
+    ],
+    "engine_starting_speed": [
+     "RocketSiloRocket"
+    ],
+    "enraged_duration": [
+     "SegmentedUnit"
+    ],
+    "enraged_speed": [
+     "SegmentedUnit"
+    ],
+    "enter_drop_mode_if_held_stack_spoiled": [
+     "Inserter"
+    ],
+    "enter_vehicle_distance": [
+     "Character"
+    ],
+    "erase_contents_when_mined": [
+     "InfinityCargoWagon",
+     "InfinityChest"
+    ],
+    "expires": [
+     "Corpse"
+    ],
+    "explosion_beam": [
+     "Explosion"
+    ],
+    "explosion_effect": [
+     "Explosion"
+    ],
+    "explosion_rotate": [
+     "Explosion"
+    ],
+    "filter_count": [
+     "Inserter",
+     "Loader",
+     "LogisticContainer",
+     "MiningDrill",
+     "Roboport"
+    ],
+    "final_attack_result": [
+     "ArtilleryProjectile",
+     "Projectile"
+    ],
+    "fire_spread_cooldown": [
+     "Sticker"
+    ],
+    "fire_spread_entity": [
+     "Sticker"
+    ],
+    "fire_spread_radius": [
+     "Sticker"
+    ],
+    "fixed_quality": [
+     "AssemblingMachine"
+    ],
+    "fixed_recipe": [
+     "AssemblingMachine"
+    ],
+    "flow_scaling": [
+     "Pump"
+    ],
+    "fluid_boxes_off_when_no_fluid_recipe": [
+     "AssemblingMachine"
+    ],
+    "fluid_buffer_input_flow": [
+     "FluidTurret"
+    ],
+    "fluid_buffer_size": [
+     "FluidTurret"
+    ],
+    "fluid_source_offset": [
+     "OffshorePump"
+    ],
+    "fluid_wagon_connector_speed": [
+     "Pump"
+    ],
+    "fluid_wagon_tank_valve_max_distance": [
+     "Pump"
+    ],
+    "flying_acceleration": [
+     "RocketSiloRocket"
+    ],
+    "flying_collision_mask": [
+     "Character"
+    ],
+    "flying_speed": [
+     "RocketSiloRocket"
+    ],
+    "flying_trigger": [
+     "RocketSiloRocket"
+    ],
+    "folded_turret_corpses": [
+     "Turret"
+    ],
+    "follows_player": [
+     "CombatRobot"
+    ],
+    "footprint_particles": [
+     "Character"
+    ],
+    "footstep_particle_triggers": [
+     "Character"
+    ],
+    "force_die_on_attack": [
+     "Landmine"
+    ],
+    "force_visibility": [
+     "Projectile",
+     "SimpleEntityWithOwner",
+     "Sticker"
+    ],
+    "friction_force": [
+     "Vehicle"
+    ],
+    "get_attraction_range_elongation": [
+     "LightningAttractor"
+    ],
+    "get_crafting_speed": [
+     "Character",
+     "CraftingMachine"
+    ],
+    "get_duration": [
+     "Sticker"
+    ],
+    "get_energy_distribution_efficiency": [
+     "LightningAttractor"
+    ],
+    "get_fluid_usage_per_tick": [
+     "FusionGenerator",
+     "FusionReactor",
+     "Generator"
+    ],
+    "get_inserter_extension_speed": [
+     "Inserter"
+    ],
+    "get_inserter_rotation_speed": [
+     "Inserter"
+    ],
+    "get_inventory_size_bonus": [
+     "CargoBay"
+    ],
+    "get_max_distance_of_nearby_sector_revealed": [
+     "CargoLandingPad",
+     "Radar"
+    ],
+    "get_max_distance_of_sector_revealed": [
+     "Radar"
+    ],
+    "get_max_energy": [
+     "FlyingRobot"
+    ],
+    "get_max_power_output": [
+     "BurnerGenerator",
+     "Generator"
+    ],
+    "get_max_speed": [
+     "RollingStock"
+    ],
+    "get_mining_drill_radius": [
+     "MiningDrill"
+    ],
+    "get_pumping_speed": [
+     "OffshorePump",
+     "Pump"
+    ],
+    "get_researching_speed": [
+     "Lab"
+    ],
+    "get_supply_area_distance": [
+     "Beacon",
+     "ElectricPole"
+    ],
+    "get_valve_flow_rate": [
+     "Valve"
+    ],
+    "grab_less_to_match_belt_stack": [
+     "Inserter"
+    ],
+    "grid_offset": [
+     "Cliff"
+    ],
+    "grid_size": [
+     "Cliff"
+    ],
+    "grounded_landing_search_radius": [
+     "Character"
+    ],
+    "growth_area_radius": [
+     "AgriculturalTower"
+    ],
+    "growth_grid_tile_size": [
+     "AgriculturalTower"
+    ],
+    "growth_ticks": [
+     "Plant"
+    ],
+    "gui_mode": [
+     "HeatInterface",
+     "InfinityCargoWagon",
+     "InfinityContainer",
+     "InfinityPipe",
+     "LinkedContainer"
+    ],
+    "gui_title_key": [
+     "AssemblingMachine"
+    ],
+    "harvest_emissions": [
+     "Plant"
+    ],
+    "has_belt_immunity": [
+     "Car",
+     "Character",
+     "Unit"
+    ],
+    "has_direction": [
+     "CargoBay"
+    ],
+    "hatch_definitions": [
+     "CargoBay"
+    ],
+    "head_collection_radius": [
+     "AsteroidCollector"
+    ],
+    "heating_radius": [
+     "HeatInterface",
+     "HeatPipe",
+     "Reactor"
+    ],
+    "height": [
+     "Projectile",
+     "SpiderUnit",
+     "SpiderVehicle"
+    ],
+    "height_from_ground": [
+     "ArtilleryProjectile"
+    ],
+    "held_items_display_count": [
+     "AsteroidCollector"
+    ],
+    "held_items_offset": [
+     "AsteroidCollector"
+    ],
+    "held_items_spread": [
+     "AsteroidCollector"
+    ],
+    "hide_resistances": [
+     "EntityWithHealth"
+    ],
+    "hit_at_collision_position": [
+     "Projectile"
+    ],
+    "hit_collision_mask": [
+     "Projectile"
+    ],
+    "ignore_target_mask": [
+     "Turret"
+    ],
+    "immune_to_all_impacts": [
+     "Car"
+    ],
+    "immune_to_cliff_impacts": [
+     "Car"
+    ],
+    "immune_to_rock_impacts": [
+     "Car"
+    ],
+    "immune_to_tree_impacts": [
+     "Car"
+    ],
+    "indexed_guns": [
+     "ArtilleryTurret",
+     "ArtilleryWagon",
+     "Car",
+     "SpiderVehicle"
+    ],
+    "infinite_depletion_resource_amount": [
+     "ResourceEntity"
+    ],
+    "infinite_resource": [
+     "ResourceEntity"
+    ],
+    "ingredient_count": [
+     "CraftingMachine"
+    ],
+    "initial_action": [
+     "Stream"
+    ],
+    "initial_flame_count": [
+     "Fire"
+    ],
+    "initial_height": [
+     "ArtilleryFlare"
+    ],
+    "initial_lifetime": [
+     "Fire"
+    ],
+    "initial_speed": [
+     "ArtilleryFlare"
+    ],
+    "initial_vertical_speed": [
+     "ArtilleryFlare"
+    ],
+    "input_connection_bounding_box": [
+     "Combinator"
+    ],
+    "inserter_chases_belt_items": [
+     "Inserter"
+    ],
+    "inserter_drop_position": [
+     "Inserter"
+    ],
+    "inserter_max_belt_stack_size": [
+     "Inserter"
+    ],
+    "inserter_pickup_position": [
+     "Inserter"
+    ],
+    "inserter_stack_size_bonus": [
+     "Inserter"
+    ],
+    "instruments": [
+     "ProgrammableSpeaker"
+    ],
+    "inventory_properties": [
+     "ContainerEntity",
+     "LinkedContainer"
+    ],
+    "inventory_size_quality_increase": [
+     "AsteroidCollector"
+    ],
+    "inventory_type": [
+     "ContainerEntity",
+     "LinkedContainer"
+    ],
+    "inventory_weight_limit": [
+     "ContainerEntity",
+     "LinkedContainer"
+    ],
+    "investigating_speed": [
+     "SegmentedUnit"
+    ],
+    "is_military_target": [
+     "EntityWithOwner"
+    ],
+    "item_pickup_distance": [
+     "Character"
+    ],
+    "joint_distance": [
+     "RollingStock"
+    ],
+    "lab_inputs": [
+     "Lab"
+    ],
+    "lamp_energy_usage": [
+     "RocketSilo"
+    ],
+    "launch_to_space_platforms": [
+     "RocketSilo"
+    ],
+    "launch_wait_time": [
+     "RocketSilo"
+    ],
+    "leave_attacking_if_shoot_fails": [
+     "Turret"
+    ],
+    "life_time": [
+     "ArtilleryFlare"
+    ],
+    "lifetime_increase_by": [
+     "Fire"
+    ],
+    "lifetime_increase_cooldown": [
+     "Fire"
+    ],
+    "lift_weight": [
+     "RocketSilo"
+    ],
+    "light_blinking_speed": [
+     "RocketSilo"
+    ],
+    "limit_overlapping_particles": [
+     "Fire"
+    ],
+    "loader_adjustable_belt_stack_size": [
+     "Loader"
+    ],
+    "loader_max_belt_stack_size": [
+     "Loader"
+    ],
+    "loader_respect_insert_limits": [
+     "Loader"
+    ],
+    "loader_wait_for_full_stack": [
+     "Loader"
+    ],
+    "logistic_mode": [
+     "LogisticContainer"
+    ],
+    "logistic_parameters": [
+     "Roboport"
+    ],
+    "logistic_radius": [
+     "Roboport"
+    ],
+    "loot": [
+     "EntityWithHealth"
+    ],
+    "loot_pickup_distance": [
+     "Character"
+    ],
+    "manual_range_modifier": [
+     "ArtilleryTurret",
+     "ArtilleryWagon"
+    ],
+    "map_grid": [
+     "ResourceEntity"
+    ],
+    "max_count_of_owned_defensive_units": [
+     "Spawner"
+    ],
+    "max_count_of_owned_units": [
+     "Spawner"
+    ],
+    "max_darkness_to_spawn": [
+     "Spawner"
+    ],
+    "max_defensive_friends_around_to_spawn": [
+     "Spawner"
+    ],
+    "max_friends_around_to_spawn": [
+     "Spawner"
+    ],
+    "max_item_product_count": [
+     "CraftingMachine"
+    ],
+    "max_payload_size": [
+     "RobotWithLogisticsInterface"
+    ],
+    "max_payload_size_after_bonus": [
+     "RobotWithLogisticsInterface"
+    ],
+    "max_performance": [
+     "ThrusterPrototype"
+    ],
+    "max_polyphony": [
+     "ProgrammableSpeaker"
+    ],
+    "max_pursue_distance": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "max_records_count": [
+     "DisplayPanel"
+    ],
+    "max_richness_for_spawn_shift": [
+     "Spawner"
+    ],
+    "max_separation_force": [
+     "CombatRobot"
+    ],
+    "max_snap_to_train_stop_distance": [
+     "Locomotive"
+    ],
+    "max_speed": [
+     "FlyingRobot",
+     "Projectile"
+    ],
+    "max_text_length": [
+     "DisplayPanel"
+    ],
+    "max_text_width": [
+     "DisplayPanel"
+    ],
+    "max_to_charge": [
+     "FlyingRobot"
+    ],
+    "max_underground_distance": [
+     "PipeToGround",
+     "UndergroundBelt"
+    ],
+    "maximum_corner_sliding_distance": [
+     "Character"
+    ],
+    "maximum_damage_multiplier": [
+     "Fire"
+    ],
+    "maximum_lifetime": [
+     "Fire"
+    ],
+    "maximum_spread_count": [
+     "Fire"
+    ],
+    "maximum_temperature": [
+     "Generator"
+    ],
+    "meltdown_action": [
+     "Reactor"
+    ],
+    "min_darkness_to_spawn": [
+     "Spawner"
+    ],
+    "min_performance": [
+     "ThrusterPrototype"
+    ],
+    "min_pursue_time": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "min_to_charge": [
+     "FlyingRobot"
+    ],
+    "minimal_arm_swing_segment_retraction": [
+     "AsteroidCollector"
+    ],
+    "minimum_resource_amount": [
+     "ResourceEntity"
+    ],
+    "mining_drill_radius": [
+     "MiningDrill"
+    ],
+    "mining_speed": [
+     "Character",
+     "MiningDrill"
+    ],
+    "module_slots_quality_bonus": [
+     "CraftingMachine"
+    ],
+    "move_while_shooting": [
+     "Unit"
+    ],
+    "movement_modifier": [
+     "ArtilleryFlare"
+    ],
+    "movement_modifier_when_on_ground": [
+     "ArtilleryFlare"
+    ],
+    "neighbour_bonus": [
+     "FusionReactor",
+     "Reactor"
+    ],
+    "neighbour_connectable": [
+     "FusionReactor",
+     "Reactor"
+    ],
+    "normal_resource_amount": [
+     "ResourceEntity"
+    ],
+    "not_buildable_if_no_rails": [
+     "RailSupport"
+    ],
+    "on_damage_tick_effect": [
+     "Fire"
+    ],
+    "on_fuel_added_action": [
+     "Fire"
+    ],
+    "open_door_trigger_effect": [
+     "Roboport"
+    ],
+    "opened_collision_mask": [
+     "Gate"
+    ],
+    "opening_speed": [
+     "Gate"
+    ],
+    "orientations": [
+     "Cliff"
+    ],
+    "output_connection_bounding_box": [
+     "Combinator"
+    ],
+    "overkill_fraction": [
+     "EntityWithHealth"
+    ],
+    "particle": [
+     "ParticleSource"
+    ],
+    "particle_buffer_size": [
+     "Stream"
+    ],
+    "particle_count": [
+     "SmokeWithTrigger"
+    ],
+    "particle_height": [
+     "ParticleSource"
+    ],
+    "particle_horizontal_speed": [
+     "ParticleSource"
+    ],
+    "particle_spawn_interval": [
+     "Stream"
+    ],
+    "particle_spawn_timeout": [
+     "Stream"
+    ],
+    "particle_time_before_start": [
+     "ParticleSource"
+    ],
+    "particle_time_to_live": [
+     "ParticleSource"
+    ],
+    "particle_vertical_acceleration": [
+     "Stream"
+    ],
+    "particle_vertical_speed": [
+     "ParticleSource"
+    ],
+    "passive_energy_usage": [
+     "AsteroidCollector"
+    ],
+    "patrolling_speed": [
+     "SegmentedUnit"
+    ],
+    "patrolling_turn_radius": [
+     "SegmentedUnit"
+    ],
+    "per_lane_filters": [
+     "Loader"
+    ],
+    "perceived_performance": [
+     "FusionReactor"
+    ],
+    "piercing_damage": [
+     "Projectile"
+    ],
+    "place_as_crater": [
+     "Cliff"
+    ],
+    "platform_repair_speed_modifier": [
+     "SpacePlatformHub"
+    ],
+    "platform_weight": [
+     "SpacePlatformHub"
+    ],
+    "prepare_with_no_ammo": [
+     "AmmoTurret"
+    ],
+    "preserve_contents_when_created": [
+     "InfinityCargoWagon",
+     "InfinityChest"
+    ],
+    "profile": [
+     "Beacon"
+    ],
+    "progress_to_create_smoke": [
+     "Stream"
+    ],
+    "pulse_duration": [
+     "ConstantCombinator"
+    ],
+    "quality_affects_capacity": [
+     "FluidWagon"
+    ],
+    "quality_affects_energy_usage": [
+     "CraftingMachine"
+    ],
+    "quality_affects_inventory_size": [
+     "CargoWagon",
+     "ContainerEntity"
+    ],
+    "quality_affects_max_speed": [
+     "RollingStock"
+    ],
+    "quality_affects_mining_radius": [
+     "MiningDrill"
+    ],
+    "quality_affects_module_slots": [
+     "Beacon",
+     "CraftingMachine",
+     "Lab",
+     "MiningDrill"
+    ],
+    "quality_affects_supply_area_distance": [
+     "Beacon"
+    ],
+    "radar_range": [
+     "Roboport",
+     "SpiderUnit",
+     "Unit"
+    ],
+    "raise_rocket_trigger": [
+     "RocketSilo"
+    ],
+    "random_corpse_variation": [
+     "EntityWithHealth"
+    ],
+    "random_growth_offset": [
+     "AgriculturalTower"
+    ],
+    "randomize_planting_tile": [
+     "AgriculturalTower"
+    ],
+    "range_from_player": [
+     "CombatRobot"
+    ],
+    "reach_distance": [
+     "Character"
+    ],
+    "reach_resource_distance": [
+     "Character"
+    ],
+    "recharge_minimum": [
+     "Roboport"
+    ],
+    "regular_trigger_effect": [
+     "ArtilleryFlare"
+    ],
+    "regular_trigger_effect_frequency": [
+     "ArtilleryFlare"
+    ],
+    "related_rail": [
+     "RailRemnants"
+    ],
+    "related_underground_belt": [
+     "TransportBelt"
+    ],
+    "remove_on_entity_placement": [
+     "Corpse"
+    ],
+    "remove_on_tile_collision": [
+     "OffshorePump"
+    ],
+    "remove_on_tile_placement": [
+     "Corpse"
+    ],
+    "repair_speed_modifier": [
+     "EntityWithHealth"
+    ],
+    "require_charge_to_mine": [
+     "RobotWithLogisticsInterface"
+    ],
+    "require_resources_to_place": [
+     "MiningDrill"
+    ],
+    "resistances": [
+     "EntityWithHealth"
+    ],
+    "resource_categories": [
+     "Character",
+     "MiningDrill"
+    ],
+    "resource_category": [
+     "ResourceEntity"
+    ],
+    "resource_drain_rate_percent": [
+     "MiningDrill"
+    ],
+    "resource_patch_search_radius": [
+     "ResourceEntity"
+    ],
+    "respawn_time": [
+     "Character"
+    ],
+    "result_units": [
+     "Spawner"
+    ],
+    "reveal_map": [
+     "ArtilleryProjectile"
+    ],
+    "revenge_attack_parameters": [
+     "SegmentedUnit"
+    ],
+    "reversing_power_modifier": [
+     "Locomotive"
+    ],
+    "rewire_neighbours_when_destroying": [
+     "ElectricPole"
+    ],
+    "rising_speed": [
+     "RocketSiloRocket"
+    ],
+    "rocket_dying_explosion": [
+     "RocketSiloRocket"
+    ],
+    "rocket_engine_starting_speed_modifier_per_quality_level": [
+     "RocketSilo"
+    ],
+    "rocket_entity_prototype": [
+     "RocketSilo"
+    ],
+    "rocket_parts_required": [
+     "RocketSilo"
+    ],
+    "rocket_parts_storage_cap": [
+     "RocketSilo"
+    ],
+    "rocket_quick_relaunch_start_offset": [
+     "RocketSilo"
+    ],
+    "rocket_rising_delay": [
+     "RocketSilo"
+    ],
+    "rocket_rising_speed_modifier_per_quality_level": [
+     "RocketSilo"
+    ],
+    "rotatable": [
+     "Projectile"
+    ],
+    "rotation_snap_angle": [
+     "Car"
+    ],
+    "rotation_speed": [
+     "Car"
+    ],
+    "running_speed": [
+     "Character"
+    ],
+    "scale_energy_usage": [
+     "Reactor"
+    ],
+    "scale_fluid_usage": [
+     "Generator"
+    ],
+    "science_pack_drain_rate_percent": [
+     "Lab"
+    ],
+    "search_radius": [
+     "CaptureRobot"
+    ],
+    "segment_engine": [
+     "SegmentedUnit"
+    ],
+    "separation_force_factor": [
+     "CombatRobot"
+    ],
+    "separation_range": [
+     "CombatRobot"
+    ],
+    "shadow_slave_entity": [
+     "CargoPod",
+     "RocketSiloRocket"
+    ],
+    "shoot_in_prepare_state": [
+     "Turret"
+    ],
+    "shot_category": [
+     "ArtilleryFlare"
+    ],
+    "shots_per_flare": [
+     "ArtilleryFlare"
+    ],
+    "should_ground_target": [
+     "Sticker"
+    ],
+    "shuffle_resources_to_mine": [
+     "MiningDrill"
+    ],
+    "smoke": [
+     "Explosion"
+    ],
+    "smoke_count": [
+     "Explosion"
+    ],
+    "smoke_sources": [
+     "Fire",
+     "Generator",
+     "ParticleSource",
+     "Projectile",
+     "Stream"
+    ],
+    "snap_to_spots_distance": [
+     "RailSupport"
+    ],
+    "solar_panel_performance_at_day": [
+     "SolarPanel"
+    ],
+    "solar_panel_performance_at_night": [
+     "SolarPanel"
+    ],
+    "solar_panel_solar_coefficient_property": [
+     "SolarPanel"
+    ],
+    "source_offset": [
+     "Lightning"
+    ],
+    "source_variance": [
+     "Lightning"
+    ],
+    "spawn_blocked_trigger": [
+     "Spawner"
+    ],
+    "spawn_cooldown": [
+     "Spawner"
+    ],
+    "spawn_decoration": [
+     "Spawner",
+     "Turret"
+    ],
+    "spawn_decorations_on_expansion": [
+     "Spawner",
+     "Turret"
+    ],
+    "spawn_entity": [
+     "Fire"
+    ],
+    "spawning_radius": [
+     "Spawner"
+    ],
+    "spawning_spacing": [
+     "Spawner"
+    ],
+    "spawning_time_modifier": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "special_neutral_target_damage": [
+     "Stream"
+    ],
+    "speed": [
+     "FlyingRobot",
+     "Unit"
+    ],
+    "speed_modifier": [
+     "Projectile"
+    ],
+    "speed_multiplier_when_out_of_energy": [
+     "FlyingRobot"
+    ],
+    "spent_fluid": [
+     "Generator"
+    ],
+    "spider_engine": [
+     "SpiderUnit",
+     "SpiderVehicle"
+    ],
+    "spread_delay": [
+     "Fire"
+    ],
+    "spread_delay_deviation": [
+     "Fire"
+    ],
+    "start_attacking_only_when_can_shoot": [
+     "Turret"
+    ],
+    "steering_settings": [
+     "SpiderUnit",
+     "Unit"
+    ],
+    "sticker_movement_modifiers": [
+     "Sticker"
+    ],
+    "sticker_vehicle_modifiers": [
+     "Sticker"
+    ],
+    "stickers_per_square_meter": [
+     "Sticker"
+    ],
+    "stream_particle_horizontal_speed": [
+     "Stream"
+    ],
+    "stream_particle_horizontal_speed_deviation": [
+     "Stream"
+    ],
+    "strike_effect": [
+     "Lightning"
+    ],
+    "support_range": [
+     "RailRamp",
+     "RailSupport"
+    ],
+    "synced_footstep_particle_triggers": [
+     "Character"
+    ],
+    "tank_driving": [
+     "Car"
+    ],
+    "target_initial_position_only": [
+     "Stream"
+    ],
+    "target_position_deviation": [
+     "Stream"
+    ],
+    "target_temperature": [
+     "Boiler",
+     "FusionReactor"
+    ],
+    "terrain_friction_modifier": [
+     "Vehicle"
+    ],
+    "territory_radius": [
+     "SegmentedUnit"
+    ],
+    "tether_size": [
+     "AsteroidCollector"
+    ],
+    "ticks_per_scan": [
+     "SegmentedUnit"
+    ],
+    "ticks_to_keep_aiming_direction": [
+     "Character"
+    ],
+    "ticks_to_keep_gun": [
+     "Character"
+    ],
+    "ticks_to_stay_in_combat": [
+     "Character"
+    ],
+    "tie_distance": [
+     "RollingStock"
+    ],
+    "time_to_capture": [
+     "Spawner"
+    ],
+    "time_to_damage": [
+     "Lightning"
+    ],
+    "timeout": [
+     "LandMine"
+    ],
+    "timeout_to_close": [
+     "Gate"
+    ],
+    "tool_attack_distance": [
+     "Character"
+    ],
+    "tool_attack_result": [
+     "Character"
+    ],
+    "torso_bob_speed": [
+     "SpiderUnit",
+     "SpiderVehicle"
+    ],
+    "torso_rotation_speed": [
+     "SpiderUnit",
+     "SpiderVehicle"
+    ],
+    "track_coverage_during_drag_building": [
+     "ElectricPole"
+    ],
+    "track_particle_triggers": [
+     "Car"
+    ],
+    "transition_collision_mask": [
+     "RollingStock"
+    ],
+    "tree_color_count": [
+     "Tree"
+    ],
+    "tree_dying_factor": [
+     "Fire"
+    ],
+    "tree_removal_max_distance": [
+     "ResourceEntity"
+    ],
+    "tree_removal_probability": [
+     "ResourceEntity"
+    ],
+    "trigger_collision_mask": [
+     "LandMine"
+    ],
+    "trigger_force": [
+     "Landmine"
+    ],
+    "trigger_interval": [
+     "Landmine"
+    ],
+    "trigger_radius": [
+     "Landmine"
+    ],
+    "turn_radius": [
+     "SegmentedUnit"
+    ],
+    "turn_smoothing": [
+     "SegmentedUnit"
+    ],
+    "turn_speed": [
+     "Projectile"
+    ],
+    "turning_speed_increases_exponentially_with_projectile_speed": [
+     "Projectile"
+    ],
+    "turret_base_has_direction": [
+     "Turret"
+    ],
+    "turret_prepare_range": [
+     "Turret"
+    ],
+    "turret_range": [
+     "Turret"
+    ],
+    "turret_rotation_speed": [
+     "ArtilleryTurret",
+     "ArtilleryWagon",
+     "Car"
+    ],
+    "two_direction_only": [
+     "FusionReactor",
+     "Generator",
+     "StorageTank"
+    ],
+    "unpowered_arm_speed_scale": [
+     "AsteroidCollector"
+    ],
+    "update_effects": [
+     "Segment",
+     "Sticker"
+    ],
+    "update_effects_while_enraged": [
+     "Segment"
+    ],
+    "use_damage_substitute": [
+     "Sticker"
+    ],
+    "use_easter_egg": [
+     "Inserter"
+    ],
+    "use_exact_mode": [
+     "LogisticContainer"
+    ],
+    "use_mirroring": [
+     "CraftingMachine",
+     "Inserter",
+     "MiningDrill"
+    ],
+    "use_unloading_distance_limit": [
+     "CargoBay"
+    ],
+    "uses_alternative_behavior": [
+     "Fire"
+    ],
+    "uses_force_mining_productivity_bonus": [
+     "MiningDrill"
+    ],
+    "uses_inserter_stack_size_bonus": [
+     "Inserter"
+    ],
+    "uses_quality_drain_modifier": [
+     "Lab"
+    ],
+    "valve_mode": [
+     "Valve"
+    ],
+    "valve_threshold": [
+     "Valve"
+    ],
+    "vector_to_place_result": [
+     "CraftingMachine",
+     "MiningDrill"
+    ],
+    "vertical_selection_shift": [
+     "RollingStock"
+    ],
+    "vision_distance": [
+     "SegmentedUnit",
+     "SpiderUnit",
+     "Unit"
+    ],
+    "wait_for_full_hand": [
+     "Inserter"
+    ],
+    "weight": [
+     "Vehicle"
+    ],
+    "width": [
+     "Beam",
+     "Stream"
+    ]
+   },
    "attributes": [
     "absorptions_per_second",
     "absorptions_to_join_attack",
@@ -1344,6 +3897,7 @@
    "parent": "LuaPrototypeBase"
   },
   "LuaFluidBoxPrototype": {
+   "applicability": {},
    "attributes": [
     "entity",
     "filter",
@@ -1363,6 +3917,7 @@
    "parent": null
   },
   "LuaFluidPrototype": {
+   "applicability": {},
    "attributes": [
     "base_color",
     "custom_tooltip_fields",
@@ -1394,6 +3949,7 @@
    "parent": "LuaPrototypeBase"
   },
   "LuaForce": {
+   "applicability": {},
    "attributes": [
     "ai_controllable",
     "artillery_range_modifier",
@@ -1554,6 +4110,7 @@
    "parent": null
   },
   "LuaGameScript": {
+   "applicability": {},
    "attributes": [
     "allow_debug_settings",
     "allow_tip_activation",
@@ -1636,6 +4193,282 @@
    "parent": null
   },
   "LuaGuiElement": {
+   "applicability": {
+    "add_item": [
+     "drop-down",
+     "list-box"
+    ],
+    "add_tab": [
+     "tabbed-pane"
+    ],
+    "allow_decimal": [
+     "textfield"
+    ],
+    "allow_negative": [
+     "textfield"
+    ],
+    "allow_none_state": [
+     "switch"
+    ],
+    "auto_center": [
+     "frame"
+    ],
+    "auto_toggle": [
+     "button",
+     "sprite-button"
+    ],
+    "badge_text": [
+     "tab"
+    ],
+    "clear_items": [
+     "drop-down",
+     "list-box"
+    ],
+    "clicked_sprite": [
+     "sprite-button"
+    ],
+    "column_count": [
+     "table"
+    ],
+    "direction": [
+     "flow",
+     "frame",
+     "line"
+    ],
+    "drag_target": [
+     "empty-widget",
+     "flow",
+     "frame",
+     "label",
+     "table"
+    ],
+    "draw_horizontal_line_after_headers": [
+     "table"
+    ],
+    "draw_horizontal_lines": [
+     "table"
+    ],
+    "draw_vertical_lines": [
+     "table"
+    ],
+    "elem_filters": [
+     "choose-elem-button"
+    ],
+    "elem_type": [
+     "choose-elem-button"
+    ],
+    "elem_value": [
+     "choose-elem-button"
+    ],
+    "empty_slot_info": [
+     "inventory"
+    ],
+    "entity": [
+     "camera",
+     "entity-preview",
+     "minimap"
+    ],
+    "force": [
+     "minimap"
+    ],
+    "force_auto_center": [
+     "frame"
+    ],
+    "get_item": [
+     "drop-down",
+     "list-box"
+    ],
+    "handle_cursor_split": [
+     "inventory"
+    ],
+    "handle_cursor_transfer": [
+     "inventory"
+    ],
+    "handle_open_item": [
+     "inventory"
+    ],
+    "handle_open_mod_item": [
+     "inventory"
+    ],
+    "handle_send_stack_to_trash": [
+     "inventory"
+    ],
+    "handle_send_stacks_to_trash": [
+     "inventory"
+    ],
+    "horizontal_scroll_policy": [
+     "scroll-pane"
+    ],
+    "hovered_sprite": [
+     "sprite-button"
+    ],
+    "icon_selector": [
+     "text-box",
+     "textfield"
+    ],
+    "inventory": [
+     "inventory"
+    ],
+    "is_password": [
+     "textfield"
+    ],
+    "items": [
+     "drop-down",
+     "list-box"
+    ],
+    "left_label_caption": [
+     "switch"
+    ],
+    "left_label_tooltip": [
+     "switch"
+    ],
+    "locked": [
+     "choose-elem-button"
+    ],
+    "lose_focus_on_confirm": [
+     "textfield"
+    ],
+    "minimap_player_index": [
+     "minimap"
+    ],
+    "mouse_button_filter": [
+     "button",
+     "sprite-button"
+    ],
+    "number": [
+     "sprite-button"
+    ],
+    "numeric": [
+     "textfield"
+    ],
+    "position": [
+     "camera",
+     "minimap"
+    ],
+    "quality": [
+     "sprite-button"
+    ],
+    "read_only": [
+     "scroll-pane",
+     "text-box"
+    ],
+    "remove_item": [
+     "drop-down",
+     "list-box"
+    ],
+    "remove_tab": [
+     "tabbed-pane"
+    ],
+    "resize_to_sprite": [
+     "sprite"
+    ],
+    "right_label_caption": [
+     "switch"
+    ],
+    "right_label_tooltip": [
+     "switch"
+    ],
+    "scroll_to_bottom": [
+     "scroll-pane",
+     "text-box"
+    ],
+    "scroll_to_element": [
+     "scroll-pane"
+    ],
+    "scroll_to_item": [
+     "list-box"
+    ],
+    "scroll_to_left": [
+     "scroll-pane",
+     "text-box"
+    ],
+    "scroll_to_right": [
+     "scroll-pane",
+     "text-box"
+    ],
+    "scroll_to_top": [
+     "scroll-pane",
+     "text-box"
+    ],
+    "secondary_number": [
+     "sprite-button"
+    ],
+    "select": [
+     "text-box",
+     "textfield"
+    ],
+    "select_all": [
+     "text-box",
+     "textfield"
+    ],
+    "selectable": [
+     "scroll-pane",
+     "text-box"
+    ],
+    "selected_index": [
+     "drop-down",
+     "list-box"
+    ],
+    "selected_tab_index": [
+     "tabbed-pane"
+    ],
+    "set_item": [
+     "drop-down",
+     "list-box"
+    ],
+    "show_percent_for_small_numbers": [
+     "sprite-button"
+    ],
+    "slider_value": [
+     "slider"
+    ],
+    "slots_per_row": [
+     "inventory"
+    ],
+    "sprite": [
+     "sprite",
+     "sprite-button"
+    ],
+    "state": [
+     "checkbox",
+     "radiobutton"
+    ],
+    "surface_index": [
+     "camera",
+     "minimap"
+    ],
+    "switch_state": [
+     "switch"
+    ],
+    "tabs": [
+     "tabbed-pane"
+    ],
+    "text": [
+     "text-box",
+     "textfield"
+    ],
+    "toggled": [
+     "button",
+     "sprite-button"
+    ],
+    "value": [
+     "progressbar"
+    ],
+    "vertical_centering": [
+     "table"
+    ],
+    "vertical_scroll_policy": [
+     "scroll-pane"
+    ],
+    "word_wrap": [
+     "scroll-pane",
+     "text-box"
+    ],
+    "zoom": [
+     "camera",
+     "minimap"
+    ]
+   },
    "attributes": [
     "allow_decimal",
     "allow_negative",
@@ -1761,6 +4594,7 @@
    "parent": null
   },
   "LuaHelpers": {
+   "applicability": {},
    "attributes": [
     "game_version",
     "instrument_mod",
@@ -1791,6 +4625,11 @@
    "parent": null
   },
   "LuaInventory": {
+   "applicability": {
+    "max_weight": [
+     "InventoryWithWeightLimit"
+    ]
+   },
    "attributes": [
     "entity_owner",
     "equipment_owner",
@@ -1835,6 +4674,190 @@
    "parent": null
   },
   "LuaItemCommon": {
+   "applicability": {
+    "active_index": [
+     "BlueprintBookItem"
+    ],
+    "allow_manual_label_change": [
+     "ItemWithLabel"
+    ],
+    "ammo": [
+     "AmmoItem"
+    ],
+    "blueprint_absolute_snapping": [
+     "BlueprintItem"
+    ],
+    "blueprint_description": [
+     "BlueprintBookItem",
+     "BlueprintItem"
+    ],
+    "blueprint_position_relative_to_grid": [
+     "BlueprintItem"
+    ],
+    "blueprint_snap_to_grid": [
+     "BlueprintItem"
+    ],
+    "build_blueprint": [
+     "BlueprintItem"
+    ],
+    "cancel_deconstruct_area": [
+     "DeconstructionItem"
+    ],
+    "clear_blueprint": [
+     "BlueprintItem"
+    ],
+    "clear_deconstruction_item": [
+     "DeconstructionItem"
+    ],
+    "clear_upgrade_item": [
+     "UpgradeItem"
+    ],
+    "cost_to_build": [
+     "BlueprintItem"
+    ],
+    "create_blueprint": [
+     "BlueprintItem"
+    ],
+    "custom_description": [
+     "ItemWithTags"
+    ],
+    "deconstruct_area": [
+     "DeconstructionItem"
+    ],
+    "default_icons": [
+     "BlueprintItem"
+    ],
+    "durability": [
+     "Tool"
+    ],
+    "entity_auto_target_with_gunner": [
+     "ItemWithEntityData"
+    ],
+    "entity_auto_target_without_gunner": [
+     "ItemWithEntityData"
+    ],
+    "entity_color": [
+     "ItemWithEntityData"
+    ],
+    "entity_driver_is_gunner": [
+     "ItemWithEntityData"
+    ],
+    "entity_enable_logistics_while_moving": [
+     "ItemWithEntityData"
+    ],
+    "entity_filter_count": [
+     "DeconstructionItem"
+    ],
+    "entity_filter_mode": [
+     "DeconstructionItem"
+    ],
+    "entity_filters": [
+     "DeconstructionItem"
+    ],
+    "entity_label": [
+     "ItemWithEntityData"
+    ],
+    "entity_logistic_sections": [
+     "ItemWithEntityData"
+    ],
+    "entity_logistics_enabled": [
+     "ItemWithEntityData"
+    ],
+    "entity_request_from_buffers": [
+     "ItemWithEntityData"
+    ],
+    "get_blueprint_entities": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_entity_count": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_entity_tag": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_entity_tags": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_tiles": [
+     "BlueprintItem"
+    ],
+    "get_entity_filter": [
+     "DeconstructionItem"
+    ],
+    "get_mapper": [
+     "UpgradeItem"
+    ],
+    "get_tag": [
+     "ItemWithTags"
+    ],
+    "get_tag_names": [
+     "ItemWithTags"
+    ],
+    "get_tile_filter": [
+     "DeconstructionItem"
+    ],
+    "is_blueprint_setup": [
+     "BlueprintItem"
+    ],
+    "label": [
+     "ItemWithLabel"
+    ],
+    "label_color": [
+     "ItemWithLabel"
+    ],
+    "mapper_count": [
+     "UpgradeItem"
+    ],
+    "planner_description": [
+     "DeconstructionItem",
+     "UpgradeItem"
+    ],
+    "remove_tag": [
+     "ItemWithTags"
+    ],
+    "set_blueprint_entities": [
+     "BlueprintItem"
+    ],
+    "set_blueprint_entity_tag": [
+     "BlueprintItem"
+    ],
+    "set_blueprint_entity_tags": [
+     "BlueprintItem"
+    ],
+    "set_blueprint_tiles": [
+     "BlueprintItem"
+    ],
+    "set_entity_filter": [
+     "DeconstructionItem"
+    ],
+    "set_mapper": [
+     "UpgradeItem"
+    ],
+    "set_tag": [
+     "ItemWithTags"
+    ],
+    "set_tile_filter": [
+     "DeconstructionItem"
+    ],
+    "tags": [
+     "ItemWithTags"
+    ],
+    "tile_filter_count": [
+     "DeconstructionItem"
+    ],
+    "tile_filter_mode": [
+     "DeconstructionItem"
+    ],
+    "tile_filters": [
+     "DeconstructionItem"
+    ],
+    "tile_selection_mode": [
+     "DeconstructionItem"
+    ],
+    "trees_and_rocks_only": [
+     "DeconstructionItem"
+    ]
+   },
    "attributes": [
     "active_index",
     "allow_manual_label_change",
@@ -1920,6 +4943,185 @@
    "parent": null
   },
   "LuaItemPrototype": {
+   "applicability": {
+    "always_include_tiles": [
+     "SelectionTool"
+    ],
+    "ammo_category": [
+     "AmmoItem"
+    ],
+    "attack_parameters": [
+     "Gun"
+    ],
+    "beacon_tint": [
+     "ModuleItem"
+    ],
+    "capsule_action": [
+     "Capsule"
+    ],
+    "category": [
+     "ModuleItem"
+    ],
+    "collision_box": [
+     "ArmorPrototype"
+    ],
+    "consumption_quality_multiplier": [
+     "ModuleItem"
+    ],
+    "create_electric_network": [
+     "SpacePlatformStarterPack"
+    ],
+    "cuts": [
+     "CopyPasteTool"
+    ],
+    "default_label_color": [
+     "ItemWithLabel"
+    ],
+    "draw_label_for_cursor_render": [
+     "ItemWithLabel"
+    ],
+    "drawing_box": [
+     "ArmorPrototype"
+    ],
+    "durability_description_key": [
+     "ToolItem"
+    ],
+    "durability_description_value": [
+     "ToolItem"
+    ],
+    "equipment_grid": [
+     "Armor"
+    ],
+    "factoriopedia_durability_description_key": [
+     "ToolItem"
+    ],
+    "filter_mode": [
+     "ItemWithInventory"
+    ],
+    "get_ammo_type": [
+     "AmmoItem"
+    ],
+    "get_cursor_box_type": [
+     "SelectionTool"
+    ],
+    "get_durability": [
+     "ToolItem"
+    ],
+    "get_entity_filter_mode": [
+     "SelectionTool"
+    ],
+    "get_entity_filters": [
+     "SelectionTool"
+    ],
+    "get_entity_type_filters": [
+     "SelectionTool"
+    ],
+    "get_inventory_size": [
+     "ItemWithInventoryPrototype"
+    ],
+    "get_inventory_size_bonus": [
+     "ArmorPrototype"
+    ],
+    "get_module_effects": [
+     "ModuleItem"
+    ],
+    "get_selection_border_color": [
+     "SelectionTool"
+    ],
+    "get_selection_mode_flags": [
+     "SelectionTool"
+    ],
+    "get_tile_filter_mode": [
+     "SelectionTool"
+    ],
+    "get_tile_filters": [
+     "SelectionTool"
+    ],
+    "infinite": [
+     "ToolItem"
+    ],
+    "initial_items": [
+     "SpacePlatformStarterPack"
+    ],
+    "item_filters": [
+     "ItemWithInventory"
+    ],
+    "item_group_filters": [
+     "ItemWithInventory"
+    ],
+    "item_subgroup_filters": [
+     "ItemWithInventory"
+    ],
+    "localised_filter_message": [
+     "ItemWithInventory"
+    ],
+    "magazine_size": [
+     "AmmoItem"
+    ],
+    "manual_length_limit": [
+     "RailPlanner"
+    ],
+    "module_effects": [
+     "ModuleItem"
+    ],
+    "pollution_quality_multiplier": [
+     "ModuleItem"
+    ],
+    "productivity_quality_multiplier": [
+     "ModuleItem"
+    ],
+    "provides_flight": [
+     "ArmorPrototype"
+    ],
+    "quality_affects_inventory_size": [
+     "ItemWithInventory"
+    ],
+    "quality_quality_multiplier": [
+     "ModuleItem"
+    ],
+    "radius_color": [
+     "Capsule"
+    ],
+    "rails": [
+     "RailPlanner"
+    ],
+    "reload_time": [
+     "AmmoItem"
+    ],
+    "requires_beacon_alt_mode": [
+     "ModuleItem"
+    ],
+    "resistances": [
+     "Armor"
+    ],
+    "shoot_protected": [
+     "AmmoItem"
+    ],
+    "skip_fog_of_war": [
+     "SelectionTool"
+    ],
+    "speed": [
+     "RepairTool"
+    ],
+    "speed_quality_multiplier": [
+     "ModuleItem"
+    ],
+    "support": [
+     "RailPlanner"
+    ],
+    "surface": [
+     "SpacePlatformStarterPack"
+    ],
+    "tier": [
+     "ModuleItem"
+    ],
+    "tiles": [
+     "SpacePlatformStarterPack"
+    ],
+    "trigger": [
+     "SpacePlatformStarterPack"
+    ]
+   },
    "attributes": [
     "always_include_tiles",
     "ammo_category",
@@ -2039,6 +5241,205 @@
    "parent": "LuaPrototypeBase"
   },
   "LuaItemStack": {
+   "applicability": {
+    "active_index": [
+     "BlueprintBookItem"
+    ],
+    "add_ammo": [
+     "AmmoItem"
+    ],
+    "add_durability": [
+     "ToolItem"
+    ],
+    "allow_manual_label_change": [
+     "ItemWithLabel"
+    ],
+    "ammo": [
+     "AmmoItem"
+    ],
+    "blueprint_absolute_snapping": [
+     "BlueprintItem"
+    ],
+    "blueprint_description": [
+     "BlueprintBookItem",
+     "BlueprintItem"
+    ],
+    "blueprint_position_relative_to_grid": [
+     "BlueprintItem"
+    ],
+    "blueprint_snap_to_grid": [
+     "BlueprintItem"
+    ],
+    "build_blueprint": [
+     "BlueprintItem"
+    ],
+    "cancel_deconstruct_area": [
+     "DeconstructionItem"
+    ],
+    "clear_blueprint": [
+     "BlueprintItem"
+    ],
+    "clear_deconstruction_item": [
+     "DeconstructionItem"
+    ],
+    "clear_upgrade_item": [
+     "UpgradeItem"
+    ],
+    "cost_to_build": [
+     "BlueprintItem"
+    ],
+    "create_blueprint": [
+     "BlueprintItem"
+    ],
+    "create_grid": [
+     "ItemWithEntityData"
+    ],
+    "custom_description": [
+     "ItemWithTags"
+    ],
+    "deconstruct_area": [
+     "DeconstructionItem"
+    ],
+    "default_icons": [
+     "BlueprintItem"
+    ],
+    "drain_ammo": [
+     "AmmoItem"
+    ],
+    "drain_durability": [
+     "ToolItem"
+    ],
+    "durability": [
+     "Tool"
+    ],
+    "entity_auto_target_with_gunner": [
+     "ItemWithEntityData"
+    ],
+    "entity_auto_target_without_gunner": [
+     "ItemWithEntityData"
+    ],
+    "entity_color": [
+     "ItemWithEntityData"
+    ],
+    "entity_driver_is_gunner": [
+     "ItemWithEntityData"
+    ],
+    "entity_enable_logistics_while_moving": [
+     "ItemWithEntityData"
+    ],
+    "entity_filter_count": [
+     "DeconstructionItem"
+    ],
+    "entity_filter_mode": [
+     "DeconstructionItem"
+    ],
+    "entity_filters": [
+     "DeconstructionItem"
+    ],
+    "entity_label": [
+     "ItemWithEntityData"
+    ],
+    "entity_logistic_sections": [
+     "ItemWithEntityData"
+    ],
+    "entity_logistics_enabled": [
+     "ItemWithEntityData"
+    ],
+    "entity_request_from_buffers": [
+     "ItemWithEntityData"
+    ],
+    "get_blueprint_entities": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_entity_count": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_entity_tag": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_entity_tags": [
+     "BlueprintItem"
+    ],
+    "get_blueprint_tiles": [
+     "BlueprintItem"
+    ],
+    "get_entity_filter": [
+     "DeconstructionItem"
+    ],
+    "get_mapper": [
+     "UpgradeItem"
+    ],
+    "get_tag": [
+     "ItemWithTags"
+    ],
+    "get_tag_names": [
+     "ItemWithTags"
+    ],
+    "get_tile_filter": [
+     "DeconstructionItem"
+    ],
+    "is_blueprint_setup": [
+     "BlueprintItem"
+    ],
+    "label": [
+     "ItemWithLabel"
+    ],
+    "label_color": [
+     "ItemWithLabel"
+    ],
+    "mapper_count": [
+     "UpgradeItem"
+    ],
+    "planner_description": [
+     "DeconstructionItem",
+     "UpgradeItem"
+    ],
+    "remove_tag": [
+     "ItemWithTags"
+    ],
+    "set_blueprint_entities": [
+     "BlueprintItem"
+    ],
+    "set_blueprint_entity_tag": [
+     "BlueprintItem"
+    ],
+    "set_blueprint_entity_tags": [
+     "BlueprintItem"
+    ],
+    "set_blueprint_tiles": [
+     "BlueprintItem"
+    ],
+    "set_entity_filter": [
+     "DeconstructionItem"
+    ],
+    "set_mapper": [
+     "UpgradeItem"
+    ],
+    "set_tag": [
+     "ItemWithTags"
+    ],
+    "set_tile_filter": [
+     "DeconstructionItem"
+    ],
+    "tags": [
+     "ItemWithTags"
+    ],
+    "tile_filter_count": [
+     "DeconstructionItem"
+    ],
+    "tile_filter_mode": [
+     "DeconstructionItem"
+    ],
+    "tile_filters": [
+     "DeconstructionItem"
+    ],
+    "tile_selection_mode": [
+     "DeconstructionItem"
+    ],
+    "trees_and_rocks_only": [
+     "DeconstructionItem"
+    ]
+   },
    "attributes": [
     "active_index",
     "allow_manual_label_change",
@@ -2151,6 +5552,7 @@
    "parent": "LuaItemCommon"
   },
   "LuaModuleCategoryPrototype": {
+   "applicability": {},
    "attributes": [
     "custom_tooltip_fields",
     "factoriopedia_description",
@@ -2171,6 +5573,7 @@
    "parent": "LuaPrototypeBase"
   },
   "LuaPlayer": {
+   "applicability": {},
    "attributes": [
     "admin",
     "afk_time",
@@ -2398,6 +5801,7 @@
    "parent": "LuaControl"
   },
   "LuaQualityPrototype": {
+   "applicability": {},
    "attributes": [
     "accumulator_capacity_multiplier",
     "asteroid_collector_collection_radius_bonus",
@@ -2467,6 +5871,7 @@
    "parent": "LuaPrototypeBase"
   },
   "LuaRCON": {
+   "applicability": {},
    "attributes": [
     "object_name"
    ],
@@ -2476,6 +5881,7 @@
    "parent": null
   },
   "LuaRecipeCategoryPrototype": {
+   "applicability": {},
    "attributes": [
     "custom_tooltip_fields",
     "factoriopedia_description",
@@ -2496,6 +5902,7 @@
    "parent": "LuaPrototypeBase"
   },
   "LuaRecipePrototype": {
+   "applicability": {},
    "attributes": [
     "allow_as_intermediate",
     "allow_decomposition",
@@ -2554,6 +5961,7 @@
    "parent": "LuaPrototypeBase"
   },
   "LuaRemote": {
+   "applicability": {},
    "attributes": [
     "interfaces",
     "object_name"
@@ -2566,6 +5974,7 @@
    "parent": null
   },
   "LuaSurface": {
+   "applicability": {},
    "attributes": [
     "always_day",
     "brightness_visual_weights",
@@ -2706,6 +6115,7 @@
    "parent": null
   },
   "LuaTechnology": {
+   "applicability": {},
    "attributes": [
     "enabled",
     "force",

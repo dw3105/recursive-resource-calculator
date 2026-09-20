@@ -55,6 +55,31 @@ case "$tag" in
         runner=python
         tests="tests.tools.test_handoff"
         ;;
+    #Round 11. One lane, one file. A lane gate tests isolated component behaviour only: every cross-component
+    #check belongs to integration, where both its producers have landed.
+    094_beacon_geometry)
+        tests="tests/test_groups.lua tests/test_beacon_coverage.lua"
+        ;;
+    095_validator_symmetry)
+        tests="tests/test_validate.lua tests/test_power_semantics.lua tests/test_validated_candidate.lua"
+        ;;
+    096_roboport_facts)
+        tests="tests/test_catalog.lua tests/test_export_payload.lua tests/test_export_completeness.lua"
+        ;;
+    #tests/test_search_allowance.lua does not exist yet: docs/tasks/084_search_allowance.md mandates it and this
+    #lane writes it. --dispatch-only resolves the selection without demanding the file, which is why spine can
+    #gate this dispatcher before the lane starts.
+    097_search_truth)
+        tests="tests/test_search.lua tests/test_search_budget.lua tests/test_search_allowance.lua tests/test_generation_reload.lua tests/test_generation_attempt_lookup.lua tests/test_blueprint_pipeline.lua tests/test_external_ports.lua tests/test_locale_keys.lua"
+        ;;
+    098_golden_truth)
+        runner=python
+        tests="tests.tools.test_capture_workflow"
+        ;;
+    099_release_lifecycle)
+        runner=python
+        tests="tests.tools.test_handoff"
+        ;;
     *)
         runner=suite
         #Every other lane keeps the whole suite. There is no no-op default here.
