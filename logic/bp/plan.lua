@@ -386,7 +386,6 @@ local function stage_descriptor(column, stage, rate, stage_id, input, selections
     }
     local receiver = QualityPolicy.receiver(quality_step, catalog)
     local has_quality_module = QualityPolicy.has_active_quality_module(quality_step, catalog)
-    local speed_beacon_contribution = QualityPolicy.speed_beacon_contribution(quality_step, catalog)
     for _, module in ipairs(expand_modules(setup.modules)) do
         local effects = module_effect(module.name, module.quality, catalog)
         effects_speed = effects_speed + finite_number(effects.speed, 0)
@@ -456,7 +455,10 @@ local function stage_descriptor(column, stage, rate, stage_id, input, selections
         modules = compress_modules(setup.modules),
         beacon_groups = public_beacons,
         has_quality_module = has_quality_module,
-        forbids_speed_beacon = has_quality_module or speed_beacon_contribution > 0,
+        --A machine forbids speed beacons because it holds a quality module, never because speed beacons
+        --stand beside it. Reading the beacon contribution here made every ordinary speed-beacon factory
+        --forbid its own beacons, and validate.lua:639-642 then raised BP_V_SPEED_BEACON_ON_QUALITY for it.
+        forbids_speed_beacon = has_quality_module,
         receiver_status = receiver.status,
         recipe_facts_missing = recipe_facts_missing,
         power_w = power_w,
