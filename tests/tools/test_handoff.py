@@ -83,9 +83,21 @@ printf '%s\n' 'test_fixture [Lua 5.2]: 1 cases, 1 passed, 0 failed'
 printf '%s\n' 'test_fixture [Lua 5.4]: 1 cases, 1 passed, 0 failed'
 printf '%s\n' 'test_quality_policy [Lua 5.2]: 1 cases, 1 passed, 0 failed'
 printf '%s\n' 'test_quality_policy [Lua 5.4]: 1 cases, 1 passed, 0 failed'
+printf '%s\n' 'test_export_completeness [Lua 5.2]: 1 cases, 1 passed, 0 failed'
+printf '%s\n' 'test_export_completeness [Lua 5.4]: 1 cases, 1 passed, 0 failed'
 exit "${FAKE_GATE_RC:-0}"
 """,
             executable=True,
+        )
+        self._write(
+            "tests/test_export_completeness.lua",
+            """local function test()
+    if os.getenv('FAKE_EXPORT_RC') == '1' then error('planted export failure') end
+end
+test()
+print('export-completeness: 1 cases, 1 passed, 0 failed')
+os.exit(tonumber(os.getenv('FAKE_EXPORT_RC') or '0'))
+""",
         )
         self._write(
             "tests/acceptance/item_case.lua",
@@ -135,11 +147,15 @@ make_zip "$v21" 2.1
             executable=True,
         )
 
-    def run(self, **environment: str) -> subprocess.CompletedProcess[str]:
+    def run(self, diagnostic: bool = False, **environment: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env.update(environment)
+        command = ["sh", str(self.root / "tools" / "handoff.sh")]
+        if diagnostic:
+            command.append("--diagnostic")
+        command.extend([self.candidate, "1.0.0", "1.0.0"])
         return subprocess.run(
-            ["sh", str(self.root / "tools" / "handoff.sh"), self.candidate, "1.0.0", "1.0.0"],
+            command,
             cwd=self.root,
             text=True,
             capture_output=True,
@@ -245,6 +261,106 @@ class HandoffTests(unittest.TestCase):
             self.assertEqual(len(corpus), 2)
             self.assertTrue(all(check["exit"] == 19 for check in corpus))
             self.assertEqual(record["result"], "pass")
+
+    def test_a_diagnostic_run_is_always_unverified_internal(self):
+        raw, fixture = self.fixture()
+        with raw:
+            kept = fixture.root / "kept"
+            result = fixture.run(diagnostic=True, FAKE_GOLDEN_RC="19",
+                                 RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            self.assertEqual(record["mode"], "diagnostic")
+            self.assertEqual(
+                [archive["verdict"] for archive in record["archives"]],
+                ["unverified_internal", "unverified_internal"],
+            )
+
+    def test_a_diagnostic_run_can_never_write_verified(self):
+        raw, fixture = self.fixture()
+        with raw:
+            result = fixture.run(diagnostic=True, FAKE_BUILD_TAG="verified", FAKE_GOLDEN_RC="0")
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            self.assertNotIn('"verified"', json.dumps(record, sort_keys=True))
+            self.assertTrue(all(archive["verdict"] != "verified" for archive in record["archives"]))
+
+    def test_a_diagnostic_run_records_every_release_blocker(self):
+        raw, fixture = self.fixture()
+        with raw:
+            result = fixture.run(
+                diagnostic=True,
+                FAKE_GATE_RC="7",
+                FAKE_ACCEPTANCE_RC="4",
+                FAKE_QUALITY_RC="1",
+                FAKE_GOLDEN_RC="19",
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            blockers = {(blocker["branch"], blocker["name"]): blocker["exit"]
+                        for blocker in record["blockers"]}
+            for branch in ("2.0", "2.1"):
+                self.assertEqual(blockers[(branch, "tests-run")], 7)
+                self.assertEqual(blockers[(branch, "acceptance")], 4)
+                self.assertEqual(blockers[(branch, "quality-policy")], 1)
+                self.assertEqual(blockers[(branch, "golden-corpus")], 19)
+
+    def test_an_incomplete_corpus_does_not_block_a_diagnostic_build(self):
+        raw, fixture = self.fixture()
+        with raw:
+            kept = fixture.root / "kept"
+            result = fixture.run(diagnostic=True, FAKE_GOLDEN_RC="19",
+                                 RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(len(list(kept.iterdir())), 2)
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            corpus = [blocker for blocker in record["blockers"]
+                      if blocker["name"] == "golden-corpus"]
+            self.assertEqual(len(corpus), 2)
+            self.assertTrue(all(blocker["exit"] == 19 for blocker in corpus))
+
+    def test_a_failing_export_check_refuses_the_diagnostic_build(self):
+        raw, fixture = self.fixture()
+        with raw:
+            kept = fixture.root / "kept"
+            result = fixture.run(diagnostic=True, FAKE_EXPORT_RC="23",
+                                 RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(kept.exists() and any(kept.iterdir()), "a refused diagnostic hands over nothing")
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            self.assertEqual(record["result"], "refused")
+            export_checks = [check for check in record["checks"]
+                             if check["name"] == "export-completeness"]
+            self.assertEqual(len(export_checks), 2)
+            self.assertTrue(all(check["exit"] == 23 for check in export_checks))
+
+    def test_a_diagnostic_receipt_carries_the_exact_candidate_and_archive_identity(self):
+        raw, fixture = self.fixture()
+        with raw:
+            kept = fixture.root / "kept"
+            result = fixture.run(diagnostic=True, FAKE_GOLDEN_RC="19",
+                                 RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            self.assertEqual(record["candidate_sha"], fixture.candidate)
+            kept_digests = {
+                hashlib.sha256(path.read_bytes()).hexdigest()
+                for path in kept.iterdir()
+            }
+            self.assertEqual(kept_digests,
+                             {archive["sha256"] for archive in record["archives"]})
+
+    def test_the_ordinary_path_is_unchanged_by_the_diagnostic_mode(self):
+        raw, fixture = self.fixture()
+        with raw:
+            kept = fixture.root / "kept"
+            result = fixture.run(FAKE_GOLDEN_RC="19", RRC_HANDOFF_KEEP_ARCHIVES=str(kept))
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
+            self.assertNotIn("mode", record)
+            self.assertEqual(record["result"], "pass")
+            self.assertTrue(all("verdict" not in archive for archive in record["archives"]))
+            self.assertEqual(len(record["informational"]), 2)
 
 
 if __name__ == "__main__":

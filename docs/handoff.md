@@ -7,6 +7,20 @@ commit's `tests/`, `tools/`, and supporting `docs/` with `git archive`, and runs
 the gates from those extracted roots. It never uses tests or production Lua
 from the live checkout.
 
+`sh tools/handoff.sh --diagnostic <sha> <2.0 version> <2.1 version>` is the
+diagnostic transition. It runs `tests/test_export_completeness.lua` for each
+archive. Export failure refuses the handoff. Release gates, including an
+unfinished or failing golden corpus, are recorded as named blockers with their
+exit status and do not by themselves refuse the diagnostic archive. A
+diagnostic receipt has `mode: "diagnostic"`, a `blockers` array, and
+`verdict: "unverified_internal"` on every archive; it can never contain a
+`verified` verdict. The receipt records the resolved candidate SHA and the
+SHA-256 of the exact archive bytes copied to `RRC_HANDOFF_KEEP_ARCHIVES`.
+
+Neither the ordinary mode nor diagnostic mode means that the blueprint
+generator works. A diagnostic archive is evidence-collection input, not a
+blueprint-generator verification.
+
 The command refuses an already narrowed `RRC_SHAPES` or `LUAS` environment,
 then supplies the full `2.0,2.1` and `lua5.2 lua5.4` values to every child. It
 also gives Lua an extracted-root-only module path and refuses a module resolved
@@ -44,8 +58,9 @@ The record has schema version `1`, the resolved `candidate_sha`, `result`
 (`pass` or `refused`), an `archives` array, every gating check's command,
 `exit`, case counts and `log_sha256`, a separate `informational` array for the
 corpus, and refusal reasons. A missing archive is recorded as a null archive
-hash. If an identical digest already exists, an `-attempt-N` suffix is used so
-an earlier attempt is never overwritten.
+hash. Diagnostic records additionally carry `mode`, named `blockers`, and the
+per-archive internal verdict. If an identical digest already exists, an
+`-attempt-N` suffix is used so an earlier attempt is never overwritten.
 
 The result is `pass` only when both archives exist, all three gating commands
 pass for both packages, every expected case is executed, and all production
