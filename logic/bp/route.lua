@@ -420,15 +420,13 @@ local function endpoint_position(block, placement, port, work)
 end
 
 local function endpoint_direction(port, placement, role)
-    if port.x ~= nil or port.y ~= nil then
-        return port.travel_dir or port.dir or port.normal_dir
-    end
     local direction = port.travel_dir
     if direction == nil and port.dir ~= nil then direction = port.dir end
     if direction == nil then
         local normal = port.normal_dir or Grid.NORTH
         direction = role == "in" and normal or Grid.dir_opposite(normal)
     end
+    if port.x ~= nil or port.y ~= nil then return direction end
     return Grid.rotate_dir(direction, placement.dir)
 end
 
@@ -449,6 +447,12 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         travel_dir = endpoint_direction(port, placement, role),
     }
     endpoint.connection = connection_for(block, port, placement, catalog, x, y)
+    --A rotated materialization carries source-frame attach geometry and a validator-facing travel direction.
+    --Traversal still uses the placed direction above, but the validator also protects the approach implied by
+    --this published direction. Keep that second direction private to reservation construction.
+    if port.x == nil and port.y == nil and port._block_w ~= nil then
+        endpoint.validator_travel_dir = port.travel_dir or port.dir or port.normal_dir
+    end
     return endpoint
 end
 
@@ -592,6 +596,17 @@ local function static_owner(work, x, y)
     return indexed_cell(work.grid, x, y)
 end
 
+local function endpoint_reservation_conflict(work, endpoint)
+    if endpoint.validator_travel_dir == nil then return false end
+    local reserved = work.port_cells and work.port_cells[coordinate_key(endpoint.x, endpoint.y)]
+    if reserved == nil then return false end
+    local own_flow = "flow:" .. tostring(endpoint.flow_id)
+    for key, _ in pairs(reserved) do
+        if tostring(key):sub(1, 5) == "flow:" and key ~= own_flow then return true end
+    end
+    return false
+end
+
 local function is_allowed_owner(owner)
     return owner == nil or owner == Grid.RESERVED.corridor or owner == Grid.RESERVED.port
 end
@@ -599,7 +614,7 @@ end
 local function endpoint_is_blocked(work, endpoint)
     if not endpoint then return true end
     local owner = static_owner(work, endpoint.x, endpoint.y)
-    return owner ~= nil and not is_allowed_owner(owner)
+    return (owner ~= nil and not is_allowed_owner(owner)) or endpoint_reservation_conflict(work, endpoint)
 end
 
 --A splitter's anchor is the tile where the existing belt was found.  Its other tile is one step in the direction
@@ -1040,10 +1055,16 @@ local function reserve_port_cells(work)
     end
     local function claim_endpoint(endpoint)
         if type(endpoint) ~= "table" or endpoint.x == nil or endpoint.y == nil then return end
-        claim(endpoint.x, endpoint.y, endpoint)
-        local dx, dy = Grid.dir_vector(endpoint.travel_dir or Grid.NORTH)
-        if endpoint.role == "in" then claim(endpoint.x - dx, endpoint.y - dy, endpoint)
-        else claim(endpoint.x + dx, endpoint.y + dy, endpoint) end
+        local function claim_approach(direction)
+            claim(endpoint.x, endpoint.y, endpoint)
+            local dx, dy = Grid.dir_vector(direction or Grid.NORTH)
+            if endpoint.role == "in" then claim(endpoint.x - dx, endpoint.y - dy, endpoint)
+            else claim(endpoint.x + dx, endpoint.y + dy, endpoint) end
+        end
+        claim_approach(endpoint.travel_dir)
+        if endpoint.validator_travel_dir ~= nil and endpoint.validator_travel_dir ~= endpoint.travel_dir then
+            claim_approach(endpoint.validator_travel_dir)
+        end
     end
     for _, by_role in pairs(work.endpoint_index or {}) do
         for _, role in ipairs({"in", "out"}) do

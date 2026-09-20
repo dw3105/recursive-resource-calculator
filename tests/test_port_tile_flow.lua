@@ -108,6 +108,26 @@ local function splitter_port_input()
     }
 end
 
+local function rotated_materialized_port_input()
+    return {
+        grid = Grid.new(12, 7),
+        catalog = {belt = {belt = "transport-belt", items_per_second = 10}},
+        perimeter_ports = {
+            {port_id = "foreign-source", role = "in", kind = "item", flow_id = "item/foreign", rate_per_second = 1,
+                x = 0, y = 4, travel_dir = Grid.EAST},
+            {port_id = "foreign-sink", role = "out", kind = "item", flow_id = "item/foreign", rate_per_second = 1,
+                x = 11, y = 4, travel_dir = Grid.EAST},
+        },
+        blocks = {{block_id = "rotated", x = 0, y = 5, w = 10, h = 11, dir = Grid.EAST, ports = {{
+            port_id = "owner-port", role = "out", kind = "item", flow_id = "item/owner", rate_per_second = 0,
+            _block_w = 11, _block_h = 10, attach_dx = -1, attach_dy = 0,
+            normal_dir = Grid.EAST, travel_dir = Grid.WEST,
+        }}}},
+        flows = {{flow_id = "item/foreign", producers = {{step_id = "$external", port_id = "foreign-source", share_per_second = 1}},
+            consumers = {{step_id = "$external", port_id = "foreign-sink", share_per_second = 1}}}},
+    }
+end
+
 local function assert_no_foreign_flow(input, result)
     local owners = owned_tiles(input)
     for _, entity in ipairs(result.entities or {}) do
@@ -153,6 +173,12 @@ for _, shape in ipairs(H.shapes()) do
 
     H.test(shape .. " a splitter's second tile is also owned by its port flow", function()
         local input = splitter_port_input()
+        local state = run(input)
+        if state.ok then assert_no_foreign_flow(input, state.result) end
+    end)
+
+    H.test(shape .. " a rotated materialized port reserves the validator-visible approach", function()
+        local input = rotated_materialized_port_input()
         local state = run(input)
         if state.ok then assert_no_foreign_flow(input, state.result) end
     end)
