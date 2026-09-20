@@ -267,7 +267,7 @@ local function append_inserters(block, step, machine, catalog, input)
     local ports = {}
     for _, port in ipairs(step.inputs or {}) do ports[#ports + 1] = {role = "input", port = port} end
     for _, port in ipairs(step.outputs or {}) do ports[#ports + 1] = {role = "output", port = port} end
-    -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane. A
+    -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane.  A
     -- separate row per connection keeps the opaque member rectangles disjoint without guessing route geometry.
     local inserter_y = machine.y + machine.h
     for index, entry in ipairs(ports) do
@@ -390,6 +390,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for ordinal = 1, step.machine_count do
             machine_specs[#machine_specs + 1] = {step = step, ordinal = ordinal, w = mw, h = mh, layout_w = layout_w}
             machine_w = machine_w + layout_w
+            if #machine_specs > 1 then machine_w = machine_w + 1 end
         end
     end
 
@@ -421,7 +422,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         }
         block.machines[#block.machines + 1] = machine
         block.members[#block.members + 1] = machine
-        x = x + spec.layout_w
+        x = x + spec.layout_w + 1
         append_inserters(block, spec.step, machine, catalog, input)
     end
 
@@ -488,20 +489,6 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     block.w = w
     block.h = math.max(machine_y + max_machine_h, max_inserter_bottom, beacon_rows_h)
-
-    -- Route splitters occupy two tiles but their exact collision box reaches back into the first tile.  A member
-    -- flush with the block envelope can therefore collide with a legal route entity immediately outside it,
-    -- even though their integer occupancy cells are disjoint.  Inset every member by one tile.  Preserve slack
-    -- already present in the layout: only the missing side(s) enlarge the envelope, keeping the grid search's
-    -- footprint smaller than a fixed two-tile expansion.
-    local member_max_x, member_max_y = 0, 0
-    for _, member in ipairs(block.members) do
-        member.x, member.y = member.x + 1, member.y + 1
-        member_max_x = math.max(member_max_x, member.x + member.w)
-        member_max_y = math.max(member_max_y, member.y + member.h)
-    end
-    block.w = math.max(block.w, member_max_x + 1)
-    block.h = math.max(block.h, member_max_y + 1)
 
     -- Ports are stored in the block's own frame, but the validator checks their attachment against the placed
     -- envelope. Reserve the total top-row width in both dimensions: after a quarter-turn the source x range
@@ -720,11 +707,6 @@ function Groups.materialize(block, placement)
     local occupied = {}
     local oriented_w, oriented_h = Grid.rotate_size(block.w, block.h, dir)
     placed.envelope = {x = px, y = py, w = oriented_w, h = oriented_h, dir = dir}
-    -- Route receives these occupied cells through the ports because Search carries the block envelope separately.
-    -- Keep the whole placed envelope reserved: an empty margin is still part of the opaque block, and a two-wide
-    -- route entity placed in that hole could reach back into a member's exact collision box.
-    occupied[#occupied + 1] = {x = px, y = py, w = oriented_w, h = oriented_h,
-        owner = "machine:" .. tostring(block.block_id or block.id)}
     for _, member in ipairs(block.members or {}) do
         local geometry = Grid.place_member(block, {x = px, y = py, dir = dir}, member)
         local entity = copy(member)
@@ -786,9 +768,9 @@ function Groups.materialize(block, placement)
             placed_port.dir = source.normal_dir
             placed_port.travel_dir = source.travel_dir or NORTH
         end
-        --The search carries placed ports into Route, but not the materialized entity list. Keep the placed
-        --envelope and exact rotated member rectangles in this internal reservation; neither becomes a blueprint
-        --entity, and the member rectangles keep direct route callers from rotating the block twice.
+        --The search carries placed ports into Route, but not the materialized entity list.  Keep the exact
+        --rotated member rectangles on the port so routing indexes the members themselves, not a rotated-again
+        --block envelope.  This is internal layout data and never becomes a blueprint entity.
         placed_port._occupied = copy(occupied)
         placed_port._block_w, placed_port._block_h = block.w, block.h
         placed.ports[#placed.ports + 1] = placed_port
