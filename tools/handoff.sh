@@ -178,6 +178,8 @@ discover_cases() {
         set -- "$package_root"/tests/acceptance/*_case.lua
     elif [ "$kind" = quality ]; then
         set -- "$package_root"/tests/test_quality_policy.lua
+    elif [ "$kind" = export ]; then
+        set -- "$package_root"/tests/test_export_completeness.lua
     fi
     if [ "$#" -eq 0 ] || [ ! -f "$1" ]; then
         printf '%s\n' 0
@@ -354,10 +356,18 @@ run_package() {
     run_check "$package_root" "$branch" golden-corpus 'sh tests/golden/run --branch 2.0 --drafts report' false 0 0
 }
 
+#The census is discovered, never assumed. A fixed expected count silently refuses a real run the moment the
+#export test grows a case, which is exactly what a hand-written 1 did against its 36 real cases.
 run_export_check() {
     package_root=$1
     branch=$2
-    run_check "$package_root" "$branch" export-completeness 'lua5.2 tests/test_export_completeness.lua' true 1 1
+    expected=$3
+    if [ -z "$expected" ] || [ "$expected" -le 0 ]; then
+        refuse "$branch has empty export-completeness case discovery"
+        return 0
+    fi
+    run_check "$package_root" "$branch" export-completeness 'lua5.2 tests/test_export_completeness.lua' true \
+        "$expected" 1
 }
 
 write_record() {
@@ -528,8 +538,10 @@ if [ "$OVERALL_FAILURE" -eq 0 ] || [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
     if [ -n "$PACKAGE20" ] && [ -n "$PACKAGE21" ] && [ -n "$DISC20" ] && [ -n "$DISC21" ] \
         && [ -n "$ACC20" ] && [ -n "$ACC21" ] && [ -n "$QUALITY20" ] && [ -n "$QUALITY21" ]; then
         if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
-            run_export_check "$PACKAGE20" 2.0
-            run_export_check "$PACKAGE21" 2.1
+            EXPORT20=$(discover_cases "$PACKAGE20" "$DISCOVERY" export) || EXPORT20=0
+            EXPORT21=$(discover_cases "$PACKAGE21" "$DISCOVERY" export) || EXPORT21=0
+            run_export_check "$PACKAGE20" 2.0 "$(printf '%s\n' "$EXPORT20" | awk '{print $1}')"
+            run_export_check "$PACKAGE21" 2.1 "$(printf '%s\n' "$EXPORT21" | awk '{print $1}')"
         fi
     TEST_DISC20=$(printf '%s\n' "$DISC20" | awk '{print $1}')
     TEST_FILES20=$(printf '%s\n' "$DISC20" | awk '{print $2}')

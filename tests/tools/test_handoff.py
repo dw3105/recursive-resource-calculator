@@ -147,8 +147,16 @@ make_zip "$v21" 2.1
             executable=True,
         )
 
+    #Variables the real command reads are cleared before every fixture run, and restored only when a case asks
+    #for them. An ambient RRC_HANDOFF_KEEP_ARCHIVES once made this suite copy its own 1.0.0 doubles into the
+    #operator's handover directory, beside the archives a player was about to receive.
+    AMBIENT = ("RRC_HANDOFF_KEEP_ARCHIVES", "RRC_SHAPES", "LUAS", "FAKE_GATE_RC", "FAKE_ACCEPTANCE_RC",
+               "FAKE_GOLDEN_RC", "FAKE_EXPORT_RC", "FAKE_BUILD_TAG")
+
     def run(self, diagnostic: bool = False, **environment: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
+        for name in self.AMBIENT:
+            env.pop(name, None)
         env.update(environment)
         command = ["sh", str(self.root / "tools" / "handoff.sh")]
         if diagnostic:
@@ -168,6 +176,21 @@ make_zip "$v21" 2.1
 
 
 class HandoffTests(unittest.TestCase):
+    def test_an_ambient_keep_directory_never_receives_fixture_archives(self):
+        #The suite runs inside the extracted package during a real handoff, so an exported keep directory is
+        #present in the environment. Nothing from this fixture may land in it.
+        raw, fixture = self.fixture()
+        with raw:
+            operator = fixture.root / "operator-handover"
+            operator.mkdir()
+            os.environ["RRC_HANDOFF_KEEP_ARCHIVES"] = str(operator)
+            try:
+                result = fixture.run(FAKE_GOLDEN_RC="0")
+            finally:
+                os.environ.pop("RRC_HANDOFF_KEEP_ARCHIVES", None)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertEqual(sorted(operator.iterdir()), [], "a fixture run wrote into the operator's directory")
+
     def setUp(self) -> None:
         # Keep the red-proof useful: deleting the new command produces normal
         # assertion failures, rather than an import/setup error.
