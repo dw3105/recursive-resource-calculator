@@ -1,6 +1,6 @@
 #!/bin/sh
 # Build, test, and record the exact archives that are ready to hand to a player.
-# Usage: handoff.sh <commit-ish> <2.0 version> <2.1 version>
+# Usage: handoff.sh [--diagnostic] <commit-ish> <2.0 version> <2.1 version>
 #
 # RRC_HANDOFF_KEEP_ARCHIVES=<dir> copies the two archives this command verified into <dir>, so what reaches a
 # player is the same bytes the record names. Rebuilding instead would produce a different sha256, and the record
@@ -10,9 +10,15 @@ set -eu
 ROOT=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 
 usage() {
-    echo "usage: handoff.sh <sha> <2.0 version> <2.1 version>" >&2
+    echo "usage: handoff.sh [--diagnostic] <sha> <2.0 version> <2.1 version>" >&2
     exit 2
 }
+
+DIAGNOSTIC_MODE=0
+if [ "${1:-}" = "--diagnostic" ]; then
+    DIAGNOSTIC_MODE=1
+    shift
+fi
 
 [ "$#" -eq 3 ] || usage
 
@@ -33,6 +39,7 @@ STAGE21=$WORK/2.1
 CHECKS_FILE=$WORK/checks.tsv
 INFO_FILE=$WORK/informational.tsv
 REASONS_FILE=$WORK/reasons.txt
+BLOCKERS_FILE=$WORK/blockers.tsv
 BUILD_LOG=$WORK/build.log
 DISCOVERY=$WORK/discover.lua
 LUA_INIT_FILE=$WORK/lua-init.lua
@@ -40,11 +47,20 @@ mkdir -p "$BUILD_DIR" "$STAGE20" "$STAGE21"
 : > "$CHECKS_FILE"
 : > "$INFO_FILE"
 : > "$REASONS_FILE"
+: > "$BLOCKERS_FILE"
 
 OVERALL_FAILURE=0
 RECORD_WRITTEN=0
 HASH20=missing
 HASH21=missing
+PACKAGE20=
+PACKAGE21=
+DISC20=
+DISC21=
+ACC20=
+ACC21=
+QUALITY20=
+QUALITY21=
 ARCHIVE20=$BUILD_DIR/RRC-Fork_${VERSION20}_factorio-2.0-test.zip
 ARCHIVE21=$BUILD_DIR/RRC-Fork_${VERSION21}_factorio-2.1-test.zip
 
@@ -80,6 +96,16 @@ archive_set_hash() {
     printf '2.0\t%s\t%s\n2.1\t%s\t%s\n' \
         "$VERSION20" "$HASH20" "$VERSION21" "$HASH21" \
         | sha256sum | awk '{print $1}'
+}
+
+record_blocker() {
+    blocker_branch=$1
+    blocker_name=$2
+    blocker_exit=$3
+    blocker_reason=$4
+    blocker_log_sha256=${5:-missing}
+    printf '%s\t%s\t%s\t%s\t%s\n' \
+        "$blocker_branch" "$blocker_name" "$blocker_exit" "$blocker_reason" "$blocker_log_sha256" >> "$BLOCKERS_FILE"
 }
 
 # This helper is deliberately run from the extracted package.  Its H.test
@@ -260,14 +286,23 @@ run_check() {
     executed_cases=$(printf '%s\n%s\n' "$case_summaries" "$direct_summaries" \
         | sed '/^$/d' | awk '{n += $1} END {print n + 0}')
     status=passed
-    if [ "$gating" = true ] && { [ "$rc" -ne 0 ] || [ "$summary_count" -ne "$expected_summaries" ] || [ "$executed_cases" -ne "$expected_cases" ]; }; then
+    failed=0
+    failure_reason="$branch $name failed (exit=$rc, summaries=$summary_count/$expected_summaries, cases=$executed_cases/$expected_cases)"
+    if [ "$rc" -ne 0 ] || [ "$summary_count" -ne "$expected_summaries" ] || [ "$executed_cases" -ne "$expected_cases" ]; then
+        failed=1
+    fi
+    log_sha256=$(sha256sum "$log" | awk '{print $1}')
+    if [ "$failed" -eq 1 ]; then
         status=refused
-        refuse "$branch $name failed (exit=$rc, summaries=$summary_count/$expected_summaries, cases=$executed_cases/$expected_cases)"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ] && [ "$name" != export-completeness ]; then
+            record_blocker "$branch" "$name" "$rc" "$failure_reason" "$log_sha256"
+        elif [ "$gating" = true ]; then
+            refuse "$failure_reason"
+        fi
     fi
     if [ "$gating" = false ]; then
         status=informational
     fi
-    log_sha256=$(sha256sum "$log" | awk '{print $1}')
     output_file=$CHECKS_FILE
     [ "$gating" = true ] || output_file=$INFO_FILE
     printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
@@ -284,15 +319,27 @@ run_package() {
     quality_discovery=$7
 
     if [ -z "$test_discovery" ] || [ "$test_discovery" -le 0 ]; then
-        refuse "$branch has empty test case discovery"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker "$branch" tests-discovery 1 "$branch has empty test case discovery"
+        else
+            refuse "$branch has empty test case discovery"
+        fi
         return 0
     fi
     if [ -z "$acceptance_discovery" ] || [ "$acceptance_discovery" -le 0 ]; then
-        refuse "$branch has empty acceptance case discovery"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker "$branch" acceptance-discovery 1 "$branch has empty acceptance case discovery"
+        else
+            refuse "$branch has empty acceptance case discovery"
+        fi
         return 0
     fi
     if [ -z "$quality_discovery" ] || [ "$quality_discovery" -le 0 ]; then
-        refuse "$branch has empty quality-policy case discovery"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker "$branch" quality-policy-discovery 1 "$branch has empty quality-policy case discovery"
+        else
+            refuse "$branch has empty quality-policy case discovery"
+        fi
         return 0
     fi
 
@@ -305,6 +352,12 @@ run_package() {
     # The corpus is intentionally informational: draft/captured cases and the
     # branch-2.1 empty accepted set are expected on this host.
     run_check "$package_root" "$branch" golden-corpus 'sh tests/golden/run --branch 2.0 --drafts report' false 0 0
+}
+
+run_export_check() {
+    package_root=$1
+    branch=$2
+    run_check "$package_root" "$branch" export-completeness 'lua5.2 tests/test_export_completeness.lua' true 1 1
 }
 
 write_record() {
@@ -326,14 +379,14 @@ write_record() {
     if python3 - "$record_path" "$CANDIDATE_SHA" "$result" "$set_hash" \
         "$VERSION20" "$HASH20" "$(basename "$ARCHIVE20")" \
         "$VERSION21" "$HASH21" "$(basename "$ARCHIVE21")" \
-        "$CHECKS_FILE" "$INFO_FILE" "$REASONS_FILE" <<'PY'
+        "$CHECKS_FILE" "$INFO_FILE" "$REASONS_FILE" "$DIAGNOSTIC_MODE" "$BLOCKERS_FILE" <<'PY'
 import json
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 (path, candidate, result, archive_set, v20, h20, f20, v21, h21, f21,
- checks_path, info_path, reasons_path) = sys.argv[1:]
+ checks_path, info_path, reasons_path, diagnostic_mode, blockers_path) = sys.argv[1:]
 checks = []
 for line in Path(checks_path).read_text(encoding="utf-8").splitlines():
     if not line:
@@ -358,6 +411,18 @@ for line in Path(info_path).read_text(encoding="utf-8").splitlines():
         "log_sha256": log_sha256,
     })
 reasons = [line for line in Path(reasons_path).read_text(encoding="utf-8").splitlines() if line]
+blockers = []
+for line in Path(blockers_path).read_text(encoding="utf-8").splitlines():
+    if not line:
+        continue
+    branch, name, exit_code, reason, log_sha256 = line.split("\t")
+    blockers.append({
+        "branch": branch,
+        "name": name,
+        "exit": int(exit_code),
+        "reason": reason,
+        "log_sha256": log_sha256,
+    })
 record = {
     "schema_version": 1,
     "candidate_sha": candidate,
@@ -372,6 +437,11 @@ record = {
     "reasons": reasons,
     "created_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
 }
+if diagnostic_mode == "1":
+    record["mode"] = "diagnostic"
+    record["blockers"] = blockers
+    for archive in record["archives"]:
+        archive["verdict"] = "unverified_internal"
 Path(path).write_text(json.dumps(record, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 PY
     then
@@ -411,26 +481,56 @@ keep_archives() {
 
 if [ "$OVERALL_FAILURE" -eq 0 ]; then
     if ! DISC20=$(discover_cases "$PACKAGE20" "$DISCOVERY" tests); then
-        refuse "2.0 test case discovery failed"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker 2.0 tests-discovery 1 "2.0 test case discovery failed"
+        else
+            refuse "2.0 test case discovery failed"
+        fi
     fi
     if ! DISC21=$(discover_cases "$PACKAGE21" "$DISCOVERY" tests); then
-        refuse "2.1 test case discovery failed"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker 2.1 tests-discovery 1 "2.1 test case discovery failed"
+        else
+            refuse "2.1 test case discovery failed"
+        fi
     fi
     if ! ACC20=$(discover_cases "$PACKAGE20" "$DISCOVERY" acceptance); then
-        refuse "2.0 acceptance case discovery failed"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker 2.0 acceptance-discovery 1 "2.0 acceptance case discovery failed"
+        else
+            refuse "2.0 acceptance case discovery failed"
+        fi
     fi
     if ! ACC21=$(discover_cases "$PACKAGE21" "$DISCOVERY" acceptance); then
-        refuse "2.1 acceptance case discovery failed"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker 2.1 acceptance-discovery 1 "2.1 acceptance case discovery failed"
+        else
+            refuse "2.1 acceptance case discovery failed"
+        fi
     fi
     if ! QUALITY20=$(discover_cases "$PACKAGE20" "$DISCOVERY" quality); then
-        refuse "2.0 quality-policy case discovery failed"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker 2.0 quality-policy-discovery 1 "2.0 quality-policy case discovery failed"
+        else
+            refuse "2.0 quality-policy case discovery failed"
+        fi
     fi
     if ! QUALITY21=$(discover_cases "$PACKAGE21" "$DISCOVERY" quality); then
-        refuse "2.1 quality-policy case discovery failed"
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            record_blocker 2.1 quality-policy-discovery 1 "2.1 quality-policy case discovery failed"
+        else
+            refuse "2.1 quality-policy case discovery failed"
+        fi
     fi
 fi
 
-if [ "$OVERALL_FAILURE" -eq 0 ]; then
+if [ "$OVERALL_FAILURE" -eq 0 ] || [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+    if [ -n "$PACKAGE20" ] && [ -n "$PACKAGE21" ] && [ -n "$DISC20" ] && [ -n "$DISC21" ] \
+        && [ -n "$ACC20" ] && [ -n "$ACC21" ] && [ -n "$QUALITY20" ] && [ -n "$QUALITY21" ]; then
+        if [ "$DIAGNOSTIC_MODE" -eq 1 ]; then
+            run_export_check "$PACKAGE20" 2.0
+            run_export_check "$PACKAGE21" 2.1
+        fi
     TEST_DISC20=$(printf '%s\n' "$DISC20" | awk '{print $1}')
     TEST_FILES20=$(printf '%s\n' "$DISC20" | awk '{print $2}')
     TEST_DISC21=$(printf '%s\n' "$DISC21" | awk '{print $1}')
@@ -443,13 +543,14 @@ if [ "$OVERALL_FAILURE" -eq 0 ]; then
     QUALITY_DISC21=$(printf '%s\n' "$QUALITY21" | awk '{print $1}')
     run_package "$PACKAGE20" 2.0 "$TEST_DISC20" "$ACC_DISC20" "$TEST_FILES20" "$ACC_FILES20" "$QUALITY_DISC20"
     run_package "$PACKAGE21" 2.1 "$TEST_DISC21" "$ACC_DISC21" "$TEST_FILES21" "$ACC_FILES21" "$QUALITY_DISC21"
+    fi
 fi
 
 write_record
 if [ "$OVERALL_FAILURE" -ne 0 ]; then
     exit 2
 fi
-#Only a passing handoff may hand over archives, and only the ones it verified.
+#Only a successful transition may hand over archives, and only the ones this run built.
 if ! keep_archives; then
     echo "handoff refused: cannot keep archives in $RRC_HANDOFF_KEEP_ARCHIVES" >&2
     exit 2
