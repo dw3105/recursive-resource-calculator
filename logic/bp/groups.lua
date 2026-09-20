@@ -267,9 +267,8 @@ local function append_inserters(block, step, machine, catalog, input)
     local ports = {}
     for _, port in ipairs(step.inputs or {}) do ports[#ports + 1] = {role = "input", port = port} end
     for _, port in ipairs(step.outputs or {}) do ports[#ports + 1] = {role = "output", port = port} end
-    -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane. Keep
-    -- one horizontal row per machine; build_block reserves its full width, so adjacent machine strips stay
-    -- disjoint without spending one whole block row per connection.
+    -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane. A
+    -- separate row per connection keeps the opaque member rectangles disjoint without guessing route geometry.
     local inserter_y = machine.y + machine.h
     for index, entry in ipairs(ports) do
         block.inserters[#block.inserters + 1] = {
@@ -277,10 +276,11 @@ local function append_inserters(block, step, machine, catalog, input)
             kind = "inserter", type = "inserter", name = name,
             step_id = step.step_id, machine_id = machine.id, role = entry.role,
             flow_id = entry.port.flow_id or entry.port.full_name,
-            x = machine.x + (index - 1) * iw,
+            x = machine.x + math.max(0, math.min(machine.w - iw, index - 1)),
             y = inserter_y, w = iw, h = ih,
             dir = entry.role == "input" and NORTH or SOUTH,
         }
+        inserter_y = inserter_y + ih
     end
 end
 
@@ -385,8 +385,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         max_machine_h = math.max(max_machine_h, mh)
         local layout_w = mw
         local _, step_inserter_w = inserter_size(catalog, input and input.inserter)
-        local connection_count = #(step.inputs or {}) + #(step.outputs or {})
-        layout_w = math.max(layout_w, connection_count * step_inserter_w)
+        for _, entry in ipairs(step.inputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
+        for _, entry in ipairs(step.outputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for ordinal = 1, step.machine_count do
             machine_specs[#machine_specs + 1] = {step = step, ordinal = ordinal, w = mw, h = mh, layout_w = layout_w}
             machine_w = machine_w + layout_w
