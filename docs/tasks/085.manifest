@@ -1,0 +1,4 @@
+logic/bp/generation.lua
+logic/catalog.lua
+!tests/test_catalog_recipe_facts.lua
+!tests/test_generation_recipe_facts.lua

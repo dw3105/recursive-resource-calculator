@@ -1,0 +1,2 @@
+logic/bp/preflight.lua
+!tests/test_preflight_quality_facts.lua

@@ -93,3 +93,9 @@
 | `082` | `rrc/agent` | route the clean base | 2026-09-20 |
 | `083` | `rrc/agent` | expansion budget for many ports | 2026-09-20 |
 | `084` | `rrc/agent` | search allowance covers pipeline | 2026-09-20 |
+| `085` | `rrc/agent` | recipe and receiver facts producer | 2026-09-20 |
+| `086` | `rrc/agent` | preflight asks the quality rule | 2026-09-20 |
+| `087` | `rrc/agent` | planner asks the quality rule | 2026-09-20 |
+| `088` | `rrc/agent` | player export becomes a golden case | 2026-09-20 |
+| `089` | `rrc/agent` | handoff command | 2026-09-20 |
+| `090` | `rrc/agent` | acceptance digest instrumentation | 2026-09-20 |

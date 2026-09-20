@@ -1,0 +1,2 @@
+logic/bp/plan.lua
+!tests/test_plan_quality_facts.lua
