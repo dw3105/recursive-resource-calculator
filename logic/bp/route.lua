@@ -600,9 +600,8 @@ local function endpoint_reservation_conflict(work, endpoint)
     if endpoint.validator_travel_dir == nil then return false end
     local reserved = work.port_cells and work.port_cells[coordinate_key(endpoint.x, endpoint.y)]
     if reserved == nil then return false end
-    local own_flow = "flow:" .. tostring(endpoint.flow_id)
-    for key, _ in pairs(reserved) do
-        if tostring(key):sub(1, 5) == "flow:" and key ~= own_flow then return true end
+    for port_id, _ in pairs(reserved._port_owners or {}) do
+        if port_id ~= endpoint.port_id then return true end
     end
     return false
 end
@@ -1046,20 +1045,24 @@ end
 --the allocation rules are written for, and claiming against it would forbid sharing outright.
 local function reserve_port_cells(work)
     local reserved = {}
-    local function claim(x, y, endpoint)
+    local function claim(x, y, endpoint, owns_tile)
         if endpoint.port_id == nil or not inside_grid(work, x, y) then return end
         local key = coordinate_key(x, y)
         reserved[key] = reserved[key] or {}
         reserved[key][endpoint.port_id] = true
         if endpoint.flow_id ~= nil then reserved[key]["flow:" .. tostring(endpoint.flow_id)] = true end
+        if owns_tile then
+            reserved[key]._port_owners = reserved[key]._port_owners or {}
+            reserved[key]._port_owners[endpoint.port_id] = true
+        end
     end
     local function claim_endpoint(endpoint)
         if type(endpoint) ~= "table" or endpoint.x == nil or endpoint.y == nil then return end
         local function claim_approach(direction)
-            claim(endpoint.x, endpoint.y, endpoint)
+            claim(endpoint.x, endpoint.y, endpoint, true)
             local dx, dy = Grid.dir_vector(direction or Grid.NORTH)
-            if endpoint.role == "in" then claim(endpoint.x - dx, endpoint.y - dy, endpoint)
-            else claim(endpoint.x + dx, endpoint.y + dy, endpoint) end
+            if endpoint.role == "in" then claim(endpoint.x - dx, endpoint.y - dy, endpoint, false)
+            else claim(endpoint.x + dx, endpoint.y + dy, endpoint, false) end
         end
         claim_approach(endpoint.travel_dir)
         if endpoint.validator_travel_dir ~= nil and endpoint.validator_travel_dir ~= endpoint.travel_dir then
