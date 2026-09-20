@@ -54,7 +54,6 @@ return {
         flows = {"item/sulfuric-ore", "item/washed-ore", "item/refined-plate",
             "fluid/water", "fluid/dirty-water"},
     },
-    generation = {search_budget = 3000},
     engine_scenario = Common.scenario(
         {{full_name = "item/sulfuric-ore", rate_per_second = 1},
          {full_name = "fluid/water", rate_per_second = 10}},

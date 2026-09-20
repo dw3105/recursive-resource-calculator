@@ -20,7 +20,11 @@ flow declaration uses the production names (`item/foo` and `fluid/bar`), so a
 fluid or byproduct cannot disappear behind an otherwise plausible item chain.
 The setup also records mocked prototype facts, selected recipes and machines,
 module/beacon loadouts, infrastructure, mod/version, Factorio branch,
-research, generation bounds, and the engine scenario's supply and drain.
+research, default generation configuration, and the engine scenario's supply
+and drain. Production setups must not carry `search_budget`, `max_ops`,
+`max_search_grids`, or `max_grid_trials`; those inputs would measure a cap
+instead of the generator. The named `tiny-chain` fixture is the sole carve-out
+because it demonstrates a bounded failure for the capture tests.
 
 `Setup.assert_calculated_graph` is called after the sliced calculation has
 published its solver result and before `Generation.start` is called. It

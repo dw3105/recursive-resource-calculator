@@ -46,7 +46,6 @@ return {
         steps = {"smelt-copper-plate", "craft-copper-gear", "craft-copper-cable"},
         flows = {"item/copper-ore", "item/copper-plate", "item/copper-gear", "item/copper-cable"},
     },
-    generation = {search_budget = 3000},
     engine_scenario = Common.scenario(
         {{full_name = "item/copper-ore", rate_per_second = 4}},
         {{full_name = "item/copper-gear", rate_per_second = 1},
