@@ -1,0 +1,82 @@
+{
+  "archive_set_sha256": "8ab2dcc90b2fbee3cf9f3831f2700529c80779ef970fccee6fae4c08203ed93d",
+  "archives": [
+    {
+      "branch": "2.0",
+      "sha256": "24773c53f56a556db10404c1f4f4844acf1ccc666779e7a85f528c4a1db3c03e",
+      "version": "1.1.51"
+    },
+    {
+      "branch": "2.1",
+      "sha256": "f3cbb941287df9bcf05677ba576680f451f6ebe9d0bf7436d9a8b26c521f67ce",
+      "version": "1.1.52"
+    }
+  ],
+  "candidate_sha": "f66881c02d5c7b72dbc563582000db217505c285",
+  "checks": [
+    {
+      "command": "sh tests/run.sh",
+      "executed_cases": 3376,
+      "exit": 0,
+      "expected_cases": 3376,
+      "log_sha256": "256c8add283c4464fc495d44e34be3ead4a33b752cf9c203f1f0cebf25968648",
+      "name": "tests-run"
+    },
+    {
+      "command": "sh tests/acceptance/run",
+      "executed_cases": 7,
+      "exit": 0,
+      "expected_cases": 7,
+      "log_sha256": "0275fa4716b67fc126f02e4b4276df4cfe62222a2beae3cf3a102540a35fa787",
+      "name": "acceptance"
+    },
+    {
+      "command": "lua5.2 tests/test_quality_policy.lua",
+      "executed_cases": 32,
+      "exit": 0,
+      "expected_cases": 32,
+      "log_sha256": "b5853237db55d06b06ec6d09c0c66ad9c916cbd622574165d527e7063e7d3229",
+      "name": "quality-policy"
+    },
+    {
+      "command": "sh tests/run.sh",
+      "executed_cases": 3376,
+      "exit": 0,
+      "expected_cases": 3376,
+      "log_sha256": "f2bf8fe2a5ac27564f85f10dafe29688223079a7561df0369f10790ea7785e3e",
+      "name": "tests-run"
+    },
+    {
+      "command": "sh tests/acceptance/run",
+      "executed_cases": 7,
+      "exit": 0,
+      "expected_cases": 7,
+      "log_sha256": "0275fa4716b67fc126f02e4b4276df4cfe62222a2beae3cf3a102540a35fa787",
+      "name": "acceptance"
+    },
+    {
+      "command": "lua5.2 tests/test_quality_policy.lua",
+      "executed_cases": 32,
+      "exit": 0,
+      "expected_cases": 32,
+      "log_sha256": "b5853237db55d06b06ec6d09c0c66ad9c916cbd622574165d527e7063e7d3229",
+      "name": "quality-policy"
+    }
+  ],
+  "created_at": "2026-09-20T12:03:00.337070Z",
+  "informational": [
+    {
+      "exit": 1,
+      "log_sha256": "22a67a81647221d19e1de8cbaac26e53f0d3b91ecf084434bc78b12b3e9523f5",
+      "name": "golden-corpus-status"
+    },
+    {
+      "exit": 1,
+      "log_sha256": "22a67a81647221d19e1de8cbaac26e53f0d3b91ecf084434bc78b12b3e9523f5",
+      "name": "golden-corpus-status"
+    }
+  ],
+  "reasons": [],
+  "result": "pass",
+  "schema_version": 1
+}
