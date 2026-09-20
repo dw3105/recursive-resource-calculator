@@ -374,13 +374,35 @@ local function entity_rect(entity, catalog)
     return {x = x, y = y, w = w, h = h}
 end
 
+--Electrical demand comes from normalized prototype data, never from an entity's transport role. A plain belt
+--or pipe has no energy source, so it adds no consumer; a modded belt whose catalog entry declares needs_power
+--does. The validator reads the same two fields in the same order (validate.lua needs_power), so planner and
+--checker cannot drift apart silently.
+local function declared_power_need(entity, catalog)
+    if type(entity) ~= "table" then return nil end
+    if entity.needs_power ~= nil then return entity.needs_power == true end
+    local spec = catalog_entity(catalog, entity.name or entity.entity or entity.prototype)
+    if spec.needs_power ~= nil then return spec.needs_power == true end
+    return nil
+end
+
+local function requires_power(entity, catalog, kind)
+    if kind == nil or kind == "roboport" then return false end
+    local declared = declared_power_need(entity, catalog)
+    if declared ~= nil then return declared end
+    if kind == "transport" then
+        return entity.powered_transport == true or entity.is_powered_transport == true
+    end
+    return kind == "machine" or kind == "beacon" or kind == "inserter"
+end
+
 local function power_consumers(entities, plan, catalog)
     local step_by_id = {}
     for _, step in ipairs(plan and plan.steps or {}) do step_by_id[step.step_id] = step end
     local result = {}
     for _, entity in ipairs(entities or {}) do
         local kind = electrical_kind(entity, catalog)
-        if kind == "machine" or kind == "beacon" or kind == "inserter" or kind == "transport" then
+        if requires_power(entity, catalog, kind) then
             local step = step_by_id[entity.step_id]
             result[#result + 1] = {id = entity.id, rect = entity_rect(entity, catalog),
                 power_w = finite(entity.power_w, finite(step and step.power_w, 0))}
@@ -632,6 +654,60 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
     return input
 end
 
+--Generated fan-out invents several edge endpoints for one flow before routing knows how that flow's demand
+--splits, so every endpoint carried the whole flow rate and some endpoints carried no demand at all. After
+--routing the split is known: an endpoint's rate is the demand actually bound to it, and an endpoint nothing was
+--bound to is not part of the layout. Endpoints the caller supplied are never rewritten or dropped: an unserved
+--one of those is a real shortfall and must still be reported.
+local function reconcile_generated_ports(state, external_ports, bindings)
+    if not state.work.generated_perimeter_ports then return external_ports end
+    local served = {}
+    for _, binding in ipairs(bindings or {}) do
+        local rate = finite(binding.rate_per_second, 0)
+        local source = binding.source_port_id or binding.source
+        local sink = binding.sink_port_id or binding.sink
+        if type(source) == "string" then
+            served[source] = served[source] or {}
+            served[source].out = (served[source].out or 0) + rate
+        end
+        if type(sink) == "string" then
+            served[sink] = served[sink] or {}
+            served[sink]["in"] = (served[sink]["in"] or 0) + rate
+        end
+    end
+
+    --Endpoints of one flow and role are one fan-out group. A group nothing was bound to is left exactly as it
+    --was: the layout may not have routed yet, and an unserved endpoint of a demanded flow is a real shortfall
+    --the validator must still see. Inside a group that was used, only the used endpoints remain.
+    local function group_key(port)
+        local id = tostring(port.port_id or port.id or "")
+        local flow = port.flow_id or port.full_name or (id:gsub(":%d+$", ""))
+        return tostring(flow) .. "/" .. tostring(port.role)
+    end
+    local function port_rate(port)
+        local record = served[port.port_id or port.id]
+        if record == nil then return nil end
+        return port.role == "out" and record["in"] or record.out
+    end
+
+    local used = {}
+    for _, port in ipairs(external_ports) do
+        if port_rate(port) ~= nil then used[group_key(port)] = true end
+    end
+    local kept = {}
+    for _, port in ipairs(external_ports) do
+        local rate = port_rate(port)
+        if rate ~= nil then
+            port.rate_per_second = rate
+            port.rate = rate
+            kept[#kept + 1] = port
+        elseif not used[group_key(port)] then
+            kept[#kept + 1] = port
+        end
+    end
+    return kept
+end
+
 local function make_candidate(state, grid, blocks, entities, ports, route_result, power_result, roboports)
     local segments = {}
     for _, segment in ipairs(route_result and route_result.segments or {}) do
@@ -657,6 +733,7 @@ local function make_candidate(state, grid, blocks, entities, ports, route_result
     append_all(candidate.wires, route_result and route_result.wires)
     candidate.segments = segments
     candidate.bindings = route_result and (route_result.port_bindings or route_result.bindings) or {}
+    candidate.external_ports = reconcile_generated_ports(state, candidate.external_ports, candidate.bindings)
     return candidate
 end
 
@@ -817,9 +894,42 @@ local function begin_serialization(state)
     return true
 end
 
+--Good-enough allowance. A generation job must finish one whole candidate, keep the first valid layout, spend
+--a small bounded allowance looking for a better one, and publish. One route's expansion count is not that
+--allowance: it pays for no packing, no power, no validation and no publication, so a job sized by it dies
+--before its first candidate is ever checked.
+--
+--The size of one candidate's pipeline is not known before a candidate runs, and guessing it from grid area was
+--wrong by an order of magnitude on the measured chains. So the first candidate runs without an operation
+--ceiling (every stage it uses is itself finite), its real cost is measured, and that measurement sets one hard
+--ceiling for the rest of the job. The ceiling is never replenished.
+local CANDIDATE_ALLOWANCE = 4
+
+local function note_candidate_start(state)
+    if state.work.candidate_start_ops == nil then state.work.candidate_start_ops = state.ops_used end
+end
+
+local function derive_allowance(state)
+    --Only a job without a caller-supplied budget derives one; an explicit search_budget stays authoritative.
+    if not state.work.allowance_derived or state.max_ops ~= nil then return end
+    local started = state.work.candidate_start_ops
+    if started == nil then return end
+    local cost = math.max(1, state.ops_used - started)
+    state.max_ops = state.ops_used + cost * (CANDIDATE_ALLOWANCE - 1)
+    state.work.derived_candidate_cost = cost
+end
+
+local function finish_candidate(state)
+    derive_allowance(state)
+    state.work.candidate_start_ops = nil
+end
+
 local function finish_search_budget(state)
     if state.incumbent then begin_serialization(state) else fail_budget(state) end
 end
+
+--The electrical demand projection is public so a test can measure it without rebuilding a whole search.
+Search.power_consumers = power_consumers
 
 function Search.begin(input)
     input = copy(type(input) == "table" and input or {}) or {}
@@ -833,7 +943,8 @@ function Search.begin(input)
             plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil, orderings = nil,
             pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
             grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false, generated_perimeter_ports = false,
-            candidate_beacon_lower_bound = nil, publication_reserved = false, power_bound_hit = false},
+            candidate_beacon_lower_bound = nil, publication_reserved = false, power_bound_hit = false,
+            allowance_derived = max_ops == nil, candidate_start_ops = nil, derived_candidate_cost = nil},
     }
     state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
     state.initial_revisions = copy(state.revisions)
@@ -902,6 +1013,7 @@ local function prepare_candidate(state)
     append_all(obstacles, bare_rects(state.work.input.obstacles))
     append_all(obstacles, bare_rects(state.work.input.occupied))
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
+    note_candidate_start(state)
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
         blocks = ordering.blocks, limits = state.work.input.limits or {}})
     set_phase(state, "pack")
@@ -909,6 +1021,7 @@ local function prepare_candidate(state)
 end
 
 local function discard_candidate(state)
+    finish_candidate(state)
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
     state.cursor.order_index = state.cursor.order_index + 1
     if state.work.orderings and state.cursor.order_index <= #state.work.orderings then
@@ -979,14 +1092,6 @@ function Search.step(container, budget)
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input then
                         state.work.route = Route.begin(route_input)
-                        if state.max_ops == nil and state.work.generated_perimeter_ports
-                            and #state.work.perimeter_ports > #(state.work.plan_result.ports or {})
-                            and state.work.route.work and state.work.route.work.max_expansions ~= nil then
-                            --Auto-generated fan-out has a route budget derived from its demands. Reuse that
-                            --derived work bound for the surrounding candidate so an expensive power sweep cannot
-                            --turn a finite route into an unbounded-looking generation job.
-                            state.max_ops = state.ops_used + state.work.route.work.max_expansions
-                        end
                         set_phase(state, "route")
                     else
                         discard_candidate(state)
