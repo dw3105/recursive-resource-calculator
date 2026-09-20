@@ -336,7 +336,6 @@ for line in Path(checks_path).read_text(encoding="utf-8").splitlines():
         continue
     branch, name, command, exit_code, check_state, expected, executed, log_sha256 = line.split("\t")
     checks.append({
-        "branch": branch,
         "name": name,
         "command": command,
         "expected_cases": int(expected),
@@ -350,9 +349,7 @@ for line in Path(info_path).read_text(encoding="utf-8").splitlines():
         continue
     branch, name, command, exit_code, check_state, expected, executed, log_sha256 = line.split("\t")
     informational.append({
-        "branch": branch,
         "name": "golden-corpus-status",
-        "command": command,
         "exit": int(exit_code),
         "log_sha256": log_sha256,
     })
@@ -362,8 +359,8 @@ record = {
     "candidate_sha": candidate,
     "archive_set_sha256": archive_set,
     "archives": [
-        {"branch": "2.0", "version": v20, "sha256": None if h20 == "missing" else h20, "file": f20},
-        {"branch": "2.1", "version": v21, "sha256": None if h21 == "missing" else h21, "file": f21},
+        {"branch": "2.0", "version": v20, "sha256": None if h20 == "missing" else h20},
+        {"branch": "2.1", "version": v21, "sha256": None if h21 == "missing" else h21},
     ],
     "checks": checks,
     "informational": informational,
