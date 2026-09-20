@@ -104,4 +104,4 @@ Your own tests must include, in `tests/test_groups.lua`, by these exact case nam
 - `BG4 a block of five machines of differing sizes each gets its configured count`
 - `BG5 count_per_machine is never assigned to a physical beacon count`
 
-# bound: 5400s
+# bound: 3600s

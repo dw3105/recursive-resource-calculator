@@ -142,4 +142,4 @@ Your own tests must include, in `tests/test_search.lua`, by these exact case nam
 - `ST7 a failing attempt still reports grid_spacing with its kind, source and generation_job_id`
 - `ST8 grid_spacing survives a persistence round trip and answers through Generation.lookup`
 
-# bound: 5400s
+# bound: 3600s
