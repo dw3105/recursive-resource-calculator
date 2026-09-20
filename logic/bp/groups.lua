@@ -477,7 +477,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for beacon_index = 1, math.max(0, group.count) do
             local beacon_x = row_x + (beacon_index - 1) * (row.w + 1)
             local beacon = {
-                id = member_id("beacon", group.signature, beacon_index),
+                --A beacon group signature describes a loadout, not a place: two blocks sharing one loadout
+                --produced two beacons with one id, and every reader that indexes entities by id then saw one
+                --beacon standing in two places. The block owns its members, so the block belongs in the id.
+                id = member_id("beacon", tostring(block.id or block.block_id) .. "|" .. tostring(group.signature),
+                    beacon_index),
                 kind = "beacon", type = "beacon", name = group.name, quality = group.quality,
                 signature = group.signature, group_signature = group.signature,
                 has_speed_module = group.has_speed_module, modules = list_copy(group.modules),

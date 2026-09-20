@@ -87,6 +87,23 @@ local function map_by_id(list)
     return result
 end
 
+--Ports are addressed by port_id throughout the pipeline, and id_of never reads that field. A port carrying a
+--member, block or step id was therefore indexed under that id, so a binding naming the port's own port_id found
+--nothing and every such binding was reported as a wrong port edge. Index by port_id first, keep the generic id
+--as an alias so a candidate that only carries id still resolves.
+local function port_index(ports)
+    local result = {}
+    for index, port in ipairs(ports or {}) do
+        local primary = port.port_id or id_of(port, tostring(index))
+        if primary ~= nil and result[primary] == nil then result[primary] = port end
+    end
+    for index, port in ipairs(ports or {}) do
+        local alias = id_of(port, tostring(index))
+        if alias ~= nil and result[alias] == nil then result[alias] = port end
+    end
+    return result
+end
+
 local function placement_map(source)
     local result = {}
     if type(source) ~= "table" then return result end
@@ -213,6 +230,15 @@ end
 
 local function boxes_overlap(a, b)
     return a.left < b.right and b.left < a.right and a.top < b.bottom and b.top < a.bottom
+end
+
+--Engine rule: an entity is supplied when its collision box overlaps the supply area, not when its centre sits
+--inside it. A 3x3 machine beside a pole overlaps that area while its centre stays outside, so the centre test
+--rejected layouts the game powers, and it disagreed with the planner, which already places poles by overlap.
+local function box_in_area(info, centre_x, centre_y, supply_w, supply_h)
+    local world = box_world(info)
+    return world.left < centre_x + supply_w + EPSILON and centre_x - supply_w - EPSILON < world.right
+        and world.top < centre_y + supply_h + EPSILON and centre_y - supply_h - EPSILON < world.bottom
 end
 
 local function point_in_area(info, centre_x, centre_y, supply_w, supply_h)
@@ -479,7 +505,7 @@ local function make_work(input)
     local grid_h = finite(root.grid_h, finite(input.grid_h, finite(grid.h, finite(root.height, input.height))))
     local wires = list_from(root.wires or (root.power and root.power.wires))
     local flows = flow_list(root.flows or (root.route and root.route.flows) or (plan and plan.flows))
-    local blocks = list_from(root.blocks); local ports = collect_ports(root); local port_by_id = map_by_id(ports)
+    local blocks = list_from(root.blocks); local ports = collect_ports(root); local port_by_id = port_index(ports)
     local segments = collect_segments(root); local segment_by_id = map_by_id(segments)
     local bindings = collect_bindings(root); local steps = step_map(plan); local placements = placement_map(root.placements)
     local machines, beacons, poles, power_nodes, roboports, inserters, consumers = {}, {}, {}, {}, {}, {}, {}
@@ -643,7 +669,7 @@ local function check_power_coverage(work)
         local covered = false
         for _, pole in ipairs(work.poles) do
             local supply_w, supply_h = supply_size(pole, work.catalog)
-            if point_in_area(consumer, pole.cx, pole.cy, supply_w, supply_h) then covered = true; break end
+            if box_in_area(consumer, pole.cx, pole.cy, supply_w, supply_h) then covered = true; break end
         end
         if not covered then error_record(work.errors, "BP_V_POWER_UNCOVERED", {tostring(consumer.id)}) end
         work.metrics.peak_power_w = work.metrics.peak_power_w + finite(consumer.entity.power_w, finite(consumer.spec.energy_usage_w, 0))
@@ -838,9 +864,7 @@ local function check_underground(work)
     return true
 end
 
-local function port_position(work, port)
-    local x, y = finite(port.x), finite(port.y)
-    if x ~= nil and y ~= nil then return x, y end
+local function port_owner(work, port)
     local wanted = port.block_id
     local owner
     for _, block in ipairs(work.blocks or {}) do
@@ -857,9 +881,30 @@ local function port_position(work, port)
     if not owner then return nil end
     local block_id = owner.block_id or owner.id
     local placement = work.placements[block_id] or owner.placement or owner
+    return owner, {x = finite(placement.x, 0), y = finite(placement.y, 0), dir = finite(placement.dir, Grid.NORTH)}
+end
+
+local function port_position(work, port)
+    local x, y = finite(port.x), finite(port.y)
+    if x ~= nil and y ~= nil then return x, y end
+    local owner, placement = port_owner(work, port)
+    if not owner then return nil end
     local frame = {w = finite(port._block_w, finite(owner.w, 1)), h = finite(port._block_h, finite(owner.h, 1))}
-    local placed = Grid.place_port(frame, {x = finite(placement.x, 0), y = finite(placement.y, 0), dir = finite(placement.dir, Grid.NORTH)}, port)
+    local placed = Grid.place_port(frame, placement, port)
     return placed.x, placed.y
+end
+
+--A block port's travel direction is written in the block's own frame, and the block may be placed rotated. The
+--placed approach tile follows the rotated direction, exactly as the placed position follows the rotated
+--attachment. Reading the raw direction aimed the approach at a neighbouring port's tile, so a belt legally
+--serving that neighbour was reported as this port's wrong edge.
+local function port_travel_direction(work, port)
+    local direction = port.travel_dir or port.dir or port.normal_dir
+    if direction == nil then return nil end
+    if port.x ~= nil or port.y ~= nil then return direction end
+    local owner, placement = port_owner(work, port)
+    if not owner then return direction end
+    return Grid.rotate_dir(direction, placement.dir)
 end
 
 local function check_port_approaches(work)
@@ -910,7 +955,7 @@ local function check_port_approaches(work)
     end
     for _, port in ipairs(work.ports) do
         local x, y = port_position(work, port)
-        local direction = port.travel_dir or port.dir or port.normal_dir
+        local direction = port_travel_direction(work, port)
         local dx, dy
         if direction then dx, dy = Grid.dir_vector(direction) end
         if x ~= nil and y ~= nil and dx ~= nil and dy ~= nil then
@@ -933,7 +978,18 @@ local function check_ports(work)
             local source_flow, sink_flow = source.flow_id or source.full_name, sink.flow_id or sink.full_name
             if (source_flow and source_flow ~= flow_id) or (sink_flow and sink_flow ~= flow_id) then bad = true end
         end
-        if bad then error_record(work.errors, "BP_V_PORT_EDGE_WRONG", {tostring(source_id), tostring(sink_id)}) end
+        if bad then
+            --Name the failing half. A bare code cannot be repaired: the reader needs to know whether the port is
+            --missing from the candidate or present with the wrong role for this binding.
+            local reason
+            if not source then reason = "binding source port is missing"
+            elseif not sink then reason = "binding sink port is missing"
+            elseif not source_ok then reason = "binding source has role " .. tostring(source.role)
+            elseif not sink_ok then reason = "binding sink has role " .. tostring(sink.role)
+            else reason = "binding flow differs from its port flow" end
+            error_record(work.errors, "BP_V_PORT_EDGE_WRONG", {tostring(source_id), tostring(sink_id)},
+                {reason = reason})
+        end
         if source_id then bound_source[source_id] = true end; if sink_id then bound_sink[sink_id] = true end
         if binding.rate_per_second and source_id then work.metrics.achieved_rate_by_port_id[source_id] = (work.metrics.achieved_rate_by_port_id[source_id] or 0) + flow_share(binding) end
         if binding.rate_per_second and sink_id then work.metrics.achieved_rate_by_port_id[sink_id] = (work.metrics.achieved_rate_by_port_id[sink_id] or 0) + flow_share(binding) end
@@ -941,9 +997,19 @@ local function check_ports(work)
     end
     for _, port in ipairs(work.ports) do
         local rate = finite(port.rate_per_second, finite(port.rate, 0)); local role = port.role or port.direction
-        local source_side = role == "out" or (role == "in" and is_external_port(port))
-        local sink_side = role == "in" or (role == "out" and is_external_port(port))
-        if rate > tolerance(rate) and ((source_side and not bound_source[port.port_id]) or (sink_side and not bound_sink[port.port_id])) then error_record(work.errors, "BP_V_PORT_UNREACHABLE", {tostring(port.port_id)}) end
+        --Each port plays exactly one side. A block output and an edge input both feed transport, so both must be
+        --a binding source; a block input and an edge output both receive, so both must be a binding sink.
+        --Demanding both sides of one port made every edge input unreachable by definition: nothing inside the
+        --layout produces into the factory's own supply.
+        local external = is_external_port(port)
+        local must_source = (role == "out" and not external) or (role == "in" and external)
+        local must_sink = (role == "in" and not external) or (role == "out" and external)
+        if rate > tolerance(rate) and ((must_source and not bound_source[port.port_id])
+            or (must_sink and not bound_sink[port.port_id])) then
+            error_record(work.errors, "BP_V_PORT_UNREACHABLE", {tostring(port.port_id)},
+                {reason = (must_source and "no binding uses this port as a source")
+                    or "no binding uses this port as a sink"})
+        end
     end
     return true
 end
