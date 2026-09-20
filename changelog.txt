@@ -1,4 +1,31 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.50
+Date: 2026.09.20
+  Info:
+    - Same code as 1.1.49, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.49
+Date: 2026.09.20
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.50).
+    - Test build of round 8, not a portal release. It is the first build in which the Generate blueprint
+      action produces a blueprint: three chains now reach a delivered, independently checked layout offline.
+      Nothing in this build has been measured in a running game, so throughput is still unproven.
+  Features:
+    - Generate blueprint: an action on every sheet that lays out the calculated factory and hands over a
+      blueprint. The layout is checked against the physical rules before it is published: collisions from real
+      collision boxes, beacon coverage, power coverage and pole wiring, port edges and reachability, flow
+      conservation and capacities. A run that finds no valid layout within its work allowance says so and
+      never publishes an unchecked one.
+  Bugfixes:
+    - Ordinary belts, underground belts, splitters and pipes no longer ask for electric poles. They have no
+      energy source, and counting them made the pole search pay for every route tile.
+    - A blueprint's own checker now reads the placed layout: ports are found by their identity, a rotated
+      block's port approach follows the placed direction, an entity is powered when its collision box overlaps
+      a pole's supply area, and an edge input is no longer asked to have a producer inside the factory.
+    - Two beacons of one loadout in different blocks no longer share one identity.
+    - A search budget written by the caller is honoured instead of silently dropped.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.38
 Date: 2026.09.18
   Info:
