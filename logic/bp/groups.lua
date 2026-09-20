@@ -248,18 +248,16 @@ local function rect_contains(a, b)
     return a.x <= b.x and a.y <= b.y and a.x + a.w >= b.x + b.w and a.y + a.h >= b.y + b.h
 end
 
-local function cover_area(beacon, supply_w, supply_h)
-    return Grid.beacon_area(beacon, supply_w, supply_h)
-end
-
 local function covers(beacon, machine, supply_w, supply_h)
-    -- A quarter-turn swaps the two axes of the beacon/machine offset, while the validator's supply
-    -- projection remains expressed in world axes.  Planning against the smaller reach on both axes makes
-    -- every planned relationship survive all four placements instead of only the unrotated one.
+    -- The validator measures supply from the placed beacon centre.  Do not expand the beacon's occupied
+    -- rectangle here: that would add half its footprint to the reach and can hide a one-tile layout gap.
+    -- A quarter-turn swaps the two axes, so the smaller configured reach is the only source-frame bound that
+    -- guarantees this relationship survives all four placements.
     local reach = math.min(finite(supply_w, 0), finite(supply_h, 0))
-    local area = cover_area(beacon, reach, reach)
+    local beacon_x, beacon_y = beacon.x + beacon.w / 2, beacon.y + beacon.h / 2
     local cx, cy = machine_center(machine)
-    return cx >= area.x and cx <= area.x + area.w and cy >= area.y and cy <= area.y + area.h
+    return cx >= beacon_x - reach and cx <= beacon_x + reach
+        and cy >= beacon_y - reach and cy <= beacon_y + reach
 end
 
 local function append_inserters(block, step, machine, catalog, input)
@@ -411,6 +409,30 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     local w = math.max(1, machine_w, max_beacon_row_w, input_count, output_count)
     local machine_y = beacon_rows_h > 0 and beacon_rows_h + 1 or 0
+    if beacon_rows_h > 0 then
+        -- Keep the established spacer when it is within reach, but remove it when the placed validator would
+        -- reject the relationship.  The compact case leaves no unoccupied tile between the actual rectangles.
+        local needs_tighter_row = false
+        for _, row in ipairs(beacon_row_specs) do
+            local reach = math.min(finite(row.group.supply_w, 0), finite(row.group.supply_h, 0))
+            local beacon_y = row.y + row.h / 2
+            for _, spec in ipairs(machine_specs) do
+                local requests = false
+                for _, entry in ipairs(spec.step._groups or {}) do
+                    if entry.signature == row.group.signature and entry.count_per_machine > 0 then
+                        requests = true
+                        break
+                    end
+                end
+                if requests and math.abs(machine_y + spec.h / 2 - beacon_y) > reach then
+                    needs_tighter_row = true
+                    break
+                end
+            end
+            if needs_tighter_row then break end
+        end
+        if needs_tighter_row then machine_y = beacon_rows_h end
+    end
     local x = 0
     for _, spec in ipairs(machine_specs) do
         local machine = {
