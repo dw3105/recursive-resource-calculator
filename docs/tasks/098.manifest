@@ -1,0 +1,10 @@
+tests/golden/lib/runner.py
+tests/golden/accept
+tests/golden/required-matrix.json
+tests/golden/setup/assembler-chain-example.lua
+tests/golden/setup/base-only-crafting-smelting.lua
+tests/golden/setup/fluid-byproduct-chain.lua
+tests/golden/setup/repeatability.lua
+tests/golden/setup/shared-intermediate-multi-target.lua
+tests/tools/test_capture_workflow.py
+docs/golden-case-authoring.md

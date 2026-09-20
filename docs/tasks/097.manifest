@@ -1,0 +1,14 @@
+logic/bp/search.lua
+logic/bp/generation.lua
+logic/bp/reason_codes.lua
+locale/en/locale.cfg
+locale/cs/locale.cfg
+locale/ro/locale.cfg
+tests/test_search.lua
+tests/test_search_budget.lua
+tests/test_search_allowance.lua
+tests/test_generation_reload.lua
+tests/test_generation_attempt_lookup.lua
+tests/test_blueprint_pipeline.lua
+tests/test_external_ports.lua
+tests/test_locale_keys.lua
