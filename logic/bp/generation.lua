@@ -884,21 +884,32 @@ local function begin(context)
     }
 end
 
-local function search_options(input)
+local function search_options(input, context)
     local result = copy_plain(input.options) or {}
     local settings = copy_plain(input.settings) or {}
+    context = type(context) == "table" and context or {}
     --Preflight receives the selected settings through its documented options.settings field. Keep the selected
     --infrastructure out of the flat option namespace: catalog.pipe is the projection for both pipe choices, so
     --flattening underground_pipe would make preflight look for a non-existent catalog. Search receives settings
     --separately for edges and infrastructure geometry.
     result.settings = result.settings or settings
+    --A caller that spells search_budget at the top level gets the documented option rather than silence. A
+    --written number that the search never sees is worse than a refused one: the run looks budgeted and is not.
+    for _, control in ipairs({"search_budget"}) do
+        if result[control] == nil then
+            local supplied = input[control]
+            if supplied == nil then supplied = context[control] end
+            if supplied == nil then supplied = type(context.options) == "table" and context.options[control] or nil end
+            if supplied ~= nil then result[control] = copy_plain(supplied) end
+        end
+    end
     if input.surface ~= nil and result.surface == nil then result.surface = input.surface end
     if input.force ~= nil and result.force == nil then result.force = input.force end
     return result
 end
 
-local function search_input_for(input, job)
-    local options = search_options(input)
+local function search_input_for(input, job, context)
+    local options = search_options(input, context)
     local result = {
         snapshot = input.snapshot,
         solver_result = input.solver_result,
@@ -970,7 +981,7 @@ local function step(job, budget)
                 persist_handle(handle)
             end
             local input = prepared_or_reason
-            local search_input = search_input_for(input, job)
+            local search_input = search_input_for(input, job, state.input)
             state.search = Search.begin(search_input)
             state.search.player_index, state.search.sheet_id = job.player_index, job.sheet_id
             state.search.revisions = copy_plain(job.revisions) or {}
