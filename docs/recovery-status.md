@@ -193,3 +193,47 @@ failed validation), 082 (fan-out at the wrong budget, superseded by 083).
 Live: `lane/084`, base tag `search-allowance-base` = `249ae51`, task `docs/tasks/084_search_allowance.md`.
 
 Full handoff: `~/.claude/plans/rrc-round-8-handoff-2026-09-20.md`.
+
+## 2026-09-20 afternoon: generation delivers, review `rrc-good-enough-recovery-review-2026-09-20.md` answered
+
+HEAD `93c9d3c`, branch `feat/round-8-blueprints`, never pushed, `main` untouched.
+
+Three acceptance chains reach a delivered, independently validated blueprint through the real generation
+service. `docs/tasks/058_reproducer.lua` prints `REPRO state=success`.
+
+```text
+sh tests/run.sh                    exit 0; 3134 Lua cases, 0 failed; 81 python tests OK
+sh tests/acceptance/run            item 313 ticks, fluid 74 ticks, beacon 194 ticks, all success
+docs/tasks/058_reproducer.lua      REPRO state=success stage=done codes=
+tests/test_validated_candidate     frozen first candidate validates in 174 operations
+```
+
+The python tier had been red since `c50a2bd` (2026-09-19) and was not noticed because only the Lua totals were
+read. It is green again, and a captured corpus case now has a state whose rules it meets.
+
+### Findings answered
+
+| Finding | What was wrong | Where it is fixed |
+|---|---|---|
+| F1 | both smoke cases asserted `state ~= "success"`, and each drove a whole search | `docs/tasks/068_*_smoke.lua` stop at the plan (0.16 s); `tests/acceptance/**` demands success |
+| F2 | `search_budget` at the top level of `Generation.start` was dropped | `logic/bp/generation.lua`; `tests/test_generation_controls.lua` reads the value at the Search boundary |
+| F3 | every belt, splitter and pipe counted as an electrical consumer | `logic/bp/search.lua` reads `needs_power`; item chain 154 consumers to 17 |
+| F4 | "zero validator rejections" was measured where validation never ran | `tests/diag/chain_report.lua` reports validator calls, accepted, rejected and ids from one run |
+| F5 | the allowance was one route's expansion count | `logic/bp/search.lua` measures the first candidate and sets one hard ceiling from it |
+| F7 | narrow lane tasks preserved a broken end-to-end outcome | repaired end to end here: five cross-module defects, one replayable candidate |
+
+### The five defects that stood between routing and a blueprint
+
+1. Ports were indexed by `id_of`, which never reads `port_id`, so bindings resolved nothing.
+2. A port had to be both binding source and binding sink; each port plays one side.
+3. Power coverage used the consumer's centre; the engine and the planner use box overlap.
+4. A rotated block's port approach was read from the unrotated direction, so a neighbour's belt was reported.
+5. Two beacons of one loadout in different blocks shared one id.
+
+### Not done
+
+- No engine evidence. Nothing here has run in Factorio; throughput is unproven.
+- Cost, not correctness, is the next target: the item chain takes 313 ticks and a 120 ms worst tick in the
+  harness. F6 asks for stage, persistence and status cost to be measured apart before any further tuning.
+- Lane 084's work is preserved at tag `lane-084-preserved` (`60906ff`) and was not merged: its own checks
+  passed, its fixture gates failed, and a 6000-tick run showed it still ends `pending` with `BP_R_NO_PATH`.
