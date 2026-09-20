@@ -1,0 +1,3 @@
+logic/bp/groups.lua
+tests/test_groups.lua
+!tests/test_beacon_coverage.lua
