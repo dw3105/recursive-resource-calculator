@@ -82,3 +82,4 @@
 | `071` | `rrc/agent` | pole wires legal | 2026-09-19 |
 | `072` | `rrc/agent` | collision beacon port residual | 2026-09-19 |
 | `073` | `rrc/agent` | underground pairing | 2026-09-19 |
+| `074` | `rrc/agent` | placed boxes never overlap | 2026-09-20 |
