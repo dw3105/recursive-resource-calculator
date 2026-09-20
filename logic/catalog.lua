@@ -213,6 +213,79 @@ local function source_for(entity)
         or entity.void_energy_source_prototype
 end
 
+local function engine_branch()
+    return Utils.IS_2_1 and "2.1" or "2.0"
+end
+
+local function append_unique(result, seen, value)
+    if value ~= nil and not seen[value] then
+        seen[value] = true
+        result[#result + 1] = value
+    end
+end
+
+local function sorted_values(values)
+    table.sort(values, function(a, b) return tostring(a) < tostring(b) end)
+    return values
+end
+
+local function item_spoils(name, quality_name)
+    local item = prototypes.item[name]
+    if not item then return false end
+    local ticks = 0
+    if type(item.get_spoil_ticks) == "function" then
+        ticks = item.get_spoil_ticks(quality_name) or 0
+    end
+    return item.spoil_result ~= nil or ticks > 0
+end
+
+local function project_effect_receiver(entity)
+    local branch = engine_branch()
+    local receiver = entity.effect_receiver
+    if type(receiver) ~= "table" then
+        return {
+            status = "missing", source = "capture", branch = branch,
+            reason = "effect receiver was not captured from " .. tostring(entity.name),
+        }
+    end
+
+    local projected = {
+        source = "prototype", branch = branch,
+        base_effect = copy_plain(receiver.base_effect or {}),
+        uses_module_effects = receiver.uses_module_effects ~= false,
+        uses_beacon_effects = receiver.uses_beacon_effects ~= false,
+        uses_surface_effects = receiver.uses_surface_effects ~= false,
+    }
+    if Utils.IS_2_1 then
+        projected.uses_local_effects = receiver.uses_local_effects ~= false
+        projected.quality_limits = copy_plain(receiver.quality_limits)
+        local limits = receiver.quality_limits
+        local lower
+        if type(limits) == "table" then
+            lower = limits.min
+            if lower == nil then lower = limits.minimum end
+            if lower == nil then lower = limits[1] end
+        end
+        if limits ~= nil and type(limits) ~= "table" then
+            projected.status = "unsupported"
+            projected.reason = "quality limits are not a table"
+        elseif limits ~= nil and type(lower) ~= "number" then
+            projected.status = "unsupported"
+            projected.reason = "quality limits carry no readable lower bound"
+        elseif type(lower) == "number" and lower < 0 then
+            projected.status = "unsupported"
+            projected.reason = "quality limits permit a quality decrease"
+        else
+            projected.status = "verified_supported"
+        end
+    else
+        --2.0 has no quality_limits or uses_local_effects member. Its verified legacy semantics are
+        --a supported default, never an unsupported omission of a 2.1 field.
+        projected.status = "verified_default"
+    end
+    return projected
+end
+
 local function max_energy_per_tick(entity, quality_name, quality_valid)
     if not quality_valid then return nil end
     if quality_valid and type(entity.get_max_energy_usage) == "function" then
@@ -277,6 +350,7 @@ local function project_entity(catalog, diagnostics, entity, quality_name, qualit
         needs_power = source ~= nil or (energy_per_tick ~= nil and energy_per_tick > 0),
         fluid_boxes = project_fluid_boxes(entity),
         beacon = nil,
+        effect_receiver = project_effect_receiver(entity),
     }
 
     if quality_valid and (entity.type == "assembling-machine" or entity.type == "furnace"
@@ -326,6 +400,7 @@ local function project_item(catalog, diagnostics, request, quality_name, quality
         fuel_category = Utils.id_name(item.fuel_category),
         fuel_emissions_multiplier = item.fuel_emissions_multiplier,
         burnt_result = Utils.id_name(item.burnt_result),
+        spoil_result = Utils.id_name(item.spoil_result),
     }
     if item.type == "module" and quality_valid and type(item.get_module_effects) == "function" then
         projected.module_effects = copy_plain(item.get_module_effects(quality_name) or {})
@@ -338,6 +413,124 @@ local function project_item(catalog, diagnostics, request, quality_name, quality
         }
     end
     catalog.item[item.name] = projected
+end
+
+local function project_recipe_ingredient(ingredient, quality_name)
+    ingredient = type(ingredient) == "table" and ingredient or {}
+    local ingredient_type = Utils.id_name(ingredient.type) or "item"
+    local name = Utils.id_name(ingredient.name)
+    return {
+        type = ingredient_type,
+        name = name,
+        amount = ingredient.amount,
+        spoils = ingredient_type ~= "fluid" and item_spoils(name, quality_name) or false,
+    }
+end
+
+local function project_recipe_product(product, quality_name)
+    product = type(product) == "table" and product or {}
+    local product_type = Utils.id_name(product.type) or "item"
+    local name = Utils.id_name(product.name)
+    local projected = {
+        type = product_type,
+        name = name,
+        full_name = name and product_type .. "/" .. name or nil,
+        amount = product.amount,
+        amount_min = product.amount_min,
+        amount_max = product.amount_max,
+        extra_count_fraction = product.extra_count_fraction,
+        percent_spoiled = product.percent_spoiled,
+        spoils = product_type ~= "fluid" and item_spoils(name, quality_name) or false,
+    }
+    if Utils.IS_2_1 then
+        projected.independent_probability = product.independent_probability
+        projected.shared_probability = copy_plain(product.shared_probability)
+    else
+        projected.probability = product.probability
+    end
+    return projected
+end
+
+local function project_recipe(catalog, diagnostics, request, quality_name)
+    local name = split_full_name(request.name, "recipe")
+    local recipe = resolve(diagnostics, "recipe", name)
+    if not recipe then return nil, {"recipe"} end
+
+    local category
+    if Utils.IS_2_1 then
+        local categories = recipe.categories
+        category = categories and categories[1]
+    else
+        category = recipe.category
+    end
+    local ingredients = recipe.ingredients
+    local products = recipe.products
+    local projected = {
+        name = Utils.id_name(recipe.name) or name,
+        category = category,
+        energy = recipe.energy,
+        ingredients = {},
+        products = {},
+        allowed_effects = copy_plain(recipe.allowed_effects),
+        allowed_module_categories = copy_plain(recipe.allowed_module_categories),
+        maximum_productivity = recipe.maximum_productivity,
+    }
+    for _, ingredient in ipairs(type(ingredients) == "table" and ingredients or {}) do
+        projected.ingredients[#projected.ingredients + 1] = project_recipe_ingredient(ingredient, quality_name)
+    end
+    for _, product in ipairs(type(products) == "table" and products or {}) do
+        projected.products[#projected.products + 1] = project_recipe_product(product, quality_name)
+    end
+
+    local missing, missing_seen = {}, {}
+    local known_empty, known_empty_seen = {}, {}
+    local function required(field, value)
+        if value == nil then append_unique(missing, missing_seen, field) end
+    end
+    local function required_table(field, value)
+        if type(value) ~= "table" then append_unique(missing, missing_seen, field) end
+    end
+    local function optional(field, value)
+        if value == nil then append_unique(known_empty, known_empty_seen, field) end
+    end
+    required("name", projected.name)
+    required("category", projected.category)
+    required("energy", projected.energy)
+    required_table("ingredients", ingredients)
+    required_table("products", products)
+    if type(ingredients) == "table" then
+        for index, ingredient in ipairs(projected.ingredients) do
+            if type(ingredient.name) ~= "string" then
+                append_unique(missing, missing_seen, "ingredients[" .. index .. "].name")
+            end
+            if ingredient.amount == nil then
+                append_unique(missing, missing_seen, "ingredients[" .. index .. "].amount")
+            end
+        end
+    end
+    if type(products) == "table" then
+        if #projected.products == 0 then append_unique(missing, missing_seen, "products") end
+        for index, product in ipairs(projected.products) do
+            if type(product.name) ~= "string" then
+                append_unique(missing, missing_seen, "products[" .. index .. "].name")
+            end
+            if type(product.type) ~= "string" then
+                append_unique(missing, missing_seen, "products[" .. index .. "].type")
+            end
+            if product.amount == nil and product.amount_min == nil and product.amount_max == nil then
+                append_unique(missing, missing_seen, "products[" .. index .. "].amount")
+            end
+        end
+    end
+    optional("allowed_effects", projected.allowed_effects)
+    optional("allowed_module_categories", projected.allowed_module_categories)
+    optional("maximum_productivity", projected.maximum_productivity)
+    projected.facts = {
+        missing = sorted_values(missing),
+        known_empty = sorted_values(known_empty),
+    }
+    catalog.recipe[projected.name] = projected
+    return projected, projected.facts.missing
 end
 
 local function project_fluid(catalog, diagnostics, request, quality_name)
@@ -535,6 +728,7 @@ local function catalog_template()
     return {
         schema_version = Catalog.SCHEMA_VERSION,
         entity = {}, item = {}, fluid = {}, quality = {}, quality_level = {}, module = {}, beacon = {},
+        recipe = {}, recipe_coverage = {state = "complete", active = {}, missing = {}},
         belt = nil, pipe = nil, inserter = nil, pole = nil, robo = nil,
     }
 end
@@ -562,6 +756,7 @@ function Catalog.build(player_index, options)
     local fluid_requests = requests_from_options(options, {"fluid_names"}, {"fluids", "fluid"}, default_quality)
     local module_requests = requests_from_options(options, {"module_names"}, {"modules", "module"}, default_quality)
     local quality_requests = requests_from_options(options, {"quality_names"}, {"qualities", "quality"}, default_quality)
+    local recipe_requests = requests_from_options(options, {"recipe_names"}, {"recipes", "recipe"}, default_quality)
     -- quality is also the selected default above; a list can add other qualities referenced by a calculation.
     for _, request in ipairs(quality_requests) do
         local quality, quality_name = selected_quality(request.name, diagnostics, quality_cache)
@@ -584,6 +779,26 @@ function Catalog.build(player_index, options)
         local quality, quality_name = selected_quality(request.quality, diagnostics, quality_cache)
         project_item(catalog, diagnostics, request, quality_name, quality ~= false)
         if quality then project_quality(catalog, quality, quality_name) end
+    end
+    local active_recipes = {}
+    local active_seen = {}
+    for _, request in ipairs(unique_requests(recipe_requests)) do
+        local recipe_name = split_full_name(request.name, "recipe")
+        append_unique(active_recipes, active_seen, recipe_name)
+        local projected, missing = project_recipe(catalog, diagnostics, request, default_quality)
+        if projected == nil then
+            catalog.recipe_coverage.missing[recipe_name] = sorted_values(missing)
+        elseif #missing > 0 then
+            catalog.recipe_coverage.missing[recipe_name] = missing
+        end
+    end
+    sorted_values(active_recipes)
+    catalog.recipe_coverage.active = active_recipes
+    for _, recipe_name in ipairs(active_recipes) do
+        if catalog.recipe_coverage.missing[recipe_name] ~= nil then
+            catalog.recipe_coverage.state = "partial"
+            break
+        end
     end
     for _, request in ipairs(unique_requests(fluid_requests)) do
         local _, quality_name = selected_quality(request.quality, diagnostics, quality_cache)

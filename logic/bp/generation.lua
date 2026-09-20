@@ -217,12 +217,50 @@ local function append_map_names(set, map, references)
     for full_name, _ in pairs(map or {}) do add_full_name(references, full_name) end
 end
 
+local function add_recipe_name(set, value)
+    if type(value) == "table" and value.name == nil and value.id == nil and value.prototype == nil then
+        for key, child in pairs(value) do
+            if child == true then
+                add_recipe_name(set, key)
+            elseif child ~= nil then
+                add_recipe_name(set, child)
+            end
+        end
+        return
+    end
+    local name = name_of(value)
+    if type(name) ~= "string" then return end
+    --Solver columns for burners and quality loops are identities, not prototype recipes.
+    if name:sub(1, 11) == "hxrrc-burn:" or name:sub(1, 13) == "quality-loop:" then return end
+    set[name] = true
+end
+
+local function add_stage_recipe_name(set, stage)
+    if type(stage) ~= "table" then return end
+    add_recipe_name(set, stage.recipe_name or stage.recipe)
+end
+
+local function add_quality_loop_recipes(set, loop)
+    if type(loop) ~= "table" then return end
+    add_recipe_name(set, loop.craft_recipe_name)
+    add_recipe_name(set, loop.recycle_recipe_name)
+    add_stage_recipe_name(set, loop.recycle)
+    add_stage_recipe_name(set, loop.assist)
+    add_stage_recipe_name(set, loop.config)
+    for _, stage in pairs(loop.crafts or {}) do add_stage_recipe_name(set, stage) end
+    if type(loop.config) == "table" then
+        for _, stage in pairs(loop.config.crafts or {}) do add_stage_recipe_name(set, stage) end
+    end
+end
+
 local function references_for(snapshot, calculation, settings)
-    local references = {entities = {}, items = {}, fluids = {}, modules = {}, qualities = {}}
+    local references = {entities = {}, items = {}, fluids = {}, modules = {}, qualities = {}, recipes = {}}
     for _, target in ipairs(snapshot and snapshot.targets or {}) do
         add_full_name(references, target.full_name, target.parts)
+        add_recipe_name(references.recipes, target.recipe_name or target.recipe)
     end
     for _, entry in ipairs(snapshot and snapshot.selection or {}) do
+        add_recipe_name(references.recipes, entry.recipe_name or entry.recipe)
         add_name(references.entities, entry.machine, references.qualities)
         add_name(references.modules, entry.modules, references.qualities)
         for _, beacon in ipairs(entry.beacons or {}) do
@@ -241,6 +279,8 @@ local function references_for(snapshot, calculation, settings)
         end
     end
     for _, column in ipairs(calculation and calculation.columns or {}) do
+        add_recipe_name(references.recipes, column.recipe_name or column.recipe)
+        add_quality_loop_recipes(references.recipes, column.quality_loop)
         add_name(references.entities, column.machine, references.qualities)
         add_name(references.entities, column.burner, references.qualities)
         append_map_names(references.items, column.net_amounts, references)
@@ -294,6 +334,7 @@ local function catalog_options(references, settings)
         fluids = sorted_set(references.fluids),
         modules = sorted_set(references.modules),
         qualities = sorted_set(references.qualities),
+        recipes = sorted_set(references.recipes),
     }
 end
 
@@ -425,7 +466,7 @@ end
 
 local function empty_catalog()
     return {schema_version = Catalog.SCHEMA_VERSION, entity = {}, item = {}, fluid = {}, quality = {}, quality_level = {},
-        module = {}, beacon = {}}
+        module = {}, beacon = {}, recipe = {}, recipe_coverage = {state = "complete", active = {}, missing = {}}}
 end
 
 local function calculation_for(player_index, sheet_id, revisions, snapshot)
@@ -521,6 +562,7 @@ local function preparation_step(prep, input, job, budget)
             end
         elseif prep.catalog_prebuilt then
             if prep.catalog_cursor.done then
+                prep.catalog = prep.catalog_cursor.value or empty_catalog()
                 prep.catalog_prebuilt = false
             else
                 copy_cursor_step(prep.catalog_cursor, budget)
