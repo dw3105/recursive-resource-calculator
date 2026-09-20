@@ -924,23 +924,45 @@ local function generation_capture(player_index, player_data, sheet_id)
 end
 
 local function generation_attempt(player_index, player_data, sheet_id, capture, provenance)
+    local function mark_missing_spacing(attempt)
+        if type(attempt) ~= "table" or attempt.grid_spacing ~= nil then return attempt end
+        local missing = type(attempt.missing) == "table" and attempt.missing or {}
+        local named = false
+        for _, fact in ipairs(missing) do
+            if fact == "grid_spacing" then named = true break end
+        end
+        if not named then missing[#missing + 1] = "grid_spacing" end
+        table.sort(missing, function(a, b) return tostring(a) < tostring(b) end)
+        attempt.missing = missing
+        return attempt
+    end
+
+    local function copied_attempt(attempt)
+        return mark_missing_spacing(copy_json(attempt))
+    end
+
     --Ask the service first. It answers for this sheet and keeps answering after the job is terminal, which the
     --transient queue slot below does not.
     local ok_service, generation = pcall(Registry.need, "generation")
     local attempt = ok_service and service_attempt(generation, player_index, sheet_id) or nil
-    if attempt ~= nil then return copy_json(attempt) end
+    if attempt ~= nil then return copied_attempt(attempt) end
 
     local job = type(player_data) == "table" and player_data.blueprint_job or nil
     if type(job) == "table" and (job.sheet_id == nil or job.sheet_id == sheet_id) then
-        return copy_json(job)
+        return copied_attempt(job)
     end
     --A build without the per-sheet lookup may still carry the service's plain-data bridge for this sheet.
     local bridged = type(player_data) == "table" and type(player_data.blueprint_attempts) == "table"
         and player_data.blueprint_attempts[sheet_id] or nil
-    if type(bridged) == "table" then return copy_json(bridged) end
+    if type(bridged) == "table" then return copied_attempt(bridged) end
     if type(capture) == "table" then
+        --A capture is prepared-input provenance, not the generation attempt. It cannot manufacture spacing that
+        --the attempt lookup did not carry.
         local carried = copy_json(provenance or capture)
-        if type(carried) == "table" then return carried end
+        if type(carried) == "table" then
+            carried.grid_spacing = nil
+            return mark_missing_spacing(carried)
+        end
     end
     --Absence is a fact the export names, never a fabricated last attempt and never another sheet's attempt.
     return {status = "absent", missing = {"generation_attempt"}}
@@ -1038,6 +1060,8 @@ local function completeness_diagnostics(snapshot, result, result_setting, catalo
     end
     if type(generation) == "table" and generation.status == "absent" then
         add("generation.attempt", "the current base has no durable generation attempt lookup")
+    elseif type(generation) == "table" and generation.grid_spacing == nil then
+        add("generation.grid_spacing", "the generation attempt did not supply a spacing record")
     end
     table.sort(missing, function(a, b) return a.fact < b.fact end)
     return missing

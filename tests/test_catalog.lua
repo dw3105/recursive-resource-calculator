@@ -105,6 +105,44 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(catalog.robo.construction_radius, 55, "the roboport keeps its construction radius")
     end)
 
+    H.test(shape .. " RF1 the roboport catalog names a missing engine fact", function()
+        local world = H.new_world(shape)
+        Catalog = require "logic.catalog"
+        world.add_roboport({name = "missing-logistic", construction_radius = 55})
+        local entity = prototypes.entity["missing-logistic"]
+        entity.logistic_radius = nil
+        local catalog = Catalog.build(1, {robo = "missing-logistic"})
+        H.equal(type(catalog.robo.facts), "table", "roboport facts exist")
+        if type(catalog.robo.facts) ~= "table" then return end
+        H.equal(catalog.robo.facts.missing[1], "logistic_radius", "missing logistic radius is named")
+    end)
+
+    H.test(shape .. " RF2 connection_distance is never named as a missing roboport fact", function()
+        local world = H.new_world(shape)
+        Catalog = require "logic.catalog"
+        world.add_roboport({name = "compat-robo", logistic_radius = 25, construction_radius = 55})
+        local catalog = Catalog.build(1, {robo = {name = "compat-robo", connection_distance = 7}})
+        H.equal(type(catalog.robo.facts), "table", "roboport facts exist")
+        if type(catalog.robo.facts) ~= "table" then return end
+        local named = false
+        for _, fact in ipairs(catalog.robo.facts.missing or {}) do
+            if fact == "connection_distance" then named = true end
+        end
+        H.equal(named, false, "connection distance is not an engine fact")
+    end)
+
+    H.test(shape .. " RF3 a default-infrastructure roboport reports an empty facts.missing", function()
+        local world = H.new_world(shape)
+        Catalog = require "logic.catalog"
+        world.add_default_infrastructure()
+        local catalog = Catalog.build(1, {robo = "roboport"})
+        H.equal(catalog.robo.logistic_radius, 25, "default logistic radius")
+        H.equal(catalog.robo.construction_radius, 55, "default construction radius")
+        H.equal(type(catalog.robo.facts), "table", "roboport facts exist")
+        if type(catalog.robo.facts) ~= "table" then return end
+        H.equal(#catalog.robo.facts.missing, 0, "default roboport has no missing engine facts")
+    end)
+
     H.test(shape .. " C4 belt speed becomes total and per-lane item throughput", function()
         world_with_catalog_fixtures(shape)
         local catalog = Catalog.build(1, {belt = {belt = "transport-belt", underground = "underground-belt", splitter = "splitter"}})

@@ -451,6 +451,18 @@ local function project_recipe_product(product, quality_name)
     return projected
 end
 
+local function required(missing, missing_seen, field, value)
+    if value == nil then append_unique(missing, missing_seen, field) end
+end
+
+local function required_table(missing, missing_seen, field, value)
+    if type(value) ~= "table" then append_unique(missing, missing_seen, field) end
+end
+
+local function optional(known_empty, known_empty_seen, field, value)
+    if value == nil then append_unique(known_empty, known_empty_seen, field) end
+end
+
 local function project_recipe(catalog, diagnostics, request, quality_name)
     local name = split_full_name(request.name, "recipe")
     local recipe = resolve(diagnostics, "recipe", name)
@@ -484,20 +496,11 @@ local function project_recipe(catalog, diagnostics, request, quality_name)
 
     local missing, missing_seen = {}, {}
     local known_empty, known_empty_seen = {}, {}
-    local function required(field, value)
-        if value == nil then append_unique(missing, missing_seen, field) end
-    end
-    local function required_table(field, value)
-        if type(value) ~= "table" then append_unique(missing, missing_seen, field) end
-    end
-    local function optional(field, value)
-        if value == nil then append_unique(known_empty, known_empty_seen, field) end
-    end
-    required("name", projected.name)
-    required("category", projected.category)
-    required("energy", projected.energy)
-    required_table("ingredients", ingredients)
-    required_table("products", products)
+    required(missing, missing_seen, "name", projected.name)
+    required(missing, missing_seen, "category", projected.category)
+    required(missing, missing_seen, "energy", projected.energy)
+    required_table(missing, missing_seen, "ingredients", ingredients)
+    required_table(missing, missing_seen, "products", products)
     if type(ingredients) == "table" then
         for index, ingredient in ipairs(projected.ingredients) do
             if type(ingredient.name) ~= "string" then
@@ -522,9 +525,9 @@ local function project_recipe(catalog, diagnostics, request, quality_name)
             end
         end
     end
-    optional("allowed_effects", projected.allowed_effects)
-    optional("allowed_module_categories", projected.allowed_module_categories)
-    optional("maximum_productivity", projected.maximum_productivity)
+    optional(known_empty, known_empty_seen, "allowed_effects", projected.allowed_effects)
+    optional(known_empty, known_empty_seen, "allowed_module_categories", projected.allowed_module_categories)
+    optional(known_empty, known_empty_seen, "maximum_productivity", projected.maximum_productivity)
     projected.facts = {
         missing = sorted_values(missing),
         known_empty = sorted_values(known_empty),
@@ -702,7 +705,7 @@ local function build_robo(catalog, diagnostics, options, requests)
     --connection_distance is not a roboport member. It is subclasses ["RollingStock"] in the pinned 2.0.77 and
     --2.1.19 runtime API, so reading it here raised on the real engine and yielded nil in every capture. The
     --roboport gap is derived from logistic_radius by the planner instead; see logic/bp/search.lua grid_model.
-    catalog.robo = {
+    local projected = {
         name = entity.name,
         quality = quality_name,
         tile_w = entity.tile_width,
@@ -710,6 +713,20 @@ local function build_robo(catalog, diagnostics, options, requests)
         logistic_radius = entity.logistic_radius,
         construction_radius = entity.construction_radius,
     }
+    local missing, missing_seen = {}, {}
+    local known_empty, known_empty_seen = {}, {}
+    --These are the roboport's actual engine facts. In particular, connection_distance is deliberately not
+    --listed: it belongs to RollingStock and a plain-data compatibility override is not a prototype fact.
+    required(missing, missing_seen, "name", projected.name)
+    required(missing, missing_seen, "tile_w", projected.tile_w)
+    required(missing, missing_seen, "tile_h", projected.tile_h)
+    required(missing, missing_seen, "logistic_radius", projected.logistic_radius)
+    required(missing, missing_seen, "construction_radius", projected.construction_radius)
+    projected.facts = {
+        missing = sorted_values(missing),
+        known_empty = sorted_values(known_empty),
+    }
+    catalog.robo = projected
 end
 
 local function all_names(collection)
