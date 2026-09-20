@@ -169,19 +169,19 @@ H.test("EC3 selections survive: machine and recipe identity, quality, and the pr
 end)
 
 H.test("EC4 module names, qualities and counts survive, including two rows with different setups", function()
-    local world, sheet = base_case()
-    local payload = build(sheet)
-    local entry = selected(payload, 1)
-    H.equal(entry.modules[1].name, "speed-module", "first module name")
-    H.equal(entry.modules[1].quality, "rare", "first module quality")
-    H.equal(entry.modules[1].count, 2, "first module count")
-    local second_sheet = make_sheet({{item = "gear", rate = 1, unit = "/s"}})
+    local world = world_with_selection()
+    local sheet = make_sheet({{item = "plate", rate = 15, unit = "/m"}, {item = "gear", rate = 1, unit = "/s"}})
     world.bind("item/gear", "gear", 1)
-    local second_snapshot = Snapshot.of_sheet(second_sheet)
-    storage[1].last_calculation = {sheet_id = second_snapshot.sheet_id, result = result_for(second_snapshot), settings = second_snapshot}
-    local second = build(second_sheet)
-    H.equal(selected(second, 1).modules[1].name, "productivity-module", "second row setup is local")
-    H.equal(selected(second, 1).modules[1].count, 1, "second row module count")
+    local payload = build(sheet)
+    local first = selected(payload, 1)
+    H.equal(first.recipe_name, "gear", "first row identity")
+    H.equal(first.modules[1].name, "productivity-module", "first row setup is local")
+    H.equal(first.modules[1].count, 1, "first row module count")
+    local second = selected(payload, 2)
+    H.equal(second.recipe_name, "plate", "second row identity")
+    H.equal(second.modules[1].name, "speed-module", "second module name")
+    H.equal(second.modules[1].quality, "rare", "second module quality")
+    H.equal(second.modules[1].count, 2, "second module count")
 end)
 
 H.test("EC5 beacon prototype, quality, count, sharing and installed modules survive", function()
@@ -248,6 +248,7 @@ H.test("EC10 no-result, current, stale and failed states each export honestly", 
     local no_result, no_state = build(sheet)
     H.equal(no_state, "not_computed", "no result state")
     H.equal(no_result.calculation.status, "not_computed", "no result calculation")
+    H.equal(no_result.prototypes.recipe.plate ~= nil, true, "no-result selection still requests its recipe prototype")
     remember(sheet)
     local _, current_state = build(sheet)
     H.equal(current_state, "current", "current state")
@@ -266,13 +267,13 @@ H.test("EC11 two distinct sheets never borrow each other's selections or results
     local first = make_sheet({{item = "plate", rate = 1, unit = "/s"}})
     local first_snapshot = remember(first)
     local first_payload = build(first)
-    local second = make_sheet({{item = "gear", rate = 2, unit = "/s"}}, 2)
-    world.bind("item/gear", "gear", 2)
-    storage[2].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler-alt", quality = "normal"}
-    storage[2].module_setups_by_recipe_name.gear = {modules = {}, beacons = {}}
+    local second = make_sheet({{item = "gear", rate = 2, unit = "/s"}}, 1)
+    world.bind("item/gear", "gear", 1)
+    storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = {name = "assembler-alt", quality = "normal"}
+    storage[1].module_setups_by_recipe_name.gear = {modules = {}, beacons = {}}
     local second_snapshot = Snapshot.of_sheet(second)
-    storage[2].last_calculation = {sheet_id = second_snapshot.sheet_id, result = result_for(second_snapshot), settings = second_snapshot}
-    local second_payload = build(second, 2)
+    storage[1].last_calculation = {sheet_id = second_snapshot.sheet_id, result = result_for(second_snapshot), settings = second_snapshot}
+    local second_payload = build(second, 1)
     H.equal(first_payload.sheet.sheet_id ~= second_payload.sheet.sheet_id, true, "distinct sheet identities")
     H.equal(first_payload.settings.result.sheet_id, first_snapshot.sheet_id, "first result stays on first sheet")
     H.equal(second_payload.settings.result.sheet_id, second_snapshot.sheet_id, "second result stays on second sheet")
