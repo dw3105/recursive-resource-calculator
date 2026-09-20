@@ -1,5 +1,7 @@
 # 096 roboport facts, and the spacing record the export must carry
 
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-096`, branch `lane/096`, base tag `round-11-base` (resolve with `git rev-parse round-11-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+
 ## What is true
 
 Base tag `round-11-base`. Contract: `docs/feature-contracts.md` section 24, rules 24.4 and 24.7.
@@ -92,3 +94,5 @@ Your own tests must include, in `tests/test_catalog.lua`, by these exact case na
 - `RF1 the roboport catalog names a missing engine fact`
 - `RF2 connection_distance is never named as a missing roboport fact`
 - `RF3 a default-infrastructure roboport reports an empty facts.missing`
+
+# bound: 3600s

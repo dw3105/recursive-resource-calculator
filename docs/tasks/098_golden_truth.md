@@ -1,5 +1,7 @@
 # 098 golden runner truth: enforce every pair, refuse a capped case, and let one case be accepted
 
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-098`, branch `lane/098`, base tag `round-11-base` (resolve with `git rev-parse round-11-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+
 ## What is true
 
 Base tag `round-11-base`. Contract: `docs/feature-contracts.md` section 24, rule 24.7.
@@ -89,3 +91,5 @@ Your own tests must include, in `tests/tools/test_capture_workflow.py`, by these
 - `test_a_production_case_carrying_a_search_budget_is_refused`
 - `test_one_captured_case_with_evidence_is_accepted_while_others_stay_draft`
 - `test_acceptance_without_evidence_never_reaches_accepted`
+
+# bound: 3600s

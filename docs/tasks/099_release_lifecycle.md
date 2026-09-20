@@ -1,5 +1,7 @@
 # 099 release lifecycle: a red corpus refuses, a branch means itself, a promotion never rebuilds
 
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-099`, branch `lane/099`, base tag `round-11-base` (resolve with `git rev-parse round-11-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+
 ## What is true
 
 Base tag `round-11-base`. Contract: `docs/feature-contracts.md` section 24, rule 24.7.
@@ -86,3 +88,5 @@ Your own tests must include, in `tests/tools/test_handoff.py`, by these exact ca
 - `test_a_handoff_runs_the_corpus_for_its_own_branch`
 - `test_promotion_accepts_an_existing_archive_and_never_rebuilds`
 - `test_a_diagnostic_run_survives_a_red_corpus_and_stays_unverified_internal`
+
+# bound: 3600s

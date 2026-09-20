@@ -1,5 +1,7 @@
 # 097 search truth: one cause per stop, reasons kept, and a bound that is not a cheap failure
 
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-097`, branch `lane/097`, base tag `round-11-base` (resolve with `git rev-parse round-11-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+
 ## What is true
 
 Base tag `round-11-base`. Contract: `docs/feature-contracts.md` section 24, rules 24.4, 24.6, 24.7.
@@ -139,3 +141,5 @@ Your own tests must include, in `tests/test_search.lua`, by these exact case nam
 - `ST6 a cheap failed candidate never sets the whole job's ceiling`
 - `ST7 a failing attempt still reports grid_spacing with its kind, source and generation_job_id`
 - `ST8 grid_spacing survives a persistence round trip and answers through Generation.lookup`
+
+# bound: 5400s

@@ -1,5 +1,7 @@
 # 095 validator symmetry: beacons get the rule poles already have
 
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-095`, branch `lane/095`, base tag `round-11-base` (resolve with `git rev-parse round-11-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+
 ## What is true
 
 Base tag `round-11-base`. Contract: `docs/feature-contracts.md` section 24, rules 24.1, 24.2, 24.4.
@@ -90,3 +92,5 @@ Your own tests must include, in `tests/test_validate.lua`, by these exact case n
 - `VS2 the fractional-box counterexample is refused by the beacon rule and the pole rule alike`
 - `VS3 the player's four-roboport cell validates as connected, before and after translation`
 - `VS4 geometry only: a whole column moved past a stated spacing is disconnected and named`
+
+# bound: 3600s

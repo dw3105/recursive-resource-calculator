@@ -1,5 +1,7 @@
 # 094 beacon geometry: the overlap rule, and beacon rows that actually cover
 
+Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-094`, branch `lane/094`, base tag `round-11-base` (resolve with `git rev-parse round-11-base`), merge target `feat/round-8-blueprints`. Host `legalcopilot-dev`.
+
 ## What is true
 
 Base tag `round-11-base`. Contract: `docs/feature-contracts.md` section 24, rules 24.1, 24.2, 24.3.
@@ -101,3 +103,5 @@ Your own tests must include, in `tests/test_groups.lua`, by these exact case nam
 - `BG3 a machine configured for three beacons overlaps three supply areas`
 - `BG4 a block of five machines of differing sizes each gets its configured count`
 - `BG5 count_per_machine is never assigned to a physical beacon count`
+
+# bound: 5400s
