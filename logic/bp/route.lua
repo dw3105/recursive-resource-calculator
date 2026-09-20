@@ -205,8 +205,13 @@ end
 
 local function point_from(value)
     if type(value) ~= "table" then return nil, nil end
-    local point = value.position or value
-    local x, y = finite(point.x), finite(point.y)
+    --Placed x/y are the coordinates validation reads. A position object may be a stale source-frame helper,
+    --so it must not override the materialized tile when both representations are present.
+    local x, y = finite(value.x), finite(value.y)
+    if x == nil or y == nil then
+        local position = value.position
+        x, y = finite(position and position.x), finite(position and position.y)
+    end
     if x == nil or y == nil then return nil, nil end
     return math.floor(x), math.floor(y)
 end
@@ -398,7 +403,7 @@ local function inside_grid(work, x, y)
 end
 
 local function endpoint_position(block, placement, port, work)
-    local point = port.position or ((port.x ~= nil or port.y ~= nil) and port) or nil
+    local point = ((port.x ~= nil or port.y ~= nil) and port) or port.position or nil
     local x, y = point_from(point)
     if x ~= nil and y ~= nil and (work == nil or inside_grid(work, x, y)) then return x, y end
     local frame = block
