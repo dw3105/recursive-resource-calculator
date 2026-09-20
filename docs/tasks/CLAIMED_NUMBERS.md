@@ -89,3 +89,4 @@
 | `078` | `rrc/agent` | placed beacon covers machine | 2026-09-20 |
 | `079` | `rrc/agent` | port never blocks itself | 2026-09-20 |
 | `080` | `rrc/agent` | first layout corridor | 2026-09-20 |
+| `081` | `rrc/agent` | corridor candidate validates | 2026-09-20 |
