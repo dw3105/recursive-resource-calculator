@@ -1044,7 +1044,8 @@ def check_branch_requirements(root: Path, cases: Sequence[Path], branch: Optiona
                 continue
             if (manifest.get("case_id", case.name) == entry.get("case_id")
                     and case_branch(manifest) == branch
-                    and manifest.get("state", manifest.get("status", "accepted")) != "draft"):
+                    and manifest.get("state", manifest.get("status", "accepted"))
+                        not in ("draft", "captured")):
                 accepted += 1
                 break
     if accepted == 0:
@@ -1086,6 +1087,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 1
     failures = 0
     drafts = 0
+    captured = 0
     processed = 0
     for case in cases:
         try:
@@ -1097,13 +1099,19 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
                 print(f"NOT_APPLICABLE {case.name} (declared branch {declared_branch}, selected {args.branch})")
                 continue
             processed += 1
-            if manifest.get("state", manifest.get("status")) == "draft":
+            #A captured case carries a real harness capture and still lacks its engine observation, so it is
+            #reported apart from a draft and is never a pass.
+            state = manifest.get("state", manifest.get("status"))
+            if state in ("draft", "captured"):
                 if args.drafts == "report":
-                    drafts += 1
+                    if state == "captured":
+                        captured += 1
+                    else:
+                        drafts += 1
                     failures += 1
-                    print(f"DRAFT {case.name}")
+                    print(("CAPTURED " if state == "captured" else "DRAFT ") + case.name)
                     continue
-                raise GoldenError("draft case cannot satisfy the release corpus")
+                raise GoldenError(f"{state} case cannot satisfy the release corpus")
             if explicit_accept:
                 if len(cases) != 1:
                     raise GoldenError("accept names exactly one case")
@@ -1123,7 +1131,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         print(f"FAIL branch {args.branch}: matches zero applicable cases", file=sys.stderr)
         return 1
     if args.drafts == "report":
-        print(f"golden: {processed - failures} passed, {failures - drafts} failed, {drafts} drafts")
+        print(f"golden: {processed - failures} passed, {failures - drafts - captured} failed, "
+              f"{drafts} drafts, {captured} captured")
     else:
         print(f"golden: {processed - failures} passed, {failures} failed")
     return 0 if failures == 0 else 1

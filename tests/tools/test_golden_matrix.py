@@ -130,6 +130,44 @@ def assert_draft_content_is_honest(manifest, case_id, baseline):
             )
 
 
+CAPTURED_COVERAGE = (
+    "open gap: harness capture only; engine observation pending; not coverage"
+)
+
+DRAFT_COVERAGE = "open gap: capture pending; content arrives with capture; not coverage"
+
+
+def assert_captured_content_is_honest(manifest, case_id):
+    """A captured case carries a real harness capture and still is not accepted coverage.
+
+    draft means nothing has been captured; captured means the sheet was taken through the real preparation
+    path and the engine observation is still missing. The two states have opposite content rules, so a case
+    can never silently sit in the one whose rules it does not meet.
+    """
+    if not isinstance(manifest.get("engine_capture_pending"), str) or not manifest["engine_capture_pending"]:
+        raise AssertionError(f"captured case has no engine_capture_pending note: {case_id}")
+    if manifest.get("source_kind") not in ("harness", "engine"):
+        raise AssertionError(f"captured case has no source_kind: {case_id}")
+    if not isinstance(manifest.get("observed_outcome"), dict):
+        raise AssertionError(f"captured case has no observed_outcome: {case_id}")
+    if manifest.get("actual") is not None:
+        raise AssertionError(f"captured case claims an accepted actual: {case_id}")
+    values = _capture_dependent_values(manifest)
+    #expected_rates is measured in the engine, never by the harness capture, so it stays empty here.
+    for field, empty in CAPTURE_DEPENDENT_FIELDS.items():
+        if field == "engine_scenario.expected_rates":
+            continue
+        if values[field] == empty or values[field] is None:
+            raise AssertionError(
+                f"captured case {case_id} has empty capture-dependent field {field}; "
+                "a captured case must carry what its capture produced"
+            )
+    if values["engine_scenario.expected_rates"] not in ({}, None):
+        raise AssertionError(
+            f"captured case {case_id} states expected rates before an engine observation exists"
+        )
+
+
 def assert_matrix_and_cases(matrix_path: Path, cases_root: Path) -> None:
     rows = matrix_rows(matrix_path)
     groups = reason_code_groups()
@@ -161,6 +199,13 @@ def assert_matrix_and_cases(matrix_path: Path, cases_root: Path) -> None:
         for branch in row.get("branches", []):
             if not (cases_root / case_id).is_dir():
                 raise AssertionError(f"matrix branch names missing case directory: {case_id}@{branch}")
+        if row.get("state") == "captured":
+            assert_captured_content_is_honest(manifest, case_id)
+            scenario = manifest.get("engine_scenario")
+            if not isinstance(scenario, dict) or not isinstance(
+                scenario.get("allowed_discrete_error"), (int, float)
+            ):
+                raise AssertionError(f"captured case has no allowed discrete error: {case_id}")
         if row.get("state") == "draft":
             if baseline is None:
                 baseline_path = cases_root / "basic-canonical" / "manifest.json"
@@ -203,9 +248,12 @@ def assert_coverage_document(matrix_path: Path, coverage_path: Path) -> None:
         if row[4] != matrix_row["outcome_kind"] or row[5] != matrix_row["state"]:
             raise AssertionError(f"coverage disagrees with matrix: {row[2]}")
         if matrix_row["state"] == "draft":
-            if row[6] != "open gap: capture pending; content arrives with capture; not coverage":
+            if row[6] != DRAFT_COVERAGE:
                 raise AssertionError(f"draft is not reported as an open gap: {row[2]}")
-        elif row[6] == "open gap: capture pending; content arrives with capture; not coverage":
+        elif matrix_row["state"] == "captured":
+            if row[6] != CAPTURED_COVERAGE:
+                raise AssertionError(f"captured case is not reported as an open gap: {row[2]}")
+        elif row[6] in (DRAFT_COVERAGE, CAPTURED_COVERAGE):
             raise AssertionError(f"accepted case is reported as a gap: {row[2]}")
 
 
@@ -265,6 +313,9 @@ class GoldenMatrixTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("PASS basic-canonical", result.stdout)
-        expected = sum(row.get("state") == "draft" for row in matrix_rows())
-        self.assertEqual(result.stdout.count("DRAFT "), expected, result.stdout)
-        self.assertIn(f", {expected} drafts", result.stdout)
+        drafts = sum(row.get("state") == "draft" for row in matrix_rows())
+        captured = sum(row.get("state") == "captured" for row in matrix_rows())
+        self.assertEqual(result.stdout.count("DRAFT "), drafts, result.stdout)
+        self.assertEqual(result.stdout.count("CAPTURED "), captured, result.stdout)
+        self.assertIn(f", {drafts} drafts", result.stdout)
+        self.assertIn(f", {captured} captured", result.stdout)

@@ -1,6 +1,7 @@
 {
   "actual": null,
   "case_id": "assembler-chain-example",
+  "engine_capture_pending": "Captured through the real harness preparation path. The engine observation is still missing, so this case is not accepted coverage yet.",
   "engine_scenario": {
     "allowed_discrete_error": 0.02,
     "drain": [
@@ -233,7 +234,7 @@
   },
   "source_export": "export.json",
   "source_kind": "harness",
-  "state": "draft",
+  "state": "captured",
   "supported_outcome": "production",
   "targets": [
     {
