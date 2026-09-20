@@ -174,3 +174,22 @@ three companion calls task 062 repairs: `LuaEntity.connect_neighbour`, `LuaGameS
   improvement, the 100-machine 30-step boundary. Exact non-overlapping case directories, F's setup pattern.
 - Engine collection package: after 062, candidate and companion archives from one committed tree, their hashes,
   per-case commands and output locations.
+
+## Board, 2026-09-20, host legalcopilot-dev
+
+HEAD `249ae51`. Suite **3074 cases, 3074 passed, 0 failed**. On `docs/tasks/058_reproducer.lua` the validator
+rejects nothing, routing succeeds once, and the run is terminal in 4.78 s on `BP_FAIL_SEARCH_BUDGET` with no
+incumbent after a single grid trial.
+
+Merged this round: 055 API pins, 059 rotated block cells, 060 one expansion budget, 061 grid bound, 062
+companion API, 063 corpus chains, 065 independent validator, 067 power semantics, 068 smoke chains, 069
+resumable power, 070 port edges, 071 pole wires, 073 underground pairs, 076 splitter footprint, 077 port tile
+flow, 078 placed beacon coverage, 079 port never blocks itself, 083 expansion budget for fan-out.
+
+Refused and never merged: 064 and 066 (no-path probe cost), 072 and 075 (collision at the wrong file), 074
+(reserved the placed envelope, cost `tests/test_search.lua` 48 cases, reverted), 080 and 081 (corridor candidate
+failed validation), 082 (fan-out at the wrong budget, superseded by 083).
+
+Live: `lane/084`, base tag `search-allowance-base` = `249ae51`, task `docs/tasks/084_search_allowance.md`.
+
+Full handoff: `~/.claude/plans/rrc-round-8-handoff-2026-09-20.md`.
