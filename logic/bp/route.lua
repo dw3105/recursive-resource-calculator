@@ -597,6 +597,62 @@ local function endpoint_is_blocked(work, endpoint)
     return owner ~= nil and not is_allowed_owner(owner)
 end
 
+--A splitter's anchor is the tile where the existing belt was found.  Its other tile is one step in the direction
+--the splitter carries transport, not one step in a fixed north/east/west order.  Keep the footprint in the same
+--cell index used by path search so a later branch sees the second tile as occupied before it mutates any entity.
+local function splitter_second_cell(x, y, direction)
+    --The splitter is two tiles across its belt travel, not two tiles along it.  Rotate the east-side offset with
+    --the travel direction: north -> east, east -> south, south -> west, west -> north.
+    local side = Grid.rotate_dir(Grid.EAST, direction)
+    local dx, dy = Grid.dir_vector(side)
+    if dx == nil or dy == nil then return nil, nil end
+    return x + dx, y + dy
+end
+
+local function splitter_can_absorb(segment)
+    return segment ~= nil and segment.kind == "belt" and not segment.underground and not segment.splitter
+end
+
+local function splitter_cell_allowed(work, demand, x, y, segment, search)
+    local function blocked()
+        if search then search.saw_blocked = true end
+        return false
+    end
+    if not inside_grid(work, x, y) then return blocked() end
+    local owner = static_owner(work, x, y)
+    if owner ~= nil and not is_allowed_owner(owner) then return blocked() end
+    local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+    if reserved ~= nil then
+        local source_id = demand.source and demand.source.port_id
+        local sink_id = demand.sink and demand.sink.port_id
+        if not (reserved[source_id] or reserved[sink_id] or reserved["flow:" .. tostring(demand.flow_id)]) then
+            return blocked()
+        end
+    end
+    if work.splitter_blocked_cells[coordinate_key(x, y)] then return blocked() end
+    local occupant = work.segments_by_cell[coordinate_key(x, y)]
+    if occupant ~= nil and occupant ~= segment then return blocked() end
+    return true
+end
+
+local function splitter_branch_allowed(work, demand, x, y, direction, segment, search)
+    if segment and segment.splitter then
+        local second_x, second_y = splitter_second_cell(x, y, direction)
+        return second_x ~= nil and segment.splitter_direction == direction
+            and segment.splitter_second_key == coordinate_key(second_x, second_y)
+    end
+    if not segment or segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then
+        if search then search.saw_blocked = true end
+        return false
+    end
+    local second_x, second_y = splitter_second_cell(x, y, direction)
+    if second_x == nil then
+        if search then search.saw_blocked = true end
+        return false
+    end
+    return splitter_cell_allowed(work, demand, second_x, second_y, segment, search)
+end
+
 local function blocked_port_detail(work, source, sink)
     local function describe(endpoint)
         if not endpoint then return "nil" end
@@ -690,6 +746,7 @@ end
 local function append_normal_path(work, demand, path, amount)
     local sink = sink_key(demand.sink)
     local first_segment
+    local allocated_segments = {}
     local index = 0
     while index < #path do
         index = index + 1
@@ -706,21 +763,37 @@ local function append_normal_path(work, demand, path, amount)
         local key = coordinate_key(cell.x, cell.y)
         local segment = work.segments_by_cell[key]
         if segment then
-            local allowed = segment_allows(segment, demand, amount)
-            if not allowed then return false, "capacity" end
-            if segment.direction ~= direction then
+            local splitter_continuation = segment.splitter and key == segment.splitter_second_key
+                and direction == segment.splitter_direction
+            if not allocated_segments[segment.segment_id] then
+                local allowed = segment_allows(segment, demand, amount)
+                if not allowed then return false, "capacity" end
+            end
+            if segment.splitter and key == segment.splitter_second_key and not splitter_continuation then return false, "occupied" end
+            if segment.direction ~= direction and not splitter_continuation then
                 --An underground segment owns two coupled endpoints.  It cannot become a splitter: changing
                 --the mapped first entity here would leave its partner carrying a different direction.  The
                 --allocation may still share the segment, but its published pair keeps the direction it was built
                 --for.  Surface belts retain their existing splitter behaviour.
-                if not segment.underground then
-                    if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return false, "occupied" end
-                    local entity = work.entity_by_segment[segment.segment_id]
-                    entity.name = work.belt.splitter
-                    entity.splitter = true
-                    entity.direction = direction
-                    entity.dir = direction
-                end
+                    if not segment.underground then
+                        if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return false, "occupied" end
+                        if splitter_branch_allowed(work, demand, cell.x, cell.y, direction, segment) then
+                            local entity = work.entity_by_segment[segment.segment_id]
+                            local second_x, second_y = splitter_second_cell(cell.x, cell.y, direction)
+                            local second_key = coordinate_key(second_x, second_y)
+                            local side_x, side_y = second_x - cell.x, second_y - cell.y
+                            entity.position = entity_position(cell.x + side_x / 2, cell.y + side_y / 2)
+                            entity.name = work.belt.splitter
+                            entity.splitter = true
+                            entity.direction = direction
+                            entity.dir = direction
+                            segment.splitter = true
+                            segment.splitter_direction = direction
+                            segment.splitter_anchor_key = key
+                            segment.splitter_second_key = second_key
+                            work.segments_by_cell[segment.splitter_second_key] = segment
+                        end
+                    end
             end
         else
             local capacity, kind = capacity_for(work, demand.flow)
@@ -733,7 +806,10 @@ local function append_normal_path(work, demand, path, amount)
             work.segments_by_cell[key] = segment
             work.entity_by_segment[segment.segment_id] = entity
         end
-        add_allocation(segment, demand.flow_id, sink, amount)
+        if not allocated_segments[segment.segment_id] then
+            add_allocation(segment, demand.flow_id, sink, amount)
+            allocated_segments[segment.segment_id] = true
+        end
         first_segment = first_segment or segment
         end
     end
@@ -765,6 +841,8 @@ local function append_underground(work, demand, candidate, amount)
     work.entities[#work.entities + 1] = second
     work.segments[#work.segments + 1] = segment
     work.entity_by_segment[segment.segment_id] = first
+    work.splitter_blocked_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
+    work.splitter_blocked_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
     add_allocation(segment, demand.flow_id, sink_key(demand.sink), amount)
     work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
         sink = sink_key(demand.sink), flow_id = demand.flow_id, segment_id = segment.segment_id, rate_per_second = amount}
@@ -785,6 +863,12 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     if segment then
+        local splitter_continuation = segment.splitter and segment.splitter_second_key == coordinate_key(x, y)
+            and segment.splitter_direction == move_direction
+        if segment.splitter and segment.splitter_second_key == coordinate_key(x, y) and not splitter_continuation then
+            search.saw_blocked = true
+            return false
+        end
         if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
         local allowed, reason = segment_allows(segment, demand, amount)
         if not allowed then
@@ -793,7 +877,9 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             return false
         end
         if move_direction ~= nil and segment.direction ~= move_direction then
-            if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then search.saw_blocked = true; return false end
+            if not splitter_continuation and (segment.kind ~= "belt" or not (work.belt and work.belt.splitter)) then
+                search.saw_blocked = true; return false
+            end
             search.saw_branch = true
         end
     end
@@ -917,7 +1003,9 @@ end
 
 local function result_for(work)
     local result = {entities = {}, segments = {}, port_bindings = work.bindings, bindings = work.bindings}
-    for _, entity in ipairs(work.entities) do result.entities[#result.entities + 1] = entity end
+    for _, entity in ipairs(work.entities) do
+        if not entity._route_removed then result.entities[#result.entities + 1] = entity end
+    end
     for _, segment in ipairs(work.segments) do
         local copy = {segment_id = segment.segment_id, kind = segment.kind,
             capacity_per_second = segment.capacity_per_second, allocations = {}}
@@ -971,7 +1059,7 @@ local function normalize_input(input)
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
-        underground_cells = {}, counters = new_counters(), attempt_generation = 0,
+        underground_cells = {}, splitter_blocked_cells = {}, counters = new_counters(), attempt_generation = 0,
         --A path search visits cells, so the whole routing run is bounded by the grid it runs on. The old default
         --of one million let a single demand burn 1.2 million expansions on a 54 by 54 grid (2916 cells) without
         --finishing, which is a hang the player sees as a frozen Generate. Sixteen visits per cell is generous for
@@ -1030,6 +1118,7 @@ local function restart_with_priority(state, work, demand)
     for _, entry in ipairs(ordered) do entry.remaining = entry.amount end
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
+    work.splitter_blocked_cells = {}
     work.attempt_generation, work.current = work.attempt_generation + 1, nil
     state.cursor.demand_index, state.progress.done_units = 1, 0
     state.progress.phase = "routing"
@@ -1039,6 +1128,7 @@ end
 local function clear_route_work(work)
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
+    work.splitter_blocked_cells = {}
     work.current = nil
 end
 
