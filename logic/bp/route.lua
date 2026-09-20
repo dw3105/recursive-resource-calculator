@@ -506,6 +506,25 @@ local function first_endpoint(index, flow_id, role, step_id)
     return endpoint_candidates(index, flow_id, role, step_id)[1]
 end
 
+local function prioritized_candidates(candidates, anchor)
+    if type(anchor) ~= "table" or #candidates < 2 then return candidates end
+    local ranked = {}
+    for index, endpoint in ipairs(candidates) do
+        ranked[#ranked + 1] = {endpoint = endpoint, index = index,
+            distance = math.abs(endpoint.x - anchor.x) + math.abs(endpoint.y - anchor.y)}
+    end
+    table.sort(ranked, function(left, right)
+        if left.distance ~= right.distance then return left.distance < right.distance end
+        if tostring(left.endpoint.port_id) ~= tostring(right.endpoint.port_id) then
+            return tostring(left.endpoint.port_id) < tostring(right.endpoint.port_id)
+        end
+        return left.index < right.index
+    end)
+    local result = {}
+    for index, entry in ipairs(ranked) do result[index] = entry.endpoint end
+    return result
+end
+
 local function perimeter_for(perimeter, flow_id, role, port_id)
     for _, endpoint in ipairs(perimeter) do
         if (port_id == nil or endpoint.port_id == port_id)
@@ -514,16 +533,38 @@ local function perimeter_for(perimeter, flow_id, role, port_id)
     return nil
 end
 
-local function source_endpoint(work, flow_id, entry)
+local function perimeter_candidates(perimeter, flow_id, role, port_id)
+    local result = {}
+    for _, endpoint in ipairs(perimeter) do
+        if (port_id == nil or endpoint.port_id == port_id)
+            and endpoint.flow_id == flow_id and endpoint.role == role then
+            result[#result + 1] = endpoint
+        end
+    end
+    return result
+end
+
+local function demand_endpoint_candidates(work, flow_id, role, entry)
     local step_id = step_id_of(entry)
-    if step_id == "$external" then return perimeter_for(work.perimeter, flow_id, "in", entry.port_id) end
-    return first_endpoint(work.endpoint_index, flow_id, "out", step_id)
+    local port_id = entry and entry.port_id
+    if step_id == "$external" then
+        return perimeter_candidates(work.perimeter, flow_id, role, port_id)
+    end
+    local result = {}
+    for _, endpoint in ipairs(endpoint_candidates(work.endpoint_index, flow_id, role, step_id)) do
+        result[#result + 1] = endpoint
+    end
+    return result
+end
+
+local function source_endpoint(work, flow_id, entry)
+    local role = step_id_of(entry) == "$external" and "in" or "out"
+    return demand_endpoint_candidates(work, flow_id, role, entry)[1]
 end
 
 local function target_endpoint(work, flow_id, entry)
-    local step_id = step_id_of(entry)
-    if step_id == "$external" then return perimeter_for(work.perimeter, flow_id, "out", entry.port_id) end
-    return first_endpoint(work.endpoint_index, flow_id, "in", step_id)
+    local role = step_id_of(entry) == "$external" and "out" or "in"
+    return demand_endpoint_candidates(work, flow_id, role, entry)[1]
 end
 
 local function build_demands(work, flows)
@@ -533,17 +574,25 @@ local function build_demands(work, flows)
         if id then
             local producers, consumers = {}, {}
             for _, entry in ipairs(flow.producers or {}) do
-                producers[#producers + 1] = {endpoint = source_endpoint(work, id, entry), remaining = share_of(entry)}
+                local role = step_id_of(entry) == "$external" and "in" or "out"
+                local candidates = demand_endpoint_candidates(work, id, role, entry)
+                producers[#producers + 1] = {endpoint = candidates[1], candidates = candidates,
+                    remaining = share_of(entry)}
             end
             for _, entry in ipairs(flow.consumers or {}) do
-                consumers[#consumers + 1] = {endpoint = target_endpoint(work, id, entry), remaining = share_of(entry)}
+                local role = step_id_of(entry) == "$external" and "out" or "in"
+                local candidates = demand_endpoint_candidates(work, id, role, entry)
+                consumers[#consumers + 1] = {endpoint = candidates[1], candidates = candidates,
+                    remaining = share_of(entry)}
             end
             if #producers == 0 and #consumers == 0 then
                 for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["out"] or {}) do
-                    producers[#producers + 1] = {endpoint = endpoint, remaining = endpoint.rate_per_second}
+                    producers[#producers + 1] = {endpoint = endpoint, candidates = {endpoint},
+                        remaining = endpoint.rate_per_second}
                 end
                 for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["in"] or {}) do
-                    consumers[#consumers + 1] = {endpoint = endpoint, remaining = endpoint.rate_per_second}
+                    consumers[#consumers + 1] = {endpoint = endpoint, candidates = {endpoint},
+                        remaining = endpoint.rate_per_second}
                 end
             end
             for _, producer in ipairs(producers) do
@@ -551,8 +600,11 @@ local function build_demands(work, flows)
                     if producer.endpoint and consumer.endpoint then
                         local amount = math.min(producer.remaining, consumer.remaining)
                         if amount > tolerance(amount) then
-                            demands[#demands + 1] = {flow = flow, flow_id = id, source = producer.endpoint, sink = consumer.endpoint,
-                                amount = amount, remaining = amount}
+                            local source_candidates = prioritized_candidates(producer.candidates, consumer.endpoint)
+                            local sink_candidates = prioritized_candidates(consumer.candidates, producer.endpoint)
+                            demands[#demands + 1] = {flow = flow, flow_id = id, source = source_candidates[1], sink = sink_candidates[1],
+                                source_candidates = source_candidates, sink_candidates = sink_candidates,
+                                source_index = 1, sink_index = 1, amount = amount, remaining = amount}
                             producer.remaining, consumer.remaining = producer.remaining - amount, consumer.remaining - amount
                         end
                     end
@@ -905,12 +957,17 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     return true
 end
 
-local function default_expansion_limit(input)
+local function default_expansion_limit(input, demand_count)
     local grid = type(input) == "table" and input.grid or nil
     local w = type(grid) == "table" and finite(grid.w, nil) or nil
     local h = type(grid) == "table" and finite(grid.h, nil) or nil
-    if type(w) ~= "number" or type(h) ~= "number" or w <= 0 or h <= 0 then return 100000 end
-    return math.max(4096, math.floor(w * h * 16))
+    demand_count = math.max(1, math.floor(finite(demand_count, 1)))
+    local cells = 1
+    if type(w) == "number" and type(h) == "number" and w > 0 and h > 0 then
+        cells = math.max(1, math.floor(w * h))
+    end
+    local sweep = cells * #DIRECTIONS * #DIRECTION_ORDERS
+    return math.max(4096, sweep) * demand_count
 end
 
 local function begin_search(work, demand, amount, order_index)
@@ -1089,13 +1146,10 @@ local function normalize_input(input)
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         underground_cells = {}, splitter_blocked_cells = {}, counters = new_counters(), attempt_generation = 0,
-        --A path search visits cells, so the whole routing run is bounded by the grid it runs on. The old default
-        --of one million let a single demand burn 1.2 million expansions on a 54 by 54 grid (2916 cells) without
-        --finishing, which is a hang the player sees as a frozen Generate. Sixteen visits per cell is generous for
-        --four directions and both transport kinds, and a hopeless search now fails fast enough for the search to
-        --try the next ordering instead of the next hour.
-        max_expansions = finite(input.limits and input.limits.max_expansions,
-            finite(input.max_expansions, default_expansion_limit(input))), expansions = 0,
+        --The allowance is filled after demands are built. One routing run has one cumulative budget, so every
+        --demand gets the same cell/direction-order sweep that a single-demand run would have had. This keeps
+        --adding consumers from stealing the budget from the demand whose path became easier to find.
+        max_expansions = nil, expansions = 0,
     }
     for _, block in ipairs(blocks) do
         local placement = placement_for(block, placements)
@@ -1115,6 +1169,8 @@ local function normalize_input(input)
     end
     work.flows = flow_list(input)
     work.demands = build_demands(work, work.flows)
+    work.max_expansions = finite(input.limits and input.limits.max_expansions,
+        finite(input.max_expansions, default_expansion_limit(input, #work.demands)))
     work.demand_order, work.demands_by_key = {}, {}
     for index, demand in ipairs(work.demands) do
         demand.order_key = index
@@ -1144,7 +1200,12 @@ local function restart_with_priority(state, work, demand)
     end
     work.counters.restarts = work.counters.restarts + 1
     work.demands = ordered
-    for _, entry in ipairs(ordered) do entry.remaining = entry.amount end
+    for _, entry in ipairs(ordered) do
+        entry.remaining = entry.amount
+        entry.source_index, entry.sink_index = 1, 1
+        entry.source = entry.source_candidates and entry.source_candidates[1] or entry.source
+        entry.sink = entry.sink_candidates and entry.sink_candidates[1] or entry.sink
+    end
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
     work.splitter_blocked_cells = {}
@@ -1159,6 +1220,26 @@ local function clear_route_work(work)
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
     work.splitter_blocked_cells = {}
     work.current = nil
+end
+
+local function next_endpoint_candidate(demand)
+    local sources = demand and demand.source_candidates or {}
+    local sinks = demand and demand.sink_candidates or {}
+    local source_index = demand and demand.source_index or 1
+    local sink_index = demand and demand.sink_index or 1
+    if source_index < #sources then
+        demand.source_index = source_index + 1
+        demand.source = sources[demand.source_index]
+        return demand.source ~= nil
+    end
+    if sink_index < #sinks then
+        demand.sink_index = sink_index + 1
+        demand.source_index = 1
+        demand.source = sources[1]
+        demand.sink = sinks[demand.sink_index]
+        return demand.source ~= nil and demand.sink ~= nil
+    end
+    return false
 end
 
 local function fail_demand(state, work, demand, code, detail)
@@ -1225,7 +1306,7 @@ function Route.step(state, budget)
             if not work.current then
                 if not demand.source or not demand.sink or endpoint_is_blocked(work, demand.source) or endpoint_is_blocked(work, demand.sink) then
                     ops = ops - 1
-                    if fail_demand(state, work, demand, "BP_R_PORT_BLOCKED",
+                    if not next_endpoint_candidate(demand) and fail_demand(state, work, demand, "BP_R_PORT_BLOCKED",
                         blocked_port_detail(work, demand.source, demand.sink)) then break end
                 else
                 local candidate, underground_reason = underground_candidate(demand, kind, work)
@@ -1238,8 +1319,10 @@ function Route.step(state, budget)
                 elseif underground_reason ~= "not_requested" then
                     local code = underground_reason == "blocked" and "BP_R_PORT_BLOCKED" or "BP_R_NO_PATH"
                     ops = ops - 1
-                    fail_demand(state, work, demand, code,
-                        code == "BP_R_PORT_BLOCKED" and blocked_port_detail(work, demand.source, demand.sink) or nil)
+                    if not next_endpoint_candidate(demand) then
+                        fail_demand(state, work, demand, code,
+                            code == "BP_R_PORT_BLOCKED" and blocked_port_detail(work, demand.source, demand.sink) or nil)
+                    end
                 else
                     work.current = begin_search(work, demand, amount)
                 end
@@ -1268,6 +1351,8 @@ function Route.step(state, budget)
                     if search.saw_blocked and not search.saw_capacity and not search.saw_fluid_mix
                         and search.order_index < #DIRECTION_ORDERS then
                         work.current = begin_search(work, demand, amount, search.order_index + 1)
+                    elseif next_endpoint_candidate(demand) then
+                        work.current = nil
                     else
                         local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
                         work.current = nil

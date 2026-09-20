@@ -448,10 +448,68 @@ local function perimeter_cell_key(x, y)
     return tostring(x) .. ":" .. tostring(y)
 end
 
+local function mark_perimeter_port_cells(blocked, block)
+    local placement = {x = finite(block.x, 0), y = finite(block.y, 0), dir = finite(block.dir, Grid.NORTH)}
+    for _, port in ipairs(block.ports or block.block_ports or {}) do
+        local x, y = finite(port.x), finite(port.y)
+        local direction = port.travel_dir or port.dir or port.normal_dir
+        if x == nil or y == nil then
+            local frame = {w = finite(port._block_w, finite(block.w, 1)), h = finite(port._block_h, finite(block.h, 1))}
+            local placed = Grid.place_port(frame, placement, port)
+            x, y = placed.x, placed.y
+            direction = direction and Grid.rotate_dir(direction, placement.dir) or placed.dir
+        end
+        if x ~= nil and y ~= nil then
+            blocked[perimeter_cell_key(x, y)] = true
+            local dx, dy = Grid.dir_vector(direction or Grid.NORTH)
+            if dx ~= nil and dy ~= nil then
+                if port.role == "in" then
+                    blocked[perimeter_cell_key(x - dx, y - dy)] = true
+                elseif port.role == "out" then
+                    blocked[perimeter_cell_key(x + dx, y + dy)] = true
+                end
+            end
+        end
+    end
+end
+
 local function perimeter_port_needs_route(port)
     local rate = port.rate_per_second
     if rate == nil then rate = port.rate end
     return rate == nil or rate > 0
+end
+
+local function port_flow_id(port)
+    return port and (port.flow_id or port.full_name or port.flow)
+end
+
+local function external_port_count(state, port)
+    if not perimeter_port_needs_route(port) then return 1 end
+    local flow_id, role = port_flow_id(port), port.role == "in" and "in" or "out"
+    if flow_id == nil then return 1 end
+    for _, flow in ipairs(state.work.plan_result.flows or {}) do
+        local candidate_id = flow.flow_id or flow.full_name or flow.id
+        if candidate_id == flow_id then
+            local external_side = role == "in" and flow.producers or flow.consumers
+            local demand_side = role == "in" and flow.consumers or flow.producers
+            local has_external = false
+            for _, entry in ipairs(external_side or {}) do
+                if (entry.step_id or entry.id or entry.block_id) == "$external" then
+                    has_external = true
+                    break
+                end
+            end
+            if has_external then
+                local count = 0
+                for _, entry in ipairs(demand_side or {}) do
+                    if (entry.step_id or entry.id or entry.block_id) ~= "$external" then count = count + 1 end
+                end
+                return math.max(1, count)
+            end
+            break
+        end
+    end
+    return 1
 end
 
 local function has_active_perimeter_ports(state)
@@ -463,8 +521,15 @@ end
 
 local function can_stop_implicit_perimeter_search(state, score)
     local input = state.work.input
-    return has_active_perimeter_ports(state) and finite(score and score.beacon_count, 0) == 0
-        and input.grids == nil and input.grid_sizes == nil and input.grid == nil
+    if not has_active_perimeter_ports(state)
+        or (input.grids ~= nil or input.grid_sizes ~= nil or input.grid ~= nil) then return false end
+    if finite(score and score.beacon_count, 0) == 0 then return true end
+    --Generated external ports are a feasibility expansion: once one validated layout has enough distinct
+    --ports for the consumers, trying every remaining placement only repeats the expensive power stage.
+    --Keep explicit grids and explicit perimeter layouts on the normal objective search above.
+    local generated = state.work.perimeter_ports or {}
+    local planned = state.work.plan_result.ports or {}
+    return #generated > #planned
 end
 
 local function perimeter_blocked_cells(blocks, obstacles)
@@ -476,7 +541,10 @@ local function perimeter_blocked_cells(blocks, obstacles)
             for x = rect.x, rect.x + rect.w - 1 do result[perimeter_cell_key(x, y)] = true end
         end
     end
-    for _, block in ipairs(blocks or {}) do add_rect(block) end
+    for _, block in ipairs(blocks or {}) do
+        add_rect(block)
+        mark_perimeter_port_cells(result, block)
+    end
     for _, obstacle in ipairs(obstacles or {}) do add_rect(obstacle) end
     return result
 end
@@ -491,24 +559,29 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
     local external = {}
     for _, port in ipairs(state.work.plan_result.ports or {}) do
         local role = port.role == "in" and "in" or "out"
-        local index = next_slot[role]
-        while index <= #slots[role] do
-            local slot = slots[role][index]
-            local key = perimeter_cell_key(slot.x, slot.y)
-            if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then break end
-            index = index + 1
-        end
-        next_slot[role] = index + 1
-        if index > #slots[role] then
-            return external, false
-        end
+        local requested = external_port_count(state, port)
+        local base_id = port.port_id or port.id or port_flow_id(port) or role
+        for copy_index = 1, requested do
+            local index = next_slot[role]
+            while index <= #slots[role] do
+                local slot = slots[role][index]
+                local key = perimeter_cell_key(slot.x, slot.y)
+                if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then break end
+                index = index + 1
+            end
+            next_slot[role] = index + 1
+            if index > #slots[role] then
+                return external, false
+            end
 
-        local slot = slots[role][index]
-        occupied[perimeter_cell_key(slot.x, slot.y)] = true
-        local point = copy(port) or {}
-        point.x, point.y = slot.x, slot.y
-        point.travel_dir = role == "in" and Grid.dir_opposite(slot.dir) or slot.dir
-        external[#external + 1] = point
+            local slot = slots[role][index]
+            occupied[perimeter_cell_key(slot.x, slot.y)] = true
+            local point = copy(port) or {}
+            point.port_id = copy_index == 1 and base_id or (tostring(base_id) .. ":" .. tostring(copy_index))
+            point.x, point.y = slot.x, slot.y
+            point.travel_dir = role == "in" and Grid.dir_opposite(slot.dir) or slot.dir
+            external[#external + 1] = point
+        end
     end
     return external, true
 end
@@ -534,7 +607,9 @@ end
 
 local function make_route_input(state, grid, blocks, ports, obstacles)
     local external = state.work.input.perimeter_ports or state.work.input.perimeter
+    local generated = false
     if type(external) ~= "table" then
+        generated = true
         local settings = state.work.input.settings or {}
         local input_edge = settings.input_edge or state.work.input.input_edge or "left"
         local output_edge = settings.output_edge or state.work.input.output_edge or "top"
@@ -548,6 +623,7 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
         external = list_copy(external)
     end
     state.work.perimeter_ports = external
+    state.work.generated_perimeter_ports = generated
     local input = stage_input(state, {
         grid = {w = grid.w, h = grid.h}, blocks = blocks, perimeter_ports = external,
         flows = state.work.plan_result.flows, obstacles = obstacles,
@@ -756,7 +832,7 @@ function Search.begin(input)
         work = {input = input, limits = limits, grid_specs = ordered_grid_specs(input), plan_state = nil,
             plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil, orderings = nil,
             pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
-            grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false,
+            grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false, generated_perimeter_ports = false,
             candidate_beacon_lower_bound = nil, publication_reserved = false, power_bound_hit = false},
     }
     state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
@@ -903,6 +979,14 @@ function Search.step(container, budget)
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input then
                         state.work.route = Route.begin(route_input)
+                        if state.max_ops == nil and state.work.generated_perimeter_ports
+                            and #state.work.perimeter_ports > #(state.work.plan_result.ports or {})
+                            and state.work.route.work and state.work.route.work.max_expansions ~= nil then
+                            --Auto-generated fan-out has a route budget derived from its demands. Reuse that
+                            --derived work bound for the surrounding candidate so an expensive power sweep cannot
+                            --turn a finite route into an unbounded-looking generation job.
+                            state.max_ops = state.ops_used + state.work.route.work.max_expansions
+                        end
                         set_phase(state, "route")
                     else
                         discard_candidate(state)
