@@ -1,4 +1,28 @@
 ---------------------------------------------------------------------------------------------------
+Version: 1.1.52
+Date: 2026.09.20
+  Info:
+    - Same code as 1.1.51, released for Factorio 2.1. Not yet tested in a Factorio 2.1 game.
+---------------------------------------------------------------------------------------------------
+Version: 1.1.51
+Date: 2026.09.20
+  Info:
+    - Released for Factorio 2.0. The same code also runs on Factorio 2.1 (see 1.1.52).
+    - Test build of round 9, not a portal release. Nothing in it has been measured in a running game.
+  Bugfixes:
+    - A machine holding ordinary speed modules is no longer refused as quality-changing production. A speed
+      module lowers quality slightly, and the check asked whether that effect was non-zero instead of whether
+      it was above zero. Quality-changing production stays unsupported, and is still refused.
+    - A machine forbids speed beacons because it holds a quality module, never because speed beacons stand
+      beside it.
+    - The blueprint checker now receives the recipe and machine facts it needs. Before, a chance-based product
+      could pass as supported because those facts never reached it. A sheet whose facts are incomplete is now
+      refused by name instead of being quietly accepted.
+    - A machine that ignores module effects is no longer treated as quality production.
+  Changes:
+    - One rule decides quality for the whole blueprint path, and the planner and the pre-check now ask it the
+      same three questions rather than each keeping its own answer.
+---------------------------------------------------------------------------------------------------
 Version: 1.1.50
 Date: 2026.09.20
   Info:
