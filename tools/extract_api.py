@@ -51,6 +51,7 @@ CLASSES = [
     "LuaTechnology",
 ]
 CONCEPTS = [
+    "EffectReceiver",
     "PipeConnectionDefinition",
     "BlueprintEntity",
     "BlueprintWire",

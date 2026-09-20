@@ -80,7 +80,11 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " BP3 module slots and beacon minimum coverage survive in order", function()
         local catalog = {
             entity = {
-                assembler = {crafting_speed = 1, energy_usage_w = 100, pollution_per_min = 2},
+                assembler = {crafting_speed = 1, energy_usage_w = 100, pollution_per_min = 2,
+                    --Round 9: the planner asks the shared quality policy, which needs a receiver decision.
+                    effect_receiver = {status = "verified_default", source = "prototype", branch = "2.0",
+                    base_effect = {}, uses_module_effects = true, uses_beacon_effects = true,
+                    uses_surface_effects = true}},
                 beacon = {energy_usage_w = 480, beacon = {distribution_effectivity = 1.5, counter = "same_type"}},
             },
             module = {

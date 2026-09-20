@@ -46,6 +46,8 @@ local function harness_members(world, shape)
     local inserter = prototypes.entity["inserter"]
     local pipe_to_ground = prototypes.entity["pipe-to-ground"]
     local machine = prototypes.entity["assembler"]
+    local plate = prototypes.item["plate"]
+    local recipe = prototypes.recipe["plate"]
     local beacon = prototypes.entity["beacon"]
     return {
         LuaEntityPrototype = {
@@ -63,13 +65,27 @@ local function harness_members(world, shape)
                 {"connection_distance", roboport.connection_distance},
                 {"quality_affects_supply_area_distance", pole.quality_affects_supply_area_distance},
                 {"energy_usage", machine.energy_usage}, {"distribution_effectivity", beacon.distribution_effectivity},
+                --round 9: the quality policy reads the receiver, the capacity model reads inserter speeds
+                {"effect_receiver", machine.effect_receiver},
+                {"allowed_effects", machine.allowed_effects},
             },
             methods = {
                 {"get_supply_area_distance", pole.get_supply_area_distance},
                 {"get_max_wire_distance", pole.get_max_wire_distance},
                 {"get_crafting_speed", machine.get_crafting_speed},
                 {"get_max_energy_usage", machine.get_max_energy_usage},
+                {"get_inserter_rotation_speed", inserter.get_inserter_rotation_speed},
+                {"get_inserter_extension_speed", inserter.get_inserter_extension_speed},
             },
+        },
+        LuaItemPrototype = {
+            attributes = {{"spoil_result", plate.spoil_result}, {"fuel_value", plate.fuel_value}},
+            methods = {{"get_spoil_ticks", plate.get_spoil_ticks}},
+        },
+        LuaRecipePrototype = {
+            attributes = {{"energy", recipe.energy}, {"allowed_effects", recipe.allowed_effects},
+                {"ingredients", recipe.ingredients}, {"products", recipe.products}},
+            methods = {},
         },
         LuaHelpers = {
             attributes = {},
@@ -89,8 +105,11 @@ end
 
 local function world_with_infrastructure(shape)
     local world = H.new_world(shape)
-    world.add_item("plate")
+    world.add_item("ore")
+    world.add_item("plate", nil, {result = "ore", ticks = 600})
     world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1})
+    world.add_recipe({name = "plate", category = "crafting", ingredients = {{name = "ore", amount = 1}},
+        products = {{name = "plate", amount = 1}}})
     world.add_beacon({name = "beacon"})
     world.add_default_infrastructure()
     world.add_blueprint_item()
@@ -150,6 +169,33 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(attributes.max_connection_distance, nil, "no max_connection_distance attribute")
         H.equal(attributes.logistic_radius, true, "logistic_radius is the real name")
         H.equal(attributes.connection_distance, true, "connection_distance is the real name")
+    end)
+
+    --A class member check proves the receiver attribute exists; it says nothing about the table behind it.
+    --The quality policy reads that table field by field, so its keys are pinned against the concept itself,
+    --and the two branches genuinely differ: 2.1 adds quality_limits and uses_local_effects, 2.0 has neither.
+    H.test(shape .. " A5 the effect receiver the harness builds matches the pinned concept", function()
+        local world = world_with_infrastructure(shape)
+        local spec = pinned_spec(shape)
+        local concept = spec.concepts.EffectReceiver
+        H.equal(concept ~= nil, true, "EffectReceiver is in the pinned extract")
+        local parameters = set_of(concept.parameters)
+        local receiver = prototypes.entity["assembler"].effect_receiver
+        H.equal(type(receiver), "table", "the harness builds a receiver")
+        for key in pairs(receiver) do
+            H.equal(parameters[key] == true, true, "EffectReceiver." .. key .. " is a pinned parameter")
+        end
+        H.equal(parameters.base_effect, true, "base_effect is pinned on both branches")
+        H.equal(parameters.uses_module_effects, true, "uses_module_effects is pinned on both branches")
+        if shape == "2.1" then
+            H.equal(parameters.quality_limits, true, "2.1 exposes quality_limits")
+            H.equal(parameters.uses_local_effects, true, "2.1 exposes uses_local_effects")
+            H.equal(receiver.uses_local_effects ~= nil, true, "the 2.1 harness carries uses_local_effects")
+        else
+            H.equal(parameters.quality_limits, nil, "2.0 has no quality_limits")
+            H.equal(parameters.uses_local_effects, nil, "2.0 has no uses_local_effects")
+            H.equal(receiver.quality_limits, nil, "the 2.0 harness never invents quality_limits")
+        end
     end)
 
     H.test(shape .. " A4 the runtime pipe connection carries positions, never a single position", function()

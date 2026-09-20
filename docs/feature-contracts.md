@@ -335,7 +335,9 @@ previous report and the cursor exactly as they were; a deleted sheet ends the jo
 
 `tests/golden/required-matrix.json` is machine-readable and is what release verification reads. A case may be
 listed as unfinished; release verification then **fails**, and never counts it as a skipped success. Fields per
-case: `case_id`, `branches`, `mods`, `outcome_kind`, `clauses`, `state = "draft" | "accepted"`, `prepared_input`.
+case: `case_id`, `branches`, `mods`, `outcome_kind`, `clauses`, `state = "draft" | "captured" | "accepted"`,
+`prepared_input`. `captured` means the sheet was taken through the real preparation path and its engine
+observation is still missing; it is reported as an open gap and never satisfies the release corpus.
 
 ## 18. Perimeter ports (2026-09-19, decided after a second real-sheet failure)
 
@@ -427,3 +429,106 @@ The frozen shape is the producer's, because it is what the game can actually wri
   stay exactly as they are; surplus is never permission for impossible arithmetic.
 - `docs/engine-evidence/examples/` carries one synthetic example per outcome kind, in the producer's shape. They
   are examples, never engine evidence, and every file in that directory says so in its own `note` field.
+
+## 22. Quality, recipe facts and receiver facts (2026-09-20, round 9, frozen before lanes 085-090)
+
+A sheet of ordinary speed modules was refused as quality-changing production, and a chance-based product passed
+as supported. Both came from the same habit: a stage guessing from data it never received.
+
+### 22.1 The quality rule lives in `logic/bp/quality_policy.lua`
+
+Three questions, never one:
+
+```lua
+QualityPolicy.effective_quality(step, catalog)        -> value, supported, reason
+QualityPolicy.has_active_quality_module(step, catalog) -> boolean
+QualityPolicy.speed_beacon_contribution(step, catalog) -> value
+QualityPolicy.has_quality_capable_module(step, catalog) -> boolean
+QualityPolicy.receiver(step, catalog)                  -> {status, reason, record}
+```
+
+- Quality changes from four sources: machine modules, beacon modules, the machine's `base_effect.quality`, and
+  surface or local effects. An empty module list proves nothing about the other three, so **every active
+  production machine needs a receiver decision**.
+- `BP_REJ_QUALITY_CHANGING` fires when `effective_quality > 0`. A negative penalty is ordinary production.
+- `has_active_quality_module` counts a **positive** quality effect only, and is a different question from the
+  total: a positive module cancelled to zero still forbids speed beacons.
+- `has_quality_capable_module` counts a **non-zero** effect, in either direction. It decides what must be
+  verified, never what produces quality.
+- `speed_beacon_contribution` counts a **positive** contribution only; a productivity beacon is no speed beacon.
+- `BP_REJ_BEACON_SPEED_ON_QUALITY` needs `has_active_quality_module` **and** a positive beacon speed.
+- Module and beacon effects count only when the receiver uses them. `recipe.allowed_effects.quality == false`
+  zeroes the module and beacon share and **only** that share; a base effect is not a module effect.
+- Beacon weight is `count` x distribution effectivity at the beacon's own quality x the profile sample for the
+  number of beacons of that kind reaching the machine, matching the planner's model.
+
+### 22.2 Receiver facts and their status
+
+```lua
+catalog.entity[name].effect_receiver = {
+    status = "verified_default" | "verified_supported" | "unsupported" | "missing",
+    source = "prototype" | "capture" | "default",
+    branch = "2.0" | "2.1",
+    base_effect, uses_module_effects, uses_beacon_effects, uses_surface_effects,
+    uses_local_effects, quality_limits,   -- 2.1 only, by branch and never by omission
+    reason,                               -- set whenever status is unsupported or missing
+}
+```
+
+| Situation | Status | Rule |
+|---|---|---|
+| Field absent from our extract | - | Extractor bug. Fix `tools/extract_api.py` and regenerate. It says nothing about machine support. |
+| Field absent from that engine branch (2.0 has no `quality_limits`) | `verified_default` / `verified_supported` | Verified legacy semantics. A 2.0 machine is **never** unsupported for lacking a 2.1 field. |
+| Field present in 2.1 | `verified_supported` while the policy handles the values | `quality_limits` whose lower bound is `>= 0` cannot lower quality and changes nothing. A lower bound below zero, or a shape with no readable lower bound, is `unsupported` with that reason. |
+| Nobody captured it | `missing` | Kept until enriched from a verified source. A record without a `status` is `missing`, never a default. |
+| Behaviour outside the supported model | `unsupported` | Refused by name. |
+
+The pinned concept proves the split: `concepts.EffectReceiver` carries four parameters on 2.0.77 and ten on
+2.1.19, `quality_limits` and `uses_local_effects` among them. `tests/test_api_shapes.lua` checks the harness's
+receiver table against that concept, per branch.
+
+### 22.3 Recipe facts
+
+```lua
+catalog.recipe[name] = {
+    name, category, energy,
+    ingredients = {{type, name, amount, spoils}},
+    products = {{type, name, full_name, amount, amount_min, amount_max,
+                 probability, independent_probability, shared_probability,
+                 extra_count_fraction, percent_spoiled, spoils}},
+    allowed_effects, allowed_module_categories, maximum_productivity,
+    facts = {missing = {<field names>}, known_empty = {<field names>}},
+}
+catalog.recipe_coverage = {state = "complete" | "partial", active = {<recipe names>},
+                           missing = {<recipe name> = {<field names>}}}
+```
+
+**Completeness is structural.** A check needs only the fields it reads, and those fields must be there:
+
+- `recipe` is a table; `products` is a table, and for an active producing column it holds at least one entry;
+  each product carries `name`, `type` and one of `amount`, `amount_min`, `amount_max`.
+- `ingredients` is a table. An explicitly empty list is valid; an absent list is not.
+- Optional engine fields such as `probability` or `extra_count_fraction` may be absent and take their verified
+  engine default. Absence of an optional field is never incompleteness.
+- `facts.missing` is **additional** evidence, never the only detector, so a producer that drops a field and its
+  declaration is still caught.
+- A structurally complete inline `column.recipe` is complete for the product checks.
+
+**Shadowing.** `logic/bp/plan.lua` prefers `catalog.recipe` over `prototypes.recipe`. A projected recipe is used
+only when it is structurally complete for the fields that reader needs and declares nothing missing; otherwise
+the reader falls back to the runtime prototype and records the gap. An incomplete projection never shadows a
+complete runtime recipe. Replay with `prototypes` absent is a required test.
+
+**Missing facts.** An **active** column whose recipe is absent, structurally incomplete for a needed check, or
+declaring a needed field missing, is `BP_REJ_PROTOTYPE_FACTS_MISSING`, naming the recipe and the fields. The same
+code covers a machine whose receiver status is `missing`. Inactive columns are untouched.
+
+### 22.4 Lane verifier
+
+`lane_config` accepts only `default`, `scaffold`, `ci_collect`, `perf` and `reference_dir` under `[verify]`, so a
+per-tag key makes the whole configuration unloadable. `verify.default` therefore calls
+`tools/verify_round9_lane.sh {worktree} {tag}`, which runs the whole suite for every tag except
+`086_preflight_facts` and `087_planner_facts`. Those two cannot run `tests/test_blueprint_pipeline.lua` on their
+own base, because it demands a successful generation that today succeeds only while recipe and receiver facts are
+absent. The whole suite runs again, unchanged, once the producer and both consumers are integrated. Selecting no
+check is a failure, never a green result.

@@ -13,7 +13,14 @@ local function fixture(change)
     }
     local catalog = {
         entity = {assembler = {name = "assembler", type = "assembling-machine", module_slots = 2,
-            energy_source_type = "electric"}},
+            energy_source_type = "electric",
+            --Round 9 asks every active machine for a receiver decision, so the fixture states one rather than
+            --letting the checker guess. Inputs only: no assertion in this file changes.
+            effect_receiver = {status = "verified_default", source = "prototype", branch = "2.0",
+                    base_effect = {}, uses_module_effects = true, uses_beacon_effects = true,
+                    uses_surface_effects = true}},
+            beacon = {name = "beacon", type = "beacon", module_slots = 2,
+                beacon = {distribution_effectivity = 1.5, counter = "same_type"}}},
         item = {plate = {name = "plate", type = "item"}},
         module = {},
         quality = {normal = {unlocked = true}},

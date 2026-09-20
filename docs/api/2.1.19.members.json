@@ -2782,6 +2782,22 @@
    "kind": "other",
    "raw": "tuple"
   },
+  "EffectReceiver": {
+   "kind": "table",
+   "optional": [],
+   "parameters": [
+    "base_effect",
+    "consumption_limits",
+    "pollution_limits",
+    "productivity_limits",
+    "quality_limits",
+    "speed_limits",
+    "uses_beacon_effects",
+    "uses_local_effects",
+    "uses_module_effects",
+    "uses_surface_effects"
+   ]
+  },
   "FluidFlowDirection": {
    "kind": "other",
    "raw": "union"

@@ -2399,6 +2399,16 @@
    "kind": "other",
    "raw": "tuple"
   },
+  "EffectReceiver": {
+   "kind": "table",
+   "optional": [],
+   "parameters": [
+    "base_effect",
+    "uses_beacon_effects",
+    "uses_module_effects",
+    "uses_surface_effects"
+   ]
+  },
   "FluidFlowDirection": {
    "kind": "other",
    "raw": "union"

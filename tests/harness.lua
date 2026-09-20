@@ -76,10 +76,15 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "collision_box", "collision_mask", "tile_width", "tile_height", "flags", "fluidbox_prototypes",
     "belt_speed", "related_underground_belt", "max_underground_distance",
     "inserter_pickup_position", "inserter_drop_position", "inserter_stack_size_bonus", "inserter_max_belt_stack_size",
+    --Both are methods in the pinned extract, never attributes; a quality argument selects the value.
+    "get_inserter_rotation_speed", "get_inserter_extension_speed",
     "logistic_radius", "construction_radius", "connection_distance",
     "quality_affects_supply_area_distance", "get_supply_area_distance", "get_max_wire_distance"}
 local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
-    "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter"}
+    "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter",
+    --Spoilage: preflight reads spoil_result to refuse a spoiling ingredient or product. The tick count is a
+    --method in the pinned extract (get_spoil_ticks), never an attribute.
+    "spoil_result", "get_spoil_ticks"}
 local QUALITY_MEMBERS = {"name", "valid", "localised_name", "level", "next", "next_probability", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus",
     "beacon_power_usage_multiplier", "hidden"}
 
@@ -1025,9 +1030,15 @@ function H.new_world(shape)
     end
 
     --fuel (optional): {value (J), category, emissions_multiplier (default 1)}; items without it have fuel value 0 and no fuel category
-    function world.add_item(name, fuel)
+    --spoil: {result = "<item name>", ticks = <number>}; absent means the item never spoils, as in vanilla
+    function world.add_item(name, fuel, spoil)
         prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name},
             fuel_value = fuel and fuel.value or 0, fuel_category = fuel and fuel.category, fuel_emissions_multiplier = fuel and fuel.emissions_multiplier or 1,
+            spoil_result = spoil and spoil.result,
+            get_spoil_ticks = function(quality)
+                local per_quality = spoil and spoil.ticks_by_quality and spoil.ticks_by_quality[quality or "normal"]
+                return per_quality or (spoil and spoil.ticks) or 0
+            end,
             hidden = false, parameter = false},
             ITEM_MEMBERS, ITEM_GATES)
     end
@@ -1178,7 +1189,17 @@ function H.new_world(shape)
         }
         if not spec.no_effect_receiver then
             fields.effect_receiver = {base_effect = {productivity = spec.base_productivity, quality = spec.base_quality}, uses_module_effects = spec.uses_module_effects ~= false,
-                uses_beacon_effects = spec.uses_beacon_effects ~= false, uses_surface_effects = true}
+                uses_beacon_effects = spec.uses_beacon_effects ~= false, uses_surface_effects = spec.uses_surface_effects ~= false}
+            --2.1 exposes local effects and per-effect limits; 2.0 has neither, and a fixture may never invent
+            --them for 2.0. The field names come from concepts.EffectReceiver in docs/api/2.1.19.members.json.
+            if shape == "2.1" then
+                fields.effect_receiver.uses_local_effects = spec.uses_local_effects ~= false
+                fields.effect_receiver.quality_limits = spec.quality_limits
+                fields.effect_receiver.speed_limits = spec.speed_limits
+                fields.effect_receiver.productivity_limits = spec.productivity_limits
+                fields.effect_receiver.consumption_limits = spec.consumption_limits
+                fields.effect_receiver.pollution_limits = spec.pollution_limits
+            end
         end
         --vanilla machines are placed by an item of their own name, which exists
         if not prototypes.item[spec.name] then world.add_item(spec.name) end
@@ -1569,11 +1590,22 @@ function H.new_world(shape)
     --spec: {name, items_per_second (default 4.62), pickup (vector, default one tile behind), drop (vector, default one tile ahead),
     --  stack_bonus (default 0), max_belt_stack (default 1), energy_kw}
     function world.add_inserter(spec)
+        --rotation and extension speed are methods in the pinned extract and take a quality name.
+        --speeds_by_quality: {[quality] = {rotation = <number>, extension = <number>}}
+        local function speed_for(field, fallback)
+            return function(quality)
+                local per_quality = (spec.speeds_by_quality or {})[quality or "normal"]
+                if per_quality and per_quality[field] ~= nil then return per_quality[field] end
+                return spec[field] or fallback
+            end
+        end
         return infrastructure({name = spec.name, type = "inserter", energy_kw = spec.energy_kw or 13},
             {inserter_pickup_position = spec.pickup or {x = 0, y = 1},
              inserter_drop_position = spec.drop or {x = 0, y = -1.203125},
              inserter_stack_size_bonus = spec.stack_bonus or 0,
              inserter_max_belt_stack_size = spec.max_belt_stack or 1,
+             get_inserter_rotation_speed = speed_for("rotation_speed", 0.014),
+             get_inserter_extension_speed = speed_for("extension_speed", 0.0343),
              --the mod reads a rate from its own model; the prototype only carries geometry and bonuses
              energy_usage = (spec.energy_kw or 13) * 1000 / 60})
     end
