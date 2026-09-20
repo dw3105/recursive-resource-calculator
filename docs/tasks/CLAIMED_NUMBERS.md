@@ -88,3 +88,4 @@
 | `077` | `rrc/agent` | port tile foreign flow | 2026-09-20 |
 | `078` | `rrc/agent` | placed beacon covers machine | 2026-09-20 |
 | `079` | `rrc/agent` | port never blocks itself | 2026-09-20 |
+| `080` | `rrc/agent` | first layout corridor | 2026-09-20 |
