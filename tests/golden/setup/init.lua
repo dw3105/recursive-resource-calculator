@@ -6,9 +6,6 @@ local H = require "tests.harness"
 local Settings = require "logic.bp.settings"
 
 local Setup = {}
-local FORBIDDEN_GENERATION_OPTIONS = {
-    "search_budget", "max_ops", "max_search_grids", "max_grid_trials",
-}
 Setup.SCHEMA_VERSION = 1
 
 local function copy(value, seen)
@@ -73,14 +70,6 @@ function Setup.validate(description)
     require_field(description, "selection")
     require_field(description, "infrastructure")
     require_field(description, "engine_scenario")
-    if description.production_case == true and description.setup_id ~= "tiny-chain" then
-        for _, key in ipairs(FORBIDDEN_GENERATION_OPTIONS) do
-            if type(description.generation) == "table" and description.generation[key] ~= nil then
-                error(string.format("production golden case %s refused: %s is not default configuration",
-                    tostring(description.setup_id), key), 2)
-            end
-        end
-    end
     if description.production_case == true then
         require_field(description, "mod")
         require_field(description, "research")

@@ -236,7 +236,7 @@ class CaptureWorkflowTests(unittest.TestCase):
             manifest = json.loads((case / "manifest.json").read_text(encoding="utf-8"))
             with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
                 with self.assertRaisesRegex(runner.GoldenError, r"capped-case.*search_budget"):
-                    runner.accept_case(case, manifest, None, root / "artifacts", root / "cases")
+                    runner.accept_case(case, manifest, None, root / "artifacts")
 
     def test_one_captured_case_with_evidence_is_accepted_while_others_stay_draft(self):
         runner = load_runner()
@@ -274,7 +274,7 @@ class CaptureWorkflowTests(unittest.TestCase):
             before_expected = (case / "expected_canonical.json").read_bytes()
             manifest = json.loads(before_manifest)
             with self.assertRaisesRegex(runner.GoldenError, "evidence"):
-                runner.accept_case(case, manifest, None, root / "artifacts", root / "cases")
+                runner.accept_case(case, manifest, None, root / "artifacts")
             self.assertEqual((case / "manifest.json").read_bytes(), before_manifest)
             self.assertEqual((root / "required-matrix.json").read_bytes(), before_matrix)
             self.assertEqual(json.loads((case / "manifest.json").read_text())["state"], "captured")
@@ -304,7 +304,7 @@ class CaptureWorkflowTests(unittest.TestCase):
             with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
                 with mock.patch.object(runner.os, "replace", side_effect=interrupt_on_matrix):
                     with self.assertRaisesRegex(OSError, "interrupted"):
-                        runner.accept_case(case, manifest, None, root / "artifacts", root / "cases")
+                        runner.accept_case(case, manifest, None, root / "artifacts")
             self.assertEqual(manifest_path.read_bytes(), before_manifest)
             self.assertEqual(matrix_path.read_bytes(), before_matrix)
             self.assertFalse((case / "expected_canonical.json").exists())
