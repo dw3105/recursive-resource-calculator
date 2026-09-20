@@ -49,8 +49,20 @@ end
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " engine case: the interface refuses an unpackaged candidate", function()
         local _, _, _, Api = fixture(shape)
-        H.equal(Api.build_id().packaged, false, "the source checkout is not packaged")
-        H.equal(Api.register(), false, "the interface refuses an unpackaged candidate")
+        --This file runs in a source checkout and, during a handoff, inside an extracted package. The rule is
+        --the same in both: an unpackaged tree is refused, a packaged one is accepted and names its candidate.
+        local build = Api.build_id()
+        if build.packaged then
+            H.equal(type(build.candidate_sha) == "string" and #build.candidate_sha == 40, true,
+                "a packaged tree names the commit it was built from, saw " .. tostring(build.candidate_sha))
+            --A packaged tree may still refuse, because registration also needs the engine's remote global.
+            --What must never happen is the opposite: serving an interface the package could not identify.
+            H.equal(Api.register(), rawget(_G, "remote") ~= nil,
+                "a packaged candidate registers exactly when the engine offers remote")
+        else
+            H.equal(build.packaged, false, "the source checkout is not packaged")
+            H.equal(Api.register(), false, "the interface refuses an unpackaged candidate")
+        end
     end)
 
     H.test(shape .. " engine case: the interface registers no blueprint job kind of its own", function()

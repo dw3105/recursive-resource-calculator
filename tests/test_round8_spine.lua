@@ -120,8 +120,15 @@ for _, shape in ipairs(H.shapes()) do
         local world = sheet_world(shape)
         local EngineTestApi = require "logic.engine_test_api"
         local build = EngineTestApi.build_id()
-        H.equal(build.packaged, false, "a checkout is not packaged")
-        H.equal(build.candidate_sha, "dev", "and names no candidate")
+        --Same rule in both trees: a checkout claims nothing, a package names exactly what it was built from.
+        if build.packaged then
+            H.equal(type(build.candidate_sha) == "string" and #build.candidate_sha == 40, true,
+                "a packaged tree names its candidate, saw " .. tostring(build.candidate_sha))
+            H.equal(build.candidate_sha ~= "dev", true, "a package never reports the checkout identity")
+        else
+            H.equal(build.packaged, false, "a checkout is not packaged")
+            H.equal(build.candidate_sha, "dev", "and names no candidate")
+        end
     end)
 end
 
