@@ -786,9 +786,9 @@ function Groups.materialize(block, placement)
             placed_port.dir = source.normal_dir
             placed_port.travel_dir = source.travel_dir or NORTH
         end
-        --The search carries placed ports into Route, but not the materialized entity list.  Keep the exact
-        --rotated member rectangles on the port so routing indexes the members themselves, not a rotated-again
-        --block envelope.  This is internal layout data and never becomes a blueprint entity.
+        --The search carries placed ports into Route, but not the materialized entity list. Keep the placed
+        --envelope and exact rotated member rectangles in this internal reservation; neither becomes a blueprint
+        --entity, and the member rectangles keep direct route callers from rotating the block twice.
         placed_port._occupied = copy(occupied)
         placed_port._block_w, placed_port._block_h = block.w, block.h
         placed.ports[#placed.ports + 1] = placed_port
