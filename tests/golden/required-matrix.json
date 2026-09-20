@@ -323,6 +323,23 @@
       ],
       "state": "draft",
       "prepared_input": null
+    },
+    {
+      "case_id": "player-speed-module-chain",
+      "branches": [
+        "2.0"
+      ],
+      "mods": [
+        "base",
+        "quality",
+        "space-age"
+      ],
+      "outcome_kind": "production",
+      "clauses": [
+        "PLAYER-EXPORT"
+      ],
+      "state": "draft",
+      "prepared_input": null
     }
   ]
 }
