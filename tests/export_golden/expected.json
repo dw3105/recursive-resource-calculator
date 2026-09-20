@@ -1,0 +1,32 @@
+{
+  "format": "rrc-sheet-debug",
+  "schema_version": 1,
+  "state": "current",
+  "sheet": {
+    "sheet_id": "sheet-1",
+    "revisions": {"sheet": 4, "config": 9},
+    "options": {"round_up": true},
+    "targets": [{"full_name": "item/plate", "time_unit": "/m", "rate_per_second": 0.25}],
+    "selection": {"1": {
+      "product_full_name": "item/plate",
+      "recipe_name": "plate",
+      "machine": {"name": "assembler", "quality": "rare"},
+      "modules": [{"name": "speed-module", "quality": "rare", "count": 2}],
+      "beacons": [{"name": "beacon", "quality": "rare", "count": 2, "sharing": 3,
+        "modules": [{"name": "speed-module", "quality": "rare", "count": 2}]}]
+    }}
+  },
+  "prototypes": {
+    "recipe": {"plate": {"energy": 2.75, "ingredients": [{"name": "ore", "amount": 2}],
+      "products": [{"name": "plate", "type": "item", "amount": 1}]}}
+  },
+  "calculation": {
+    "recipe_rates": {"plate": 1.2345678901234567},
+    "solved_rates": {"item/plate": 1.2345678901234567},
+    "external_rates": {"item/ore": 2.4691357802469134},
+    "round_up": true,
+    "columns": [{"machine_count": 3.141592653589793, "effects": {"speed": 0.125},
+      "energy": 123456.78901234567, "pollution": 0.00012345678901234567}]
+  },
+  "generation": {"status": "absent", "missing": ["generation_attempt"]}
+}

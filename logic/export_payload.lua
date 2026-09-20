@@ -212,10 +212,50 @@ local function add_map_full_names(references, map)
     for full_name, _ in pairs(map or {}) do add_full_name(references, full_name) end
 end
 
+local function add_recipe_reference(references, value)
+    local name = identity_name(value)
+    if type(name) ~= "string" then return end
+    if name:sub(1, 11) == "hxrrc-burn:" or name:sub(1, 13) == "quality-loop:" then return end
+    references.recipes[name] = true
+end
+
+local function add_stage_references(references, stage)
+    if type(stage) ~= "table" then return end
+    add_recipe_reference(references, stage.recipe_name or stage.recipe)
+    add_name(references.entities, stage.machine)
+    add_quality(references.qualities, stage.machine)
+    add_setup(references, stage.setup or stage)
+end
+
+local function add_quality_loop_references(references, loop)
+    if type(loop) ~= "table" then return end
+    add_recipe_reference(references, loop.craft_recipe_name)
+    add_recipe_reference(references, loop.recycle_recipe_name)
+    add_stage_references(references, loop.config)
+    add_stage_references(references, loop.recycle)
+    add_stage_references(references, loop.assist)
+    for _, stage in pairs(loop.crafts or {}) do add_stage_references(references, stage) end
+    for _, stage in pairs(loop.tiers or {}) do add_stage_references(references, stage) end
+    if type(loop.config) == "table" then
+        for _, stage in pairs(loop.config.crafts or {}) do add_stage_references(references, stage) end
+    end
+end
+
 local function references_for(snapshot, result)
-    local references = {entities = {}, items = {}, fluids = {}, modules = {}, qualities = {}}
+    local references = {entities = {}, items = {}, fluids = {}, modules = {}, qualities = {}, recipes = {}}
     for _, target in ipairs(snapshot.targets or {}) do
         add_full_name(references, target.full_name, target.parts)
+    end
+    --A current selection is a dependency even before a calculation exists.  Keeping this outside the result guard
+    --prevents a no-result export from silently losing the recipe and setup the player selected.
+    for _, entry in ipairs(snapshot.selection or {}) do
+        if type(entry) == "table" then
+            if type(entry.recipe_name) == "string" then references.recipes[entry.recipe_name] = true end
+            add_selection_entry(references, entry)
+        end
+    end
+    for _, loop in ipairs(snapshot.selection and snapshot.selection.quality_loops or {}) do
+        add_quality_loop_references(references, loop)
     end
     if type(result) ~= "table" then return references end
 
@@ -227,6 +267,7 @@ local function references_for(snapshot, result)
     local selected_by_recipe = {}
     for _, entry in ipairs(snapshot.selection or {}) do selected_by_recipe[entry.recipe_name] = entry end
     for _, column in ipairs(result.columns or {}) do
+        add_recipe_reference(references, column.recipe_name or column.recipe)
         add_full_name(references, column.product_full_name)
         add_full_name(references, column.binding_full_name)
         add_map_full_names(references, column.net_amounts)
@@ -235,8 +276,10 @@ local function references_for(snapshot, result)
         add_name(references.entities, column.burner)
         add_quality(references.qualities, column.burner)
         add_selection_entry(references, selected_by_recipe[column.recipe_name])
+        add_setup(references, column.setup or {modules = column.modules, beacons = column.beacons})
         local loop = column.quality_loop
         if type(loop) == "table" then
+            add_quality_loop_references(references, loop)
             add_name(references.items, loop.item)
             add_quality(references.qualities, loop.quality)
             add_setup(references, loop.config)
@@ -254,6 +297,14 @@ local function references_for(snapshot, result)
                     add_setup(references, stage.setup or stage)
                 end
             end
+            for _, stage in pairs(loop.tiers or {}) do
+                if type(stage) == "table" then
+                    add_name(references.entities, stage.machine)
+                    add_quality(references.qualities, stage.machine)
+                    add_setup(references, stage.setup or stage)
+                    if type(stage.recipe_name) == "string" then references.recipes[stage.recipe_name] = true end
+                end
+            end
         end
     end
     return references
@@ -266,6 +317,7 @@ local function reference_options(references)
         fluids = sorted_values(references.fluids),
         modules = sorted_values(references.modules),
         qualities = sorted_values(references.qualities),
+        recipes = sorted_values(references.recipes),
     }
 end
 
@@ -358,7 +410,6 @@ end
 
 local function settings_copy(source, fingerprint)
     local settings = type(source) == "table" and copy_json(source) or {}
-    if not rawget(_G, "settings") then settings = {} end
     if type(source) == "table" and type(source.fingerprint) == "table" then
         settings.fingerprint = fingerprint
     elseif fingerprint ~= nil then
@@ -367,12 +418,109 @@ local function settings_copy(source, fingerprint)
     return settings
 end
 
-local function current_settings(snapshot)
+local function counted_modules(modules)
+    local result = {}
+    for _, module in ipairs(modules or {}) do
+        local name = identity_name(module and (module.name or module))
+        if name ~= nil then
+            local quality = type(module) == "table" and module.quality or nil
+            quality = identity_name(quality) or quality or "normal"
+            local count = type(module) == "table" and module.count or nil
+            count = type(count) == "number" and count or 1
+            local previous = result[#result]
+            if previous and previous.name == name and previous.quality == quality then
+                previous.count = previous.count + count
+            else
+                result[#result + 1] = {name = name, quality = quality, count = count}
+            end
+        end
+    end
+    return result
+end
+
+--Snapshot is intentionally slot-shaped for the GUI. The export is replay-shaped: repeated slots and legacy
+--counted entries are represented by one name/quality/count fact, while row order remains meaningful.
+local function beacons_for_export(beacons)
+    local result = {}
+    for index, group in ipairs(beacons or {}) do
+        local beacon = {}
+        for key, value in pairs(group) do beacon[key] = value end
+        beacon.name = identity_name(group.name or group.type)
+        beacon.type = beacon.type or beacon.name
+        beacon.quality = identity_name(group.quality) or group.quality or "normal"
+        beacon.modules = counted_modules(group.modules)
+        result[index] = beacon
+    end
+    return result
+end
+
+local function setup_for_export(setup)
+    if type(setup) ~= "table" then return {modules = {}, beacons = {}} end
+    local result = {}
+    for key, value in pairs(setup) do result[key] = value end
+    result.modules = counted_modules(setup.modules)
+    result.beacons = beacons_for_export(setup.beacons)
+    return result
+end
+
+local function stage_for_export(stage)
+    if type(stage) ~= "table" then return stage end
+    local result = {}
+    for key, value in pairs(stage) do result[key] = value end
+    result.modules = counted_modules(stage.modules)
+    result.beacons = beacons_for_export(stage.beacons)
+    if type(stage.setup) == "table" then result.setup = setup_for_export(stage.setup) end
+    if type(stage.settings) == "table" then result.settings = stage_for_export(stage.settings) end
+    return result
+end
+
+local function quality_loops_for_export(loops)
+    local result = {}
+    for index, loop in ipairs(loops or {}) do
+        local copy = {}
+        for key, value in pairs(loop) do copy[key] = value end
+        copy.config = stage_for_export(loop.config)
+        copy.recycle = stage_for_export(loop.recycle)
+        copy.assist = stage_for_export(loop.assist)
+        copy.crafts = {}
+        for craft_index, craft in ipairs(loop.crafts or {}) do
+            local craft_copy = {}
+            for key, value in pairs(craft) do craft_copy[key] = value end
+            craft_copy.settings = stage_for_export(craft.settings)
+            copy.crafts[craft_index] = craft_copy
+        end
+        result[index] = copy
+    end
+    return result
+end
+
+local function selection_for_export(snapshot, player_data)
+    local result = {}
+    local setups = type(player_data) == "table" and player_data.module_setups_by_recipe_name or {}
+    for index, entry in ipairs(snapshot.selection or {}) do
+        local copy = {}
+        for key, value in pairs(entry) do copy[key] = value end
+        local setup = type(entry) == "table" and setups[entry.recipe_name] or nil
+        if type(setup) == "table" then
+            copy.modules = counted_modules(setup.modules)
+            copy.beacons = beacons_for_export(setup.beacons)
+        end
+        result[index] = copy
+    end
+    --The auxiliary bindings are still part of the selection record; retaining them means a quality-loop replay
+    --does not need to infer its stages from the visible rows.
+    result.burners = snapshot.selection.burners
+    result.quality_loops = quality_loops_for_export(snapshot.selection.quality_loops)
+    return result
+end
+
+local function current_settings(snapshot, selection)
     return {
+        sheet_id = snapshot.sheet_id,
         fingerprint = snapshot.fingerprint and snapshot.fingerprint.input or Snapshot().fingerprint(snapshot),
         targets = copy_json(snapshot.targets, nil, "targets"),
         options = copy_json(snapshot.options, nil, "options"),
-        selection = copy_json(snapshot.selection, nil, "selection"),
+        selection = copy_json(selection or snapshot.selection, nil, "selection"),
         revisions = copy_json(snapshot.revisions, nil, "revisions"),
     }
 end
@@ -381,8 +529,17 @@ local function result_settings(result, wrapper, result_fp)
     local source = result and (result.settings or result.snapshot or result.inputs or result.input)
         or wrapper and (wrapper.settings or wrapper.snapshot or wrapper.inputs)
     if source then return settings_copy(source, result_fp) end
-    if result_fp then return {fingerprint = result_fp} end
-    return {}
+    local settings = {fingerprint = result_fp}
+    local sheet_id = result and result.sheet_id or wrapper and wrapper.sheet_id
+    local sheet_revision = result and (result.sheet_revision or result.revisions and result.revisions.sheet)
+        or wrapper and (wrapper.sheet_revision or wrapper.revisions and wrapper.revisions.sheet)
+    local config_revision = result and (result.config_revision or result.revisions and result.revisions.config)
+        or wrapper and (wrapper.config_revision or wrapper.revisions and wrapper.revisions.config)
+    if sheet_id ~= nil then settings.sheet_id = sheet_id end
+    if sheet_revision ~= nil or config_revision ~= nil then
+        settings.revisions = {sheet = sheet_revision, config = config_revision}
+    end
+    return settings
 end
 
 local function state_of(snapshot, result, result_fp, pending)
@@ -397,8 +554,169 @@ local function state_of(snapshot, result, result_fp, pending)
     return state
 end
 
-local function calculation_copy(result)
-    if type(result) ~= "table" then return {status = "not_computed"} end
+local function finite_number(value)
+    return type(value) == "number" and finite(value) and value or nil
+end
+
+local EFFECT_NAMES = {"consumption", "speed", "productivity", "pollution", "quality"}
+
+local function module_effect(name, quality, catalog)
+    local item = rawget(_G, "prototypes") and prototypes.item and prototypes.item[name]
+    if item and type(item.get_module_effects) == "function" then
+        local ok, effects = pcall(item.get_module_effects, quality == "normal" and nil or quality)
+        if ok and type(effects) == "table" then return effects, true end
+    end
+    local projected = catalog and catalog.module and catalog.module[name]
+    if projected and projected.effects then return projected.effects, true end
+    local projected_item = catalog and catalog.item and catalog.item[name]
+    if projected_item and projected_item.module_effects then return projected_item.module_effects, true end
+    return {}, false
+end
+
+local function setup_effects(setup, catalog)
+    local totals = {}
+    local known = true
+    for _, effect in ipairs(EFFECT_NAMES) do totals[effect] = 0 end
+    local function add_modules(modules, multiplier)
+        for _, module in ipairs(modules or {}) do
+            local count = finite_number(module.count) or 1
+            local module_value = type(module) == "table" and module.name or module
+            local module_quality = type(module) == "table" and module.quality or nil
+            local effects, available = module_effect(identity_name(module_value), identity_name(module_quality) or module_quality or "normal", catalog)
+            if not available then known = false end
+            for _, effect in ipairs(EFFECT_NAMES) do
+                totals[effect] = totals[effect] + (finite_number(effects[effect]) or 0) * count * multiplier
+            end
+        end
+    end
+    add_modules(setup and setup.modules, 1)
+    local by_name, total = {}, 0
+    for _, group in ipairs(setup and setup.beacons or {}) do
+        local count = finite_number(group.count) or finite_number(group.count_per_machine) or 1
+        local name = identity_name(group.name or group.type)
+        by_name[name] = (by_name[name] or 0) + count
+        total = total + count
+    end
+    for _, group in ipairs(setup and setup.beacons or {}) do
+        local name = identity_name(group.name or group.type)
+        local quality = identity_name(group.quality) or group.quality or "normal"
+        local beacon = rawget(_G, "prototypes") and prototypes.entity and prototypes.entity[name]
+        local projected = catalog and catalog.beacon and catalog.beacon[name] or {}
+        if not beacon and next(projected) == nil then known = false end
+        local level = 0
+        local quality_prototype = rawget(_G, "prototypes") and prototypes.quality and prototypes.quality[quality]
+        if quality_prototype then level = finite_number(quality_prototype.level) or 0 end
+        local effectivity = finite_number(beacon and beacon.distribution_effectivity)
+            or finite_number(projected.distribution_effectivity) or 1
+        effectivity = effectivity + (finite_number(beacon and beacon.distribution_effectivity_bonus_per_quality_level) or 0) * level
+        local reaching = (beacon and beacon.beacon_counter == "same_type") and by_name[name] or total
+        local profile = beacon and beacon.profile or projected.profile
+        local sample = 1
+        if type(profile) == "table" and #profile > 0 then sample = profile[math.min(math.max(1, reaching), #profile)] or 1 end
+        local count = finite_number(group.count) or finite_number(group.count_per_machine) or 1
+        add_modules(group.modules, count * effectivity * sample)
+    end
+    return totals, known
+end
+
+local function selected_setup(player_data, selection_by_recipe, column)
+    if type(column.setup) == "table" then return column.setup end
+    if column.modules ~= nil or column.beacons ~= nil then
+        return {modules = column.modules or {}, beacons = column.beacons or {}}
+    end
+    local stored = type(player_data) == "table" and player_data.module_setups_by_recipe_name
+        and player_data.module_setups_by_recipe_name[column.recipe_name]
+    if stored then return stored end
+    local selected = selection_by_recipe[column.recipe_name]
+    return selected and {modules = selected.modules or {}, beacons = selected.beacons or {}} or {modules = {}, beacons = {}}
+end
+
+local function derived_calculation(result, snapshot, player_data, catalog)
+    local derived = {columns = {}, machine_counts = {}, effects = {}, energy = 0, pollution = 0, energy_known = false, pollution_known = false}
+    if type(result) ~= "table" then return derived end
+    local selection_by_recipe = {}
+    for _, entry in ipairs(snapshot.selection or {}) do selection_by_recipe[entry.recipe_name] = entry end
+    for index, column in ipairs(result.columns or {}) do
+        if type(column) == "table" and type(column.recipe_name) == "string" then
+            local rate = result.recipe_rates and finite_number(result.recipe_rates[column.recipe_name])
+                or finite_number(column.recipe_rate) or finite_number(column.rate)
+            local recipe = catalog and catalog.recipe and catalog.recipe[column.recipe_name]
+            local selected = selection_by_recipe[column.recipe_name]
+            local machine = column.machine or (selected and selected.machine)
+            local machine_name = identity_name(machine)
+            local machine_quality = type(machine) == "table" and (identity_name(machine.quality) or machine.quality) or "normal"
+            local setup = selected_setup(player_data, selection_by_recipe, column)
+            local effects, effects_known = setup_effects(setup, catalog)
+            if type(column.effects) == "table" then
+                effects, effects_known = column.effects, true
+            end
+            local derived_column = {}
+            if effects_known then derived_column.effects = effects end
+            local entity = rawget(_G, "prototypes") and prototypes.entity and prototypes.entity[machine_name]
+            local projected_entity = catalog and catalog.entity and catalog.entity[machine_name]
+            local crafting_speed = projected_entity and projected_entity.crafting_speed
+            local energy_w = projected_entity and projected_entity.energy_usage_w
+            local pollution_per_min = projected_entity and projected_entity.pollution_per_min
+            if entity then
+                local quality_argument = machine_quality == "normal" and nil or machine_quality
+                if type(entity.get_crafting_speed) == "function" then
+                    local ok, value = pcall(entity.get_crafting_speed, quality_argument)
+                    if ok then crafting_speed = value end
+                end
+                if type(entity.get_max_energy_usage) == "function" then
+                    local ok, value = pcall(entity.get_max_energy_usage, quality_argument)
+                    if ok then energy_w = value * 60 end
+                end
+                local source = entity.electric_energy_source_prototype or entity.burner_prototype
+                local emissions = source and source.emissions_per_joule
+                if emissions and energy_w then pollution_per_min = energy_w / 60 * (emissions.pollution or 0) * 60 end
+            end
+            local speed_multiplier = math.max(0.2, 1 + (finite_number(effects.speed) or 0))
+            local machine_count = finite_number(column.machine_count or column.calculated_machine_count)
+            local supplied_machine_rate = finite_number(column.crafts_per_second_per_machine or column.machine_rate)
+            if machine_count == nil and rate and supplied_machine_rate and supplied_machine_rate > 0 then
+                machine_count = rate / supplied_machine_rate
+            elseif machine_count == nil and rate and recipe and finite_number(recipe.energy) and finite_number(crafting_speed) and crafting_speed > 0 then
+                machine_count = rate * recipe.energy / (crafting_speed * speed_multiplier)
+            end
+            if machine_count then
+                derived_column.machine_count = machine_count
+                derived.machine_counts[column.recipe_name] = machine_count
+            end
+            if effects_known then derived.effects[column.recipe_name] = effects end
+            local consumption_multiplier = math.max(0.2, 1 + (finite_number(effects.consumption) or 0))
+            local pollution_multiplier = math.max(0.2, 1 + (finite_number(effects.pollution) or 0))
+            local column_energy, column_pollution
+            if machine_count and effects_known and finite_number(energy_w) then
+                column_energy = energy_w * machine_count * consumption_multiplier
+                for _, group in ipairs(setup.beacons or {}) do
+                    local beacon_name = identity_name(group.name or group.type)
+                    local beacon = rawget(_G, "prototypes") and prototypes.entity and prototypes.entity[beacon_name]
+                    local beacon_energy = beacon and beacon.energy_usage and beacon.energy_usage * 60
+                        or catalog and catalog.entity and catalog.entity[beacon_name] and catalog.entity[beacon_name].energy_usage_w
+                    local count = finite_number(group.count) or finite_number(group.count_per_machine) or 1
+                    local sharing = finite_number(group.sharing) or 1
+                    local quality = identity_name(group.quality) or group.quality or "normal"
+                    local quality_prototype = rawget(_G, "prototypes") and prototypes.quality and prototypes.quality[quality]
+                    local power_multiplier = quality_prototype and finite_number(quality_prototype.beacon_power_usage_multiplier) or 1
+                    if beacon_energy then column_energy = column_energy + count * machine_count / sharing * beacon_energy * power_multiplier end
+                end
+            end
+            if machine_count and effects_known and finite_number(pollution_per_min) then
+                column_pollution = pollution_per_min * machine_count * pollution_multiplier * consumption_multiplier
+            end
+            if column_energy then derived_column.energy = column_energy; derived.energy = derived.energy + column_energy; derived.energy_known = true end
+            if column_pollution then derived_column.pollution = column_pollution; derived.pollution = derived.pollution + column_pollution; derived.pollution_known = true end
+            derived.columns[index] = derived_column
+        end
+    end
+    return derived
+end
+
+local function calculation_copy(result, snapshot, derived)
+    if type(result) ~= "table" then
+        return {status = "not_computed", round_up = snapshot and snapshot.options and snapshot.options.round_up == true}
+    end
     local calculation = {}
     for key, value in pairs(result) do
         if key ~= "settings" and key ~= "snapshot" and key ~= "inputs" and key ~= "input"
@@ -407,6 +725,32 @@ local function calculation_copy(result)
         end
     end
     if calculation.status == nil then calculation.status = result.ok == false and "failed" or "unknown" end
+    --The solver calls the world-side remainder unsolved_rates. The replay contract names its meaning so a reader
+    --does not have to guess whether the rates were solved, external, or simply omitted.
+    if calculation.external_rates == nil and result.unsolved_rates ~= nil then
+        calculation.external_rates = copy_json(result.unsolved_rates, nil, "external_rates")
+    end
+    if calculation.round_up == nil and snapshot and snapshot.options then
+        calculation.round_up = snapshot.options.round_up == true
+    end
+    if derived then
+        if calculation.machine_counts == nil and next(derived.machine_counts) ~= nil then
+            calculation.machine_counts = copy_json(derived.machine_counts)
+        end
+        if calculation.effects == nil and next(derived.effects) ~= nil then
+            calculation.effects = copy_json(derived.effects)
+        end
+        if calculation.energy == nil and derived.energy_known then calculation.energy = derived.energy end
+        if calculation.pollution == nil and derived.pollution_known then calculation.pollution = derived.pollution end
+        for index, column in ipairs(calculation.columns or {}) do
+            local facts = derived.columns[index]
+            if facts then
+                for _, key in ipairs({"machine_count", "effects", "energy", "pollution"}) do
+                    if column[key] == nil and facts[key] ~= nil then column[key] = copy_json(facts[key], nil, key) end
+                end
+            end
+        end
+    end
 
     local stages = {}
     for _, column in ipairs(result.columns or {}) do
@@ -505,11 +849,6 @@ local function sorted_diagnostics(diagnostics)
     return result
 end
 
-local function blueprint_attempt(player_data)
-    if type(player_data) ~= "table" then return nil end
-    return player_data.last_blueprint_attempt or player_data.blueprint_attempt or player_data.last_blueprint
-end
-
 local function add_generation_id(ids, seen, value)
     if value == nil then return end
     local value_type = type(value)
@@ -540,7 +879,7 @@ local function generation_capture(player_index, player_data, sheet_id)
     for _, key in ipairs({"generation_id", "last_generation_id", "last_blueprint_generation_id"}) do
         add_generation_id(ids, seen, player_data[key])
     end
-    for _, key in ipairs({"last_blueprint_attempt", "blueprint_attempt", "last_blueprint", "blueprint_job"}) do
+    for _, key in ipairs({"blueprint_job"}) do
         generation_id_from(player_data[key], ids, seen)
     end
 
@@ -557,6 +896,20 @@ local function generation_capture(player_index, player_data, sheet_id)
         end
     end
     return nil
+end
+
+local function generation_attempt(player_data, sheet_id, capture, provenance)
+    local job = type(player_data) == "table" and player_data.blueprint_job or nil
+    if type(job) == "table" and (job.sheet_id == nil or job.sheet_id == sheet_id) then
+        return copy_json(job)
+    end
+    if type(capture) == "table" then
+        local attempt = copy_json(provenance or capture)
+        if type(attempt) == "table" then return attempt end
+    end
+    --The durable terminal lookup belongs to the generation lane. On this base, absence is a fact the export must
+    --name rather than a fabricated last attempt or another sheet's attempt.
+    return {status = "absent", missing = {"generation_attempt"}}
 end
 
 local function source_export_name(value)
@@ -594,6 +947,68 @@ local function capture_projection(capture, source_kind, provenance)
     return projected, kind, proof, name
 end
 
+local function completeness_diagnostics(snapshot, result, result_setting, catalog, generation, derived)
+    local missing = {}
+    local function add(fact, reason)
+        missing[#missing + 1] = {fact = fact, reason = reason}
+    end
+    if type(result) ~= "table" then
+        add("calculation.result", "the runtime has no calculation result for this sheet")
+        add("calculation.solved_rates", "no solved result exists")
+        add("calculation.external_rates", "no solved result exists")
+        add("calculation.machine_counts", "no calculated columns exist")
+        add("calculation.effects", "no calculated columns exist")
+        add("calculation.energy", "the runtime has no aggregate energy for an absent result")
+        add("calculation.pollution", "the runtime has no aggregate pollution for an absent result")
+    else
+        if result.solved_rates == nil then add("calculation.solved_rates", "the calculation result did not supply solved rates") end
+        if result.external_rates == nil and result.unsolved_rates == nil then
+            add("calculation.external_rates", "the calculation result did not supply external rates")
+        end
+        local has_machine_count, has_effects = false, false
+        local columns = result.columns or {}
+        for index, column in ipairs(columns) do
+            if type(column) == "table" then
+                if column.machine_count ~= nil or column.calculated_machine_count ~= nil
+                    or derived and derived.columns[index] and derived.columns[index].machine_count ~= nil then has_machine_count = true
+                else add("calculation.columns[" .. index .. "].machine_count", "the runtime result did not supply a calculated machine count") end
+                if column.effects ~= nil or derived and derived.columns[index] and derived.columns[index].effects ~= nil then has_effects = true
+                else add("calculation.columns[" .. index .. "].effects", "the runtime result did not supply calculated effects") end
+            end
+        end
+        if #columns == 0 then
+            add("calculation.machine_counts", "the calculation result has no columns")
+            add("calculation.effects", "the calculation result has no columns")
+        elseif not has_machine_count then
+            add("calculation.machine_counts", "the runtime result did not supply calculated machine counts")
+        elseif not has_effects then
+            add("calculation.effects", "the runtime result did not supply calculated effects")
+        end
+        if result.energy == nil and result.energy_consumption == nil and not (derived and derived.energy_known) then
+            add("calculation.energy", "the calculation result did not supply aggregate energy")
+        end
+        if result.pollution == nil and result.pollution_per_min == nil and not (derived and derived.pollution_known) then
+            add("calculation.pollution", "the calculation result did not supply aggregate pollution")
+        end
+    end
+    if type(catalog) == "table" and type(catalog.recipe_coverage) == "table"
+        and catalog.recipe_coverage.state ~= "complete" then
+        add("prototypes.recipe", "recipe prototype coverage is " .. tostring(catalog.recipe_coverage.state))
+    end
+    if type(result_setting) ~= "table" or result_setting.sheet_id == nil then
+        add("settings.result.sheet_id", "the calculation record has no sheet identity")
+    end
+    if type(result_setting) ~= "table" or type(result_setting.revisions) ~= "table"
+        or result_setting.revisions.sheet == nil or result_setting.revisions.config == nil then
+        add("settings.result.revisions", "the calculation record has no complete sheet/config revision identity")
+    end
+    if type(generation) == "table" and generation.status == "absent" then
+        add("generation.attempt", "the current base has no durable generation attempt lookup")
+    end
+    table.sort(missing, function(a, b) return a.fact < b.fact end)
+    return missing
+end
+
 function ExportPayload.build(player_index, sheet_flow)
     local snapshot = Snapshot().of_sheet(sheet_flow)
     local player_data = (type(storage) == "table" and type(storage[player_index]) == "table") and storage[player_index] or {}
@@ -606,10 +1021,16 @@ function ExportPayload.build(player_index, sheet_flow)
     local references = references_for(snapshot, result)
     collect_recipe_names(references, result)
     local catalog, catalog_diagnostics = Catalog.for_export(player_index, reference_options(references))
-    local current = current_settings(snapshot)
+    local selection = selection_for_export(snapshot, player_data)
+    local derived = derived_calculation(result, snapshot, player_data, catalog)
     local result_setting = result_settings(result, wrapper, result_fp)
     local sheet = copy_json(snapshot)
     sheet.state = state
+    sheet.selection = copy_json(selection, nil, "selection")
+
+    local capture, capture_source_kind, capture_provenance = generation_capture(player_index, player_data, snapshot.sheet_id)
+    local prepared, source_kind, provenance, source_export = capture_projection(capture, capture_source_kind, capture_provenance)
+    local generation = generation_attempt(player_data, snapshot.sheet_id, capture, provenance)
 
     local diagnostics = {
         missing_prototypes = {}, rejected_values = rejected_values(snapshot), catalog = sorted_diagnostics(catalog_diagnostics),
@@ -619,8 +1040,7 @@ function ExportPayload.build(player_index, sheet_flow)
             diagnostics.missing_prototypes[#diagnostics.missing_prototypes + 1] = copy_json(diagnostic)
         end
     end
-    local attempt = blueprint_attempt(player_data)
-    if attempt ~= nil then diagnostics.last_blueprint_attempt = copy_json(attempt) end
+    diagnostics.missing_facts = completeness_diagnostics(snapshot, result, result_setting, catalog, generation, derived)
 
     local environment = environment_of(player_index, references)
     local payload = {
@@ -630,17 +1050,16 @@ function ExportPayload.build(player_index, sheet_flow)
         rrc_version = environment.mod_version,
         environment = environment,
         sheet = sheet,
-        selection = copy_json(snapshot.selection, nil, "selection"),
-        settings = {current = current, result = result_setting},
+        selection = copy_json(selection, nil, "selection"),
+        settings = {current = current_settings(snapshot, selection), result = result_setting},
         state = state,
         calculation_tick = (result and (result.calculation_tick or result.tick))
             or (wrapper and (wrapper.calculation_tick or wrapper.tick)) or nil,
-        calculation = calculation_copy(result),
+        calculation = calculation_copy(result, snapshot, derived),
         prototypes = copy_json(catalog),
         diagnostics = diagnostics,
+        generation = generation,
     }
-    local capture, capture_source_kind, capture_provenance = generation_capture(player_index, player_data, snapshot.sheet_id)
-    local prepared, source_kind, provenance, source_export = capture_projection(capture, capture_source_kind, capture_provenance)
     if prepared ~= nil then
         --Generation.capture has already performed the bounded preparation copy. This projection only crosses the
         --plain-data export boundary; it never starts preparation or waits for Search while a dialog opens.
