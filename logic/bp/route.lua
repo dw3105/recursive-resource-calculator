@@ -745,6 +745,15 @@ local function build_demands(work, flows)
             end
         end
     end
+    --The pairing loop above deliberately keeps its existing cost and stable endpoint tie-breaks.  Once those
+    --pairs are materialized, route the expensive spans first: a short branch laid across a long cross-block
+    --trunk can fence that trunk in, while the reverse order lets the unchanged splitter/underground search
+    --share the trunk and attach its local branches.  The original append order is the deterministic tie-break.
+    for index, demand in ipairs(demands) do demand._build_order = index end
+    table.sort(demands, function(left, right)
+        if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end
+        return left._build_order < right._build_order
+    end)
     return demands
 end
 
