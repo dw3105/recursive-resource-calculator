@@ -32,6 +32,11 @@ local Utils = require "logic.utils"
 
 local MISSING_PROTOTYPE = "CATALOG_MISSING_PROTOTYPE"
 local MISSING_QUALITY = "CATALOG_MISSING_QUALITY"
+local INCOMPLETE_CAPTURE = "BP_CAP_INCOMPLETE"
+
+local function diagnostic(diagnostics, code, subject, detail, field)
+    diagnostics[#diagnostics + 1] = {code = code, subject = subject, detail = detail, field = field}
+end
 
 local function copy_plain(value, seen)
     local value_type = type(value)
@@ -57,22 +62,89 @@ local function copy_plain(value, seen)
     return result
 end
 
-local function copy_position(position)
-    if not position then return nil end
-    return {x = position.x, y = position.y}
+local function vector_member(position, key)
+    local ok, value = pcall(function() return position[key] end)
+    return ok and value or nil
 end
 
-local function copy_box(box)
-    if not box then return nil end
-    return {left_top = copy_position(box.left_top), right_bottom = copy_position(box.right_bottom)}
+local function normalize_position(position)
+    local position_type = type(position)
+    if position_type ~= "table" and position_type ~= "userdata" then
+        return nil, "unsupported vector representation"
+    end
+
+    local x, y = vector_member(position, "x"), vector_member(position, "y")
+    if x == nil and y == nil then x, y = vector_member(position, 1), vector_member(position, 2) end
+    if type(x) ~= "number" or type(y) ~= "number"
+        or x ~= x or y ~= y or x == math.huge or x == -math.huge or y == math.huge or y == -math.huge then
+        if position_type == "table" and next(position) == nil then return nil, "empty vector" end
+        return nil, "vector is missing a finite x or y component"
+    end
+    return {x = x, y = y}
 end
 
-local function copy_positions(positions)
+local function copy_position(position, diagnostics, entity_name, field, required)
+    if position == nil then
+        if required then
+            local subject = "entity/" .. tostring(entity_name)
+            diagnostic(diagnostics, INCOMPLETE_CAPTURE, subject,
+                subject .. " field " .. field .. " is missing", field)
+            return nil, false
+        end
+        return nil, true
+    end
+    local result, reason = normalize_position(position)
+    if result ~= nil then return result, true end
+    local subject = "entity/" .. tostring(entity_name)
+    diagnostic(diagnostics, INCOMPLETE_CAPTURE, subject,
+        subject .. " field " .. field .. " has " .. reason, field)
+    return nil, false
+end
+
+local function copy_box(box, diagnostics, entity_name, field)
+    if box == nil then
+        --Some API-shaped mocks do not expose collision geometry for a non-blueprint entity. That absence is not
+        --an empty vector and remains distinguishable from a malformed box supplied by the boundary.
+        return nil, true
+    end
+    local left_top, left_ok = copy_position(box.left_top, diagnostics, entity_name, field .. ".left_top", true)
+    local right_bottom, right_ok = copy_position(box.right_bottom, diagnostics, entity_name, field .. ".right_bottom", true)
+    if not left_ok or not right_ok then return nil, false end
+    return {left_top = left_top, right_bottom = right_bottom}, true
+end
+
+local function copy_positions(positions, diagnostics, entity_name, field)
+    if type(positions) ~= "table" or #positions == 0 then
+        local subject = "entity/" .. tostring(entity_name)
+        local detail = type(positions) == "table" and "is an empty vector list" or "is missing a vector list"
+        diagnostic(diagnostics, INCOMPLETE_CAPTURE, subject, subject .. " field " .. field .. " " .. detail, field)
+        return nil, false
+    end
+    local count = 0
+    for key, _ in pairs(positions) do
+        if type(key) ~= "number" or key < 1 or key % 1 ~= 0 then
+            local subject = "entity/" .. tostring(entity_name)
+            diagnostic(diagnostics, INCOMPLETE_CAPTURE, subject,
+                subject .. " field " .. field .. " has an unsupported vector-list representation", field)
+            return nil, false
+        end
+        count = math.max(count, key)
+    end
+    for index = 1, count do
+        if positions[index] == nil then
+            local subject = "entity/" .. tostring(entity_name)
+            diagnostic(diagnostics, INCOMPLETE_CAPTURE, subject,
+                subject .. " field " .. field .. " is missing vector " .. tostring(index), field)
+            return nil, false
+        end
+    end
     local result = {}
     for index, position in ipairs(positions or {}) do
-        result[index] = copy_position(position)
+        local copied, ok = copy_position(position, diagnostics, entity_name, field .. "[" .. index .. "]", true)
+        if not ok then return nil, false end
+        result[index] = copied
     end
-    return result
+    return result, true
 end
 
 local function name_of(value)
@@ -168,10 +240,6 @@ local function split_full_name(value, expected_type)
     local prefix, name = value:match("^([^/]+)/(.+)$")
     if prefix == expected_type then return name end
     return value
-end
-
-local function diagnostic(diagnostics, code, subject, detail)
-    diagnostics[#diagnostics + 1] = {code = code, subject = subject, detail = detail}
 end
 
 local function resolve(diagnostics, kind, name)
@@ -294,7 +362,7 @@ local function max_energy_per_tick(entity, quality_name, quality_valid)
     return entity.energy_usage
 end
 
-local function project_fluid_boxes(entity)
+local function project_fluid_boxes(entity, diagnostics)
     local boxes = {}
     for index, box in ipairs(entity.fluidbox_prototypes or {}) do
         local projected = {
@@ -307,8 +375,11 @@ local function project_fluid_boxes(entity)
         -- reading an absent LuaObject member is an error in the real engine.
         if not Utils.IS_2_1 then projected.volume = box.volume end
         for connection_index, connection in ipairs(box.pipe_connections or {}) do
+            local positions, positions_ok = copy_positions(connection.positions, diagnostics, entity.name,
+                "fluid_boxes[" .. index .. "].connections[" .. connection_index .. "].positions")
+            if not positions_ok then return nil, false end
             local projected_connection = {
-                positions = copy_positions(connection.positions),
+                positions = positions,
                 direction = connection.direction,
                 connection_type = connection.connection_type,
                 flow_direction = connection.flow_direction,
@@ -316,16 +387,39 @@ local function project_fluid_boxes(entity)
             }
             if Utils.IS_2_1 then
                 projected_connection.alt_direction = connection.alt_direction
-                projected_connection.alt_position = copy_position(connection.alt_position)
+                local alt_position, alt_ok = copy_position(connection.alt_position, diagnostics, entity.name,
+                    "fluid_boxes[" .. index .. "].connections[" .. connection_index .. "].alt_position", false)
+                if not alt_ok then return nil, false end
+                projected_connection.alt_position = alt_position
             end
             projected.connections[connection_index] = projected_connection
         end
         boxes[#boxes + 1] = projected
     end
-    return boxes
+    return boxes, true
 end
 
-local function project_entity(catalog, diagnostics, entity, quality_name, quality_valid)
+local function validate_inserter_geometry(entity, diagnostics, geometry_state)
+    local cached = geometry_state[entity.name]
+    if cached ~= nil then return cached end
+    local pickup, pickup_ok = copy_position(entity.inserter_pickup_position, diagnostics, entity.name,
+        "inserter.pickup_offset", true)
+    local drop, drop_ok = copy_position(entity.inserter_drop_position, diagnostics, entity.name,
+        "inserter.drop_offset", true)
+    local result = {ok = pickup_ok and drop_ok, pickup = pickup, drop = drop}
+    geometry_state[entity.name] = result
+    return result
+end
+
+local function project_entity(catalog, diagnostics, entity, quality_name, quality_valid, geometry_state)
+    local collision_box, collision_ok = copy_box(entity.collision_box, diagnostics, entity.name, "collision_box")
+    local fluid_boxes, fluid_ok = project_fluid_boxes(entity, diagnostics)
+    local inserter_ok = true
+    if entity.type == "inserter" then
+        inserter_ok = validate_inserter_geometry(entity, diagnostics, geometry_state).ok
+    end
+    if not collision_ok or not fluid_ok or not inserter_ok then return nil end
+
     local energy_per_tick = max_energy_per_tick(entity, quality_name, quality_valid)
     local source = source_for(entity)
     local emissions = source and source.emissions_per_joule
@@ -340,7 +434,7 @@ local function project_entity(catalog, diagnostics, entity, quality_name, qualit
         quality = quality_name,
         tile_w = entity.tile_width,
         tile_h = entity.tile_height,
-        collision_box = copy_box(entity.collision_box),
+        collision_box = collision_box,
         collision_mask = copy_plain(entity.collision_mask),
         flags = copy_plain(entity.flags),
         module_slots = nil,
@@ -348,7 +442,7 @@ local function project_entity(catalog, diagnostics, entity, quality_name, qualit
         energy_usage_w = energy_per_tick and energy_per_tick * 60 or nil,
         pollution_per_min = pollution,
         needs_power = source ~= nil or (energy_per_tick ~= nil and energy_per_tick > 0),
-        fluid_boxes = project_fluid_boxes(entity),
+        fluid_boxes = fluid_boxes,
         beacon = nil,
         effect_receiver = project_effect_receiver(entity),
     }
@@ -551,13 +645,13 @@ local function project_fluid(catalog, diagnostics, request, quality_name)
     catalog.fluid[fluid.name] = projected
 end
 
-local function project_entities(catalog, diagnostics, requests, quality_cache)
+local function project_entities(catalog, diagnostics, requests, quality_cache, geometry_state)
     for _, request in ipairs(unique_requests(requests)) do
         local entity = resolve(diagnostics, "entity", request.name)
         if entity then
             local quality, quality_name = selected_quality(request.quality, diagnostics, quality_cache)
             if quality then project_quality(catalog, quality, quality_name) end
-            project_entity(catalog, diagnostics, entity, quality_name, quality ~= false)
+            project_entity(catalog, diagnostics, entity, quality_name, quality ~= false, geometry_state)
         end
     end
 end
@@ -638,7 +732,7 @@ local function build_pipe(catalog, diagnostics, options, requests)
     }
 end
 
-local function build_inserter(catalog, diagnostics, options, requests)
+local function build_inserter(catalog, diagnostics, options, requests, geometry_state)
     local descriptor = family_source(options, "inserter")
     if not descriptor then return end
     local name = family_piece(descriptor, "base", nil)
@@ -648,6 +742,8 @@ local function build_inserter(catalog, diagnostics, options, requests)
     add_family_requests(requests, {quality = quality_name}, {name})
     local entity = resolve(diagnostics, "entity", name)
     if not entity then return end
+    local geometry = validate_inserter_geometry(entity, diagnostics, geometry_state)
+    if not geometry.ok then return end
     local quality = selected_quality(quality_name, diagnostics, catalog._quality_cache)
     if quality then project_quality(catalog, quality, quality_name) end
     local items_per_second = type(descriptor) == "table" and descriptor.items_per_second
@@ -655,9 +751,9 @@ local function build_inserter(catalog, diagnostics, options, requests)
         name = entity.name,
         quality = quality_name,
         items_per_second = items_per_second or 4.62,
-        pickup_offset = copy_position(entity.inserter_pickup_position),
-        drop_offset = copy_position(entity.inserter_drop_position),
-        drop_position = copy_position(entity.inserter_drop_position),
+        pickup_offset = geometry.pickup,
+        drop_offset = geometry.drop,
+        drop_position = geometry.drop,
     }
 end
 
@@ -757,6 +853,7 @@ function Catalog.build(player_index, options)
     options = options or {}
     local catalog, diagnostics = catalog_template(), {}
     local quality_cache = {}
+    local geometry_state = {}
     local default_quality = quality_of(options.quality or options.selected_quality, "normal")
     local selected, selected_name = selected_quality(default_quality, diagnostics, quality_cache)
     if selected then project_quality(catalog, selected, selected_name) end
@@ -784,11 +881,11 @@ function Catalog.build(player_index, options)
 
     build_belt(catalog, diagnostics, options, entity_requests)
     build_pipe(catalog, diagnostics, options, entity_requests)
-    build_inserter(catalog, diagnostics, options, entity_requests)
+    build_inserter(catalog, diagnostics, options, entity_requests, geometry_state)
     build_pole(catalog, diagnostics, options, entity_requests)
     build_robo(catalog, diagnostics, options, entity_requests)
 
-    project_entities(catalog, diagnostics, entity_requests, quality_cache)
+    project_entities(catalog, diagnostics, entity_requests, quality_cache, geometry_state)
     for _, request in ipairs(unique_requests(item_requests)) do
         local quality, quality_name = selected_quality(request.quality, diagnostics, quality_cache)
         project_item(catalog, diagnostics, request, quality_name, quality ~= false)

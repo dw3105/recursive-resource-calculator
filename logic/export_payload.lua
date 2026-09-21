@@ -101,6 +101,102 @@ local function copy_json(value, active, key_hint)
     return result
 end
 
+local CAPTURE_VECTOR_FIELDS = {
+    pickup_offset = true, drop_offset = true, drop_position = true,
+    left_top = true, right_bottom = true, alt_position = true, position = true,
+}
+
+local function capture_error(errors, seen, path, reason)
+    if seen[path] then return end
+    seen[path] = true
+    errors[#errors + 1] = {field = path, reason = reason}
+end
+
+local function capture_vector(value)
+    if type(value) ~= "table" then return nil, "unsupported vector representation" end
+    local x, y = value.x, value.y
+    if x == nil and y == nil then x, y = value[1], value[2] end
+    if type(x) ~= "number" or type(y) ~= "number"
+        or not finite(x) or not finite(y) then
+        if next(value) == nil then return nil, "empty vector" end
+        return nil, "vector is missing a finite x or y component"
+    end
+    return {x = x, y = y}
+end
+
+--PreparedInput is normally already plain data, but old captures can contain the same malformed geometry that the
+--catalog boundary used to publish. Normalize supported keyed/array vectors here too; invalid geometry is omitted
+--from the replay payload and named as an incomplete capture, never turned into a default or an empty object.
+local function capture_copy(value, key_hint, errors, seen, path)
+    if CAPTURE_VECTOR_FIELDS[key_hint] then
+        local vector, reason = capture_vector(value)
+        if vector ~= nil then return vector end
+        capture_error(errors, seen, path, reason)
+        return nil
+    end
+    if key_hint == "positions" then
+        if type(value) ~= "table" or #value == 0 then
+            capture_error(errors, seen, path, type(value) == "table" and "empty vector list" or "missing vector list")
+            return nil
+        end
+    elseif key_hint == "collision_box" then
+        if type(value) ~= "table" or value.left_top == nil or value.right_bottom == nil then
+            capture_error(errors, seen, path, "missing collision-box vector")
+            return nil
+        end
+    end
+
+    local value_type = type(value)
+    if value == nil or value_type ~= "table" then return copy_json(value, nil, key_hint) end
+    seen = seen or {}
+    if seen[value] then return {rrc_cycle = true} end
+    seen[value] = true
+    local result = {}
+    for key, child in pairs(value) do
+        if type(key) == "string" or type(key) == "number" then
+            local child_hint = key
+            if key_hint == "positions" and type(key) == "number" then child_hint = "position" end
+            local child_path = path .. "." .. tostring(key)
+            result[key] = capture_copy(child, child_hint, errors, seen, child_path)
+        end
+    end
+    seen[value] = nil
+    return result
+end
+
+local function require_capture_field(container, field, path, errors, seen)
+    if type(container) == "table" and container[field] == nil then
+        capture_error(errors, seen, path .. "." .. field, "missing required geometry")
+    end
+end
+
+local function capture_geometry_copy(prepared)
+    local errors, seen = {}, {}
+    local copied = capture_copy(prepared, nil, errors, seen, "prepared_input")
+    local catalog = type(prepared) == "table" and prepared.catalog
+    if type(catalog) == "table" then
+        require_capture_field(catalog.inserter, "pickup_offset", "prepared_input.catalog.inserter", errors, seen)
+        require_capture_field(catalog.inserter, "drop_offset", "prepared_input.catalog.inserter", errors, seen)
+        require_capture_field(catalog.inserter, "drop_position", "prepared_input.catalog.inserter", errors, seen)
+        for entity_name, entity in pairs(catalog.entity or {}) do
+            local entity_path = "prepared_input.catalog.entity." .. tostring(entity_name)
+            local box = type(entity) == "table" and entity.collision_box
+            if type(box) == "table" then
+                require_capture_field(box, "left_top", entity_path .. ".collision_box", errors, seen)
+                require_capture_field(box, "right_bottom", entity_path .. ".collision_box", errors, seen)
+            end
+            for box_index, fluid_box in ipairs(type(entity) == "table" and entity.fluid_boxes or {}) do
+                for connection_index, connection in ipairs(fluid_box.connections or {}) do
+                    require_capture_field(connection, "positions",
+                        entity_path .. ".fluid_boxes[" .. box_index .. "].connections[" .. connection_index .. "]",
+                        errors, seen)
+                end
+            end
+        end
+    end
+    return copied, errors
+end
+
 local function sorted_values(set)
     local values = {}
     for value, _ in pairs(set) do values[#values + 1] = value end
@@ -265,7 +361,11 @@ local function references_for(snapshot, result)
     for full_name, parts in pairs(result.product_parts or {}) do add_full_name(references, full_name, parts) end
 
     local selected_by_recipe = {}
-    for _, entry in ipairs(snapshot.selection or {}) do selected_by_recipe[entry.recipe_name] = entry end
+    for _, entry in ipairs(snapshot.selection or {}) do
+        selected_by_recipe[entry.recipe_name] = entry
+        if entry.product_full_name ~= nil then selected_by_recipe[entry.product_full_name] = entry end
+        if entry.row_id ~= nil then selected_by_recipe[entry.row_id] = entry end
+    end
     for _, column in ipairs(result.columns or {}) do
         add_recipe_reference(references, column.recipe_name or column.recipe)
         add_full_name(references, column.product_full_name)
@@ -275,7 +375,8 @@ local function references_for(snapshot, result)
         add_quality(references.qualities, column.machine)
         add_name(references.entities, column.burner)
         add_quality(references.qualities, column.burner)
-        add_selection_entry(references, selected_by_recipe[column.recipe_name])
+        add_selection_entry(references, selected_by_recipe[column.product_full_name or column.binding_full_name]
+            or selected_by_recipe[column.recipe_name])
         add_setup(references, column.setup or {modules = column.modules, beacons = column.beacons})
         local loop = column.quality_loop
         if type(loop) == "table" then
@@ -419,6 +520,7 @@ local function settings_copy(source, fingerprint)
 end
 
 local function counted_modules(modules)
+    if modules == nil then return nil end
     local result = {}
     for _, module in ipairs(modules or {}) do
         local name = identity_name(module and (module.name or module))
@@ -441,6 +543,7 @@ end
 --Snapshot is intentionally slot-shaped for the GUI. The export is replay-shaped: repeated slots and legacy
 --counted entries are represented by one name/quality/count fact, while row order remains meaningful.
 local function beacons_for_export(beacons)
+    if beacons == nil then return nil end
     local result = {}
     for index, group in ipairs(beacons or {}) do
         local beacon = {}
@@ -455,7 +558,7 @@ local function beacons_for_export(beacons)
 end
 
 local function setup_for_export(setup)
-    if type(setup) ~= "table" then return {modules = {}, beacons = {}} end
+    if type(setup) ~= "table" then return nil end
     local result = {}
     for key, value in pairs(setup) do result[key] = value end
     result.modules = counted_modules(setup.modules)
@@ -497,13 +600,17 @@ end
 local function selection_for_export(snapshot, player_data)
     local result = {}
     local setups = type(player_data) == "table" and player_data.module_setups_by_recipe_name or {}
+    local row_setups = type(player_data) == "table" and (player_data.module_setups_by_product_full_name
+        or player_data.module_setups_by_row_id) or {}
     for index, entry in ipairs(snapshot.selection or {}) do
         local copy = {}
         for key, value in pairs(entry) do copy[key] = value end
-        local setup = type(entry) == "table" and setups[entry.recipe_name] or nil
+        local row_key = type(entry) == "table" and (entry.product_full_name or entry.row_id) or nil
+        local setup = row_key and row_setups[row_key] or nil
+        if setup == nil then setup = type(entry) == "table" and setups[entry.recipe_name] or nil end
         if type(setup) == "table" then
-            copy.modules = counted_modules(setup.modules)
-            copy.beacons = beacons_for_export(setup.beacons)
+            copy.modules = setup.modules ~= nil and counted_modules(setup.modules) or nil
+            copy.beacons = setup.beacons ~= nil and beacons_for_export(setup.beacons) or nil
         end
         result[index] = copy
     end
@@ -528,7 +635,33 @@ end
 local function result_settings(result, wrapper, result_fp)
     local source = result and (result.settings or result.snapshot or result.inputs or result.input)
         or wrapper and (wrapper.settings or wrapper.snapshot or wrapper.inputs)
-    if source then return settings_copy(source, result_fp) end
+    if source then
+        local settings = settings_copy(source, result_fp)
+        local revisions = type(settings.revisions) == "table" and settings.revisions or {}
+        local changed = false
+        for _, owner in ipairs({result, wrapper}) do
+            if type(owner) == "table" then
+                if type(owner.revisions) == "table" then
+                    for key, value in pairs(owner.revisions) do
+                        if revisions[key] == nil and value ~= nil then revisions[key] = value; changed = true end
+                    end
+                end
+                for _, pair in ipairs({
+                    {name = "sheet", keys = {"sheet_revision"}},
+                    {name = "config", keys = {"config_revision"}},
+                    {name = "solver", keys = {"solver_revision", "calculation_revision"}},
+                }) do
+                    for _, key in ipairs(pair.keys) do
+                        if owner[key] ~= nil and revisions[pair.name] == nil then
+                            revisions[pair.name] = owner[key]; changed = true; break
+                        end
+                    end
+                end
+            end
+        end
+        if changed then settings.revisions = revisions end
+        return settings
+    end
     local settings = {fingerprint = result_fp}
     local sheet_id = result and result.sheet_id or wrapper and wrapper.sheet_id
     local sheet_revision = result and (result.sheet_revision or result.revisions and result.revisions.sheet)
@@ -536,8 +669,10 @@ local function result_settings(result, wrapper, result_fp)
     local config_revision = result and (result.config_revision or result.revisions and result.revisions.config)
         or wrapper and (wrapper.config_revision or wrapper.revisions and wrapper.revisions.config)
     if sheet_id ~= nil then settings.sheet_id = sheet_id end
-    if sheet_revision ~= nil or config_revision ~= nil then
-        settings.revisions = {sheet = sheet_revision, config = config_revision}
+    local solver_revision = result and (result.solver_revision or result.calculation_revision)
+        or wrapper and (wrapper.solver_revision or wrapper.calculation_revision)
+    if sheet_revision ~= nil or config_revision ~= nil or solver_revision ~= nil then
+        settings.revisions = {sheet = sheet_revision, config = config_revision, solver = solver_revision}
     end
     return settings
 end
@@ -624,10 +759,17 @@ local function selected_setup(player_data, selection_by_recipe, column)
     if column.modules ~= nil or column.beacons ~= nil then
         return {modules = column.modules or {}, beacons = column.beacons or {}}
     end
+    local row_setups = type(player_data) == "table" and (player_data.module_setups_by_product_full_name
+        or player_data.module_setups_by_row_id) or nil
+    local row_key = column.product_full_name or column.binding_full_name or column.row_id
+    if type(row_setups) == "table" and row_key ~= nil and type(row_setups[row_key]) == "table" then
+        return row_setups[row_key]
+    end
     local stored = type(player_data) == "table" and player_data.module_setups_by_recipe_name
         and player_data.module_setups_by_recipe_name[column.recipe_name]
     if stored then return stored end
-    local selected = selection_by_recipe[column.recipe_name]
+    local selected = selection_by_recipe[column.product_full_name or column.binding_full_name]
+        or selection_by_recipe[column.recipe_name]
     return selected and {modules = selected.modules or {}, beacons = selected.beacons or {}} or {modules = {}, beacons = {}}
 end
 
@@ -635,7 +777,11 @@ local function derived_calculation(result, snapshot, player_data, catalog)
     local derived = {columns = {}, machine_counts = {}, effects = {}, energy = 0, pollution = 0, energy_known = false, pollution_known = false}
     if type(result) ~= "table" then return derived end
     local selection_by_recipe = {}
-    for _, entry in ipairs(snapshot.selection or {}) do selection_by_recipe[entry.recipe_name] = entry end
+    for _, entry in ipairs(snapshot.selection or {}) do
+        selection_by_recipe[entry.recipe_name] = entry
+        if entry.product_full_name ~= nil then selection_by_recipe[entry.product_full_name] = entry end
+        if entry.row_id ~= nil then selection_by_recipe[entry.row_id] = entry end
+    end
     for index, column in ipairs(result.columns or {}) do
         if type(column) == "table" and type(column.recipe_name) == "string" then
             local rate = result.recipe_rates and finite_number(result.recipe_rates[column.recipe_name])
@@ -790,6 +936,8 @@ local function environment_of(player_index, references)
     local research, quality_unlocks = {}, {}
     local player = rawget(_G, "game") and game.get_player and game.get_player(player_index) or nil
     local force = player and player.force
+    local surface = player and identity_name(safe_member(player, "surface")) or nil
+    local force_name = force and identity_name(force) or nil
     if force ~= nil then
         for recipe_name, _ in pairs(references.recipes or {}) do
             local recipe = force.recipes and force.recipes[recipe_name]
@@ -812,6 +960,8 @@ local function environment_of(player_index, references)
         active_mods = active_mods,
         mod_settings = mod_settings,
         force = {research = research, quality_unlocks = quality_unlocks},
+        force_name = force_name,
+        surface = surface,
         mod_version = mod_version,
     }
 end
@@ -1088,6 +1238,8 @@ function ExportPayload.build(player_index, sheet_flow)
 
     local capture, capture_source_kind, capture_provenance = generation_capture(player_index, player_data, snapshot.sheet_id)
     local prepared, source_kind, provenance, source_export = capture_projection(capture, capture_source_kind, capture_provenance)
+    local capture_geometry_errors = {}
+    if prepared ~= nil then prepared, capture_geometry_errors = capture_geometry_copy(prepared) end
     local generation = generation_attempt(player_index, player_data, snapshot.sheet_id, capture, provenance)
 
     local diagnostics = {
@@ -1096,9 +1248,25 @@ function ExportPayload.build(player_index, sheet_flow)
     for _, diagnostic in ipairs(catalog_diagnostics or {}) do
         if diagnostic.code == "CATALOG_MISSING_PROTOTYPE" or diagnostic.code == "CATALOG_MISSING_QUALITY" then
             diagnostics.missing_prototypes[#diagnostics.missing_prototypes + 1] = copy_json(diagnostic)
+        elseif diagnostic.code == "BP_CAP_INCOMPLETE" then
+            capture_geometry_errors[#capture_geometry_errors + 1] = {
+                field = tostring(diagnostic.subject) .. "." .. tostring(diagnostic.field),
+                reason = diagnostic.detail,
+            }
         end
     end
     diagnostics.missing_facts = completeness_diagnostics(snapshot, result, result_setting, catalog, generation, derived)
+    if #capture_geometry_errors > 0 then
+        diagnostics.incomplete_capture = {
+            code = "BP_CAP_INCOMPLETE", fields = copy_json(capture_geometry_errors, nil, "diagnostics"),
+        }
+        for _, missing in ipairs(capture_geometry_errors) do
+            diagnostics.missing_facts[#diagnostics.missing_facts + 1] = {
+                fact = missing.field, reason = "incomplete capture: " .. tostring(missing.reason),
+            }
+        end
+        table.sort(diagnostics.missing_facts, function(a, b) return a.fact < b.fact end)
+    end
 
     local environment = environment_of(player_index, references)
     local payload = {
@@ -1118,6 +1286,10 @@ function ExportPayload.build(player_index, sheet_flow)
         diagnostics = diagnostics,
         generation = generation,
     }
+    if #capture_geometry_errors > 0 then
+        payload.capture = {status = "incomplete", reason_codes = {"BP_CAP_INCOMPLETE"},
+            fields = copy_json(capture_geometry_errors, nil, "diagnostics")}
+    end
     if prepared ~= nil then
         --Generation.capture has already performed the bounded preparation copy. This projection only crosses the
         --plain-data export boundary; it never starts preparation or waits for Search while a dialog opens.

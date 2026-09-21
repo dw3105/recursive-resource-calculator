@@ -55,6 +55,52 @@ local function build(sheet_flow)
     return payload, state
 end
 
+local function real_attempt(world, pane, sheet, with_spacing)
+    local Jobs = require "logic.jobs"
+    local Generation = require "logic.bp.generation"
+    local Search = require "logic.bp.search"
+    local snapshot = Snapshot.of_sheet(sheet)
+    storage[1].sheet_section = {sheet_pane = pane}
+    storage[1].sheet_revision = {[snapshot.sheet_id] = snapshot.revisions.sheet}
+    storage[1].config_revision = snapshot.revisions.config
+
+    local original_begin, original_step = Search.begin, Search.step
+    Search.begin = function(input)
+        return {phase = "search", progress = {phase = "search", done_units = 0, total_units = 1}, input = input}
+    end
+    Search.step = function(state, budget)
+        if budget.ops > 0 then budget.ops = budget.ops - 1 end
+        state.done, state.ok, state.phase = true, false, "failed"
+        state.errors = {{code = "BP_REJ_TEST_EXPORT"}}
+        if with_spacing then
+            state.grid_spacing = {resolved = 50, kind = "derived", source = "logistic_radius", source_value = 25,
+                generation_job_id = state.input and state.input.generation_job_id}
+        end
+        state.progress = {phase = "failed", done_units = 1, total_units = 1}
+    end
+
+    local prepared = {
+        schema_version = 1, snapshot = snapshot, solver_result = {schema_version = 1, status = "ok", columns = {}},
+        catalog = {schema_version = 1, entity = {}, item = {}, fluid = {}, quality = {}, quality_level = {},
+            module = {}, beacon = {}},
+        settings = {input_edge = "left", output_edge = "top"}, options = {},
+        revisions = {sheet = snapshot.revisions.sheet, config = snapshot.revisions.config},
+        surface = "nauvis", force = "player", source_export = {name = "real-export-test"},
+    }
+    local job_id = Generation.start{player_index = 1, sheet_id = snapshot.sheet_id, prepared_input = prepared}
+    local status
+    for _ = 1, 20 do
+        status = Generation.status(1, job_id)
+        if status and status.state ~= "pending" then break end
+        world.advance_tick(1)
+        Jobs.on_tick({tick = world.tick})
+    end
+    Search.begin, Search.step = original_begin, original_step
+    H.equal(status and status.state, "failure", "the real generation attempt reaches a terminal state")
+    storage[1].generation_id = job_id
+    return job_id
+end
+
 local function ordered_map(keys, values)
     local result = {}
     for _, key in ipairs(keys) do result[key] = values[key] end
@@ -397,51 +443,32 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " E25 the attempt spacing record survives the real export path unchanged", function()
-        world_with(shape)
-        local _, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local world = world_with(shape)
+        local pane, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
         remember(sheet)
-        local Registry = require "logic.registry"
-        local previous_generation = Registry.generation
-        local spacing = {
-            resolved = 50, kind = "derived", source = "logistic_radius", source_value = 25,
-            generation_job_id = "generation-job-096",
-        }
-        Registry.generation = {
-            lookup = function(player_index, sheet_id)
-                return {player_index = player_index, sheet_id = sheet_id, status = "failure",
-                    grid_spacing = spacing}
-            end,
-        }
+        local job_id = real_attempt(world, pane, sheet, true)
         local ok, payload_or_error = pcall(build, sheet)
-        Registry.generation = previous_generation
         if not ok then error(payload_or_error, 0) end
         local payload = payload_or_error
         H.equal(payload.generation.grid_spacing.resolved, 50, "attempt spacing is in the payload")
         H.equal(payload.generation.grid_spacing.kind, "derived", "attempt spacing kind")
         H.equal(payload.generation.grid_spacing.source, "logistic_radius", "attempt spacing source")
         H.equal(payload.generation.grid_spacing.source_value, 25, "attempt spacing source value")
-        H.equal(payload.generation.grid_spacing.generation_job_id, "generation-job-096", "attempt identity")
+        H.equal(payload.generation.grid_spacing.generation_job_id, job_id, "attempt identity")
         local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
         H.equal(decoded.generation.grid_spacing.resolved, 50, "decoded attempt spacing")
         H.equal(decoded.generation.grid_spacing.kind, "derived", "decoded spacing kind")
         H.equal(decoded.generation.grid_spacing.source, "logistic_radius", "decoded spacing source")
         H.equal(decoded.generation.grid_spacing.source_value, 25, "decoded spacing source value")
-        H.equal(decoded.generation.grid_spacing.generation_job_id, "generation-job-096", "decoded attempt identity")
+        H.equal(decoded.generation.grid_spacing.generation_job_id, job_id, "decoded attempt identity")
     end)
 
     H.test(shape .. " E26 an attempt without spacing names the absence and invents no default", function()
-        world_with(shape)
-        local _, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local world = world_with(shape)
+        local pane, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
         remember(sheet)
-        local Registry = require "logic.registry"
-        local previous_generation = Registry.generation
-        Registry.generation = {
-            lookup = function(player_index, sheet_id)
-                return {player_index = player_index, sheet_id = sheet_id, status = "failure"}
-            end,
-        }
+        real_attempt(world, pane, sheet, false)
         local ok, payload_or_error = pcall(build, sheet)
-        Registry.generation = previous_generation
         if not ok then error(payload_or_error, 0) end
         local payload = payload_or_error
         H.equal(payload.generation.grid_spacing, nil, "an absent attempt does not invent spacing")
@@ -454,6 +481,37 @@ for _, shape in ipairs(H.shapes()) do
         local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
         H.equal(decoded.generation.grid_spacing, nil, "encoded export does not invent spacing")
         H.equal(decoded.generation.missing[1], "grid_spacing", "encoded export names missing spacing")
+    end)
+
+    H.test(shape .. " E27 a stored capture with empty inserter offsets is refused at export and replay", function()
+        world_with(shape)
+        local _, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local snapshot = remember(sheet)
+        local Registry = require "logic.registry"
+        local previous_generation = Registry.generation
+        storage[1].generation_id = "capture-with-empty-offsets"
+        Registry.generation = {
+            capture = function()
+                return {
+                    prepared_input = {schema_version = 1, snapshot = {sheet_id = snapshot.sheet_id},
+                        catalog = {inserter = {name = "inserter", pickup_offset = {}, drop_offset = {}, drop_position = {}}}},
+                    source_kind = "runtime", provenance = {terminal_outcome = "failure"}, source_export = "fixture",
+                }
+            end,
+        }
+        local ok, payload_or_error = pcall(build, sheet)
+        Registry.generation = previous_generation
+        storage[1].generation_id = nil
+        if not ok then error(payload_or_error, 0) end
+        local payload = payload_or_error
+        H.equal(payload.capture.status, "incomplete", "empty geometry has an explicit capture refusal")
+        H.equal(payload.capture.reason_codes[1], "BP_CAP_INCOMPLETE", "capture refusal code")
+        H.equal(payload.prepared_input.catalog.inserter.pickup_offset, nil,
+            "the export boundary does not publish an empty pickup vector")
+        local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
+        H.equal(decoded.capture.status, "incomplete", "decoded capture remains incomplete")
+        H.equal(decoded.prepared_input.catalog.inserter.pickup_offset, nil,
+            "replay does not turn the refused vector back into geometry")
     end)
     --The record contracts §19 freezes lives at storage[pi].calc_results[sheet_id]. 1.1.47 shipped an export that
     --never read it, so a calculated sheet exported as state "not_computed" with no columns at all.
