@@ -137,9 +137,9 @@ def artifact_failure(payload: dict[str, Any], manifest: dict[str, Any]) -> str |
     physical = GOLDEN.independent_checks(manifest, artifact)
     if physical:
         return "invalid artifact: " + "; ".join(physical)
-    validation = payload.get("validation")
-    if not isinstance(validation, dict) or validation.get("ok") is not True:
-        return "artifact did not pass independent reconciliation"
+    validation_failures = GOLDEN.validation_receipt_failures(payload)
+    if validation_failures:
+        return "artifact validation failed: " + "; ".join(validation_failures)
     actual_canonical = GOLDEN.canonical(artifact)
     if payload.get("canonical") != actual_canonical:
         return "generator canonical content does not match the decoded artifact"

@@ -191,6 +191,24 @@ class GoldenToolsTests(unittest.TestCase):
                           (root.parent / ".golden-failures" / "generated-case" / "diagnostics.json").read_text())
             self.assertTrue((root.parent / ".golden-failures" / "generated-case" / "layout_overlay.json").exists())
 
+    def test_generated_envelope_reports_physical_and_reconciliation_separately(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            case = make_generated_case(root)
+            result = subprocess.run(
+                ["lua5.2", str(ROOT / "tests" / "golden" / "generate.lua"),
+                 "--input", str(case / "prepared_input.json")],
+                cwd=ROOT, text=True, capture_output=True, check=False,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            payload = json.loads(result.stdout)
+            receipt = payload["validation"]
+            self.assertTrue(payload["ok"])
+            self.assertTrue(receipt["ok"])
+            self.assertEqual(receipt["physical"]["ok"], True)
+            self.assertIsInstance(receipt["physical"]["result"], dict)
+            self.assertEqual(receipt["reconciliation"]["ok"], True)
+
     def test_deliberate_generator_change_turns_tiny_corpus_red(self):
         with tempfile.TemporaryDirectory() as directory:
             directory = Path(directory)

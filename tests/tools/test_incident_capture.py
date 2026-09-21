@@ -25,6 +25,8 @@ from __future__ import annotations
 
 import base64
 import json
+import subprocess
+import sys
 import unittest
 import zlib
 from pathlib import Path
@@ -33,6 +35,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 CASE = ROOT / "tests" / "golden" / "cases" / "player-am2-chain"
 EXPORT = ROOT / "docs" / "incidents" / "2026-09-20-search-budget" / "checkpoint-2" / "export.txt"
+REPLAY = ROOT / "tests" / "incident" / "replay.py"
 
 FORBIDDEN = ("search_budget", "max_ops", "max_search_grids", "max_grid_trials")
 
@@ -141,6 +144,24 @@ class BeaconCountsAreThePlayersOwn(unittest.TestCase):
             with self.subTest(recipe=recipe):
                 self.assertFalse(by_recipe[recipe].get("beacons"),
                                  f"{recipe} gained a beacon requirement it never had")
+
+
+class HistoricalReplayPolicy(unittest.TestCase):
+    def test_historical_case_keeps_its_structural_incomplete_capture_rejection(self):
+        result = subprocess.run(
+            [sys.executable, str(REPLAY), "--case", "player-am2-chain", "--require-rejection"],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("BP_CAP_INCOMPLETE", result.stdout)
+
+    def test_require_success_cannot_promote_the_historical_case(self):
+        result = subprocess.run(
+            [sys.executable, str(REPLAY), "--case", "player-am2-chain", "--require-success"],
+            cwd=ROOT, text=True, capture_output=True, check=False,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("historical negative", result.stdout)
 
 
 if __name__ == "__main__":
