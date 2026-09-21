@@ -81,6 +81,46 @@ function M.item_chain(shape)
     return {world = world, sheet = sheet, sheet_id = sheet_id, name = "item-chain"}
 end
 
+--The player's four-step red-science sheet: two smelting steps and two crafting steps, with no effects.
+function M.red_science_chain(shape)
+    local world = H.new_world(shape)
+    for _, item in ipairs({"copper-ore", "copper-plate", "iron-ore", "iron-plate", "iron-gear-wheel",
+                           "automation-science-pack"}) do world.add_item(item) end
+    world.add_machine({name = "electric-furnace", categories = {"smelting"}, speed = 2, module_slots = 0})
+    world.add_machine({name = "assembling-machine-3", categories = {"crafting"}, speed = 1.25, module_slots = 0})
+    world.add_recipe({name = "copper-plate", category = "smelting", energy = 3.2,
+        ingredients = {{name = "copper-ore", amount = 1}}, products = {{name = "copper-plate", amount = 1}}})
+    world.add_recipe({name = "iron-plate", category = "smelting", energy = 3.2,
+        ingredients = {{name = "iron-ore", amount = 1}}, products = {{name = "iron-plate", amount = 1}}})
+    world.add_recipe({name = "iron-gear-wheel", category = "crafting", energy = 0.5,
+        ingredients = {{name = "iron-plate", amount = 2}}, products = {{name = "iron-gear-wheel", amount = 1}}})
+    world.add_recipe({name = "automation-science-pack", category = "crafting", energy = 5,
+        ingredients = {{name = "copper-plate", amount = 1}, {name = "iron-gear-wheel", amount = 1}},
+        products = {{name = "automation-science-pack", amount = 1}}})
+    world.add_default_infrastructure()
+    world.add_blueprint_item()
+    world.add_player(1)
+    world.init()
+    require "control"
+    world.handlers.on_init()
+
+    local Registry = require "logic.registry"
+    local pane, sheet = H.fill_sheet({{item = "automation-science-pack", rate = 1, unit = "/s"}}, 1)
+    storage[1].sheet_section = {sheet_pane = pane}
+    local sheet_id = sheet.tags.hxrrc_sheet_id
+    storage[1].sheet_revision = {[sheet_id] = 0}
+    storage[1].config_revision = 0
+    local bind = storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name
+    bind["automation-science-pack"] = {name = "assembling-machine-3", quality = "normal"}
+    bind["iron-gear-wheel"] = {name = "assembling-machine-3", quality = "normal"}
+    bind["copper-plate"] = {name = "electric-furnace", quality = "normal"}
+    bind["iron-plate"] = {name = "electric-furnace", quality = "normal"}
+    Registry.generation_provenance = {candidate_sha = "acceptance", mod_version = "acceptance",
+        factorio_branch = shape, packaged = false}
+    publish(world, sheet, sheet_id, "red science chain")
+    return {world = world, sheet = sheet, sheet_id = sheet_id, name = "red-science-chain"}
+end
+
 --A fluid producer feeding a fluid consumer: the pipe path must survive layout, not turn into an import.
 function M.fluid_chain(shape)
     local world = H.new_world(shape)
@@ -165,6 +205,7 @@ function M.beacon_chain(shape)
     return {world = world, sheet = sheet, sheet_id = sheet_id, name = "beacon-chain"}
 end
 
-M.all = {item_chain = M.item_chain, fluid_chain = M.fluid_chain, beacon_chain = M.beacon_chain}
+M.all = {item_chain = M.item_chain, red_science_chain = M.red_science_chain, fluid_chain = M.fluid_chain,
+    beacon_chain = M.beacon_chain}
 
 return M
