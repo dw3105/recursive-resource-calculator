@@ -125,3 +125,42 @@ byte-identical to its baseline, which is the correct outcome and not a no-op.
 ids that spine's step-qualified ids would move. Measured across every `tests/golden/cases/*/export.txt`:
 **zero** carry a flow-only block port id. The lane was right to skip it; the claim was asserted without
 checking.
+
+## 10. After the anchor merge, measured
+
+Merged `130` (checkpoint), `132`, `133`. Tag `round-15-anchor` = `573c8d4`.
+
+`sh tests/run.sh` on the merged tree reports exactly the section 8 list and nothing else -- 
+`test_blueprint_pipeline` 2, `test_corpus_setups` 12, `test_search` 6, each per interpreter -- and the python
+tier is **OK, 217 tests**. Three merges added **no** new red.
+
+Census on the player's sheet at `--ops 5000000`, against the frozen fast tier:
+
+| code | baseline rate | after the anchor | |
+|---|---:|---:|---|
+| `BP_V_TRANSPORT_UNUSED` | 140.25 | 92.0 | fell 34% |
+| `BP_V_TRANSFER_BROKEN` | 24.00 | 17.0 | fell 29% |
+| `BP_V_INSERTER_GEOMETRY` | 10.75 | 17.0 | rose |
+| `BP_V_ROUTE_DISCONTINUOUS` | 2.00 | 7.0 | rose |
+| `BP_V_PORT_UNREACHABLE` | 0 | 5.0 | new |
+| `BP_R_NO_PATH` | 0 | 1.0 | new, stage `route` |
+| `BP_PW_DISCONNECTED` | 0 | 1.5 | new, stage `power` |
+| candidates reaching `validate` | 8 | 2 | fell |
+
+Port ids are now per hand, for example
+`copper-plate:in:item/copper-ore:inserter:copper-plate:2:input:1`, so contract 27.1 and 27.4 hold.
+
+**The rises are one cause and it is named by the records themselves.** Every `BP_V_PORT_UNREACHABLE` carries
+`reason = "no binding uses this port as a sink"`; every new `BP_V_INSERTER_GEOMETRY` carries
+`found = "empty ground"` at a pickup cell. `logic/bp/route.lua:612` `build_demands` makes one demand per
+**plan** entry and `demand_endpoint_candidates` hands it the flow's ports as interchangeable alternatives, of
+which `candidates[1]` is used. Where a step published one port per flow the candidate list had one entry; it
+now publishes one per hand, and all but one are never bound. Lane 131 divides the demand per hand.
+
+The denominator fell because a pinned port whose tile is unusable now rejects the **placement** rather than
+moving the port, which is what contract 27.3 asks for.
+
+**This merge was waived, not passed.** Lane 130 exhausted its bound and the harness committed WIP. Its owned
+suites and the frozen oracle are green on both interpreters, so the tree is sound; the census gate is not
+satisfied and the round does not end here. `docs/tasks/131.census-waiver.json` names the two risen codes,
+their ceilings, the cause and the task that repays them. Integration runs `--no-waivers`.
