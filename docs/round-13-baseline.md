@@ -291,3 +291,36 @@ experiment, not a repair, and no verdict can rest on it.
 **Still open, and now integration's:** the reserved finalization sequence (`FN1`–`FN4`) and the five-second
 ceiling. `tests/test_search_budget.lua` from this lane is not taken either, because its `FN` cases require the
 implementation that was rejected.
+
+## Integration, all five usable lanes merged
+
+Merge order 112 -> 111 -> 110 -> 113 (route half only) -> 114 -> 115.
+
+The cross-lane break predicted at the 111 merge appeared exactly as recorded, and closed at integration:
+`BP_V_ARTIFACT_MACHINE_COUNT: expected 1, actual 0` on the golden tool's generated case. The machine was
+present all along. `type` is the internal kind marker on a candidate's own entities and is what `etype` falls
+back to when the catalog has no entry, so reading only `kind` made the machine invisible to the count. A real
+Factorio blueprint never carries `type = "machine"`; there it is the input/output half of an underground belt.
+`tests.tools.test_golden_tools`: 13 of 13.
+
+Two more checker defects surfaced the moment lane 115 removed the `or {}` fallback and reconciliation finally
+ran against the real plan. It reported 13 failures; **all 13 were the checker's, not the artifact's**:
+
+| failures | cause |
+|---:|---|
+| 6 | reconciliation paired the i-th expected machine with the i-th placed machine. That is an ordering, and contract 25.5 forbids it: an `electromagnetic-plant` making `copper-cable`, which is correct, was compared against the foundry step. It now binds by position, using the internal candidate the artifact was serialized from |
+| 7 | the module check demanded inventory index 1 for every entity. That is a **beacon's** module inventory; an assembling machine's is 4. All seven machines failed. Offline the validator cannot know `defines.inventory`, so it now checks what it can establish: every module of one entity in one inventory, slots from 0 with no gap |
+
+On the integrated tree, host legalcopilot-dev 2026-09-21:
+
+```
+player sheet:  ok=true   validation ok   0 errors   314 entities
+contract:      68 of 68  both interpreters
+test_validate: 36 of 36  both interpreters
+golden tools:  13 of 13
+```
+
+`fluid-byproduct-chain`, red since before round 13, now passes.
+
+Still open and now integration's, inherited from lane 113's failure: the reserved finalization sequence
+(`FN1`-`FN4`) and the five-second ceiling.

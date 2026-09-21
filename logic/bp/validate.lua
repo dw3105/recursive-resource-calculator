@@ -1766,8 +1766,14 @@ function Validate.reconcile_artifact(input)
         local spec = catalog_entity(catalog, entity)
         local etype = spec and spec.etype or entity.etype or entity.type
         if etype == "beacon" then actual_beacons[#actual_beacons + 1] = {entity = entity, spec = spec} end
+        --`type` is the internal kind marker on a candidate's own entities, and it falls back to that whenever
+        --the catalog has no entry for the prototype. Reading only `kind` made a machine INVISIBLE to the
+        --count check in any fixture whose catalog omits its etype, and the artifact then reported
+        --'expected 1, actual 0' against a blueprint that held the machine all along. A real Factorio
+        --blueprint never carries type = "machine"; there it is the input/output half of an underground belt.
         if etype == "assembling-machine" or etype == "furnace" or etype == "rocket-silo"
-            or etype == "lab" or etype == "mining-drill" or entity.kind == "machine" then
+            or etype == "lab" or etype == "mining-drill"
+            or entity.kind == "machine" or entity.type == "machine" then
             actual_machines[#actual_machines + 1] = {entity = entity, spec = spec}
         end
         local direction = entity.direction or entity.dir
