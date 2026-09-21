@@ -130,7 +130,7 @@ case "$tag" in
         ;;
     124_goldens)
         runner=python
-        tests="tests.tools.test_golden_tools tests.tools.test_incident_capture tests.tools.test_blueprint_audit"
+        tests="tests.tools.test_golden_tools tests.tools.test_incident_capture tests.tools.test_blueprint_audit tests.tools.test_capture_workflow"
         ;;
     #An unknown tag FAILS. The old arm here set runner=suite, so a typo, a renamed lane, or a tag nobody had
     #mapped yet quietly ran the whole suite and reported the result as that lane's focused gate. A lane that

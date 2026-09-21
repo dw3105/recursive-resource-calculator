@@ -66,6 +66,19 @@ def capture_export(source_kind="runtime", provenance=None, source_export="debug-
     }
 
 
+#Acceptance requires BOTH validation layers, per contract 26.7: identity reconciliation and physical
+#validation, neither standing in for the other. A stub payload carrying only entities is refused, which is
+#the point of the rule, so the generator mock has to speak the real evidence contract.
+GENERATED_PAYLOAD = {
+    "result": {"entities": []},
+    "validation": {
+        "ok": True,
+        "physical": {"ok": True, "result": {"ok": True, "errors": []}},
+        "reconciliation": {"ok": True, "errors": []},
+    },
+}
+
+
 class CaptureWorkflowTests(unittest.TestCase):
     def add_case(self, root, export, options=None, encoded=True, case_id="capture"):
         export_path = root / (case_id + (".txt" if encoded else ".json"))
@@ -234,7 +247,7 @@ class CaptureWorkflowTests(unittest.TestCase):
             case = self.write_case(root, "capped-case", options={"search_budget": 2500})
             self.write_matrix(root, [self.matrix_row("capped-case")])
             manifest = json.loads((case / "manifest.json").read_text(encoding="utf-8"))
-            with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
+            with mock.patch.object(runner, "run_lua_generator", return_value=GENERATED_PAYLOAD):
                 with self.assertRaisesRegex(runner.GoldenError, r"capped-case.*search_budget"):
                     runner.accept_case(case, manifest, None, root / "artifacts")
 
@@ -250,7 +263,7 @@ class CaptureWorkflowTests(unittest.TestCase):
                 self.matrix_row("still-draft", state="draft"),
                 self.matrix_row("still-captured", state="captured"),
             ])
-            with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
+            with mock.patch.object(runner, "run_lua_generator", return_value=GENERATED_PAYLOAD):
                 result = runner.main(["accept", "--root", str(root / "cases"), "runtime-capture"])
             self.assertEqual(result, 0)
             self.assertEqual(json.loads((target / "manifest.json").read_text())["state"], "accepted")
@@ -302,7 +315,7 @@ class CaptureWorkflowTests(unittest.TestCase):
                 return real_replace(source, target)
 
             manifest = json.loads(before_manifest)
-            with mock.patch.object(runner, "run_lua_generator", return_value={"result": {"entities": []}}):
+            with mock.patch.object(runner, "run_lua_generator", return_value=GENERATED_PAYLOAD):
                 with mock.patch.object(runner.os, "replace", side_effect=interrupt_on_matrix):
                     with self.assertRaisesRegex(OSError, "interrupted"):
                         runner.accept_case(case, manifest, None, root / "artifacts")
@@ -313,3 +326,44 @@ class CaptureWorkflowTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AcceptanceEvidenceTests(unittest.TestCase):
+    """A candidate is accepted only when it shows BOTH validation layers.
+
+    Round 13 delivered a blueprint the generator called valid, and the value that made it valid came from
+    Validate.reconcile_artifact, which never reads a belt, a pipe or an inserter. Contract 26.7 requires both
+    layers and lets neither stand in for the other, so acceptance must refuse a payload showing one or
+    neither -- otherwise the rule lives only inside the generator being judged.
+    """
+
+    def test_a_payload_with_no_validation_receipt_is_refused(self):
+        runner = load_runner()
+        failures = runner.validation_receipt_failures({"result": {"entities": []}})
+        self.assertIn("combined validation did not pass", failures)
+        self.assertIn("missing physical validation result", failures)
+        self.assertIn("missing reconciliation validation result", failures)
+
+    def test_reconciliation_alone_is_refused(self):
+        runner = load_runner()
+        failures = runner.validation_receipt_failures(
+            {"validation": {"ok": True, "reconciliation": {"ok": True}}})
+        self.assertIn("missing physical validation result", failures)
+
+    def test_physical_alone_is_refused(self):
+        runner = load_runner()
+        failures = runner.validation_receipt_failures(
+            {"validation": {"ok": True, "physical": {"ok": True, "result": {}}}})
+        self.assertIn("missing reconciliation validation result", failures)
+
+    def test_a_physical_layer_with_no_completed_result_is_refused(self):
+        runner = load_runner()
+        failures = runner.validation_receipt_failures(
+            {"validation": {"ok": True, "physical": {"ok": True},
+                            "reconciliation": {"ok": True}}})
+        self.assertIn("physical validation has no completed result", failures)
+
+    def test_both_layers_present_and_passing_is_accepted(self):
+        """The positive control. Without it every refusal above is met by refusing everything."""
+        runner = load_runner()
+        self.assertEqual(runner.validation_receipt_failures(GENERATED_PAYLOAD), [])
