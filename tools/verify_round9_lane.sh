@@ -21,10 +21,20 @@ if [ "${1:-}" = "--dispatch-only" ]; then
     shift
 fi
 
-if [ "$#" -lt 2 ] || [ -z "${1:-}" ] || [ -z "${2:-}" ]; then
+#--dispatch-only is parsed in the FIRST position only. Written last it was silently ignored and the command
+#EXECUTED, so a review could read a dry-run command and get a real run: round 13's plan carried exactly that
+#mistake. An option anywhere else, or any extra argument, is refused instead of being dropped.
+if [ "$#" -ne 2 ] || [ -z "${1:-}" ] || [ -z "${2:-}" ]; then
     echo "usage: verify_round9_lane.sh [--dispatch-only] <worktree> <tag>" >&2
     exit 2
 fi
+case "$2" in
+    -*)
+        echo "verify_round9_lane.sh: a tag may not start with '-': $2" >&2
+        echo "usage: verify_round9_lane.sh [--dispatch-only] <worktree> <tag>" >&2
+        exit 2
+        ;;
+esac
 worktree=$1
 tag=$2
 
@@ -34,8 +44,9 @@ if [ ! -d "$worktree" ]; then
 fi
 cd "$worktree"
 
-#runner is "lua" for a Lua set under both interpreters, "python" for a unittest module, "suite" for the whole
-#suite through gateslot.
+#runner is "lua" for a Lua set under both interpreters, or "python" for a unittest module. There is no third
+#kind: the whole suite belongs to integration, which runs `sh tests/run.sh` itself, so a lane can never charge
+#a sibling's unmerged failure to its own gate.
 runner=lua
 tests=
 case "$tag" in
@@ -80,19 +91,37 @@ case "$tag" in
         runner=python
         tests="tests.tools.test_handoff"
         ;;
+    #Round 13. Six lanes, each bounded to the files it owns. Before these entries existed every one of these
+    #tags fell through the old `*)` arm to the whole suite, so each lane's "focused" gate would have inherited
+    #its siblings' failures and the deliberately red spine oracle.
+    110_producer)
+        tests="tests/test_groups.lua tests/test_serialize.lua tests/test_beacon_coverage.lua tests/test_beacons.lua"
+        ;;
+    111_validator)
+        tests="tests/test_validate.lua tests/test_validated_candidate.lua tests/test_blueprint_delivery.lua"
+        ;;
+    112_capture)
+        tests="tests/test_catalog.lua tests/test_catalog_recipe_facts.lua tests/test_export_payload.lua tests/test_export_completeness.lua"
+        ;;
+    113_layout)
+        tests="tests/test_route.lua tests/test_route_footprints.lua tests/test_route_layout_contract.lua tests/test_pack.lua tests/test_search.lua tests/test_search_budget.lua tests/test_search_allowance.lua"
+        ;;
+    114_harness)
+        tests="tests/test_engine_scenario.lua tests/test_engine_runtime_adapter.lua tests/test_engine_test_api.lua"
+        ;;
+    115_goldens)
+        runner=python
+        tests="tests.tools.test_golden_tools tests.tools.test_incident_capture"
+        ;;
+    #An unknown tag FAILS. The old arm here set runner=suite, so a typo, a renamed lane, or a tag nobody had
+    #mapped yet quietly ran the whole suite and reported the result as that lane's focused gate. A lane that
+    #genuinely wants the suite says so with its own entry.
     *)
-        runner=suite
-        #Every other lane keeps the whole suite. There is no no-op default here.
+        echo "verify_round9_lane.sh: unknown tag: $tag" >&2
+        echo "verify_round9_lane.sh: add an explicit entry for it; there is no suite fallback" >&2
+        exit 2
         ;;
 esac
-
-if [ "$runner" = suite ]; then
-    if [ "$dispatch_only" -eq 1 ]; then
-        echo "verify_round9_lane: $tag dispatch=suite command=gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh"
-        exit 0
-    fi
-    exec gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh
-fi
 
 #Selecting nothing is a failure, never a green result. Checked before execution so --dispatch-only catches it.
 if [ -z "$tests" ]; then

@@ -71,6 +71,42 @@ ROUND11_PYTHON_TAGS = {
     "098_golden_truth": "tests.tools.test_capture_workflow",
     "099_release_lifecycle": "tests.tools.test_handoff",
 }
+ROUND13_LUA_TESTS = {
+    "110_producer": (
+        "tests/test_groups.lua",
+        "tests/test_serialize.lua",
+        "tests/test_beacon_coverage.lua",
+        "tests/test_beacons.lua",
+    ),
+    "111_validator": (
+        "tests/test_validate.lua",
+        "tests/test_validated_candidate.lua",
+        "tests/test_blueprint_delivery.lua",
+    ),
+    "112_capture": (
+        "tests/test_catalog.lua",
+        "tests/test_catalog_recipe_facts.lua",
+        "tests/test_export_payload.lua",
+        "tests/test_export_completeness.lua",
+    ),
+    "113_layout": (
+        "tests/test_route.lua",
+        "tests/test_route_footprints.lua",
+        "tests/test_route_layout_contract.lua",
+        "tests/test_pack.lua",
+        "tests/test_search.lua",
+        "tests/test_search_budget.lua",
+        "tests/test_search_allowance.lua",
+    ),
+    "114_harness": (
+        "tests/test_engine_scenario.lua",
+        "tests/test_engine_runtime_adapter.lua",
+        "tests/test_engine_test_api.lua",
+    ),
+}
+ROUND13_PYTHON_TAGS = {
+    "115_goldens": ("tests.tools.test_golden_tools", "tests.tools.test_incident_capture"),
+}
 PYTHON_TAG = "093_diagnostic_handoff"
 PYTHON_MODULE = "tests.tools.test_handoff"
 PYTHON_PATH = "tests/tools/test_handoff.py"
@@ -79,8 +115,13 @@ EVERY_TEST = sorted(
     {path for paths in CONSUMER_TESTS.values() for path in paths}
     | {path for paths in ROUND10_LUA_TESTS.values() for path in paths}
     | {path for paths in ROUND11_LUA_TESTS.values() for path in paths}
+    | {path for paths in ROUND13_LUA_TESTS.values() for path in paths}
 )
-EVERY_PYTHON_MODULE = sorted({PYTHON_MODULE} | set(ROUND11_PYTHON_TAGS.values()))
+EVERY_PYTHON_MODULE = sorted(
+    {PYTHON_MODULE}
+    | set(ROUND11_PYTHON_TAGS.values())
+    | {module for modules in ROUND13_PYTHON_TAGS.values() for module in modules}
+)
 
 
 def make_worktree(directory: Path, lua_exit: int = 0, gateslot_exit: int = 0,
@@ -158,16 +199,19 @@ class VerifyRound9LaneTests(unittest.TestCase):
             run(worktree, "086_preflight_facts", directory)
             self.assertNotIn("tests/run.sh", "".join(calls(directory)))
 
-    def test_every_other_tag_keeps_the_whole_suite(self):
+    def test_an_unmapped_tag_is_refused_instead_of_running_the_whole_suite(self):
+        #This arm used to set runner=suite. A typo, a renamed lane, or a tag nobody had mapped yet therefore
+        #ran the entire suite and reported the result as that lane's focused gate -- inheriting every
+        #sibling's failures. An unmapped tag now fails and names itself.
         for tag in ("085_facts_producer", "088_case_importer", "anything-else"):
             with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
                 directory = Path(raw)
                 worktree = make_worktree(directory)
                 result = run(worktree, tag, directory)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-                recorded = "".join(calls(directory))
-                self.assertIn("gateslot --label rrc/heavy --no-autostart -- sh tests/run.sh", recorded)
-                self.assertNotIn("lua5.2 tests/", recorded)
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertIn("unknown tag", result.stderr)
+                self.assertIn(tag, result.stderr)
+                self.assertEqual(calls(directory), [], "an unmapped tag ran something")
 
     def test_a_failing_check_fails_the_verifier(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -176,12 +220,18 @@ class VerifyRound9LaneTests(unittest.TestCase):
             result = run(worktree, "086_preflight_facts", directory)
             self.assertNotEqual(result.returncode, 0, result.stdout)
 
-    def test_a_failing_suite_fails_the_verifier(self):
+    def test_the_verifier_can_no_longer_dispatch_the_whole_suite(self):
+        #This replaces a test that ran the suite through an unmapped tag and asserted its exit code. There is
+        #no suite dispatch left to exercise: the whole suite belongs to integration, which runs it directly,
+        #so no lane gate can inherit a sibling's unmerged failure.
+        self.assertNotIn("gateslot", SCRIPT.read_text(),
+                         "the verifier can still reach gateslot, so a lane can still run the whole suite")
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
             worktree = make_worktree(directory, gateslot_exit=3)
             result = run(worktree, "085_facts_producer", directory)
-            self.assertEqual(result.returncode, 3, result.stdout + result.stderr)
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertEqual(calls(directory), [], "an unmapped tag still executed something")
 
     def test_it_runs_inside_the_named_worktree(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -292,14 +342,14 @@ class Round10DispatchTests(unittest.TestCase):
             self.assertEqual(executed.returncode, 1, executed.stdout + executed.stderr)
             self.assertIn("missing test", executed.stderr)
 
-    def test_dispatch_only_names_the_whole_suite_for_an_unknown_tag(self):
+    def test_dispatch_only_refuses_an_unknown_tag(self):
         with tempfile.TemporaryDirectory() as raw:
             directory = Path(raw)
             worktree = make_worktree(directory)
             result = dispatch_only(worktree, "999_unknown", directory)
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertIn("dispatch=suite", result.stdout)
-            self.assertEqual(calls(directory), [], "dispatch-only ran the suite")
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertNotIn("dispatch=suite", result.stdout)
+            self.assertEqual(calls(directory), [], "dispatch-only ran something")
 
 
 class Round11DispatchTests(unittest.TestCase):
@@ -357,3 +407,95 @@ class Round11DispatchTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Round13DispatchTests(unittest.TestCase):
+    """Round 13 dispatches six lanes, and a malformed dry run can never become a real run.
+
+    Both properties were broken together. Every one of these six tags fell through the old suite arm, so each
+    lane's "focused" gate would have run the whole suite -- including the deliberately red spine oracle. And
+    `--dispatch-only` is read in the first position only, so the plan's own `... <tag> --dispatch-only`
+    measurement would have executed instead of inspecting.
+    """
+
+    def test_each_round13_lua_tag_selects_its_own_checks(self):
+        for tag, expected in ROUND13_LUA_TESTS.items():
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                result = run(worktree, tag, directory)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                recorded = calls(directory)
+                joined = "".join(recorded)
+                self.assertNotIn("tests/run.sh", joined, f"{tag} ran the whole suite")
+                self.assertNotIn("gateslot", joined, f"{tag} reached gateslot")
+                for path in expected:
+                    self.assertIn(f"lua5.2 {path}", recorded, f"{tag} skipped {path} under lua5.2")
+                    self.assertIn(f"lua5.4 {path}", recorded, f"{tag} skipped {path} under lua5.4")
+                self.assertEqual(len(recorded), 2 * len(expected),
+                                 f"{tag} ran something it does not own: {recorded}")
+
+    def test_the_goldens_lane_is_dispatched_through_python_never_lua(self):
+        for tag, modules in ROUND13_PYTHON_TAGS.items():
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                result = run(worktree, tag, directory)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                recorded = "".join(calls(directory))
+                for module in modules:
+                    self.assertIn(f"-m unittest -v {module}", recorded)
+                self.assertNotIn("lua5.2", recorded, "a python module was handed to lua5.2")
+                self.assertNotIn("tests/run.sh", recorded)
+
+    def test_every_round13_dry_run_inspects_and_executes_nothing(self):
+        every = list(ROUND13_LUA_TESTS) + list(ROUND13_PYTHON_TAGS)
+        for tag in every:
+            with self.subTest(tag=tag), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                result = dispatch_only(worktree, tag, directory)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertNotIn("dispatch=suite", result.stdout, f"{tag} still dispatches the suite")
+                #Exit 0 alone is what made the old trailing-option command look like a measurement.
+                self.assertEqual(calls(directory), [], f"{tag} dry run executed something")
+
+    def test_a_trailing_dispatch_only_is_refused_instead_of_executing(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory)
+            env = dict(os.environ)
+            env["PATH"] = f"{directory / 'stubs'}{os.pathsep}{env['PATH']}"
+            result = subprocess.run(
+                ["sh", str(SCRIPT), str(worktree), "112_capture", "--dispatch-only"],
+                cwd=str(ROOT), text=True, capture_output=True, env=env, check=False,
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertEqual(calls(directory), [], "a trailing dry-run option executed the lane")
+
+    def test_extra_arguments_are_refused(self):
+        for extra in (["extra"], ["--dispatch-only", "extra"]):
+            with self.subTest(extra=extra), tempfile.TemporaryDirectory() as raw:
+                directory = Path(raw)
+                worktree = make_worktree(directory)
+                env = dict(os.environ)
+                env["PATH"] = f"{directory / 'stubs'}{os.pathsep}{env['PATH']}"
+                result = subprocess.run(
+                    ["sh", str(SCRIPT), str(worktree), "112_capture", *extra],
+                    cwd=str(ROOT), text=True, capture_output=True, env=env, check=False,
+                )
+                self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+                self.assertEqual(calls(directory), [], "an extra argument still executed the lane")
+
+    def test_a_tag_that_looks_like_an_option_is_refused(self):
+        with tempfile.TemporaryDirectory() as raw:
+            directory = Path(raw)
+            worktree = make_worktree(directory)
+            env = dict(os.environ)
+            env["PATH"] = f"{directory / 'stubs'}{os.pathsep}{env['PATH']}"
+            result = subprocess.run(
+                ["sh", str(SCRIPT), str(worktree), "--dispatch-only"],
+                cwd=str(ROOT), text=True, capture_output=True, env=env, check=False,
+            )
+            self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+            self.assertEqual(calls(directory), [], "an option in the tag position executed something")
