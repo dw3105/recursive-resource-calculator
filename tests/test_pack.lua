@@ -229,6 +229,39 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(state.errors, {{code = "BP_P_NO_FIT", block_id = "height-only"}},
             "the no-fit error names the block")
     end)
+
+    H.test(shape .. " P14 a pinned port has only its authored slot", function()
+        local state = run({
+            area = Grid.rect(0, 0, 10, 10), obstacles = {}, limits = {},
+            blocks = {{block_id = "pinned", w = 3, h = 3, allowed_dirs = {Grid.NORTH, Grid.EAST}, ports = {{
+                port_id = "pinned-port", role = "in", flow_id = "item/pinned", inserter_id = "hand:1",
+                attach_dx = 1, attach_dy = 3, normal_dir = Grid.NORTH, travel_dir = Grid.NORTH,
+            }}}},
+        }, 100)
+        H.equal(state.ok, true, "the pinned block packs")
+        local slot = state.result.placements[1].port_slots[1]
+        H.deep_equal({slot.attach_dx, slot.attach_dy}, {1, 3}, "the authored attach is retained")
+    end)
+
+    H.test(shape .. " P15 a pinned port may move the block when its own tile is occupied", function()
+        local state = Pack.begin({
+            area = Grid.rect(0, 0, 10, 10), obstacles = {}, limits = {},
+            blocks = {{block_id = "pinned", w = 2, h = 2, allowed_dirs = {Grid.NORTH}, ports = {{
+                port_id = "pinned-port", role = "in", flow_id = "item/pinned", inserter_id = "hand:1",
+                attach_dx = 0, attach_dy = 2, normal_dir = Grid.NORTH, travel_dir = Grid.NORTH,
+            }}}},
+        })
+        --The authored slot at the first origin is occupied by an existing port cell, but the same block can
+        --move one tile inside the free region without changing its hand/port relationship.
+        state.port_cells = {{x = 0, y = 2}}
+        drive(state, 100)
+        H.equal(state.ok, true, "the pinned block moves to a free authored slot")
+        H.equal(state.result.placements[1].x ~= 0 or state.result.placements[1].y ~= 0,
+            true, "the block moves inside the region")
+        H.deep_equal({state.result.placements[1].port_slots[1].attach_dx,
+            state.result.placements[1].port_slots[1].attach_dy}, {0, 2},
+            "the authored slot does not become a synthetic edge slot")
+    end)
 end
 
 H.done("test_pack")

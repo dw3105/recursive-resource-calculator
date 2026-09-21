@@ -50,6 +50,8 @@ local function copy_port(port, index)
     return {
         port_id = port.port_id or port.id or tostring(index),
         role = port.role,
+        inserter_id = port.inserter_id,
+        pinned = port.inserter_id ~= nil,
         attach_dx = finite(port.attach_dx), attach_dy = finite(port.attach_dy),
         normal_dir = finite(port.normal_dir), travel_dir = finite(port.travel_dir),
     }
@@ -155,6 +157,7 @@ local function port_slots(block, port)
     if port.attach_dx ~= nil and port.attach_dy ~= nil then
         add({attach_dx = port.attach_dx, attach_dy = port.attach_dy, normal_dir = port.normal_dir})
     end
+    if port.pinned then return result end
     for _, slot in ipairs(edge_slots(block.w, block.h)) do add(slot) end
     return result
 end
@@ -189,30 +192,29 @@ end
 
 local function choose_port_slots(state, block, x, y, direction)
     local entries = {}
-    local placed_w, placed_h = Grid.rotate_size(block.w, block.h, direction)
     for index, port in ipairs(block.ports or {}) do
         local options = {}
         for _, slot in ipairs(port_slots(block, port)) do
-            -- attach_dx/attach_dy stay in the source frame.  Since the validator applies its edge predicate to
-            -- the placed envelope too, only retain slots that are legal in both frames.  Groups reserves both
-            -- source axes for its port row; this guard also keeps direct Pack callers safe for rectangles.
-            local placed_normal = normal_for_slot(slot, placed_w, placed_h)
-            if bounded_slot(slot, placed_w, placed_h) and placed_normal == slot.normal_dir then
-                local world_x, world_y = world_slot(block, x, y, direction, slot)
-                local travel = Grid.rotate_dir(slot.travel_dir, direction)
-                local dx, dy = Grid.dir_vector(travel)
-                local approach_x, approach_y = world_x, world_y
-                if port.role == "in" then approach_x, approach_y = approach_x - dx, approach_y - dy
-                else approach_x, approach_y = approach_x + dx, approach_y + dy end
-                -- The endpoint itself must be free, and the first cell on the route side must also exist. This
-                -- is what makes an edge port routable: an input needs a predecessor inside the grid, an output
-                -- needs its first successor inside it.
-                if cell_is_free(state, world_x, world_y) and cell_is_free(state, approach_x, approach_y) then
-                    options[#options + 1] = {slot = slot, x = world_x, y = world_y}
-                end
+            local world_x, world_y = world_slot(block, x, y, direction, slot)
+            local travel = Grid.rotate_dir(slot.travel_dir, direction)
+            local dx, dy = Grid.dir_vector(travel)
+            local approach_x, approach_y = world_x, world_y
+            if port.role == "in" then approach_x, approach_y = approach_x - dx, approach_y - dy
+            else approach_x, approach_y = approach_x + dx, approach_y + dy end
+            -- The endpoint itself must be free, and the first cell on the route side must also exist. This
+            -- is what makes an edge port routable: an input needs a predecessor inside the grid, an output
+            -- needs its first successor inside it.
+            if cell_is_free(state, world_x, world_y) and cell_is_free(state, approach_x, approach_y) then
+                options[#options + 1] = {slot = slot, x = world_x, y = world_y}
             end
         end
-        if #options == 0 then return nil end
+        if #options == 0 then
+            if port.pinned and port.attach_dx ~= nil and port.attach_dy ~= nil
+                and bounded_slot(port, block.w, block.h) then
+                return nil, "pinned-free"
+            end
+            return nil, "no-slot"
+        end
         entries[#entries + 1] = {index = index, port = port, options = options}
     end
     table.sort(entries, function(a, b)
@@ -254,19 +256,36 @@ end
 local function scan_region(state, block, region)
     for _, direction in ipairs(block.allowed_dirs) do
         local w, h = Grid.rotate_size(block.w, block.h, direction)
-        local x, y = region.x, region.y
-        if region.w >= w and region.h >= h and placement_avoids_port_cells(state, x, y, w, h) then
-            local short_side, long_side = Pack.bssf_score(region, w, h)
-            local candidate = {
-                x = x, y = y, dir = direction, w = w, h = h,
-                short_side = short_side, long_side = long_side,
-            }
-            if #block.ports == 0 then
-                if better(candidate, state.cursor.best) then state.cursor.best = candidate end
-            else
-                candidate.port_slots = choose_port_slots(state, block, region.x, region.y, direction)
-                if candidate.port_slots and better(candidate, state.cursor.best) then
-                    state.cursor.best = candidate
+        if region.w >= w and region.h >= h then
+            local function try(x, y)
+                if placement_avoids_port_cells(state, x, y, w, h) then
+                    local short_side, long_side = Pack.bssf_score(region, w, h)
+                    local candidate = {
+                        x = x, y = y, dir = direction, w = w, h = h,
+                        short_side = short_side, long_side = long_side,
+                    }
+                    if #block.ports == 0 then
+                        if better(candidate, state.cursor.best) then state.cursor.best = candidate end
+                    else
+                        local slots, reason = choose_port_slots(state, block, x, y, direction)
+                        if slots then
+                            candidate.port_slots = slots
+                            if better(candidate, state.cursor.best) then state.cursor.best = candidate end
+                        elseif reason == "pinned-free" then
+                            return true
+                        end
+                    end
+                end
+                return false
+            end
+            local needs_offset = try(region.x, region.y)
+            if needs_offset then
+                -- A pinned port is allowed to move with its block.  The authored attachment remains the only
+                -- slot option; scan the same free region for a block origin where that option has room.
+                for y = region.y, region.y + region.h - h do
+                    for x = region.x, region.x + region.w - w do
+                        if x ~= region.x or y ~= region.y then try(x, y) end
+                    end
                 end
             end
         end
@@ -295,10 +314,14 @@ local function place(state, block)
     --tiles for ten flows, so the first few belts filled it and every later flow reported BP_R_NO_PATH with
     --its source and sink walled in. Free area was never the problem: 423 of 2916 tiles were in use.
     --
-    --The margin is the block's own port count, because in the worst case every port leaves by the same side
-    --and each one needs its own lane. It is a reservation for routing, not part of the block, so the block
-    --still places against the area border and the corridor may be shared with the border.
-    local margin = #(block.ports or {})
+    --The margin is the number of distinct flow lanes this block attaches. Per-inserter ports share a flow's
+    --corridor; using the raw port count would reserve a ring wider than the grid can hold.
+    local attached_flows = {}
+    for _, port in ipairs(block.ports or {}) do
+        attached_flows[tostring(port.flow_id or port.full_name or port.port_id or "")] = true
+    end
+    local margin = 0
+    for _ in pairs(attached_flows) do margin = margin + 1 end
     local reserved = placement
     if margin > 0 then
         reserved = {x = placement.x - margin, y = placement.y - margin,

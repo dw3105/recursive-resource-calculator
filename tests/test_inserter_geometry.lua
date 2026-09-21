@@ -99,9 +99,9 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " IG3 multiple item ports receive distinct catalog-positioned inserters", function()
-        local block = block_for({plan = plan(2, 2), catalog = catalog()})
+        local block = block_for({plan = plan(2, 1), catalog = catalog()})
         local all = members(block, "inserter")
-        H.equal(#all, 4, "all four item obligations have an inserter")
+        H.equal(#all, 3, "all three item obligations have an inserter")
         local seen = {}
         for _, inserter in ipairs(all) do
             local key = tostring(inserter.x) .. ":" .. tostring(inserter.y)
@@ -197,6 +197,20 @@ for _, shape in ipairs(H.shapes()) do
         for _, beacon in ipairs(block.beacons) do
             H.equal(type(beacon.covered_members), "table", "beacon keeps physical coverage")
         end
+    end)
+
+    H.test(shape .. " IG12 too many port-bound flows refuse the machine face by name", function()
+        local block, state = block_for({plan = plan(2, 2), catalog = catalog()})
+        H.equal(block, nil, "an overfull machine face does not fall back to an interior hand")
+        H.equal(state.result.failures[1].name, "inserter-face", "the failure names the overfull inserter face")
+    end)
+
+    H.test(shape .. " IG13 a bottom beacon row cannot claim the port-bound face", function()
+        local beacon_plan = plan(1, 1, {beacon_groups = {{signature = "bottom", name = "beacon",
+            count_per_machine = 3, modules = {}}}})
+        local block, state = block_for({plan = beacon_plan, catalog = catalog()})
+        H.equal(block, nil, "a bottom beacon row does not displace external hands")
+        H.equal(state.result.failures[1].name, "beacon-face", "the failure names the claimed inserter face")
     end)
 
     H.test(shape .. " IG11 machine-to-machine obligations bind both real machine endpoints", function()
