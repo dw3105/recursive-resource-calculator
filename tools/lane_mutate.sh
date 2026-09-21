@@ -76,11 +76,13 @@ case "$mutation" in
     segment-length-zero)
         apply logic/bp/route.lua '([.]length *= *)[^,;}\n]+' '\g<1>0' ;;
     #114: the stack stops carrying quality, which is the defect at scenario.lua:894. Only the assigned VALUE
-    #changes. Replacing every match of `<name>.quality` also hit the assignment TARGET and produced
+    #changes. Both `stack.quality =` and `stack["quality"] =` are matched: the lane rewrote the first spelling
+    #into the second, which is functionally identical and happened to leave the named mutation with nothing to
+    #bind to. A red proof that cannot find its target is not a passing red proof. Replacing every match of `<name>.quality` also hit the assignment TARGET and produced
     #`if nil and nil ~= "normal" then nil = nil end`, which does not parse, so the intended assertion was
     #never reached and a correct lane result was blocked by a syntax error.
     port-quality-nil)
-        apply tests/golden/engine/mod/scenario.lua '([a-z_]+[.]quality *= *)[a-z_]+[.]quality' '\g<1>nil' ;;
+        apply tests/golden/engine/mod/scenario.lua '([a-z_]+(?:[.]quality|\["quality"\]) *= *)[a-z_]+[.]quality' '\g<1>nil' ;;
     #115: the empty-plan fallback returns, which is the defect at generate.lua:382.
     validation-plan-empty)
         apply tests/golden/generate.lua 'plan = prepared[.]plan_result[^,]*' 'plan = {}' ;;

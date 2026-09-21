@@ -251,3 +251,18 @@ fixture cannot establish whether the runtime or an adapter supplied the array sh
 The gate first reported `executed no case named CX1`. That was **my** defect, not the lane's: `outcomes_for`
 required a numeric shape between the outcome and the case id, and this suite registers its cases once with no
 shape prefix. The shape is now optional, and all four earlier counterexamples still refuse.
+
+### Lane 114 harness — verified, after re-aiming a mutation
+
+`QS1`, `QD1`, `QC1`, `QP1` green: 26 cases, 26 passed, both interpreters.
+`tests.tools.test_evidence_contract` **OK**, so the companion now emits the three receipt bindings and the
+failure recorded at spine is closed. `docs/tasks/114_qualification.md` names its warm-up, sampling window,
+tolerance and timeout.
+
+The red proof first reported `port-quality-nil changed nothing; the target it names is absent`. The lane had
+rewritten `stack.quality = port.quality` as `stack["quality"] = port.quality` — functionally identical, and it
+left the named mutation with nothing to bind to. Recorded as a fact, not an accusation: a red proof that
+cannot find its target is not a passing red proof, so the mutation now matches both spellings. Re-run, it
+kills `QS1` and three more, and the lane's tests do detect the defect.
+
+Milestone E stays **pending**. This is implemented, never qualified: no Factorio on this host.
