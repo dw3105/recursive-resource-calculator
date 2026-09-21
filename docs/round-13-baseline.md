@@ -109,3 +109,19 @@ and `harness_qualification_id`, and recompute the first two wherever their sourc
 ## Rule
 
 Any change to a line above, other than a lane closing its own listed rows, blocks the merge that caused it.
+
+## Historical-negative registry, published before the tag
+
+`tests/golden/historical-negatives.json` is the single list both runners consume. Spine publishes the schema
+and the one entry; lane 115 implements consumption in `tests/golden/lib/runner.py`, and integration owns the
+registry file and the matrix transfer.
+
+| field | meaning |
+|---|---|
+| `structural_outcome`, `structural_reason_code` | structural execution RUNS the case and requires exactly this rejection. Unexpected success, a different rejection, or missing input each fail |
+| `raw_bytes_immutable`, `observed_outcome_immutable` | the raw export, the PreparedInput and the historical observations stay byte-for-byte unchanged |
+| `production_coverage_transferred_to` | release discovery excludes this case only because its required coverage moved to the named case. An unregistered missing case still fails, so coverage can never be dropped by deleting a row |
+| `clauses_transferred`, `branches_transferred` | the exact coverage that moved, so the transfer is checkable rather than assumed |
+
+Until `player-am2-chain-fresh` exists, the transfer target is absent and strict release acceptance stays red.
+That is the intended state: engine acceptance is pending, and no relabelling makes it otherwise.
