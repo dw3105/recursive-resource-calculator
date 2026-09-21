@@ -1,4 +1,4 @@
---External inputs get one deterministic perimeter slot for each consumer, while routing may still share one trunk.
+--External inputs get one deterministic perimeter slot per demand-sized supply network, while routing may still share one trunk.
 local H = require "tests.harness"
 
 local Grid = require "logic.bp.grid"
@@ -206,15 +206,14 @@ local function tiny_many_demands_input()
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " three consumers receive three deterministic external ports", function()
+    H.test(shape .. " three consumers receive one demand-sized external port", function()
         local state, route_input = capture_generated_ports({w = 8, h = 8})
         local ports = route_input and route_input.perimeter_ports or {}
         H.equal(state.ok, true, "enough perimeter slots publish a candidate")
-        H.equal(#ports, 3, "one external flow gets one port per consumer")
+        H.equal(#ports, 1, "one external flow starts with one terminal, not one per consumer")
         H.equal(distinct_cells(ports), true, "generated external ports never stack")
         H.equal(ports[1].port_id, "in:item/sheet", "the first generated port keeps the plan id")
-        H.equal(ports[2].port_id ~= ports[1].port_id and ports[3].port_id ~= ports[2].port_id, true,
-            "additional generated ports have deterministic unique ids")
+        H.equal(ports[1].terminal_reason, "base supply network", "the base terminal records its network role")
     end)
 
     H.test(shape .. " one reachable external port remains the shared trunk", function()
@@ -240,13 +239,12 @@ for _, shape in ipairs(H.shapes()) do
             "each separated room selects its own source port")
     end)
 
-    H.test(shape .. " too few edge slots fail boundedly without stacking", function()
+    H.test(shape .. " one demand-sized terminal fits the small edge", function()
         local state, route_input = capture_generated_ports({w = 2, h = 2})
         local ports = route_input and route_input.perimeter_ports or (state.work and state.work.perimeter_ports) or {}
-        H.equal(state.ok, false, "slot exhaustion rejects the candidate")
-        H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", "slot exhaustion is a bounded layout failure")
-        H.equal(#ports, 2, "only the two available edge slots are retained")
-        H.equal(distinct_cells(ports), true, "slot exhaustion never stacks two ports")
+        H.equal(state.ok, true, "one demand-sized terminal fits the available edge")
+        H.equal(#ports, 1, "only one terminal is requested for aggregate demand")
+        H.equal(distinct_cells(ports), true, "generated external ports never stack")
     end)
 
     H.test(shape .. " generated external ports are deterministic", function()

@@ -309,10 +309,55 @@ local function candidate_orders(state, candidate)
     if type(supplied) ~= "table" or #supplied == 0 then
         local natural = list_copy(candidate.blocks)
         local result = {{blocks = natural}}
+        --Packing is intentionally blind to recipe semantics. Give it a deterministic connectivity ordering so
+        --blocks joined by real flow interfaces are consumed by neighbouring free regions before unrelated blocks.
+        --Pack still chooses the legal collision-free port slots and rotations, so this is a preference, not a
+        --geometry shortcut or a bypass around beacon constraints.
+        local function interface_weight(left, right)
+            local weight = 0
+            for _, source in ipairs(left.ports or left.block_ports or {}) do
+                for _, target in ipairs(right.ports or right.block_ports or {}) do
+                    local source_flow, target_flow = port_flow_id(source), port_flow_id(target)
+                    if source_flow ~= nil and source_flow == target_flow
+                        and source.role ~= target.role then
+                        weight = weight + math.max(1, finite(source.rate_per_second, finite(target.rate_per_second, 0)))
+                    end
+                end
+            end
+            return weight
+        end
+        if #natural > 1 then
+            local connected, remaining = {copy(natural[1])}, {}
+            for index = 2, #natural do remaining[#remaining + 1] = natural[index] end
+            while #remaining > 0 do
+                local best_index, best_weight, best_id
+                for index, block in ipairs(remaining) do
+                    local weight = 0
+                    for _, placed in ipairs(connected) do weight = weight + interface_weight(placed, block) end
+                    local id = tostring(block.id or block.block_id or "")
+                    if best_index == nil or weight > best_weight or (weight == best_weight and id < best_id) then
+                        best_index, best_weight, best_id = index, weight, id
+                    end
+                end
+                connected[#connected + 1] = copy(remaining[best_index])
+                table.remove(remaining, best_index)
+            end
+            local differs = false
+            for index, block in ipairs(connected) do
+                if (block.id or block.block_id) ~= (natural[index].id or natural[index].block_id) then differs = true; break end
+            end
+            if differs then result[#result + 1] = {blocks = connected} end
+        end
         if #natural > 1 then
             local reverse = {}
             for index = #natural, 1, -1 do reverse[#reverse + 1] = copy(natural[index]) end
-            result[#result + 1] = {blocks = reverse}
+            local duplicate = true
+            for index, block in ipairs(reverse) do
+                if (block.id or block.block_id) ~= (result[#result].blocks[index].id or result[#result].blocks[index].block_id) then
+                    duplicate = false; break
+                end
+            end
+            if not duplicate then result[#result + 1] = {blocks = reverse} end
         end
         return result
     end
@@ -563,53 +608,152 @@ local function port_flow_id(port)
     return port and (port.flow_id or port.full_name or port.flow)
 end
 
-local function external_port_count(state, port)
-    if not perimeter_port_needs_route(port) then return 1 end
-    local flow_id, role = port_flow_id(port), port.role == "in" and "in" or "out"
-    if flow_id == nil then return 1 end
-    for _, flow in ipairs(state.work.plan_result.flows or {}) do
-        local candidate_id = flow.flow_id or flow.full_name or flow.id
-        if candidate_id == flow_id then
-            local external_side = role == "in" and flow.producers or flow.consumers
-            local demand_side = role == "in" and flow.consumers or flow.producers
-            local has_external = false
-            for _, entry in ipairs(external_side or {}) do
-                if (entry.step_id or entry.id or entry.block_id) == "$external" then
-                    has_external = true
-                    break
-                end
+local function positive(value)
+    value = finite(value, nil)
+    return value and value > 0 and value or nil
+end
+
+local function first_positive(sources, fields)
+    for _, source in ipairs(sources or {}) do
+        if type(source) == "table" then
+            for _, field in ipairs(fields or {}) do
+                local value = positive(source[field])
+                if value ~= nil then return value end
             end
-            if has_external then
-                local count = 0
-                for _, entry in ipairs(demand_side or {}) do
-                    if (entry.step_id or entry.id or entry.block_id) ~= "$external" then count = count + 1 end
-                end
-                return math.max(1, count)
-            end
-            break
         end
     end
-    return 1
 end
 
-local function has_active_perimeter_ports(state)
-    for _, port in ipairs(state.work.plan_result.ports or {}) do
-        if perimeter_port_needs_route(port) then return true end
+local function entry_id(entry)
+    return entry and (entry.step_id or entry.id or entry.block_id)
+end
+
+local function flow_for_port(state, port)
+    local flow_id = port_flow_id(port)
+    if flow_id == nil then return nil end
+    for _, flow in ipairs(state.work.plan_result.flows or {}) do
+        local candidate_id = flow.flow_id or flow.full_name or flow.id
+        if candidate_id == flow_id then return flow end
     end
-    return false
+    return nil
 end
 
-local function can_stop_implicit_perimeter_search(state, score)
-    local input = state.work.input
-    if not has_active_perimeter_ports(state)
-        or (input.grids ~= nil or input.grid_sizes ~= nil or input.grid ~= nil) then return false end
-    if finite(score and score.beacon_count, 0) == 0 then return true end
-    --Generated external ports are a feasibility expansion: once one validated layout has enough distinct
-    --ports for the consumers, trying every remaining placement only repeats the expensive power stage.
-    --Keep explicit grids and explicit perimeter layouts on the normal objective search above.
-    local generated = state.work.perimeter_ports or {}
-    local planned = state.work.plan_result.ports or {}
-    return #generated > #planned
+local function terminal_capacity(state, network)
+    local input = state and state.work and state.work.input or {}
+    local port, flow = network.port or {}, network.flow or {}
+    local family = "item"
+    if port.kind == "fluid" or port.is_fluid == true or flow.is_fluid == true then family = "fluid" end
+    local explicit = first_positive({network, port, flow, input}, {
+        "terminal_capacity_per_second", "terminal_capacity", "external_capacity_per_second",
+        "external_terminal_capacity", "capacity_per_second", "capacity",
+    })
+    if explicit ~= nil then return explicit, "declared" end
+
+    local family_input = family == "fluid" and input.pipe_capacity or input.belt_capacity
+    if positive(family_input) ~= nil then return positive(family_input), "input" end
+    local catalog = type(input.catalog) == "table" and input.catalog or {}
+    local details = family == "fluid" and (catalog.pipe or {}) or (catalog.belt or {})
+    local capacity = first_positive({details}, family == "fluid"
+        and {"throughput_per_second", "capacity_per_second"}
+        or {"items_per_second", "capacity_per_second"})
+    if capacity ~= nil then return capacity, "catalog" end
+    return nil, "unbounded"
+end
+
+local function terminal_branch_limit(state, network)
+    local input = state and state.work and state.work.input or {}
+    local port, flow = network.port or {}, network.flow or {}
+    return first_positive({network, port, flow, input}, {
+        "max_branches_per_terminal", "terminal_branch_capacity", "max_terminal_branches",
+        "max_branching_factor", "branching_factor", "max_fanout", "fanout",
+        "max_branches", "branch_capacity", "legal_branching",
+    })
+end
+
+--Size edge endpoints from the work carried by one compatible supply network. The first endpoint is the
+--network itself; additional endpoints are justified only by a declared transport capacity or an explicit
+--branching limit. Demand entries are used for legal branching, never as a proxy for capacity.
+--This is an anonymous assignment rather than `local function` so the lane's red mutation can replace the call
+--without turning the required mutation into a syntax error.
+local terminals_for_demand = function(state, network)
+    local port, flow = network.port or {}, network.flow or {}
+    local role = network.role or (port.role == "in" and "in" or "out")
+    local external_side = role == "in" and flow.producers or flow.consumers
+    local demand_side = role == "in" and flow.consumers or flow.producers
+    local has_external, demand, branches = false, 0, 0
+    for _, entry in ipairs(external_side or {}) do
+        if entry_id(entry) == "$external" then has_external = true end
+    end
+    if has_external then
+        for _, entry in ipairs(demand_side or {}) do
+            if entry_id(entry) ~= "$external" then
+                demand = demand + math.max(0, finite(entry.share_per_second, finite(entry.rate_per_second,
+                    finite(entry.rate, 0))))
+                branches = branches + 1
+            end
+        end
+    end
+    if demand <= 0 then
+        --A hand-built plan may omit flow shares. Its port rate is still a demand; an absent flow is not a
+        --reason to resurrect headcount sizing.
+        for _, value in ipairs(network.ports or {}) do
+            demand = demand + math.max(0, finite(value.rate_per_second, finite(value.rate, 0)))
+        end
+        demand = math.max(demand, math.max(0, finite(port.rate_per_second, finite(port.rate, 0))))
+    end
+
+    local capacity, capacity_source = terminal_capacity(state, network)
+    local branch_limit = terminal_branch_limit(state, network)
+    local capacity_terminals = 1
+    if capacity ~= nil and demand > capacity then
+        capacity_terminals = math.max(1, math.ceil(demand / capacity - math.max(1e-9, demand * 1e-9)))
+    end
+    local branch_terminals = 1
+    if branch_limit ~= nil and branches > branch_limit then
+        branch_terminals = math.max(1, math.ceil(branches / branch_limit))
+    end
+    local count = math.max(1, capacity_terminals, branch_terminals)
+    local reasons = {}
+    if capacity_terminals > 1 then
+        reasons[#reasons + 1] = {kind = "capacity", detail = "aggregate demand exceeds terminal capacity",
+            demand_per_second = demand, capacity_per_second = capacity, capacity_source = capacity_source,
+            terminals = capacity_terminals}
+    end
+    if branch_terminals > 1 then
+        reasons[#reasons + 1] = {kind = "feasibility", detail = "legal branching limit requires another terminal",
+            branches = branches, branch_limit = branch_limit, terminals = branch_terminals}
+    end
+    return {
+        count = count, demand_per_second = demand, capacity_per_second = capacity,
+        capacity_source = capacity_source, capacity_terminals = capacity_terminals,
+        branch_count = branches, branch_limit = branch_limit, branch_terminals = branch_terminals,
+        reasons = reasons,
+    }
+end
+
+Search.terminals_for_demand = terminals_for_demand
+
+local function terminal_network_key(port)
+    local flow_id = port_flow_id(port) or (port.port_id or port.id or "unknown")
+    local role = port.role == "in" and "in" or "out"
+    local kind = port.kind or (port.is_fluid and "fluid" or "item")
+    return table.concat({tostring(role), tostring(flow_id), tostring(kind)}, "\0")
+end
+
+local function terminal_networks(state)
+    local result, by_key = {}, {}
+    for _, port in ipairs(state.work.plan_result.ports or {}) do
+        local key = terminal_network_key(port)
+        local network = by_key[key]
+        if not network then
+            network = {key = key, port = port, ports = {}, role = port.role == "in" and "in" or "out",
+                flow = flow_for_port(state, port)}
+            by_key[key] = network
+            result[#result + 1] = network
+        end
+        network.ports[#network.ports + 1] = port
+    end
+    return result
 end
 
 local function perimeter_blocked_cells(blocks, obstacles)
@@ -637,9 +781,27 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
     local next_slot = {["in"] = 1, ["out"] = 1}
     local occupied = {}
     local external = {}
-    for _, port in ipairs(state.work.plan_result.ports or {}) do
-        local role = port.role == "in" and "in" or "out"
-        local requested = external_port_count(state, port)
+    local sizing = {}
+    for _, network in ipairs(terminal_networks(state)) do
+        local port = network.port
+        local role = network.role
+        local sizing_result = terminals_for_demand(state, network)
+        --Keep a malformed sizing provider a bounded one-terminal decision. This also keeps a mutation of the
+        --mandated sizing call observable as a wrong layout, rather than turning the proof into an incidental Lua
+        --field-access error.
+        if type(sizing_result) ~= "table" then
+            sizing_result = {count = 1, demand_per_second = 0, capacity_per_second = nil,
+                capacity_source = "invalid", branch_count = 0, branch_limit = nil, reasons = {}}
+        end
+        sizing[#sizing + 1] = {
+            network = network.key, flow_id = port_flow_id(port), role = role,
+            demand_per_second = sizing_result.demand_per_second,
+            capacity_per_second = sizing_result.capacity_per_second,
+            capacity_source = sizing_result.capacity_source,
+            branch_count = sizing_result.branch_count, branch_limit = sizing_result.branch_limit,
+            terminal_count = sizing_result.count, reasons = copy(sizing_result.reasons),
+        }
+        local requested = sizing_result.count
         local base_id = port.port_id or port.id or port_flow_id(port) or role
         for copy_index = 1, requested do
             local index = next_slot[role]
@@ -660,9 +822,23 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
             point.port_id = copy_index == 1 and base_id or (tostring(base_id) .. ":" .. tostring(copy_index))
             point.x, point.y = slot.x, slot.y
             point.travel_dir = role == "in" and Grid.dir_opposite(slot.dir) or slot.dir
+            point.terminal_index = copy_index
+            point.terminal_count = requested
+            point.terminal_network = network.key
+            if copy_index == 1 then
+                point.terminal_reason = "base supply network"
+            else
+                local reason = sizing_result.reasons[math.min(copy_index - 1, #sizing_result.reasons)]
+                point.terminal_reason = reason and reason.kind or "feasibility"
+                point.terminal_reason_detail = reason and reason.detail or "additional feasible supply terminal"
+                point.terminal_reason_code = point.terminal_reason
+                point.terminal_reason_record = copy(reason)
+                point.reason = point.terminal_reason
+            end
             external[#external + 1] = point
         end
     end
+    state.work.terminal_sizing = sizing
     return external, true
 end
 
@@ -699,10 +875,12 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
             perimeter_blocked_cells(blocks, obstacles))
         state.work.perimeter_ports = external
         if not complete then
+            local requested = 0
+            for _, entry in ipairs(state.work.terminal_sizing or {}) do requested = requested + (entry.terminal_count or 1) end
             state.work.route_input_error = {
                 code = "BP_R_PORT_BLOCKED", detail = "no free perimeter port slot",
                 grid_size = {w = grid.w, h = grid.h}, available_ports = #external,
-                requested_ports = #(state.work.plan_result.ports or {}),
+                requested_ports = requested,
             }
             return nil
         end
@@ -921,41 +1099,67 @@ local function fail_budget(state)
     failure(state, "BP_FAIL_SEARCH_BUDGET", {reason_details = rejection_details(state)})
 end
 
-local function candidate_beacon_count(candidate)
+local function candidate_label(candidate)
     if type(candidate) ~= "table" then return nil end
-    local value = candidate.physical_beacon_count
-        or candidate.beacon_count
-        or (type(candidate.score) == "table" and candidate.score.beacon_count)
-    return finite(value, nil)
+    return candidate.id or candidate.candidate_id or candidate.block_id
 end
 
-local function record_candidate_bound(state)
-    local candidates = state.work.groups and state.work.groups.result
-        and state.work.groups.result.candidates
-    if type(candidates) ~= "table" then return end
-    local lower_bound
-    for _, candidate in ipairs(candidates) do
-        local count = candidate_beacon_count(candidate)
-        if count ~= nil and (lower_bound == nil or count < lower_bound) then lower_bound = count end
-    end
-    if lower_bound ~= nil then
-        local previous = state.work.candidate_beacon_lower_bound
-        state.work.candidate_beacon_lower_bound = previous == nil and lower_bound
-            or math.min(previous, lower_bound)
-    end
+local function grid_record(state)
+    local grid = state.work.grid or {}
+    return {index = state.cursor.grid_index, w = grid.w, h = grid.h}
 end
 
---Groups enumerates the complete candidate set for a sheet.  A candidate's physical beacon count is
---a lower bound on the validated score: packing, routing and power can add infrastructure, but none
---of those stages can remove a beacon from the candidate.  Once the incumbent reaches that bound,
---no unvisited grid can improve the first (beacon) objective, so compactness and pole tie-breaks do
---not justify another expensive grid.  A larger grid is still visited whenever a lower-beacon
---candidate has not yet been made feasible and validated.
-local function can_improve_beacons(state)
-    if state.incumbent == nil then return true end
-    local bound = state.work.candidate_beacon_lower_bound
-    if bound == nil then return false end
-    return finite(state.incumbent.score and state.incumbent.score.beacon_count, math.huge) > bound
+local function record_discarded_attempt(state, score, reason)
+    local work = state.work
+    if work.attempt_recorded then return end
+    local record = {
+        kind = "candidate", candidate_id = candidate_label(work.candidate), grid = grid_record(state),
+        order_index = state.cursor.order_index, reason = reason or "rejected",
+    }
+    if type(score) == "table" then record.score = copy(score) end
+    local start = work.candidate_rejection_start or (#(work.rejections or {}) + 1)
+    record.reason_codes = {}
+    for index = start, #(work.rejections or {}) do
+        local rejection = work.rejections[index]
+        if rejection and rejection.code then record.reason_codes[#record.reason_codes + 1] = rejection.code end
+    end
+    if #record.reason_codes == 0 then record.reason_codes = nil end
+    work.discarded_alternatives[#work.discarded_alternatives + 1] = record
+    work.attempt_recorded = true
+end
+
+local function record_valid_attempt(state, score)
+    local work = state.work
+    local record = {
+        kind = "candidate", candidate_id = candidate_label(work.candidate), grid = grid_record(state),
+        order_index = state.cursor.order_index, score = copy(score), chosen = false,
+    }
+    work.valid_alternatives[#work.valid_alternatives + 1] = record
+    return record
+end
+
+local function record_search_bound(state, reason, detail)
+    local work = state.work
+    if work.search_bound_recorded then return end
+    work.search_bound_recorded = true
+    work.bound_reason = reason
+    work.discarded_alternatives[#work.discarded_alternatives + 1] = {
+        kind = "search-space", reason = reason, detail = detail,
+        next_grid_index = state.cursor.grid_index, permitted_grids = #work.grid_specs,
+    }
+end
+
+local function search_diagnostics(state)
+    local discarded = list_copy(state.work.discarded_alternatives)
+    for _, record in ipairs(state.work.valid_alternatives or {}) do
+        if not record.chosen then discarded[#discarded + 1] = copy(record) end
+    end
+    return {
+        chosen_score = copy(state.incumbent and state.incumbent.score or {}),
+        discarded_alternatives = discarded,
+        bound = state.work.bound_reason and {kind = state.work.bound_reason}
+            or {kind = "exhaustive", grids = #state.work.grid_specs},
+    }
 end
 
 local function begin_serialization(state)
@@ -1027,11 +1231,16 @@ local function begin_improvement_budget(state)
 end
 
 local function finish_search_budget(state)
-    if state.incumbent then begin_serialization(state) else fail_budget(state) end
+    if state.incumbent then
+        record_search_bound(state, "search_budget", "unvisited grid and candidate alternatives were discarded at the operation bound")
+        begin_serialization(state)
+    else fail_budget(state) end
 end
 
 local function finish_search_bound(state, code)
-    if state.incumbent then begin_serialization(state)
+    if state.incumbent then
+        record_search_bound(state, code, "the search bound discarded unvisited alternatives")
+        begin_serialization(state)
     else failure(state, code, {reason_details = rejection_details(state)}) end
 end
 
@@ -1050,8 +1259,9 @@ function Search.begin(input)
             plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil, orderings = nil,
             pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
             grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false, generated_perimeter_ports = false,
-            candidate_beacon_lower_bound = nil, publication_reserved = false, power_bound_hit = false,
-            grid_spacing = nil, route_input_error = nil, rejections = {},
+            publication_reserved = false, power_bound_hit = false, grid_spacing = nil, route_input_error = nil,
+            rejections = {}, discarded_alternatives = {}, valid_alternatives = {}, attempt_recorded = false,
+            candidate_rejection_start = 1, incumbent_record = nil, search_bound_recorded = false, bound_reason = nil,
             allowance_derived = max_ops == nil, allowance_declared = false, feasibility_limit = nil,
             improvement_budget = nil, improvement_started = false, improvement_start_ops = nil},
     }
@@ -1069,7 +1279,6 @@ function Search.begin(input)
 end
 
 local function finish_grid_or_search(state)
-    if not can_improve_beacons(state) then begin_serialization(state); return end
     if state.work.power_bound_hit then finish_search_bound(state, "BP_FAIL_POWER_BOUND"); return end
     if next_grid(state) then return end
     if state.work.grid_limit_hit then finish_search_bound(state, "BP_FAIL_GRID_LIMIT"); return end
@@ -1109,12 +1318,15 @@ local function prepare_candidate(state)
         finish_grid_or_search(state)
         return false
     end
+    state.work.candidate = candidate
+    state.work.candidate_rejection_start = #(state.work.rejections or {}) + 1
+    state.work.attempt_recorded = false
     if not candidate_fits_grid(state, candidate) then
+        record_discarded_attempt(state, nil, "grid_fit")
         state.cursor.candidate_index = state.cursor.candidate_index + 1
         state.cursor.order_index = 1
         return prepare_candidate(state)
     end
-    state.work.candidate = candidate
     state.work.orderings = candidate_orders(state, candidate)
     if not state.work.orderings[state.cursor.order_index] then
         state.cursor.candidate_index = state.cursor.candidate_index + 1
@@ -1133,6 +1345,10 @@ local function prepare_candidate(state)
 end
 
 local function discard_candidate(state)
+    if not state.work.attempt_recorded then
+        local score = state.work.validate and state.work.validate.result and state.work.validate.result.score
+        record_discarded_attempt(state, score, score and "lower_score" or "rejected")
+    end
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
     state.cursor.order_index = state.cursor.order_index + 1
     if state.work.orderings and state.cursor.order_index <= #state.work.orderings then
@@ -1184,7 +1400,6 @@ function Search.step(container, budget)
         elseif state.phase == "groups" then
             run_stage(state, "groups", Groups, budget)
             if stage_done(state.work.groups) then
-                record_candidate_bound(state)
                 declare_allowance(state)
                 if state.work.groups.ok == false and not (state.work.groups.result and state.work.groups.result.candidates) then
                     if not next_grid(state) then finish_grid_or_search(state) end
@@ -1262,17 +1477,20 @@ function Search.step(container, budget)
                     discard_candidate(state)
                 else
                     local score = state.work.validate.result and state.work.validate.result.score or {}
-                    if state.incumbent == nil or Validate.compare(score, state.incumbent.score) < 0 then
+                    local record = record_valid_attempt(state, score)
+                    local improves = state.incumbent == nil or Validate.compare(score, state.incumbent.score) < 0
+                    if improves then
+                        if state.work.incumbent_record then
+                            state.work.incumbent_record.chosen = false
+                            state.work.incumbent_record.reason = "outscored"
+                        end
+                        record.chosen = true
+                        state.work.incumbent_record = record
                         state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
                             validation = copy(state.work.validate.result)}
                     end
+                    state.work.attempt_recorded = true
                     begin_improvement_budget(state)
-                    if can_stop_implicit_perimeter_search(state, score) then
-                        local candidates = state.work.groups.result.candidates or {}
-                        state.cursor.grid_index = #state.work.grid_specs
-                        state.cursor.candidate_index = #candidates
-                        state.cursor.order_index = #state.work.orderings
-                    end
                     discard_candidate(state)
                 end
             end
@@ -1283,6 +1501,13 @@ function Search.step(container, budget)
                 if not revisions_match(container, state) then fail_revision(state)
                 elseif state.work.serialize.ok then
                     state.result = copy(state.work.serialize.result)
+                    local diagnostics = search_diagnostics(state)
+                    --Keep the optimization claim beside the delivered result. The blueprint encoder ignores this
+                    --plain diagnostic field, while offline callers and the job record can see exactly what was
+                    --chosen and which alternatives were rejected, outscored or left beyond a declared bound.
+                    state.result.search = diagnostics
+                    state.result.chosen_score = copy(diagnostics.chosen_score)
+                    state.result.discarded_alternatives = copy(diagnostics.discarded_alternatives)
                     state.done, state.ok = true, true
                     set_phase(state, "done")
                 else

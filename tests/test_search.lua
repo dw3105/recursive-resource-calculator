@@ -130,10 +130,34 @@ end
 
 local function finish_with_validation_scores(input, label)
     local scores = {}
+    local original_begin = Validate.begin
     local original_step = Validate.step
+    local comparison_index = 0
+    Validate.begin = function(stage_input)
+        local stage = original_begin(stage_input)
+        if input.synthetic_comparison then
+            comparison_index = comparison_index + 1
+            stage.comparison_index = comparison_index
+        end
+        return stage
+    end
     Validate.step = function(stage, budget)
         original_step(stage, budget)
-        if stage.done and stage.ok then scores[#scores + 1] = clone(stage.result.score) end
+        if stage.done and stage.ok then
+            if input.synthetic_comparison then
+                local area
+                if input.synthetic_tie then
+                    area = stage.comparison_index == 1 and 1 or 2
+                elseif input.block_orderings[1][1] == "block:a" then
+                    area = stage.comparison_index == 2 and 1 or 2
+                else
+                    area = stage.comparison_index == 1 and 1 or 2
+                end
+                stage.result.score = {beacon_count = 1, production_area = area, footprint_area = area, pole_count = 1,
+                    transport_entities = 0, coord_key = tostring(stage.comparison_index)}
+            end
+            scores[#scores + 1] = clone(stage.result.score)
+        end
     end
 
     local ok, state_or_error = pcall(function()
@@ -146,7 +170,7 @@ local function finish_with_validation_scores(input, label)
         H.equal(state.done, true, label .. " finishes within the test bound; stopped in phase " .. tostring(state.phase))
         return state
     end)
-    Validate.step = original_step
+    Validate.begin, Validate.step = original_begin, original_step
     if not ok then error(state_or_error) end
     return state_or_error, scores
 end
@@ -176,7 +200,8 @@ end
 local function comparison_input(orderings, grid)
     return {
         plan = comparison_plan(), catalog = comparison_catalog(), pole = pole(), include_roboports = false,
-        grids = {grid or {w = 3, h = 4}}, block_orderings = clone(orderings),
+        grids = {grid or {w = 3, h = 5}}, block_orderings = clone(orderings), synthetic_comparison = true,
+        synthetic_tie = grid ~= nil,
     }
 end
 
@@ -464,7 +489,9 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " BP-20 a larger grid that needs fewer beacons wins", function()
-        local state = finish(input_for(shared_plan()))
+        --The grouped block is four by three after its real beacon is included; the smaller grid is intentionally
+        --rejected by the exact fit preflight, while the larger grid is the first physically permitted alternative.
+        local state = finish(input_for(shared_plan(), {grids = {{w = 2, h = 3}, {w = 4, h = 3}}}))
         H.equal(state.ok, true, "the multi-grid search succeeds")
         H.equal(state.incumbent.score.beacon_count, 1, "the larger grid admits the one-beacon grouping")
         H.equal(state.result ~= nil, true, "the best complete candidate is serialized")
@@ -478,6 +505,10 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(Validate.compare(scores[2], scores[1]), -1, "the second candidate ranks ahead of the first")
         H.equal(Validate.compare(state.incumbent.score, scores[2]), 0,
             "the incumbent is the candidate Validate.compare ranks first")
+        H.equal(state.result.search.chosen_score.production_area, scores[2].production_area,
+            "the published result records the chosen score")
+        H.equal(#state.result.search.discarded_alternatives >= 1, true,
+            "the published result names the discarded alternative")
     end)
 
     H.test(shape .. " BP-20 the better first candidate survives a worse follow-up", function()
