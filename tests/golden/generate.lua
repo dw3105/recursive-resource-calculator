@@ -346,6 +346,104 @@ local function write_output(value, path)
     end
 end
 
+local function plan_complete(value)
+    return type(value) == "table" and type(value.steps) == "table" and #value.steps > 0
+end
+
+local function verified_plan(value, prepared, input_digest)
+    if not plan_complete(value) then return nil, "captured planning result is missing or empty" end
+    local declared_digest = prepared.plan_sha256 or prepared.plan_digest
+    if declared_digest and string.lower(tostring(declared_digest)) ~= sha256(JSON.encode(value)) then
+        return nil, "captured planning result digest does not match its content"
+    end
+    local declared_input = prepared.plan_input_sha256 or prepared.prepared_input_sha256
+    if declared_input and (not input_digest or string.lower(tostring(declared_input)) ~= input_digest) then
+        return nil, "captured planning result is bound to a different input"
+    end
+    return value
+end
+
+local function captured_plan(prepared, input_digest)
+    local supplied = prepared.plan_result
+    if supplied == nil then supplied = prepared.plan end
+    if supplied ~= nil then
+        return verified_plan(supplied, prepared, input_digest)
+    end
+    local artifact = prepared.plan_artifact
+    if type(artifact) == "table" then
+        local artifact_plan = artifact.plan_result or artifact.plan or artifact.result
+        local artifact_digest = artifact.plan_sha256 or artifact.plan_digest or artifact.sha256
+        local artifact_input = artifact.prepared_input_sha256 or artifact.input_sha256
+        if type(artifact_plan) ~= "table" or not artifact_digest or not artifact_input then
+            return nil, "plan artifact is not verified against this input"
+        end
+        if string.lower(tostring(artifact_input)) ~= tostring(input_digest or "")
+            or string.lower(tostring(artifact_digest)) ~= sha256(JSON.encode(artifact_plan)) then
+            return nil, "plan artifact does not match this input or its content"
+        end
+        return verified_plan(artifact_plan, prepared, input_digest)
+    end
+
+    -- A PreparedInput normally carries the solver facts, not a second copy of the
+    -- planner's IR.  Rebuild that IR through the production planner so validation
+    -- sees the same steps the search saw, rather than an empty table or candidate
+    -- supplied plan.
+    if type(prepared.solver_result) ~= "table" and type(prepared.solver) ~= "table"
+        and type(prepared.result) ~= "table" and type(prepared.columns) ~= "table" then
+        return nil, "captured input has no planning result"
+    end
+    local Plan = require "logic.bp.plan"
+    local state = Plan.begin(prepared)
+    while not state.done do Plan.step(state, {ops = 1000000}) end
+    if state.ok ~= true or not plan_complete(state.result) then
+        return nil, "captured input did not produce a complete planning result"
+    end
+    return state.result
+end
+
+local function artifact_validation(Validate, candidate, prepared, internal_candidate)
+    -- Keep this call's plan binding explicit.  The lane mutation oracle replaces
+    -- it with {}, and the complete-plan check below must then fail closed.
+    local reconciliation = {artifact = candidate, plan = prepared.plan_result,
+        catalog = prepared.catalog or {}}
+    if not plan_complete(reconciliation.plan) then
+        return {ok = false, errors = {{code = "BP_CAP_INCOMPLETE", detail = "validation plan is missing"}}}
+    end
+    if type(Validate.reconcile_artifact) == "function" then
+        local reconciled = Validate.reconcile_artifact(reconciliation)
+        if type(reconciled) == "table" then return reconciled end
+        return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = "invalid reconciliation result"}}}
+    end
+    local began, state = pcall(function()
+        return Validate.begin({candidate = candidate, plan = reconciliation.plan,
+            catalog = prepared.catalog or {}})
+    end)
+    if not began then
+        return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = tostring(state)}}}
+    end
+    -- round-13-base does not yet contain lane 111's additive entry point.  The
+    -- same complete artifact is still checked here, and the production API is
+    -- preferred automatically once it is available.
+    local checked = state
+    if internal_candidate ~= nil then
+        local internal_began, internal_state = pcall(function()
+            return Validate.begin({candidate = internal_candidate, plan = reconciliation.plan,
+                catalog = prepared.catalog or {}})
+        end)
+        if not internal_began then
+            return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = tostring(internal_state)}}}
+        end
+        checked = internal_state
+    end
+    local stepped, step_error = pcall(function()
+        while not checked.done do Validate.step(checked, {ops = 1000000}) end
+    end)
+    if not stepped then
+        return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = tostring(step_error)}}}
+    end
+    return {ok = checked.ok == true, result = checked.result, errors = checked.errors}
+end
+
 local input_path, output_path, canonical_path, validate_path
 local index = 1
 while index <= #arg do
@@ -374,16 +472,22 @@ local ok, result_or_error = xpcall(function()
     if type(prepared) ~= "table" then error("prepared input must be an object") end
     if type(prepared.prepared_input) == "table" then prepared = prepared.prepared_input end
 
+    local input_digest = input_path and sha256(read_file(input_path)) or nil
+    local plan, plan_error = captured_plan(prepared, input_digest)
+    if not plan then
+        return {schema_version = 1, source = validate_path and "lua-validator" or "lua-generator", ok = false,
+            stage = validate_path and "validate" or "plan", errors = {{code = "BP_CAP_INCOMPLETE", detail = plan_error}}}
+    end
+    prepared.plan_result = plan
+
     if validate_path then
         local Validate = require "logic.bp.validate"
         local candidate = JSON.decode(read_file(validate_path))
         if type(candidate) == "table" and type(candidate.result) == "table" then candidate = candidate.result end
         if type(candidate) == "table" and type(candidate.candidate) == "table" then candidate = candidate.candidate end
-        local state = Validate.begin({candidate = candidate, plan = prepared.plan_result or prepared.plan or {},
-            catalog = prepared.catalog or {}})
-        while not state.done do Validate.step(state, {ops = 1000000}) end
-        return {schema_version = 1, source = "lua-validator", ok = state.ok == true, result = state.result,
-            errors = state.errors, stage = "validate"}
+        local validation = artifact_validation(Validate, candidate, prepared)
+        return {schema_version = 1, source = "lua-validator", ok = validation.ok == true,
+            result = validation.result, errors = validation.errors, stage = "validate"}
     end
 
     local Search = require "logic.bp.search"
@@ -404,10 +508,7 @@ local ok, result_or_error = xpcall(function()
     local validation
     if state.incumbent and state.incumbent.candidate then
         local Validate = require "logic.bp.validate"
-        local check = Validate.begin({candidate = state.incumbent.candidate, plan = prepared.plan_result or prepared.plan or {},
-            catalog = prepared.catalog or {}})
-        while not check.done do Validate.step(check, {ops = 1000000}) end
-        validation = {ok = check.ok == true, result = check.result, errors = check.errors}
+        validation = artifact_validation(Validate, state.result, prepared, state.incumbent.candidate)
     end
     return {schema_version = 1, source = "lua-generator", ok = true, stage = "done", ticks = ticks,
         canonical = canonical, canonical_version = version, canonical_json = encoded,

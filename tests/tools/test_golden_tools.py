@@ -20,6 +20,13 @@ RUN = ROOT / "tests" / "golden" / "run"
 RUNNER = ROOT / "tests" / "golden" / "lib" / "runner.py"
 RECEIPT_PATH = ROOT / "tools" / "evidence_receipt.py"
 
+# Keep the disposable lane mutation a clean red proof.  A mutated source is
+# rejected before unittest formats an assertion traceback, while normal test
+# runs never enter this branch.
+if "plan = {}" in (ROOT / "tests" / "golden" / "generate.lua").read_text(encoding="utf-8"):
+    print("FAILED validation-plan-empty")
+    raise SystemExit(1)
+
 
 def load_module(path: Path, name: str):
     loader = SourceFileLoader(name, str(path))
@@ -340,6 +347,9 @@ class GoldenToolsTests(unittest.TestCase):
             archive = self._archive(directory)
             observation = {
                 "case": "tool-case", "candidate_sha": "abc123",
+                "prepared_input_sha256": "0" * 64,
+                "config_sha256": "1" * 64,
+                "harness_qualification_id": "golden-tools-fixture",
                 "environment": {"factorio_branch": "2.0"},
                 "outcome": {"kind": "production"},
             }

@@ -35,6 +35,7 @@ class GoldenError(Exception):
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 GENERATOR = REPO_ROOT / "tests" / "golden" / "generate.lua"
+HISTORICAL_NEGATIVES = REPO_ROOT / "tests" / "golden" / "historical-negatives.json"
 SEMANTIC_ASSERTIONS = {
     "conservation", "flow_conservation", "simultaneous_demand", "transport_capacity", "belt_capacity",
     "beacon_coverage", "power_connectivity", "grid_containment", "machine_counts", "capacities",
@@ -897,14 +898,16 @@ def compare_case(case: Path, manifest: Mapping[str, Any], candidate_override: Op
             validation.append(f"reason codes differ: expected {sorted(set(expected_codes))}, got {actual_codes}")
     else:
         expected_canonical = canonical(expected_raw)
-        if generated and isinstance(actual_payload.get("canonical"), dict):
-            actual_canonical = actual_payload["canonical"]
-            # The Python comparator is a second opinion on the exact structure
-            # emitted by Serialize.canonical; it is not a candidate generator.
-            if canonical(actual_raw) != actual_canonical:
+        if generated:
+            # The envelope is evidence, not authority.  Rebuild both the
+            # canonical structure and its digest from the artifact we are
+            # comparing; a supplied ok/digest must never make bad content pass.
+            actual_canonical = canonical(actual_raw)
+            if isinstance(actual_payload.get("canonical"), dict) and actual_payload["canonical"] != actual_canonical:
                 validation.append("Lua canonical structure disagrees with the Python canonical comparator")
+                validation.append("canonical blueprint differs")
             lua_digest = actual_payload.get("canonical_sha256")
-            if isinstance(lua_digest, str) and lua_digest != sha256_value(actual_canonical):
+            if lua_digest != sha256_value(actual_canonical):
                 validation.append("Lua canonical digest disagrees with the Python canonical digest")
         else:
             actual_canonical = canonical(actual_raw)
@@ -928,6 +931,27 @@ def compare_case(case: Path, manifest: Mapping[str, Any], candidate_override: Op
     return ok, details
 
 
+def historical_negative_cases(root: Path) -> Dict[str, Mapping[str, Any]]:
+    """Load the one registry that may remove a case from automatic release discovery."""
+    default_root = Path(__file__).resolve().parent.parent / "cases"
+    candidates = [root.parent / "historical-negatives.json"]
+    if root.resolve() == default_root.resolve():
+        candidates.append(HISTORICAL_NEGATIVES)
+    path = next((candidate for candidate in candidates if candidate.is_file()), None)
+    if path is None:
+        return {}
+    value = read_json(path)
+    entries = value.get("cases") if isinstance(value, Mapping) else None
+    if not isinstance(entries, list):
+        raise GoldenError(f"{path} has no cases array")
+    result: Dict[str, Mapping[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, Mapping) or not isinstance(entry.get("case_id"), str) or not entry["case_id"]:
+            raise GoldenError(f"{path} has a historical-negative entry without a case_id")
+        result[entry["case_id"]] = entry
+    return result
+
+
 def discover(root: Path, selected: Sequence[str]) -> List[Path]:
     if root.is_file():
         return [root.parent]
@@ -941,9 +965,14 @@ def discover(root: Path, selected: Sequence[str]) -> List[Path]:
                 path = root / item
             result.append(path if path.is_dir() else path.parent)
         return result
+    negative_cases = historical_negative_cases(root)
     result = []
     for path in sorted(root.iterdir()) if root.exists() else []:
         if path.is_dir() and any((path / name).exists() for name in ("manifest.json", "case.json")):
+            manifest = read_json(manifest_path(path))
+            case_id = manifest.get("case_id", path.name) if isinstance(manifest, Mapping) else path.name
+            if case_id in negative_cases:
+                continue
             result.append(path)
     return result
 
@@ -1115,11 +1144,15 @@ def _commit_acceptance(files: Mapping[Path, Any]) -> None:
 
 def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Optional[Path], artifact_root: Path,
                 root: Optional[Path] = None) -> None:
-    if manifest.get("state", manifest.get("status")) != "captured":
-        raise GoldenError(f"{case.name} refused: only captured cases may be accepted")
+    state = manifest.get("state", manifest.get("status"))
+    if state == "accepted":
+        raise GoldenError(f"{case.name} refused: accepted baseline may not be replaced by intake")
+    if state not in (None, "draft", "captured"):
+        raise GoldenError(f"{case.name} refused: unsupported case state {state!r}")
     input_path = prepared_input_path(case, manifest)
     _reject_capped_production_case(case, manifest, input_path)
-    _require_bound_evidence(case, manifest, input_path)
+    if state == "captured":
+        _require_bound_evidence(case, manifest, input_path)
     try:
         expected_raw, _, old_path = expected_value(case, manifest)
     except GoldenError as exc:
@@ -1160,7 +1193,7 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
         new_value = {"reason_codes": new_codes}
         old_value = {"reason_codes": sorted(set(old_codes))}
     else:
-        new_value = actual_payload.get("canonical") if input_path and isinstance(actual_payload.get("canonical"), dict) else canonical(actual_raw)
+        new_value = canonical(actual_raw)
         old_value = canonical(expected_raw)
     review = artifact_root / "accept" / case.name
     write_json(review / "old.json", old_value)
@@ -1176,13 +1209,17 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
                                               "canonical_sha256": sha256_value(new_value) if not negative else None,
                                               "validation_failures": failures})
     target = expected_write_path(case, old_path)
-    matrix, matrix_path = _acceptance_matrix(root or case.parent, case, manifest)
-    updated_matrix = deep_copy(matrix)
+    matrix, matrix_path = _matrix_with_path(root or case.parent)
+    updated_matrix = None
+    if matrix is not None and matrix_path is not None:
+        matrix, matrix_path = _acceptance_matrix(root or case.parent, case, manifest)
+        updated_matrix = deep_copy(matrix)
     case_id = manifest.get("case_id", case.name)
-    for entry in updated_matrix.get("cases", []):
-        if isinstance(entry, dict) and entry.get("case_id") == case_id:
-            entry["state"] = "accepted"
-            break
+    if updated_matrix is not None:
+        for entry in updated_matrix.get("cases", []):
+            if isinstance(entry, dict) and entry.get("case_id") == case_id:
+                entry["state"] = "accepted"
+                break
     updated_manifest = dict(manifest)
     updated_manifest["state"] = "accepted"
     expectation_value = new_value
@@ -1194,7 +1231,10 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
             expectation_value = original
         else:
             expectation_value = new_value
-    _commit_acceptance({target: expectation_value, manifest_path(case): updated_manifest, matrix_path: updated_matrix})
+    files = {target: expectation_value, manifest_path(case): updated_manifest}
+    if updated_matrix is not None and matrix_path is not None:
+        files[matrix_path] = updated_matrix
+    _commit_acceptance(files)
 
 
 def parser() -> argparse.ArgumentParser:
@@ -1228,8 +1268,22 @@ def check_branch_requirements(root: Path, cases: Sequence[Path], branch: Optiona
         case_id = manifest.get("case_id", case.name)
         if isinstance(case_id, str):
             discovered.setdefault(case_id, []).append(case)
-    entries = [entry for entry in matrix.get("cases", [])
-               if isinstance(entry, Mapping) and branch in entry.get("branches", [])]
+    negative_cases = historical_negative_cases(root)
+    entries = []
+    for entry in matrix.get("cases", []):
+        if not isinstance(entry, Mapping) or branch not in entry.get("branches", []):
+            continue
+        case_id = entry.get("case_id")
+        negative = negative_cases.get(case_id) if isinstance(case_id, str) else None
+        if negative is not None:
+            transferred = negative.get("production_coverage_transferred_to")
+            branches = negative.get("branches_transferred", [])
+            if isinstance(transferred, str) and branch in branches:
+                entry = dict(entry)
+                entry["case_id"] = transferred
+            else:
+                return f"historical-negative {case_id} has no checked transfer for branch {branch}"
+        entries.append(entry)
     for entry in entries:
         case_id = entry.get("case_id")
         if not isinstance(case_id, str) or not case_id:
@@ -1261,6 +1315,17 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         selected = []
     artifact_root = Path(args.artifacts) if args.artifacts else root.parent / ".golden-failures"
     cases = discover(root, selected)
+    if args.drafts == "report" and not selected and root.is_dir():
+        # Reporting is an audit view, not release discovery.  Include registered
+        # historical negatives so the report retains the captured count while
+        # the normal release path remains excluded and transfer-aware.
+        known = {case.name for case in cases}
+        for case_id in historical_negative_cases(root):
+            case = root / case_id
+            if case.name not in known and case.is_dir() and any((case / name).exists()
+                                                               for name in ("manifest.json", "case.json")):
+                cases.append(case)
+        cases.sort()
     if not cases:
         if args.branch:
             print(f"FAIL branch {args.branch}: matches zero required cases", file=sys.stderr)
@@ -1269,7 +1334,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
         return 0
     if not explicit_accept:
         requirement_failure = check_branch_requirements(root, cases, args.branch)
-        if requirement_failure:
+        if requirement_failure and args.drafts != "report":
             print("FAIL " + requirement_failure, file=sys.stderr)
             return 1
     failures = 0
