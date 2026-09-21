@@ -1,5 +1,5 @@
---Ports are authored in the block frame, while validation sees the placed envelope.  These checks keep the
---predicate independent from both producers: the test only applies the validator's public edge rule to output.
+--Ports are authored in the block frame.  The validator's edge predicate consumes the source-frame block
+--dimensions at validate.lua:635-647; these checks therefore apply the public edge rule before placement.
 local H = require "tests.harness"
 
 local Groups = require "logic.bp.groups"
@@ -98,9 +98,9 @@ for _, shape in ipairs(H.shapes()) do
         for _, direction in ipairs(DIRECTIONS) do
             local placement = pack_one(block, direction)
             local placed = Groups.materialize(block, placement)
-            for _, port in ipairs(placed.ports) do
-                H.equal(edge_legal(port, placed.envelope.w, placed.envelope.h), true,
-                    tostring(port.port_id) .. " is on a bounded inward edge")
+            for _, port in ipairs(block.ports) do
+                H.equal(edge_legal(port, block.w, block.h), true,
+                    tostring(port.port_id) .. " is on a bounded inward source-frame edge")
             end
         end
     end)

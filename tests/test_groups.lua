@@ -369,9 +369,9 @@ for _, shape in ipairs(H.shapes()) do
             end
         end
     end)
-    --A port list wider than its block used to spill onto an unbounded side column.  Both edge families are legal,
-    --and the left edge gives output routes a second side to leave the block.
-    H.test(shape .. " G12 every attach tile stays on a bounded edge", function()
+    --A machine face has a finite number of columns. Refuse excess port-bound flows by name instead of spilling
+    --their inserters into the block interior.
+    H.test(shape .. " G12 an overfull port-bound face is a named refusal", function()
         H.new_world(shape)
         local plan_input = real_one_step_plan()
         for index = 1, 6 do
@@ -383,15 +383,8 @@ for _, shape in ipairs(H.shapes()) do
         end
         plan_input.catalog = catalog()
         local state = finish(plan_input)
-        local block = candidates(state)[1].blocks[1]
-        for _, port in ipairs(block.ports) do
-            local on_horizontal = (port.attach_dy == -1 or port.attach_dy == block.h)
-                and port.attach_dx >= 0 and port.attach_dx < block.w
-            local on_vertical = (port.attach_dx == -1 or port.attach_dx == block.w)
-                and port.attach_dy >= 0 and port.attach_dy < block.h
-            H.equal(on_horizontal or on_vertical, true, tostring(port.port_id) .. " attaches on a bounded edge")
-        end
-        H.equal(type(block.port_sides), "table", "the block names the sides its ports use")
+        H.equal(#state.result.candidates, 0, "the overfull machine face has no candidate")
+        H.equal(state.result.failures[1].name, "inserter-face", "the grouping failure names the overfull face")
     end)
 
     H.test(shape .. " BG1 a machine covered by its collision box is covered, and by its tile footprint alone is not", function()

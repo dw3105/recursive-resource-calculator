@@ -342,6 +342,31 @@ local function member_for(block, reference)
     return nil
 end
 
+local function member_for_step(block, step_id, avoid)
+    if step_id == nil or step_id == "$external" then return nil end
+    for _, member in ipairs(block.machines or {}) do
+        if tostring(member.step_id) == tostring(step_id) and member ~= avoid then return member end
+    end
+    return nil
+end
+
+local function flow_record(flows, flow_id)
+    for _, flow in ipairs(flows or {}) do
+        if (flow.flow_id or flow.full_name or flow.id) == flow_id then return flow end
+    end
+    return nil
+end
+
+local function counterpart_member(block, machine, role, flow_id, flows)
+    local flow = flow_record(flows, flow_id)
+    local entries = flow and (role == "input" and flow.producers or flow.consumers) or {}
+    for _, entry in ipairs(entries or {}) do
+        local member = member_for_step(block, entry.step_id, machine)
+        if member then return member end
+    end
+    return nil
+end
+
 local function explicit_cell(entry, keys)
     for _, key in ipairs(keys) do
         local value = point(entry and entry[key])
@@ -351,12 +376,18 @@ local function explicit_cell(entry, keys)
 end
 
 local function candidate_inserter(block, machine, role, index, iw, ih, catalog, input, source_member, target_member,
-    source_cell, target_cell)
+    source_cell, target_cell, port_bound, face_column)
     local name = input and input.name
     local pickup_offset, drop_offset = inserter_offsets(catalog, name)
     local preferred = role == "input" and EAST or SOUTH
     local desired_x, desired_y
-    if role == "input" then
+    if port_bound then
+        -- External item hands share the machine's bottom face.  NORTH inputs drop into the machine while SOUTH
+        -- outputs pick up from it, and both outward cells therefore land on the block's bottom perimeter.
+        desired_x = machine.x + (math.max(1, face_column or 1) - 1) * iw
+        desired_y = machine.y + machine.h
+        preferred = role == "input" and NORTH or SOUTH
+    elseif role == "input" then
         desired_x, desired_y = machine.x + (-iw), machine.y + index - 1
     else
         desired_x, desired_y = machine.x + math.max(0, math.min(machine.w - iw, index - 1)), machine.y + machine.h
@@ -435,6 +466,7 @@ local function append_inserters(block, step, machine, catalog, input, flows)
     for _, port in ipairs(step.outputs or {}) do
         if not flow_is_fluid(port, flows) then outputs[#outputs + 1] = port end
     end
+    local face_column = 0
     local function append(role, list)
         for index, port in ipairs(list) do
             local entry = {role = role, port = port}
@@ -442,9 +474,18 @@ local function append_inserters(block, step, machine, catalog, input, flows)
                 and (port.source_machine_id or port.source_id or port.source_member_id or port.source)
                 or (port.drain_machine_id or port.drain_id or port.drain_member_id or port.drain)
             local source_member = member_for(block, source_reference)
+            source_member = source_member or counterpart_member(block, machine, role,
+                port.flow_id or port.full_name, flows)
             local target_member = role == "input" and machine or member_for(block, source_reference)
+            if role == "output" then
+                target_member = target_member or counterpart_member(block, machine, role,
+                    port.flow_id or port.full_name, flows)
+            end
             local transfer_source_member = source_member
             if role == "output" then transfer_source_member = machine end
+            local port_bound = (role == "input" and source_member == nil)
+                or (role == "output" and target_member == nil)
+            if port_bound then face_column = face_column + 1 end
             local source_x, source_y = explicit_cell(port, role == "input"
                 and {"pickup_cell", "source_cell", "source_position"}
                 or {"drop_cell", "drain_cell", "drain_position"})
@@ -454,7 +495,7 @@ local function append_inserters(block, step, machine, catalog, input, flows)
             local source_cell = source_x ~= nil and {source_x, source_y} or nil
             local target_cell = target_x ~= nil and {target_x, target_y} or nil
             local placement = candidate_inserter(block, machine, role, index, iw, ih, catalog, input,
-                transfer_source_member, target_member, source_cell, target_cell)
+                transfer_source_member, target_member, source_cell, target_cell, port_bound, face_column)
             if not placement then
                 block.failure = {name = "inserter-reach", code = "BP_P_NO_FIT",
                     detail = "no catalog inserter reach for " .. tostring(step.step_id) .. ":"
@@ -480,6 +521,7 @@ local function append_inserters(block, step, machine, catalog, input, flows)
             drop_target = entry.role == "input"
                 and machine.id
                 or (entry.port.drain_id or entry.port.drain_port_id or ("port:" .. tostring(entry.port.flow_id or entry.port.full_name))),
+            port_bound = port_bound,
             }
         end
     end
@@ -499,15 +541,53 @@ local function block_ports(block, steps, ports, flows)
         local flow_id = port.flow_id or port.full_name or port.id
         local step_id = port.step_id or port.member_step_id
         if step_id and members_by_step[step_id] then
-            selected[#selected + 1] = {
-                port = port, flow_id = flow_id, step_id = step_id, member_id = members_by_step[step_id][1].id,
-            }
+            local is_fluid = port.kind == "fluid" or port.is_fluid == true
+            if is_fluid then
+                -- Fluid boxes have no item hand. Keep one physical pipe port for the step, preserving the old
+                -- connection placement while item ports below are expanded per actual inserter.
+                selected[#selected + 1] = {
+                    port = port, flow_id = flow_id, step_id = step_id, member_id = members_by_step[step_id][1].id,
+                }
+            else
+                for _, inserter in ipairs(block.inserters or {}) do
+                    local wanted_role = port.role == "out" and "output" or "input"
+                    if inserter.port_bound and inserter.step_id == step_id and inserter.role == wanted_role
+                        and inserter.flow_id == flow_id then
+                        selected[#selected + 1] = {
+                            port = port, flow_id = flow_id, step_id = step_id,
+                            member_id = inserter.machine_id, inserter_id = inserter.id, inserter = inserter,
+                        }
+                    end
+                end
+            end
+        end
+    end
+    -- A plan step represents the aggregate demand for all machines of that step.  Keep one route-visible
+    -- endpoint for that aggregate; the other anchored hands remain physical witnesses with zero independent
+    -- demand, so the unchanged router does not report them as unreachable aliases.
+    local route_live = {}
+    for _, selected_port in ipairs(selected) do
+        if selected_port.inserter_id ~= nil then
+            local key = tostring(selected_port.step_id) .. "\0" .. tostring(selected_port.flow_id) .. "\0"
+                .. tostring(selected_port.port.role)
+            local current = route_live[key]
+            if current == nil or tostring(selected_port.inserter_id) > tostring(current.inserter_id) then
+                route_live[key] = selected_port
+            end
+        end
+    end
+    for _, selected_port in ipairs(selected) do
+        if selected_port.inserter_id ~= nil then
+            local key = tostring(selected_port.step_id) .. "\0" .. tostring(selected_port.flow_id) .. "\0"
+                .. tostring(selected_port.port.role)
+            selected_port.route_live = route_live[key] == selected_port
         end
     end
     table.sort(selected, function(a, b)
         local aid = tostring(a.port.port_id or a.port.id or a.flow_id)
         local bid = tostring(b.port.port_id or b.port.id or b.flow_id)
-        return aid < bid
+        if aid ~= bid then return aid < bid end
+        return tostring(a.inserter_id or "") < tostring(b.inserter_id or "")
     end)
 
     local inputs, outputs = {}, {}
@@ -515,14 +595,9 @@ local function block_ports(block, steps, ports, flows)
         local role = selected_port.port.role == "out" and "out" or "in"
         if role == "out" then outputs[#outputs + 1] = selected_port else inputs[#inputs + 1] = selected_port end
     end
-    --A port-bearing block needs enough room in both source axes for its top row to remain a legal edge after a
-    --quarter-turn. Keeping the ports on one shared top row also avoids source-frame bottom attachments becoming
-    --interior coordinates in the rotated envelope.
+    --Ports without an item hand still use the deterministic side fallback below. Item ports with a hand use its
+    --captured outward cell directly, so the side bookkeeping is derived from the actual attachment.
     local function place_side(list, role, side, normal, travel, offset)
-        if #list > 0 then
-            block.port_sides = block.port_sides or {}
-            block.port_sides[side] = true
-        end
         for index, selected_port in ipairs(list) do
             local x, y
             if side == "top" then
@@ -535,22 +610,29 @@ local function block_ports(block, steps, ports, flows)
                 x, y = block.w, (offset or 0) + index - 1
             end
             local source = selected_port.port
-            local inserter_id
+            local inserter_id = selected_port.inserter_id
             local wanted_role = role == "in" and "input" or "output"
-            for _, inserter in ipairs(block.inserters or {}) do
-                if inserter.machine_id == selected_port.member_id and inserter.role == wanted_role
-                    and inserter.flow_id == (source.flow_id or source.full_name or selected_port.flow_id) then
-                    inserter_id = inserter.id
-                    local position = role == "in" and point(inserter.pickup_position) or point(inserter.drop_position)
-                    if position then
-                        local candidate_x, candidate_y = cell_of(position.x), cell_of(position.y)
-                        local on_edge = (candidate_x == -1 and candidate_y >= 0 and candidate_y < block.h)
-                            or (candidate_x == block.w and candidate_y >= 0 and candidate_y < block.h)
-                            or (candidate_y == -1 and candidate_x >= 0 and candidate_x < block.w)
-                            or (candidate_y == block.h and candidate_x >= 0 and candidate_x < block.w)
-                        if on_edge then x, y = candidate_x, candidate_y end
+            local inserter = selected_port.inserter
+            if inserter then
+                local position = role == "in" and point(inserter.pickup_position) or point(inserter.drop_position)
+                if position then x, y = cell_of(position.x), cell_of(position.y) end
+            else
+                for _, candidate_inserter in ipairs(block.inserters or {}) do
+                    if candidate_inserter.machine_id == selected_port.member_id and candidate_inserter.role == wanted_role
+                        and candidate_inserter.flow_id == (source.flow_id or source.full_name or selected_port.flow_id) then
+                        inserter_id = candidate_inserter.id
+                        local position = role == "in" and point(candidate_inserter.pickup_position)
+                            or point(candidate_inserter.drop_position)
+                        if position then
+                            local candidate_x, candidate_y = cell_of(position.x), cell_of(position.y)
+                            local on_edge = (candidate_x == -1 and candidate_y >= 0 and candidate_y < block.h)
+                                or (candidate_x == block.w and candidate_y >= 0 and candidate_y < block.h)
+                                or (candidate_y == -1 and candidate_x >= 0 and candidate_x < block.w)
+                                or (candidate_y == block.h and candidate_x >= 0 and candidate_x < block.w)
+                            if on_edge then x, y = candidate_x, candidate_y end
+                        end
+                        break
                     end
-                    break
                 end
             end
             local machine = member_for(block, selected_port.member_id)
@@ -577,11 +659,23 @@ local function block_ports(block, steps, ports, flows)
             elseif x == block.w then actual_normal, actual_travel = WEST, role == "in" and WEST or EAST
             elseif y == -1 then actual_normal, actual_travel = SOUTH, role == "in" and SOUTH or NORTH
             elseif y == block.h then actual_normal, actual_travel = NORTH, role == "in" and NORTH or SOUTH end
+            local actual_side
+            if x == -1 then actual_side = "left" elseif x == block.w then actual_side = "right"
+            elseif y == -1 then actual_side = "top" elseif y == block.h then actual_side = "bottom" end
+            if actual_side then
+                block.port_sides = block.port_sides or {}
+                block.port_sides[actual_side] = true
+            else
+                block.port_sides = block.port_sides or {}
+                block.port_sides[side] = true
+            end
+            local block_port_id = source.port_id or source.id or ((role or "port") .. ":" .. tostring(index))
+            if inserter_id ~= nil then block_port_id = tostring(block_port_id) .. ":" .. tostring(inserter_id) end
             local block_port = {
-                port_id = source.port_id or source.id or ((role or "port") .. ":" .. tostring(index)),
+                port_id = block_port_id,
                 role = role, kind = source.kind or (source.is_fluid and "fluid" or "item"),
                 flow_id = source.flow_id or source.full_name or selected_port.flow_id,
-                rate_per_second = source.rate_per_second,
+                rate_per_second = selected_port.route_live == false and 0 or source.rate_per_second,
                 step_id = selected_port.step_id,
                 attach_dx = x, attach_dy = y, normal_dir = actual_normal, travel_dir = actual_travel,
                 member_id = selected_port.member_id, inserter_id = inserter_id,
@@ -605,8 +699,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local block = {
         id = block_id, block_id = block_id, members = {}, machines = {}, beacons = {}, inserters = {}, ports = {},
         beacon_coverage = {}, physical_beacon_count = 0,
+        allowed_dirs = {NORTH},
     }
-
     local beacon_groups = {}
     local seen_groups = {}
     for _, step in ipairs(steps) do
@@ -744,17 +838,6 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
     local machine_x0 = 0
     for _, row in ipairs(beacon_row_specs) do machine_x0 = math.max(machine_x0, row.w) end
-    --Inputs occupy the machine's left face. Reserve that side margin even for a machine with no beacons,
-    --otherwise the first input inserter would start outside the block envelope.
-    for _, step in ipairs(steps) do
-        for _, entry in ipairs(step.inputs or {}) do
-            if not flow_is_fluid(entry, flows) then
-                local _, input_w = inserter_size(catalog, input and input.inserter)
-                machine_x0 = math.max(machine_x0, input_w)
-                break
-            end
-        end
-    end
     local x = machine_x0
     for _, spec in ipairs(machine_specs) do
         local machine = {
@@ -785,6 +868,33 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- as a real endpoint, even when the producer appears first in step order.
     for _, spec in ipairs(machine_specs) do
         append_inserters(block, spec.step, machines_by_id[spec.id], catalog, input, flows)
+    end
+
+    -- The bottom machine face is the shared perimeter face for external item hands.  Refuse an overfull face
+    -- after ordinary reach has had first refusal, so an actually unreachable catalog still reports IG9's named
+    -- inserter-reach failure rather than being relabelled by this layout guard.
+    if not block.failure then
+        local _, inserter_w = inserter_size(catalog, input and input.inserter)
+        for _, machine in ipairs(block.machines) do
+            local bound = 0
+            for _, inserter in ipairs(block.inserters) do
+                if inserter.machine_id == machine.id and inserter.port_bound then bound = bound + 1 end
+            end
+            local face_columns = math.floor(machine.w / math.max(1, inserter_w))
+            if bound > face_columns then
+                block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                    detail = "more port-bound item flows than face columns for " .. tostring(machine.id)}
+                break
+            end
+        end
+    end
+    local has_port_bound_inserter = false
+    for _, inserter in ipairs(block.inserters) do
+        if inserter.port_bound then has_port_bound_inserter = true; break end
+    end
+    if not block.failure and has_port_bound_inserter and #bottom_rows > 0 then
+        block.failure = {name = "beacon-face", code = "BP_P_NO_FIT",
+            detail = "bottom beacon row claims the port-bound inserter face"}
     end
 
     -- Inserter rows belonging to different machines have disjoint x ranges because machine_specs reserves the
@@ -1038,15 +1148,6 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     block.w = w
     block.h = math.max(machine_y + max_machine_h, max_inserter_bottom, beacon_rows_h, bottom_row_y - 1)
-
-    -- Ports are stored in the block's own frame, but the validator checks their attachment against the placed
-    -- envelope. Reserve the total top-row width in both dimensions: after a quarter-turn the source x range
-    -- is still bounded by the placed width, and the source top edge is still the placed top edge.
-    if input_count + output_count > 0 then
-        local port_count = input_count + output_count
-        block.w = math.max(block.w, port_count)
-        block.h = math.max(block.h, port_count)
-    end
     block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
     block.beacon_count = block.physical_beacon_count
     block_ports(block, steps, ports, flows)
@@ -1343,6 +1444,12 @@ function Groups.materialize(block, placement)
         --A slot only replaces the port's own attachment when it actually HAS one. Overwriting unconditionally
         --dropped attach_dx to nil, and Grid.place_port then did arithmetic on that nil deep inside the
         --validator's port-approach check -- a crash no run ever reached while grouping still failed earlier.
+        local slot_is_own = slot and slot.attach_dx == port.attach_dx and slot.attach_dy == port.attach_dy
+        if port.inserter_id ~= nil and slot and not slot_is_own then
+            -- A packer override may only repeat an inserter's authored hand cell.  A synthetic fallback would
+            -- sever the transport handshake, so refuse the override and retain the port's own attachment.
+            slot = nil
+        end
         if slot and slot.attach_dx ~= nil and slot.attach_dy ~= nil then
             source = copy(port)
             source.attach_dx, source.attach_dy = slot.attach_dx, slot.attach_dy
@@ -1382,7 +1489,12 @@ function Groups.materialize(block, placement)
         placed.ports[#placed.ports + 1] = placed_port
     end
     table.sort(placed.entities, function(a, b) return a.id < b.id end)
-    table.sort(placed.ports, function(a, b) return tostring(a.port_id) < tostring(b.port_id) end)
+    table.sort(placed.ports, function(a, b)
+        if a.inserter_id ~= nil and b.inserter_id ~= nil and a.flow_id == b.flow_id and a.role == b.role then
+            return tostring(a.inserter_id) > tostring(b.inserter_id)
+        end
+        return tostring(a.port_id) < tostring(b.port_id)
+    end)
     return placed
 end
 
