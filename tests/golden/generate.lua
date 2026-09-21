@@ -404,8 +404,10 @@ end
 local function artifact_validation(Validate, candidate, prepared, internal_candidate)
     -- Keep this call's plan binding explicit.  The lane mutation oracle replaces
     -- it with {}, and the complete-plan check below must then fail closed.
+    --The internal candidate is what binds a serialized entity to its plan step: the artifact carries no step
+    --identity, because that is bookkeeping the game never sees.
     local reconciliation = {artifact = candidate, plan = prepared.plan_result,
-        catalog = prepared.catalog or {}}
+        catalog = prepared.catalog or {}, internal = internal_candidate}
     if not plan_complete(reconciliation.plan) then
         return {ok = false, errors = {{code = "BP_CAP_INCOMPLETE", detail = "validation plan is missing"}}}
     end

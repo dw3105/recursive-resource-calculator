@@ -1656,10 +1656,45 @@ local function artifact_module_match(entity, expected)
     local actual, has_slots, placed = artifact_modules(entity)
     if not module_lists_equal(actual, expected or {}) then return false, "module multiset differs" end
     if #actual > 0 and not has_slots then return false, "module inventory placement is absent" end
+    --The module inventory index differs per entity: a beacon's is 1, an assembling machine's is 4. Demanding 1
+    --everywhere failed all seven machines of the player's sheet against an artifact that was correct.
+    --
+    --The validator cannot know the engine's `defines.inventory` values offline, so it checks the property it
+    --CAN establish: every module of one entity sits in one inventory, and its slots run from 0 without a gap.
+    --That rejects modules scattered across inventories or left at arbitrary slots, and never invents a
+    --constant it has no way to verify.
+    local inventory
     for index, module in ipairs(placed or {}) do
-        if module.inventory ~= 1 or module.slot ~= index - 1 then return false, "module inventory placement differs" end
+        if inventory == nil then inventory = module.inventory end
+        if module.inventory ~= inventory then return false, "modules are split across inventories" end
+        if module.slot ~= index - 1 then return false, "module inventory placement differs" end
     end
     return true
+end
+
+--The bound identity map, built from physical position.
+--
+--Pairing the i-th expected machine with the i-th placed machine is an ORDERING, never a binding, and contract
+--25.5 forbids it. On the player's sheet it compared an electromagnetic-plant making copper-cable -- correct --
+--against the foundry step, and reported six machine-identity failures that were not real.
+--
+--The serialized artifact carries no step identity: that is internal bookkeeping the game never sees. The
+--candidate that produced it does carry it, and every artifact position is unique, so position is what binds
+--the two. A machine standing at a position is the member that was placed there.
+local function artifact_identity_map(internal)
+    local by_position = {}
+    for _, entity in ipairs(list_from(internal and (internal.entities or internal.placed_entities))) do
+        local step_id = entity.step_id
+        if step_id ~= nil then
+            local position = entity.position
+            local x = position and position.x or (entity.x ~= nil and entity.w ~= nil and entity.x + entity.w / 2)
+            local y = position and position.y or (entity.y ~= nil and entity.h ~= nil and entity.y + entity.h / 2)
+            if x and y then
+                by_position[tostring(x) .. ":" .. tostring(y)] = {step_id = step_id, ordinal = entity.ordinal}
+            end
+        end
+    end
+    return by_position
 end
 
 local function artifact_expected_machines(plan)
@@ -1750,10 +1785,28 @@ function Validate.reconcile_artifact(input)
     if #actual_machines ~= #expected_machines then
         reject("BP_V_ARTIFACT_MACHINE_COUNT", {"machines"}, {expected = #expected_machines, actual = #actual_machines})
     end
+    --Expected steps, reachable by identity rather than by position in a list.
+    local step_by_id = {}
+    for _, expected in ipairs(expected_machines) do
+        step_by_id[expected.step.step_id] = expected.step
+    end
+    local identity = artifact_identity_map(input.internal)
+
     local bound = {}
     for index, expected in ipairs(expected_machines) do
         local actual = actual_machines[index]
         local step = expected.step
+        if actual then
+            --Bind by position when the caller supplied the candidate that produced this artifact. Falling back
+            --to the list position keeps the old behaviour for a caller that cannot supply one, and that
+            --fallback is the reason the check must never be read as an identity proof on its own.
+            local entity_position = actual.entity.position
+            local key = entity_position and (tostring(entity_position.x) .. ":" .. tostring(entity_position.y))
+            local bound_step = key and identity[key]
+            if bound_step and step_by_id[bound_step.step_id] then
+                step = step_by_id[bound_step.step_id]
+            end
+        end
         if actual then
             local entity, spec = actual.entity, actual.spec or {}
             local wanted_name = prototype_name(step.machine or step.machine_name or step.entity)
