@@ -127,6 +127,16 @@ local function selected(payload, index)
     return entries[index]
 end
 
+local function rows_by_identity(selection)
+    local rows = {}
+    for _, entry in pairs(selection or {}) do
+        if type(entry) == "table" and entry.product_full_name ~= nil then
+            rows[entry.product_full_name] = entry
+        end
+    end
+    return rows
+end
+
 local function base_case()
     local world = world_with_selection()
     local sheet = make_sheet({{item = "plate", rate = 15, unit = "/m", round_up = true}})
@@ -290,6 +300,105 @@ H.test("EC12 with no attempt available, the payload carries the explicit absent 
     H.equal(payload.generation.status, "absent", "attempt is explicitly absent")
     H.equal(payload.generation.missing[1], "generation_attempt", "absent attempt is named")
     H.equal(payload.diagnostics.last_blueprint_attempt, nil, "dead attempt field is removed")
+end)
+
+H.test("CX1 every selected machine, recipe, module and beacon survives export and decoding by stable row identity", function()
+    local world = world_with_selection()
+    world.bind("item/gear", "gear")
+    storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.gear = nil
+    local sheet = make_sheet({{item = "plate", rate = 15, unit = "/m"}, {item = "gear", rate = 1, unit = "/s"}})
+    remember(sheet)
+    --This edit is deliberately immediately before export: the current row must carry it even while the old result
+    --is stale, and its identity is the product binding rather than the recipe name.
+    storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name.plate = {name = "assembler-alt", quality = "rare"}
+    local payload = build(sheet)
+    local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
+    local rows = rows_by_identity(decoded.sheet.selection)
+    H.equal(rows["item/plate"] ~= nil, true, "selected row survives")
+    H.equal(rows["item/gear"] ~= nil, true, "unselected row beside it survives")
+    local plate, gear = rows["item/plate"], rows["item/gear"]
+    H.equal(plate.recipe_name, "plate", "plate recipe identity")
+    H.equal(plate.machine.name, "assembler-alt", "alternate machine")
+    H.equal(plate.machine.quality, "rare", "machine quality")
+    H.equal(plate.modules[1].name, "speed-module", "machine module")
+    H.equal(plate.modules[1].quality, "rare", "machine module quality")
+    H.equal(plate.modules[1].count, 2, "nonuniform machine module count")
+    H.equal(plate.beacons[1].name, "beacon", "beacon identity")
+    H.equal(plate.beacons[1].quality, "rare", "beacon quality")
+    H.equal(plate.beacons[1].count, 2, "beacon count")
+    H.equal(plate.beacons[1].sharing, 3, "beacon sharing")
+    H.equal(plate.beacons[1].modules[1].count, 2, "beacon module count")
+    H.equal(gear.recipe_name, "gear", "non-default recipe identity")
+    H.equal(gear.machine, nil, "unselected machine remains absent")
+    H.equal(gear.modules[1].name, "productivity-module", "second row has its own modules")
+end)
+
+H.test("CX2 absence, an explicit zero and an empty selection are three different results", function()
+    world_with_selection()
+    local _, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+    local original = Snapshot.of_sheet
+    Snapshot.of_sheet = function(flow)
+        local snapshot = original(flow)
+        snapshot.selection = {
+            {product_full_name = "item/absence", recipe_name = "gear", modules = nil, beacons = nil},
+            {product_full_name = "item/zero", recipe_name = "gear", modules = {{name = "speed-module", count = 0}}, beacons = {}},
+            {product_full_name = "item/empty", recipe_name = "gear", modules = {}, beacons = {}},
+        }
+        snapshot.selection.burners, snapshot.selection.quality_loops = {}, {}
+        return snapshot
+    end
+    storage[1].module_setups_by_recipe_name = {}
+    local ok, payload_or_error = pcall(build, sheet)
+    Snapshot.of_sheet = original
+    if not ok then error(payload_or_error, 0) end
+    local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload_or_error))))
+    local rows = rows_by_identity(decoded.sheet.selection)
+    H.equal(rows["item/absence"].modules, nil, "absence stays absent")
+    H.equal(rows["item/zero"].modules[1].count, 0, "explicit zero stays zero")
+    H.equal(rows["item/empty"].modules.rrc_empty_list, true, "empty selection stays explicitly empty")
+    H.equal(rows["item/empty"].beacons.rrc_empty_list, true, "empty beacons stay explicitly empty")
+end)
+
+H.test("CX3 sheet, config and solver revisions, surface, force research, mod versions and export schema travel", function()
+    local world = world_with_selection()
+    game.players[1].force.recipes.plate.productivity_bonus = 0.375
+    local sheet = make_sheet({{item = "plate", rate = 15, unit = "/m"}})
+    local snapshot = remember(sheet)
+    storage[1].last_calculation.result.solver_revision = 27
+    local Registry = require "logic.registry"
+    local previous_generation = Registry.generation
+    storage[1].generation_id = "cx3-generation"
+    Registry.generation = {
+        lookup = function()
+            return {status = "failure", grid_spacing = {resolved = 50, kind = "derived",
+                source = "logistic_radius", source_value = 25, generation_job_id = "cx3-generation"}}
+        end,
+        capture = function()
+            return {prepared_input = {schema_version = 1, sheet_id = snapshot.sheet_id,
+                revisions = {sheet = 4, config = 9, solver = 27}, surface = "nauvis", force = "player-force",
+                catalog = {}}, source_kind = "runtime", provenance = {terminal_outcome = "failure"},
+                source_export = "cx3"}
+        end,
+    }
+    local ok, payload_or_error = pcall(build, sheet)
+    Registry.generation = previous_generation
+    storage[1].generation_id = nil
+    if not ok then error(payload_or_error, 0) end
+    local payload = payload_or_error
+    H.equal(payload.schema_version, 1, "export schema")
+    H.equal(payload.settings.current.revisions.sheet, 4, "sheet revision")
+    H.equal(payload.settings.current.revisions.config, 9, "config revision")
+    H.equal(payload.settings.result.revisions.solver, 27, "solver revision")
+    H.equal(payload.environment.active_mods.base, "2.0.77", "base mod version")
+    H.equal(payload.environment.active_mods["RRC-Fork"], "1.1.10", "mod version")
+    H.equal(payload.environment.force.research.plate, 0.375, "force research")
+    H.equal(payload.generation.grid_spacing.resolved, 50, "generation spacing")
+    local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
+    H.equal(decoded.schema_version, 1, "decoded export schema")
+    H.equal(decoded.prepared_input.surface, "nauvis", "surface")
+    H.equal(decoded.prepared_input.force, "player-force", "force identity")
+    H.equal(decoded.prepared_input.revisions.solver, 27, "decoded solver revision")
+    H.equal(decoded.generation.grid_spacing.source, "logistic_radius", "decoded generation spacing")
 end)
 
 H.test("comparator fixture and positive comparison are reached by the entry point", function()

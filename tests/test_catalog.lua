@@ -56,7 +56,62 @@ local function walk_plain(value, seen, path)
     end
 end
 
+local function incomplete_diagnostic(diagnostics, entity_name, field)
+    for _, item in ipairs(diagnostics or {}) do
+        if item.code == "BP_CAP_INCOMPLETE" and item.subject == "entity/" .. entity_name
+            and item.field == field then
+            return item
+        end
+    end
+    return nil
+end
+
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " CG1 an empty vector is REFUSED, never published as geometry", function()
+        world_with_catalog_fixtures(shape)
+        prototypes.entity.inserter.inserter_pickup_position = {}
+        local catalog, diagnostics = Catalog.build(1, {inserter = "inserter"})
+        H.equal(catalog.inserter, nil, "empty pickup offset is not published")
+        H.equal(catalog.entity.inserter, nil, "the incomplete inserter entity is not published")
+        local item = incomplete_diagnostic(diagnostics, "inserter", "inserter.pickup_offset")
+        H.equal(item ~= nil, true, "empty pickup offset has a capture refusal")
+        if item then H.equal(item.detail:find("inserter", 1, true) ~= nil, true, "diagnostic names entity") end
+    end)
+
+    H.test(shape .. " CG2 an unsupported representation is REFUSED with an entity and field diagnostic", function()
+        world_with_catalog_fixtures(shape)
+        prototypes.entity.inserter.inserter_pickup_position = "not-a-vector"
+        local catalog, diagnostics = Catalog.build(1, {inserter = "inserter"})
+        H.equal(catalog.inserter, nil, "unsupported pickup representation is not published")
+        local item = incomplete_diagnostic(diagnostics, "inserter", "inserter.pickup_offset")
+        H.equal(item ~= nil, true, "unsupported representation has a capture refusal")
+        if item then
+            H.equal(item.detail:find("inserter", 1, true) ~= nil, true, "unsupported diagnostic names entity")
+            H.equal(item.detail:find("pickup_offset", 1, true) ~= nil, true, "unsupported diagnostic names field")
+        end
+    end)
+
+    H.test(shape .. " CG3 a keyed vector and an array vector both normalize where the boundary supports them", function()
+        local world = world_with_catalog_fixtures(shape)
+        world.add_inserter({name = "array-inserter", pickup = {1.25, 2.5}, drop = {-3.5, 4.75}})
+        local keyed = Catalog.build(1, {inserter = "inserter"})
+        local array = Catalog.build(1, {inserter = "array-inserter"})
+        H.deep_equal(keyed.inserter.pickup_offset, {x = 0, y = 1}, "keyed pickup vector")
+        H.deep_equal(keyed.inserter.drop_offset, {x = 0, y = -1.203125}, "keyed drop vector")
+        H.deep_equal(array.inserter.pickup_offset, {x = 1.25, y = 2.5}, "array pickup vector")
+        H.deep_equal(array.inserter.drop_offset, {x = -3.5, y = 4.75}, "array drop vector")
+    end)
+
+    H.test(shape .. " CG4 a complete capture still round-trips unchanged", function()
+        world_with_catalog_fixtures(shape)
+        local catalog = Catalog.build(1, {inserter = "inserter", entities = {"assembler"}})
+        local encoded = helpers.encode_string(helpers.table_to_json(catalog))
+        local decoded = helpers.json_to_table(helpers.decode_string(encoded))
+        H.deep_equal(decoded.inserter, catalog.inserter, "complete inserter geometry round trip")
+        H.deep_equal(decoded.entity.assembler.fluid_boxes, catalog.entity.assembler.fluid_boxes,
+            "complete fluid geometry round trip")
+    end)
+
     H.test(shape .. " C1 tile footprint and exact collision box are separate geometry models", function()
         world_with_catalog_fixtures(shape)
         local catalog = Catalog.build(1, {entities = {"splitter"}})
