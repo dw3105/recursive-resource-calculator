@@ -184,3 +184,24 @@ factory still starve.
 `route_live` aggregation in `logic/bp/groups.lua` has no purpose and must go, or the router will still see
 one endpoint per step. `logic/bp/groups.lua` is PRESERVE-listed for lane 131, so this deletion belongs to
 integration and is not the lane's to make.
+
+### 11.1 The probe that settles it
+
+Measured in a throwaway worktree at `round-15-anchor`, changing one line -- `logic/bp/groups.lua:678`
+`rate_per_second = selected_port.route_live == false and 0 or source.rate_per_second` becomes
+`rate_per_second = source.rate_per_second`, so every anchored hand carries its step rate:
+
+| code | with `route_live` | every hand live |
+|---|---:|---:|
+| `BP_V_PORT_UNREACHABLE` | 5.0 | **17.0** |
+| `BP_V_TRANSPORT_UNUSED` | 92.0 | 92.0 |
+| `BP_V_TRANSFER_BROKEN` | 17.0 | 17.0 |
+| `BP_V_INSERTER_GEOMETRY` | 17.0 | 17.0 |
+
+Giving the hands a rate makes the count of unreachable ports **rise**, from 10 records to 34. Nothing else
+moves. So `route_live` was not routing more product anywhere; it was zeroing rates so the unbound ports
+stopped being counted. The router binds one port per (step, flow, role) whatever the ports carry.
+
+Two consequences. Lane 131's change to `build_demands` is the necessary fix and not merely a tidy one: until
+a demand exists per port, a port's rate changes nothing. And `route_live` must be deleted **with** that
+change, because a router that asks for one endpoint per step will still get one even after demands are split.
