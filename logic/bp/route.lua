@@ -39,6 +39,7 @@ local function new_counters()
         expansions = 0,
         demands_attempted = 0,
         restarts = 0,
+        discarded_geometry = 0,
         crossings_placed = 0,
         searches_abandoned = {
             blocked = 0,
@@ -409,13 +410,9 @@ local function endpoint_position(block, placement, port, work)
     local frame = block
     if port._block_w ~= nil and port._block_h ~= nil then frame = {w = port._block_w, h = port._block_h} end
     local placed = Grid.place_port(frame, placement, port)
-    if work ~= nil and not inside_grid(work, placed.x, placed.y) then
-        local mirrored = mirrored_port(block, port)
-        if mirrored then
-            local other = Grid.place_port(frame, placement, mirrored)
-            if inside_grid(work, other.x, other.y) then return other.x, other.y, mirrored end
-        end
-    end
+    --A mirrored coordinate is not an attachment.  Moving it to the opposite block edge without a materialized
+    --connector would make the router claim a transfer the real inserter/fluid connection never made.  Preserve the
+    --physical coordinate and let endpoint_is_blocked report the named boundary failure instead.
     return placed.x, placed.y
 end
 
@@ -557,6 +554,51 @@ local function demand_endpoint_candidates(work, flow_id, role, entry)
     return result
 end
 
+--Pairing is a routing decision too.  This small static flood fill is deliberately run before materialized
+--segments exist: it prices the obstacle-aware route that each producer/consumer pair is asking for, rather than
+--letting input list order choose the first trunk.  The real Dijkstra below still makes the final decision with
+--capacity, bends, crossings and sharing in view.
+local function pairing_route_cost(work, source, sink)
+    if not source or not sink then return math.huge end
+    local grid = work.grid or {}
+    local function inside(x, y)
+        return (grid.w == nil or (x >= 0 and y >= 0 and x < grid.w and y < grid.h))
+    end
+    local function open(x, y)
+        if (x == source.x and y == source.y) or (x == sink.x and y == sink.y) then return true end
+        local owner = work.obstacles[coordinate_key(x, y)]
+        if owner ~= nil and owner ~= Grid.RESERVED.corridor and owner ~= Grid.RESERVED.port then return false end
+        return indexed_cell(grid, x, y) == nil
+    end
+    local start = coordinate_key(source.x, source.y)
+    local queue, head = {{x = source.x, y = source.y, distance = 0}}, 1
+    local seen = {[start] = true}
+    while queue[head] do
+        local current = queue[head]
+        head = head + 1
+        if current.x == sink.x and current.y == sink.y then return current.distance end
+        for _, direction in ipairs(DIRECTIONS) do
+            local dx, dy = Grid.dir_vector(direction)
+            local x, y = current.x + dx, current.y + dy
+            local key = coordinate_key(x, y)
+            if inside(x, y) and not seen[key] and open(x, y) then
+                seen[key] = true
+                queue[#queue + 1] = {x = x, y = y, distance = current.distance + 1}
+            end
+        end
+    end
+    return math.huge
+end
+
+local function candidate_first(candidates, chosen)
+    local result = {}
+    if chosen then result[#result + 1] = chosen end
+    for _, endpoint in ipairs(candidates or {}) do
+        if endpoint ~= chosen then result[#result + 1] = endpoint end
+    end
+    return result
+end
+
 local function source_endpoint(work, flow_id, entry)
     local role = step_id_of(entry) == "$external" and "in" or "out"
     return demand_endpoint_candidates(work, flow_id, role, entry)[1]
@@ -595,21 +637,50 @@ local function build_demands(work, flows)
                         remaining = endpoint.rate_per_second}
                 end
             end
-            for _, producer in ipairs(producers) do
-                for _, consumer in ipairs(consumers) do
-                    if producer.endpoint and consumer.endpoint then
-                        local amount = math.min(producer.remaining, consumer.remaining)
-                        if amount > tolerance(amount) then
-                            local source_candidates = prioritized_candidates(producer.candidates, consumer.endpoint)
-                            local sink_candidates = prioritized_candidates(consumer.candidates, producer.endpoint)
-                            demands[#demands + 1] = {flow = flow, flow_id = id, source = source_candidates[1], sink = sink_candidates[1],
-                                source_candidates = source_candidates, sink_candidates = sink_candidates,
-                                source_index = 1, sink_index = 1, amount = amount, remaining = amount}
-                            producer.remaining, consumer.remaining = producer.remaining - amount, consumer.remaining - amount
+            --Select the next pair by an obstacle-aware route estimate.  Ties use stable endpoint ids and larger
+            --available flow first, which makes a high-capacity/farther trunk exist before its nearby branches.
+            while true do
+                local best
+                for producer_index, producer in ipairs(producers) do
+                    if producer.endpoint and producer.remaining > tolerance(producer.remaining) then
+                        for consumer_index, consumer in ipairs(consumers) do
+                            if consumer.endpoint and consumer.remaining > tolerance(consumer.remaining) then
+                                local route_cost = math.huge
+                                local chosen_source, chosen_sink
+                                for _, source_candidate in ipairs(producer.candidates or {}) do
+                                    for _, sink_candidate in ipairs(consumer.candidates or {}) do
+                                        local candidate_cost = pairing_route_cost(work, source_candidate, sink_candidate)
+                                        if candidate_cost < route_cost then
+                                            route_cost, chosen_source, chosen_sink = candidate_cost, source_candidate, sink_candidate
+                                        end
+                                    end
+                                end
+                                chosen_source, chosen_sink = chosen_source or producer.endpoint, chosen_sink or consumer.endpoint
+                                local amount = math.min(producer.remaining, consumer.remaining)
+                                local flow_capacity = capacity_for(work, flow)
+                                local score = route_cost - math.min(amount, flow_capacity) * 1e-6
+                                local entry = {producer = producer, consumer = consumer, producer_index = producer_index,
+                                    consumer_index = consumer_index, source = chosen_source, sink = chosen_sink,
+                                    route_cost = route_cost, score = score, amount = amount}
+                                if not best or entry.score < best.score
+                                    or (entry.score == best.score and tostring(entry.source.port_id) < tostring(best.source.port_id))
+                                    or (entry.score == best.score and tostring(entry.source.port_id) == tostring(best.source.port_id)
+                                        and tostring(entry.sink.port_id) < tostring(best.sink.port_id)) then
+                                    best = entry
+                                end
+                            end
                         end
                     end
-                    if producer.remaining <= tolerance(producer.remaining) then break end
                 end
+                if not best or best.amount <= tolerance(best.amount) then break end
+                local source_candidates = candidate_first(prioritized_candidates(best.producer.candidates, best.sink), best.source)
+                local sink_candidates = candidate_first(prioritized_candidates(best.consumer.candidates, best.source), best.sink)
+                demands[#demands + 1] = {flow = flow, flow_id = id, source = best.source, sink = best.sink,
+                    source_candidates = source_candidates, sink_candidates = sink_candidates,
+                    source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
+                    pairing_cost = best.route_cost}
+                best.producer.remaining = best.producer.remaining - best.amount
+                best.consumer.remaining = best.consumer.remaining - best.amount
             end
             for _, producer in ipairs(producers) do
                 if producer.remaining > tolerance(producer.remaining) then
@@ -795,12 +866,14 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
         capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
         underground = true, length = underground_distance(entry, exit_cell)}
     local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
+    local paired_exit_direction = kind == "pipe" and Grid.dir_opposite(direction) or direction
     local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
         direction = direction, dir = direction, flow_id = demand.flow_id,
-        ug_role = "input", type = "input", ug_pair_id = second_id}
+        ug_role = "input", ug_pair_id = second_id, segment_id = segment.segment_id}
     local second = {id = second_id, name = name, position = entity_position(exit_cell.x, exit_cell.y),
-        direction = direction, dir = direction, flow_id = demand.flow_id,
-        ug_role = "output", type = "output", ug_pair_id = first_id}
+        direction = paired_exit_direction, dir = paired_exit_direction, flow_id = demand.flow_id,
+        ug_role = "output", ug_pair_id = first_id, segment_id = segment.segment_id}
+    if kind ~= "pipe" then first.type, second.type = "input", "output" end
     work.entities[#work.entities + 1] = first
     work.entities[#work.entities + 1] = second
     work.segments[#work.segments + 1] = segment
@@ -814,7 +887,67 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     return true, nil, segment
 end
 
+--Appending is the commit point for a complete route.  Keep a cheap structural checkpoint around it so a
+--defensive validation failure (capacity, a splitter footprint, or a late crossing conflict) cannot leave a
+--successful prefix in the working graph.
+local function route_snapshot(work)
+    local entities, entity_by_id = {}, {}
+    for index, entity in ipairs(work.entities) do
+        local copy = {}
+        for key, value in pairs(entity) do
+            if key == "position" and type(value) == "table" then copy[key] = {x = value.x, y = value.y}
+            else copy[key] = value end
+        end
+        entities[index], entity_by_id[tostring(entity.id)] = copy, copy
+    end
+    local segments, segment_by_id = {}, {}
+    for index, segment in ipairs(work.segments) do
+        local copy = {}
+        for key, value in pairs(segment) do
+            if key ~= "allocations" then copy[key] = value end
+        end
+        copy.allocations = {}
+        for allocation_index, allocation in ipairs(segment.allocations or {}) do
+            local allocation_copy = {}
+            for key, value in pairs(allocation) do allocation_copy[key] = value end
+            copy.allocations[allocation_index] = allocation_copy
+        end
+        segments[index], segment_by_id[segment.segment_id] = copy, copy
+    end
+    local bindings = {}
+    for index, binding in ipairs(work.bindings) do
+        bindings[index] = {}
+        for key, value in pairs(binding) do bindings[index][key] = value end
+    end
+    local function copy_map(map)
+        local result = {}
+        for key, value in pairs(map or {}) do result[key] = value end
+        return result
+    end
+    return {entities = entities, segments = segments, bindings = bindings,
+        segments_by_cell = copy_map(work.segments_by_cell), entity_by_segment = copy_map(work.entity_by_segment),
+        underground_cells = copy_map(work.underground_cells), splitter_blocked_cells = copy_map(work.splitter_blocked_cells),
+        segment_by_id = segment_by_id, entity_by_id = entity_by_id}
+end
+
+local function restore_route_snapshot(work, snapshot)
+    work.entities, work.segments, work.bindings = snapshot.entities, snapshot.segments, snapshot.bindings
+    local segments_by_cell = {}
+    for key, segment in pairs(snapshot.segments_by_cell) do segments_by_cell[key] = snapshot.segment_by_id[segment.segment_id] end
+    work.segments_by_cell = segments_by_cell
+    local entity_by_segment = {}
+    for key, entity in pairs(snapshot.entity_by_segment) do entity_by_segment[key] = snapshot.entity_by_id[tostring(entity.id)] end
+    work.entity_by_segment = entity_by_segment
+    work.underground_cells = snapshot.underground_cells
+    work.splitter_blocked_cells = snapshot.splitter_blocked_cells
+end
+
 local function append_normal_path(work, demand, path, amount)
+    local snapshot = route_snapshot(work)
+    local function reject(reason)
+        restore_route_snapshot(work, snapshot)
+        return false, reason
+    end
     local sink = sink_key(demand.sink)
     local first_segment
     local allocated_segments = {}
@@ -824,7 +957,7 @@ local function append_normal_path(work, demand, path, amount)
         local cell = path[index]
         if is_crossing_step(cell, path[index + 1]) then
             local crossed, reason, segment = append_crossing(work, demand, cell, path[index + 1], amount)
-            if not crossed then return false, reason end
+            if not crossed then return reject(reason) end
             first_segment = first_segment or segment
             index = index + 1
         else
@@ -838,16 +971,16 @@ local function append_normal_path(work, demand, path, amount)
                 and direction == segment.splitter_direction
             if not allocated_segments[segment.segment_id] then
                 local allowed = segment_allows(segment, demand, amount)
-                if not allowed then return false, "capacity" end
+                if not allowed then return reject("capacity") end
             end
-            if segment.splitter and key == segment.splitter_second_key and not splitter_continuation then return false, "occupied" end
+            if segment.splitter and key == segment.splitter_second_key and not splitter_continuation then return reject("occupied") end
             if segment.direction ~= direction and not splitter_continuation then
                 --An underground segment owns two coupled endpoints.  It cannot become a splitter: changing
                 --the mapped first entity here would leave its partner carrying a different direction.  The
                 --allocation may still share the segment, but its published pair keeps the direction it was built
                 --for.  Surface belts retain their existing splitter behaviour.
                     if not segment.underground then
-                        if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return false, "occupied" end
+                        if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return reject("occupied") end
                         if splitter_branch_allowed(work, demand, cell.x, cell.y, direction, segment) then
                             local entity = work.entity_by_segment[segment.segment_id]
                             local second_x, second_y = splitter_second_cell(cell.x, cell.y, direction)
@@ -872,7 +1005,8 @@ local function append_normal_path(work, demand, path, amount)
                 capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
                 length = 1}
             local entity = {id = "r:" .. tostring(#work.entities + 1), name = infrastructure(work, kind),
-                position = entity_position(cell.x, cell.y), direction = direction, dir = direction, flow_id = demand.flow_id}
+                position = entity_position(cell.x, cell.y), direction = direction, dir = direction,
+                flow_id = demand.flow_id, segment_id = segment.segment_id}
             work.entities[#work.entities + 1] = entity
             work.segments[#work.segments + 1] = segment
             work.segments_by_cell[key] = segment
@@ -904,12 +1038,14 @@ local function append_underground(work, demand, candidate, amount)
     local name = infrastructure(work, kind)
     if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
     else name = (work.belt and (work.belt.underground or work.belt.belt)) or name end
+    local exit_direction = kind == "pipe" and Grid.dir_opposite(candidate.direction) or candidate.direction
     local first = {id = first_id, name = name, position = entity_position(candidate.source.x, candidate.source.y),
         direction = candidate.direction, dir = candidate.direction, flow_id = demand.flow_id,
-        ug_role = "input", type = "input", ug_pair_id = second_id}
+        ug_role = "input", ug_pair_id = second_id, segment_id = segment.segment_id}
     local second = {id = second_id, name = name, position = entity_position(candidate.sink.x, candidate.sink.y),
-        direction = candidate.direction, dir = candidate.direction, flow_id = demand.flow_id,
-        ug_role = "output", type = "output", ug_pair_id = first_id}
+        direction = exit_direction, dir = exit_direction, flow_id = demand.flow_id,
+        ug_role = "output", ug_pair_id = first_id, segment_id = segment.segment_id}
+    if kind ~= "pipe" then first.type, second.type = "input", "output" end
     work.entities[#work.entities + 1] = first
     work.entities[#work.entities + 1] = second
     work.segments[#work.segments + 1] = segment
@@ -971,21 +1107,85 @@ local function default_expansion_limit(input, demand_count)
     if type(w) == "number" and type(h) == "number" and w > 0 and h > 0 then
         cells = math.max(1, math.floor(w * h))
     end
-    local sweep = cells * #DIRECTIONS * #DIRECTION_ORDERS
+    --A frontier state is (cell, arrival heading, transport kind, underground mode).  The four direction-order
+    --replays remain part of the bounded recovery protocol, so the cumulative default is cells * 4 * 2 * 2 * 4.
+    local sweep = cells * #DIRECTIONS * 2 * 2 * #DIRECTION_ORDERS
     return math.max(4096, sweep) * demand_count
+end
+
+local function state_key(x, y, arrival_direction, kind, underground_mode)
+    return coordinate_key(x, y) .. ":d=" .. tostring(arrival_direction or 0)
+        .. ":k=" .. tostring(kind or "") .. ":u=" .. tostring(underground_mode or 0)
+end
+
+local function heap_before(left, right)
+    if left.cost ~= right.cost then return left.cost < right.cost end
+    return left.serial < right.serial
+end
+
+local function heap_push(search, node)
+    search.serial = search.serial + 1
+    node.serial = search.serial
+    local heap = search.heap
+    heap[#heap + 1] = node
+    local index = #heap
+    while index > 1 do
+        local parent = math.floor(index / 2)
+        if heap_before(heap[parent], heap[index]) then break end
+        heap[parent], heap[index] = heap[index], heap[parent]
+        index = parent
+    end
+end
+
+local function heap_pop(search)
+    local heap = search.heap
+    if #heap == 0 then return nil end
+    local result = heap[1]
+    local last = heap[#heap]
+    heap[#heap] = nil
+    if #heap > 0 then
+        heap[1] = last
+        local index = 1
+        while true do
+            local left, right = index * 2, index * 2 + 1
+            local smallest = index
+            if left <= #heap and heap_before(heap[left], heap[smallest]) then smallest = left end
+            if right <= #heap and heap_before(heap[right], heap[smallest]) then smallest = right end
+            if smallest == index then break end
+            heap[index], heap[smallest] = heap[smallest], heap[index]
+            index = smallest
+        end
+    end
+    return result
+end
+
+local function enqueue_state(search, x, y, arrival_direction, mode, parent_key, cost)
+    local key = state_key(x, y, arrival_direction, search.demand.kind, mode)
+    local previous = search.best[key]
+    if previous ~= nil and cost >= previous - EPSILON then return false end
+    search.best[key] = cost
+    search.parent[key] = parent_key
+    search.points[key] = {x = x, y = y}
+    heap_push(search, {key = key, x = x, y = y, direction = arrival_direction, mode = mode, cost = cost})
+    return true
 end
 
 local function begin_search(work, demand, amount, order_index)
     order_index = order_index or 1
-    local search = {demand = demand, amount = amount, queue = {{x = demand.source.x, y = demand.source.y}}, head = 1, tail = 1,
-        visited = {[coordinate_key(demand.source.x, demand.source.y)] = true}, parent = {}, neighbor_index = 1,
+    local search = {demand = demand, amount = amount, heap = {}, serial = 0, best = {}, parent = {}, points = {},
         saw_capacity = false, saw_fluid_mix = false, saw_blocked = false,
-        directions = DIRECTION_ORDERS[order_index], order_index = order_index}
+        directions = DIRECTION_ORDERS[order_index], order_index = order_index, closed = {}}
+    search.source_key = state_key(demand.source.x, demand.source.y, demand.source.travel_dir or 0, demand.kind, 0)
+    search.points[search.source_key] = {x = demand.source.x, y = demand.source.y}
+    search.best[search.source_key] = 0
+    search.parent[search.source_key] = nil
+    heap_push(search, {key = search.source_key, x = demand.source.x, y = demand.source.y,
+        direction = demand.source.travel_dir or 0, mode = 0, cost = 0})
     local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
     if source_segment then
         local allowed, reason = segment_allows(source_segment, demand, amount)
         if not allowed then
-            search.saw_capacity, search.saw_fluid_mix, search.queue, search.tail = reason == "capacity", reason == "fluid_mix", {}, 0
+            search.saw_capacity, search.saw_fluid_mix, search.heap = reason == "capacity", reason == "fluid_mix", {}
         end
     end
     return search
@@ -1034,7 +1234,8 @@ local function crossing_target(work, demand, search, current, direction, amount)
         local x, y = current.x + dx * distance, current.y + dy * distance
         if not inside_grid(work, x, y) then return nil end
         local key = coordinate_key(x, y)
-        if not search.visited[key] and not work.segments_by_cell[key] and not work.underground_cells[key]
+        local underground_key = state_key(x, y, direction, demand.kind, 1)
+        if not search.best[underground_key] and not work.segments_by_cell[key] and not work.underground_cells[key]
             and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
             return {x = x, y = y}
         end
@@ -1042,47 +1243,114 @@ local function crossing_target(work, demand, search, current, direction, amount)
     return nil
 end
 
+local function transition_cost(work, demand, x, y, direction, previous_direction, mode, distance, amount)
+    if mode == 1 then
+        --Both endpoints and the underground span are real cost.  Crossings also carry the witness overhead.
+        return 2 + distance + 2
+    end
+    local segment = work.segments_by_cell[coordinate_key(x, y)]
+    local cost = 1
+    if segment and segment.flow_id == demand.flow_id
+        and segment.kind == demand.kind
+        and segment_total(segment) + amount <= segment.capacity_per_second + tolerance(segment.capacity_per_second) then
+        cost = 0.2
+    end
+    if previous_direction ~= nil and previous_direction ~= 0 and previous_direction ~= direction then cost = cost + 1 end
+    if segment and segment.direction ~= direction then cost = cost + 2 end
+    return cost
+end
+
 local function search_step(work, search)
-    if not search.points then
-        search.points = {[coordinate_key(search.demand.source.x, search.demand.source.y)] = search.queue[1]}
-        search.source_key = coordinate_key(search.demand.source.x, search.demand.source.y)
+    local current = heap_pop(search)
+    if not current then return "failed" end
+    if search.closed[current.key] then return "continue" end
+    if search.best[current.key] ~= current.cost then return "continue" end
+    search.closed[current.key] = true
+    if current.x == search.demand.sink.x and current.y == search.demand.sink.y then
+        return reconstruct(search, current.key)
     end
-    if search.head > search.tail then return "failed" end
-    local current = search.queue[search.head]
-    local current_key = coordinate_key(current.x, current.y)
-    if current.x == search.demand.sink.x and current.y == search.demand.sink.y then return reconstruct(search, current_key) end
-    if search.neighbor_index > #search.directions then search.head, search.neighbor_index = search.head + 1, 1; return "continue" end
-    local direction = search.directions[search.neighbor_index]
-    search.neighbor_index = search.neighbor_index + 1
-    local dx, dy = Grid.dir_vector(direction)
-    local nx, ny = current.x + dx, current.y + dy
-    local target = nx == search.demand.sink.x and ny == search.demand.sink.y
-    local first = current.x == search.demand.source.x and current.y == search.demand.source.y
-    if first and search.demand.source.travel_dir ~= nil and search.demand.source.travel_dir ~= direction then return "continue" end
-    if target and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then return "continue" end
-    local key = coordinate_key(nx, ny)
-    if not search.visited[key]
-        and path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search) then
-        search.visited[key], search.parent[key], search.points[key] = true, current_key, {x = nx, y = ny}
-        search.queue[search.tail + 1], search.tail = {x = nx, y = ny}, search.tail + 1
-        return "continue"
-    end
-    --A port tile is an entity, never an underground entrance, so a crossing never starts on the source.
-    if first then return "continue" end
-    local crossing = crossing_target(work, search.demand, search, current, direction, search.amount)
-    if crossing then
-        local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
-        if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
-            local crossing_key = coordinate_key(crossing.x, crossing.y)
-            search.visited[crossing_key], search.parent[crossing_key], search.points[crossing_key] =
-                true, current_key, {x = crossing.x, y = crossing.y}
-            search.queue[search.tail + 1], search.tail = {x = crossing.x, y = crossing.y}, search.tail + 1
+    for _, direction in ipairs(search.directions) do
+        local dx, dy = Grid.dir_vector(direction)
+        local nx, ny = current.x + dx, current.y + dy
+        local target = nx == search.demand.sink.x and ny == search.demand.sink.y
+        local first = current.x == search.demand.source.x and current.y == search.demand.source.y
+        if (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction)
+            and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction) then
+            local free = path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search)
+            if free then
+                local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
+                    current.direction, 0, 0, search.amount)
+                enqueue_state(search, nx, ny, direction, 0, current.key, cost)
+            elseif not first then
+                local crossing = crossing_target(work, search.demand, search, current, direction, search.amount)
+                if crossing then
+                    local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
+                    if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
+                        local cost = current.cost + transition_cost(work, search.demand, crossing.x, crossing.y, direction,
+                            current.direction, 1, underground_distance(current, crossing), search.amount)
+                        enqueue_state(search, crossing.x, crossing.y, direction, 1, current.key, cost)
+                    end
+                end
+            end
         end
     end
     return "continue"
 end
 
+local function audit_route_work(work)
+    local live_segments = {}
+    for _, segment in ipairs(work.segments or {}) do
+        local live = false
+        for _, allocation in ipairs(segment.allocations or {}) do
+            if allocation.rate_per_second > tolerance(allocation.rate_per_second) then live = true; break end
+        end
+        if live then live_segments[segment.segment_id] = segment end
+    end
+    local segments = {}
+    for _, segment in ipairs(work.segments or {}) do
+        if live_segments[segment.segment_id] then segments[#segments + 1] = segment end
+    end
+    local entities = {}
+    for _, entity in ipairs(work.entities or {}) do
+        if entity.segment_id and live_segments[entity.segment_id] then
+            entity._route_removed = nil
+            entities[#entities + 1] = entity
+        else
+            work.counters.discarded_geometry = (work.counters.discarded_geometry or 0) + 1
+        end
+    end
+    work.segments, work.entities = segments, entities
+    local segments_by_cell = {}
+    for key, segment in pairs(work.segments_by_cell or {}) do
+        if live_segments[segment.segment_id] then segments_by_cell[key] = segment end
+    end
+    work.segments_by_cell = segments_by_cell
+    local entity_by_segment = {}
+    for _, entity in ipairs(entities) do
+        if entity_by_segment[entity.segment_id] == nil then entity_by_segment[entity.segment_id] = entity end
+    end
+    work.entity_by_segment = entity_by_segment
+    local underground_cells = {}
+    for key, _ in pairs(work.underground_cells or {}) do
+        local segment = work.segments_by_cell[key]
+        if segment and segment.underground then underground_cells[key] = true end
+    end
+    work.underground_cells = underground_cells
+    local splitter_cells = {}
+    for key, _ in pairs(work.splitter_blocked_cells or {}) do
+        if work.segments_by_cell[key] then splitter_cells[key] = true end
+    end
+    work.splitter_blocked_cells = splitter_cells
+    local bindings = {}
+    for _, binding in ipairs(work.bindings or {}) do
+        if live_segments[binding.segment_id] then bindings[#bindings + 1] = binding end
+    end
+    work.bindings = bindings
+    return work
+end
+
 local function result_for(work)
+    audit_route_work(work)
     local result = {entities = {}, segments = {}, port_bindings = work.bindings, bindings = work.bindings}
     for _, entity in ipairs(work.entities) do
         if not entity._route_removed then result.entities[#result.entities + 1] = entity end
@@ -1155,6 +1423,8 @@ local function normalize_input(input)
         --demand gets the same cell/direction-order sweep that a single-demand run would have had. This keeps
         --adding consumers from stealing the budget from the demand whose path became easier to find.
         max_expansions = nil, expansions = 0,
+        expansion_state_space = {directions = #DIRECTIONS, kinds = 2, underground_modes = 2,
+            direction_orders = #DIRECTION_ORDERS},
     }
     for _, block in ipairs(blocks) do
         local placement = placement_for(block, placements)
@@ -1203,6 +1473,7 @@ local function restart_with_priority(state, work, demand)
     for _, entry in ipairs(work.demand_order) do
         if not claimed[entry.order_key] then ordered[#ordered + 1] = entry end
     end
+    audit_route_work(work)
     work.counters.restarts = work.counters.restarts + 1
     work.demands = ordered
     for _, entry in ipairs(ordered) do
@@ -1215,16 +1486,19 @@ local function restart_with_priority(state, work, demand)
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
     work.splitter_blocked_cells = {}
     work.attempt_generation, work.current = work.attempt_generation + 1, nil
+    audit_route_work(work)
     state.cursor.demand_index, state.progress.done_units = 1, 0
     state.progress.phase = "routing"
     return true
 end
 
 local function clear_route_work(work)
+    audit_route_work(work)
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
     work.splitter_blocked_cells = {}
     work.current = nil
+    audit_route_work(work)
 end
 
 local function next_endpoint_candidate(demand)
