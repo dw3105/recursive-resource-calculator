@@ -290,6 +290,129 @@ local function inserter_size(catalog, input)
     return name or "inserter", dimensions(catalog, name, "inserter", 1, 1)
 end
 
+local function point(value)
+    if type(value) ~= "table" then return nil end
+    local x, y = finite(value.x), finite(value.y)
+    if x == nil or y == nil then x, y = finite(value[1]), finite(value[2]) end
+    if x == nil or y == nil then return nil end
+    return {x = x, y = y}
+end
+
+local function inserter_offsets(catalog, name)
+    local facts = catalog and catalog.inserter
+    local entity_facts = lookup_entity(catalog, name, "inserter")
+    if not facts or (not facts.pickup_offset and entity_facts.pickup_offset) then facts = entity_facts end
+    facts = facts or {}
+    -- The normal catalog always supplies these facts.  The fallback keeps the small, older grouping fixtures
+    -- meaningful while still making every real placement below go through the captured geometry when present.
+    return point(facts.pickup_offset) or {x = 0, y = 1},
+        point(facts.drop_offset or facts.drop_position) or {x = 0, y = -1}
+end
+
+local function rotated_point(cx, cy, offset, direction)
+    local dx, dy = Grid.rotate_vector(offset.x, offset.y, direction)
+    return {x = cx + dx, y = cy + dy}
+end
+
+local function cell_of(value)
+    return math.floor(value + Geometry.EPSILON)
+end
+
+local function transfer_cells(x, y, w, h, direction, pickup_offset, drop_offset)
+    local cx, cy = x + w / 2, y + h / 2
+    local pickup = rotated_point(cx, cy, pickup_offset, direction)
+    local drop = rotated_point(cx, cy, drop_offset, direction)
+    return pickup, drop, cell_of(pickup.x), cell_of(pickup.y), cell_of(drop.x), cell_of(drop.y)
+end
+
+local function cell_in_rect(rect, x, y)
+    return rect ~= nil and x >= rect.x and x < rect.x + rect.w and y >= rect.y and y < rect.y + rect.h
+end
+
+local function rectangles_overlap(a, b)
+    return a.x < b.x + b.w and b.x < a.x + a.w and a.y < b.y + b.h and b.y < a.y + a.h
+end
+
+local function member_for(block, reference)
+    if reference == nil then return nil end
+    local wanted = tostring(reference)
+    for _, member in ipairs(block.machines or {}) do
+        if tostring(member.id) == wanted or "m:" .. tostring(member.id) == wanted then return member end
+    end
+    return nil
+end
+
+local function explicit_cell(entry, keys)
+    for _, key in ipairs(keys) do
+        local value = point(entry and entry[key])
+        if value then return cell_of(value.x), cell_of(value.y) end
+    end
+    return nil, nil
+end
+
+local function candidate_inserter(block, machine, role, index, iw, ih, catalog, input, source_member, target_member,
+    source_cell, target_cell)
+    local name = input and input.name
+    local pickup_offset, drop_offset = inserter_offsets(catalog, name)
+    local preferred = role == "input" and EAST or SOUTH
+    local desired_x, desired_y
+    if role == "input" then
+        desired_x, desired_y = machine.x + (-iw), machine.y + index - 1
+    else
+        desired_x, desired_y = machine.x + math.max(0, math.min(machine.w - iw, index - 1)), machine.y + machine.h
+    end
+    local occupied = block.members or {}
+    local best, best_score
+    -- Offsets are prototype facts, not necessarily one tile.  The bounded search covers the ordinary inserter
+    -- envelope plus modded long-reach prototypes without ever trying a different inserter family.
+    local radius = 8
+    local directions = {EAST, SOUTH, WEST, NORTH}
+    for direction_index, direction in ipairs(directions) do
+        for y = machine.y - radius, machine.y + machine.h + radius do
+            for x = machine.x - radius, machine.x + machine.w + radius do
+                local rect = {x = x, y = y, w = iw, h = ih}
+                if not rectangles_overlap(rect, machine) then
+                    local _, _, pickup_x, pickup_y, drop_x, drop_y =
+                        transfer_cells(x, y, iw, ih, direction, pickup_offset, drop_offset)
+                    local target_x, target_y = drop_x, drop_y
+                    local source_x, source_y = pickup_x, pickup_y
+                    local target_ok = target_member and cell_in_rect(target_member, target_x, target_y)
+                        or (target_cell and target_x == target_cell[1] and target_y == target_cell[2])
+                    local source_ok = source_member and cell_in_rect(source_member, source_x, source_y)
+                        or (source_cell and source_x == source_cell[1] and source_y == source_cell[2])
+                    if not source_member and not source_cell then
+                        source_ok = role == "input" and not cell_in_rect(machine, source_x, source_y)
+                            or cell_in_rect(machine, source_x, source_y)
+                    end
+                    if not target_member and not target_cell then
+                        target_ok = role == "input" and cell_in_rect(machine, target_x, target_y)
+                            or not cell_in_rect(machine, target_x, target_y)
+                    end
+                    if target_ok and source_ok then
+                        local blocked = false
+                        for _, other in ipairs(occupied) do
+                            if other ~= machine and rectangles_overlap(rect, other) then blocked = true; break end
+                        end
+                        if not blocked then
+                            local score = math.abs(x - desired_x) + math.abs(y - desired_y)
+                                + (direction == preferred and 0 or 100)
+                                + direction_index / 1000
+                            if best_score == nil or score < best_score then
+                                local pickup_position, drop_position =
+                                    transfer_cells(x, y, iw, ih, direction, pickup_offset, drop_offset)
+                                best_score = score
+                                best = {x = x, y = y, w = iw, h = ih, dir = direction,
+                                    pickup_position = pickup_position, drop_position = drop_position}
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return best
+end
+
 local function covers(beacon, machine, machine_spec, supply_w, supply_h)
     -- Supply is measured from the beacon centre, but the supplied entity is its collision box.  Keeping the
     -- conversion in Geometry is important: a tile footprint is a deliberate fallback, not a second predicate.
@@ -306,33 +429,52 @@ local function append_inserters(block, step, machine, catalog, input, flows)
     for _, port in ipairs(step.outputs or {}) do
         if not flow_is_fluid(port, flows) then outputs[#outputs + 1] = port end
     end
-    -- Put inputs along the machine's left face and outputs below it. Each item inserter is therefore adjacent to
-    -- the machine it serves; no later connection is stranded in a second row away from the target. The route
-    -- lane supplies the source/output structure named by the corresponding block port.
     local function append(role, list)
         for index, port in ipairs(list) do
             local entry = {role = role, port = port}
-            local x, y, direction
-            if role == "input" then
-                x, y, direction = machine.x - iw, machine.y + index - 1, EAST
-            else
-                x, y, direction = machine.x + math.max(0, math.min(machine.w - iw, index - 1)), machine.y + machine.h, SOUTH
+            local source_reference = role == "input"
+                and (port.source_machine_id or port.source_id or port.source_member_id or port.source)
+                or (port.drain_machine_id or port.drain_id or port.drain_member_id or port.drain)
+            local source_member = member_for(block, source_reference)
+            local target_member = role == "input" and machine or member_for(block, source_reference)
+            local transfer_source_member = source_member
+            if role == "output" then transfer_source_member = machine end
+            local source_x, source_y = explicit_cell(port, role == "input"
+                and {"pickup_cell", "source_cell", "source_position"}
+                or {"drop_cell", "drain_cell", "drain_position"})
+            local target_x, target_y = explicit_cell(port, role == "input"
+                and {"drop_cell", "target_cell", "target_position"}
+                or {"pickup_cell", "source_cell", "source_position"})
+            local source_cell = source_x ~= nil and {source_x, source_y} or nil
+            local target_cell = target_x ~= nil and {target_x, target_y} or nil
+            local placement = candidate_inserter(block, machine, role, index, iw, ih, catalog, input,
+                transfer_source_member, target_member, source_cell, target_cell)
+            if not placement then
+                block.failure = {name = "inserter-reach", code = "BP_P_NO_FIT",
+                    detail = "no catalog inserter reach for " .. tostring(step.step_id) .. ":"
+                        .. tostring(port.flow_id or port.full_name)}
+                return
             end
-        block.inserters[#block.inserters + 1] = {
+            block.inserters[#block.inserters + 1] = {
             id = member_id("inserter", step.step_id, machine.ordinal, entry.role .. ":" .. tostring(index)),
             kind = "inserter", type = "inserter", name = name,
             step_id = step.step_id, machine_id = machine.id, role = entry.role,
             port_id = (entry.role == "input" and "in:" or "out:")
                 .. tostring(entry.port.port_id or entry.port.flow_id or entry.port.full_name),
             flow_id = entry.port.flow_id or entry.port.full_name,
-            x = x, y = y, w = iw, h = ih, dir = direction,
+            x = placement.x, y = placement.y, w = iw, h = ih, dir = placement.dir,
+            -- These are block-frame coordinates until materialize rotates and translates the member.  Keeping
+            -- the assignments explicit is intentional: the validator must consume the captured cells and never
+            -- fall back to its direction-vector guess.
+            pickup_position = placement.pickup_position,
+            drop_position = placement.drop_position,
             pickup_target = entry.role == "input"
                 and (entry.port.source_id or entry.port.source_port_id or ("port:" .. tostring(entry.port.flow_id or entry.port.full_name)))
                 or machine.id,
             drop_target = entry.role == "input"
                 and machine.id
                 or (entry.port.drain_id or entry.port.drain_port_id or ("port:" .. tostring(entry.port.flow_id or entry.port.full_name))),
-        }
+            }
         end
     end
     append("input", inputs)
@@ -393,20 +535,53 @@ local function block_ports(block, steps, ports, flows)
                 if inserter.machine_id == selected_port.member_id and inserter.role == wanted_role
                     and inserter.flow_id == (source.flow_id or source.full_name or selected_port.flow_id) then
                     inserter_id = inserter.id
+                    local position = role == "in" and point(inserter.pickup_position) or point(inserter.drop_position)
+                    if position then
+                        local candidate_x, candidate_y = cell_of(position.x), cell_of(position.y)
+                        local on_edge = (candidate_x == -1 and candidate_y >= 0 and candidate_y < block.h)
+                            or (candidate_x == block.w and candidate_y >= 0 and candidate_y < block.h)
+                            or (candidate_y == -1 and candidate_x >= 0 and candidate_x < block.w)
+                            or (candidate_y == block.h and candidate_x >= 0 and candidate_x < block.w)
+                        if on_edge then x, y = candidate_x, candidate_y end
+                    end
                     break
                 end
             end
+            local machine = member_for(block, selected_port.member_id)
+            if source.kind == "fluid" or source.is_fluid == true then
+                local connection = source.connection
+                local position = connection and point(connection.position or connection.pos)
+                if not position and connection and type(connection.positions) == "table" then
+                    position = point(connection.positions[1])
+                end
+                if machine and position then
+                    local dx, dy = Grid.rotate_vector(position.x, position.y, machine.dir or NORTH)
+                    local connection_x = cell_of(machine.x + machine.w / 2 + dx)
+                    local connection_y = cell_of(machine.y + machine.h / 2 + dy)
+                    source.connection_position = {x = connection_x, y = connection_y}
+                    local on_edge = (connection_x == -1 and connection_y >= 0 and connection_y < block.h)
+                        or (connection_x == block.w and connection_y >= 0 and connection_y < block.h)
+                        or (connection_y == -1 and connection_x >= 0 and connection_x < block.w)
+                        or (connection_y == block.h and connection_x >= 0 and connection_x < block.w)
+                    if on_edge then x, y = connection_x, connection_y end
+                end
+            end
+            local actual_normal, actual_travel = normal, travel
+            if x == -1 then actual_normal, actual_travel = EAST, role == "in" and EAST or WEST
+            elseif x == block.w then actual_normal, actual_travel = WEST, role == "in" and WEST or EAST
+            elseif y == -1 then actual_normal, actual_travel = SOUTH, role == "in" and SOUTH or NORTH
+            elseif y == block.h then actual_normal, actual_travel = NORTH, role == "in" and NORTH or SOUTH end
             local block_port = {
                 port_id = source.port_id or source.id or ((role or "port") .. ":" .. tostring(index)),
                 role = role, kind = source.kind or (source.is_fluid and "fluid" or "item"),
                 flow_id = source.flow_id or source.full_name or selected_port.flow_id,
                 rate_per_second = source.rate_per_second,
                 step_id = selected_port.step_id,
-                attach_dx = x, attach_dy = y, normal_dir = normal, travel_dir = travel,
+                attach_dx = x, attach_dy = y, normal_dir = actual_normal, travel_dir = actual_travel,
                 member_id = selected_port.member_id, inserter_id = inserter_id,
             }
             for _, field in ipairs({"full_name", "is_fluid", "machine", "machine_id", "fluidbox_index", "box_index",
-                "connection_index", "pipe_connection_index", "production_type", "filter"}) do
+                "connection_index", "pipe_connection_index", "production_type", "filter", "connection_position"}) do
                 if source[field] ~= nil then block_port[field] = copy(source[field]) end
             end
             if source.connection ~= nil then block_port.connection = copy(source.connection) end
@@ -451,6 +626,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- beacon is genuinely offered as a shared strip instead of being added after arbitrary machine packing.
     local machine_specs = {}
     local machine_specs_by_id = {}
+    local machines_by_id = {}
     local max_machine_h = 1
     local machine_w = 0
     for _, step in ipairs(steps) do
@@ -595,8 +771,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         if spec.step.inventory ~= nil then machine.inventory = copy(spec.step.inventory) end
         block.machines[#block.machines + 1] = machine
         block.members[#block.members + 1] = machine
+        machines_by_id[machine.id] = machine
         x = x + spec.layout_w + 1
-        append_inserters(block, spec.step, machine, catalog, input, flows)
+    end
+    -- All machines are known before any transfer is solved.  That matters for an explicit machine-to-machine
+    -- obligation: the inserter at the producer and the inserter at the consumer must each see the other machine
+    -- as a real endpoint, even when the producer appears first in step order.
+    for _, spec in ipairs(machine_specs) do
+        append_inserters(block, spec.step, machines_by_id[spec.id], catalog, input, flows)
     end
 
     -- Inserter rows belonging to different machines have disjoint x ranges because machine_specs reserves the
@@ -773,6 +955,75 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
     end
 
+    -- A row is allowed to cast farther than the machine that motivated it, but a beacon that can be removed
+    -- without lowering any configured count is not allowed to survive.  Test the physical influence again after
+    -- the whole block is assembled: per-row placement alone cannot see that a second row is covered by the first.
+    local function requirement_for(machine, signature)
+        for _, step in ipairs(steps) do
+            if step.step_id == machine.step_id then
+                for _, group in ipairs(step._groups or {}) do
+                    if group.signature == signature then return group.count_per_machine end
+                end
+            end
+        end
+        return 0
+    end
+
+    local function covered_by(beacon, machine)
+        local spec = machine_specs_by_id[machine.id] and machine_specs_by_id[machine.id].machine_spec
+        return covers(beacon, machine, spec, beacon.supply_w, beacon.supply_h)
+    end
+
+    local function redundant(candidate)
+        for _, machine in ipairs(block.machines) do
+            for _, group in ipairs(ordered_groups) do
+                local required = requirement_for(machine, group.signature)
+                if required > 0 then
+                    local count = 0
+                    for _, beacon in ipairs(block.beacons) do
+                        if beacon ~= candidate and beacon.signature == group.signature and covered_by(beacon, machine) then
+                            count = count + 1
+                        end
+                    end
+                    if count < required then return false end
+                end
+            end
+        end
+        return true
+    end
+
+    local changed = true
+    while changed do
+        changed = false
+        for index, beacon in ipairs(block.beacons) do
+            if redundant(beacon) then
+                table.remove(block.beacons, index)
+                for member_index, member in ipairs(block.members) do
+                    if member == beacon then table.remove(block.members, member_index); break end
+                end
+                changed = true
+                break
+            end
+        end
+    end
+    block.physical_beacon_count = #block.beacons
+
+    -- Re-publish the complete physical influence after pruning.  In particular, never blank covered_members to
+    -- make a load-bearing beacon look removable: extra influence is legal and remains visible to validation.
+    for _, beacon in ipairs(block.beacons) do
+        local covered_all, required = {}, {}
+        for _, machine in ipairs(block.machines) do
+            if covered_by(beacon, machine) then
+                covered_all[#covered_all + 1] = machine.id
+                if requirement_for(machine, beacon.signature) > 0 then required[#required + 1] = machine.id end
+            end
+        end
+        beacon.required_for = required
+        beacon.covered_members = list_copy(covered_all)
+        beacon.member_ids = list_copy(covered_all)
+        beacon.members = list_copy(covered_all)
+    end
+
     -- The inset rows belong to the block too.  They are placed after machines and never share an occupancy
     -- cell with a machine, another inserter, or a beacon.
     local max_inserter_bottom = inserter_bottom
@@ -799,7 +1050,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- remains placed only makes bookkeeping look safe. The candidate is rejected and the caller can try a split.
     for _, beacon in ipairs(block.beacons) do
         if beacon.has_speed_module then
-            for _, machine_id in ipairs(beacon.required_for) do
+            for _, machine_id in ipairs(beacon.covered_members) do
                 local machine
                 for _, candidate in ipairs(block.machines) do if candidate.id == machine_id then machine = candidate break end end
                 if machine and machine.forbids_speed_beacon then block.invalid_coverage = true end
@@ -810,7 +1061,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         block.beacon_coverage[machine.id] = {}
         for _, beacon in ipairs(block.beacons) do
             local required = false
-            for _, member_id_value in ipairs(beacon.required_for) do
+            for _, member_id_value in ipairs(beacon.covered_members) do
                 if member_id_value == machine.id then required = true break end
             end
             if required then block.beacon_coverage[machine.id][#block.beacon_coverage[machine.id] + 1] = beacon.id end
@@ -945,7 +1196,7 @@ local function make_candidates(input)
     local limits = input and input.limits or {}
     local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
     local specs = partition_specs(steps, max_candidates * 2)
-    local candidates = {}
+    local candidates, failures = {}, {}
     local seen = {}
     for _, spec in ipairs(specs) do
         local blocks = {}
@@ -953,7 +1204,13 @@ local function make_candidates(input)
         for _, group in ipairs(spec) do
             local block_id = "block:" .. group.id
             local block = build_block(group.steps, catalog, relevant_ports(group.steps, ports, flows), flows, input, block_id)
-            if block.invalid_coverage then valid = false break end
+            if block.invalid_coverage or block.failure then
+                valid = false
+                failures[#failures + 1] = block.failure or {
+                    name = "beacon-split", code = "BP_P_NO_FIT", detail = "configured beacon coverage cannot be split",
+                }
+                break
+            end
             blocks[#blocks + 1] = block
         end
         if valid then
@@ -979,15 +1236,15 @@ local function make_candidates(input)
         if a.physical_beacon_count == b.physical_beacon_count then return a.id < b.id end
         return a.physical_beacon_count < b.physical_beacon_count
     end)
-    return candidates
+    return candidates, failures
 end
 
 function Groups.begin(input)
-    local candidates = make_candidates(input or {})
+    local candidates, failures = make_candidates(input or {})
     return {
         done = false, ok = nil, cursor = {candidate_index = 1},
         progress = {phase = "grouping", done_units = 0, total_units = #candidates},
-        work = {candidates = candidates, emitted = {}},
+        work = {candidates = candidates, failures = failures, emitted = {}},
     }
 end
 
@@ -1004,7 +1261,7 @@ function Groups.step(state, budget)
     end
     budget.ops = ops
     if state.cursor.candidate_index > #state.work.candidates then
-        state.result = {candidates = state.work.emitted}
+        state.result = {candidates = state.work.emitted, failures = list_copy(state.work.failures)}
         state.done, state.ok = true, #state.work.emitted > 0
     end
     return state
@@ -1038,6 +1295,15 @@ function Groups.materialize(block, placement)
         end
         entity.x, entity.y, entity.w, entity.h, entity.dir = geometry.x, geometry.y, geometry.w, geometry.h, geometry.dir
         entity.position = {x = geometry.x + geometry.w / 2, y = geometry.y + geometry.h / 2}
+        if member.kind == "inserter" then
+            for _, field in ipairs({"pickup_position", "drop_position"}) do
+                local local_position = point(member[field])
+                if local_position then
+                    local x, y = Grid.rotate_point(local_position.x, local_position.y, block.w, block.h, dir)
+                    entity[field] = {x = px + x, y = py + y}
+                end
+            end
+        end
         placed.entities[#placed.entities + 1] = entity
         occupied[#occupied + 1] = {
             x = geometry.x, y = geometry.y, w = geometry.w, h = geometry.h,
@@ -1068,6 +1334,13 @@ function Groups.materialize(block, placement)
         end
         local geometry = Grid.place_port(block, {x = px, y = py, dir = dir}, source)
         local placed_port = copy(source)
+        if source.connection_position then
+            local connection = point(source.connection_position)
+            if connection then
+                local cx, cy = Grid.rotate_point(connection.x, connection.y, block.w, block.h, dir)
+                placed_port.connection_position = {x = px + cx, y = py + cy}
+            end
+        end
         if placed_port.member_id then placed_port.member_id = "m:" .. tostring(placed_port.member_id) end
         if dir == NORTH then
             -- In the source orientation the two representations coincide, so retain the concrete tile for
