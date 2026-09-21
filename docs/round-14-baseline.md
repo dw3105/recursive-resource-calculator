@@ -306,3 +306,91 @@ gated on the only input that matters, so lane verdicts can never stand in for in
 The validator now catches all seven classes above. Round 13 reported `ok=true` on an artifact whose 224 belt
 entities served nothing, whose 11 of 18 inserters moved nothing and whose 12 pipe-to-ground endpoints could
 not pair. The pipeline now tells the truth about itself, in detail, for the first time.
+
+## 11. The player's own two files, and what they settled
+
+Two files arrived after the merges, and each overturned something this round had written down.
+
+### 11.1 `red_science_1s.txt` — the fresh capture
+
+`~/share/RRC/red_science_1s.txt`, build 1.1.53, base 2.0.77, **54 active mods**, 555 sheet rows, target
+`item/automation-science-pack` at 1/s. Solved: science 4 machines, iron-plate 3.2, copper-plate 1.6,
+iron-gear-wheel 0.4.
+
+Sent twice. The first, sha256 `92d162d8…`, was capture-only: `generation.status = "absent"`, so no
+PreparedInput existed and `tests/golden/add_case` wrote none. The second, sha256 `482110b1…`, followed a real
+Generate press and carries `generation.prepared_input` — the exact object the mod handed its own search.
+
+**In game it failed**: `reason_codes: ["BP_FAIL_SEARCH_BUDGET"]`, phase `search`, progress 184 of 49 units.
+That is the same wall measured offline, reported by the mod itself.
+
+**A live capture defect.** The real captured catalog carries
+`inserter: {"pickup_offset": {}, "drop_offset": {}, "drop_position": {}}` while
+`options.catalog_diagnostics` is `{}`. Belt, pipe, pole and robo all survive intact. So the vectors are
+emptied after `logic/catalog.lua` builds them and before the JSON is written, and capture never notices. This
+is shipping in 1.1.53; it is not an artefact of the historical `player-am2-chain` case.
+
+**A sentinel nothing ever read back.** `logic/export_payload.lua:100` writes `rrc_empty_list = true` for an
+empty list, so a JSON round trip keeps "empty LIST" distinct from "empty map". No reader undid it, and the
+generator died with `preflight.lua:422: attempt to index local 'group' (a boolean value)` -- the boolean
+being the sentinel's own `true`.
+
+`tools/prepared_from_export.py` now handles both: it prefers the captured PreparedInput, repairs only the
+empty inserter vectors, names each repair, and marks the result `certifiable: false`.
+
+**On the real captured input the search is fast.** First candidate at **3 seconds**, then one every one to two
+seconds. The five second ceiling is reachable on this sheet; the seven-step `player-am2-chain` was never
+representative of it.
+
+Every candidate fails the same way, and the cause is one handshake:
+
+```
+17265  BP_V_TRANSPORT_UNUSED
+ 2706  BP_V_TRANSFER_BROKEN
+ 1114  BP_V_INSERTER_GEOMETRY   "cell has invalid occupant: empty ground"
+  180  BP_V_ROUTE_DISCONTINUOUS
+```
+
+`groups.lua:1148` `step_ports` builds block ports carrying **no position**; placement comes later from
+`Grid.place_port` on the block edge. `candidate_inserter` separately places inserters at catalog-derived
+cells. Route connects to the **port**. The inserter's cell is elsewhere. Everything above follows from that.
+
+### 11.2 `red_science_1s_manual_bp.txt` — the hand-built reference, and the auditor it broke
+
+`~/share/RRC/red_science_1s_manual_bp.txt`, sha256
+`934a0034af3069ef40ee1878582d53b26834d287fa4106c2b4480404f6123c30`. A factory a person built and the game
+runs: **131 entities**, 84 belts, 22 inserters, 10 medium poles, 6 electric furnaces, 5 assembling-machine-3,
+4 roboports, **12 wires**, for this exact sheet.
+
+`tools/blueprint_audit.py` **rejected it** and called all 84 belts unused.
+
+The terminal rule was wrong twice. It inferred a terminal only where a belt's own flow crossed the artifact's
+bounding box, and roboports and poles push that box far from the belt ends: 3 terminals found where the
+factory has 11. And it missed the structure -- supply runs feed inserter **pickups** while output runs carry
+inserter **drops** away, so the two never touch. Forward-reachable-from-a-drop and reaches-a-pickup were
+disjoint sets of 25 belts each, **intersecting in 0**.
+
+The physical reading needs no bounding box. A belt run that begins nowhere is where the player feeds it; one
+that ends nowhere is where it leaves; a cell that is both would satisfy its own obligation, which is the
+stray-belt case, so it is excluded from both. The reference now passes outright and runs as control `ACC14`.
+
+Two frozen claims were corrected rather than defended:
+
+- the round 13 delivery's unused belt count is **51 of 224**, not 224; the old rule inflated it for the same
+  reason it condemned the hand-built factory;
+- `ACC4` claimed a reversed output inserter strands its belt. It does not. The machine then drains nowhere,
+  which is a broken **obligation**, but the belt becomes an externally fed run passing an inserter that takes
+  from it, and that is legal. From bytes alone the two are indistinguishable. The case is kept, inverted.
+
+### 11.3 Reference budgets for this sheet, from a factory that works
+
+| metric | hand-built reference |
+|---|---:|
+| entities | 131 |
+| belts | 84 |
+| inserters | 22 |
+| electric poles | 10 |
+| wires | 12 |
+
+These are the first acceptance ceilings in this project taken from a working factory rather than from the
+generator's own output.
