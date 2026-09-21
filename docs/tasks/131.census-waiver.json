@@ -1,0 +1,15 @@
+{
+ "schema_version": 1,
+ "task": "131_bindings",
+ "note": "A waiver is a CEILING, never a mute, and --prove-waiver fails the lane if it changes no outcome. Lane 130 anchored every hand to its own port and left routing binding one port per flow, so several codes rose and the candidate count fell. Those rises are this lane's to repay, not to carry forward: integration runs --no-waivers on the merged tree.",
+ "waivers": [
+  {"code": "BP_V_INSERTER_GEOMETRY", "baseline_rate": 10.75, "ceiling_rate": 17.0,
+   "cause": "lane 130 anchored each hand to its own port; routing still binds one port per flow, so unbound hands sit on bare ground until this lane divides the demand",
+   "paid_by": "131_bindings", "expires": "round-15",
+   "evidence": "docs/round-15-baseline.md, and the merge commit of lane 130"},
+  {"code": "BP_V_ROUTE_DISCONTINUOUS", "baseline_rate": 2.0, "ceiling_rate": 7.0,
+   "cause": "same unbound anchored ports leave their runs unreachable",
+   "paid_by": "131_bindings", "expires": "round-15",
+   "evidence": "docs/round-15-baseline.md"}
+ ]
+}

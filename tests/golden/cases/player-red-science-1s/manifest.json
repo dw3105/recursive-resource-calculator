@@ -1,6 +1,32 @@
 {
+ "actual": null,
  "case_id": "player-red-science-1s",
  "engine_capture_pending": "This case drives producers. It never certifies: its inserter vectors were repaired from vanilla prototypes, its source_kind is runtime-repaired, and the export itself carries provenance.packaged = false. Any one of those three refuses acceptance.",
+ "engine_scenario": {
+  "allowed_discrete_error": 0,
+  "drain": [
+   {
+    "full_name": "item/automation-science-pack",
+    "rate_per_second": 1
+   }
+  ],
+  "expected_rates": {},
+  "initial_state": {},
+  "note": "Supply is this sheet's own unsolved rates, the flows it consumes and does not make. Drain is its own target. Expected rates stay empty until an engine observation measures them.",
+  "sampling_window_ticks": 0,
+  "supply": [
+   {
+    "full_name": "item/copper-ore",
+    "rate_per_second": 1
+   },
+   {
+    "full_name": "item/iron-ore",
+    "rate_per_second": 2
+   }
+  ],
+  "timeout_seconds": 60,
+  "warm_up_ticks": 0
+ },
  "expected_outcome": "production",
  "factorio_branch": "2.0",
  "facts_missing": [
@@ -23,8 +49,29 @@
   "state": "failure"
  },
  "prepared_input": "prepared_input.json",
+ "prepared_input_provenance_source_kind": "runtime-repaired",
  "prepared_input_source": "generation.prepared_input",
- "source_kind": "runtime-repaired",
+ "provenance": {
+  "candidate_sha": "dev",
+  "captured_from": "the player's running game, build 1.1.53, base 2.0.77, 54 active mods",
+  "captured_on": "2026-09-21",
+  "mod_version": "dev",
+  "packaged": false
+ },
+ "schema_version": 1,
+ "setup": {
+  "selection": [
+   {
+    "full_name": "item/automation-science-pack",
+    "quality": "normal",
+    "rate_per_second": 1,
+    "raw_text": "1",
+    "time_unit": "/s"
+   }
+  ]
+ },
+ "source_export": "blueprint-export/sheet-8",
+ "source_kind": "engine",
  "state": "captured",
  "supported_outcome": "production",
  "targets": [

@@ -130,6 +130,10 @@ case "$mutation" in
     #perimeter terminal id logic/bp/plan.lua:646 mints for the same flow.
     port-id-flow-only)
         apply logic/bp/groups.lua 'tostring\(step[.]step_id\) [.][.] ":in:"' '"in:"' ;;
+    #131: demands go back to one entry per PLAN entry, so the extra per-hand ports become interchangeable
+    #alternatives again and all but one are never bound -- which is exactly the state lane 130 left behind.
+    per-port-demands-off)
+        apply logic/bp/route.lua '(per_port_demands *= *)[^,;}\n]+' '\1false' ;;
     #132: the transport-unused rejection still fires and still names its entity, under a code nobody expects.
     #The census then reads zero for it, which is exactly the suppression tests/test_census_codes_live.lua guards.
     census-code-unused)
