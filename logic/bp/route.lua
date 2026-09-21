@@ -609,23 +609,72 @@ local function target_endpoint(work, flow_id, entry)
     return demand_endpoint_candidates(work, flow_id, role, entry)[1]
 end
 
+local per_port_demands = true
+
+local function append_port_demands(work, demands, flow_id, role, entry, share, label)
+    local candidates = demand_endpoint_candidates(work, flow_id, role, entry)
+    if #candidates == 0 then
+        if share > tolerance(share) then
+            local step_id = step_id_of(entry)
+            work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = flow_id, role = role,
+                step_id = step_id, detail = label .. " plan entry has no matching port for step " .. tostring(step_id)}
+        end
+        return
+    end
+
+    --A positive rate on every endpoint is an explicit weighting.  A zero rate is the marker used by the
+    --materializer for an anchored hand that still needs routing, so the presence of any such endpoint makes
+    --the whole plan entry an equal fan-out.  That keeps a synthetic zero from turning a real hand into a
+    --zero-demand alias.
+    local weighted, total_rate = true, 0
+    for _, endpoint in ipairs(candidates) do
+        local rate = finite(endpoint.rate_per_second, 0)
+        if rate <= tolerance(rate) then weighted = false end
+        total_rate = total_rate + math.max(0, rate)
+    end
+    if total_rate <= tolerance(total_rate) then weighted = false end
+
+    local port_count = #candidates
+    for _, endpoint in ipairs(candidates) do
+        local amount = weighted and share * endpoint.rate_per_second / total_rate or share / port_count
+        if amount <= tolerance(amount) then
+            work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = flow_id, role = role,
+                step_id = endpoint.step_id, port_id = endpoint.port_id,
+                detail = label .. " port has no demand: " .. tostring(endpoint.port_id)}
+            return
+        end
+        demands[#demands + 1] = {endpoint = endpoint, candidates = {endpoint}, remaining = amount}
+    end
+end
+
 local function build_demands(work, flows)
     local demands = {}
     for _, flow in ipairs(flows) do
         local id = flow_id_of(flow)
         if id then
             local producers, consumers = {}, {}
-            for _, entry in ipairs(flow.producers or {}) do
-                local role = step_id_of(entry) == "$external" and "in" or "out"
-                local candidates = demand_endpoint_candidates(work, id, role, entry)
-                producers[#producers + 1] = {endpoint = candidates[1], candidates = candidates,
-                    remaining = share_of(entry)}
-            end
-            for _, entry in ipairs(flow.consumers or {}) do
-                local role = step_id_of(entry) == "$external" and "out" or "in"
-                local candidates = demand_endpoint_candidates(work, id, role, entry)
-                consumers[#consumers + 1] = {endpoint = candidates[1], candidates = candidates,
-                    remaining = share_of(entry)}
+            if per_port_demands then
+                for _, entry in ipairs(flow.producers or {}) do
+                    local role = step_id_of(entry) == "$external" and "in" or "out"
+                    append_port_demands(work, producers, id, role, entry, share_of(entry), "producer")
+                end
+                for _, entry in ipairs(flow.consumers or {}) do
+                    local role = step_id_of(entry) == "$external" and "out" or "in"
+                    append_port_demands(work, consumers, id, role, entry, share_of(entry), "consumer")
+                end
+            else
+                for _, entry in ipairs(flow.producers or {}) do
+                    local role = step_id_of(entry) == "$external" and "in" or "out"
+                    local candidates = demand_endpoint_candidates(work, id, role, entry)
+                    producers[#producers + 1] = {endpoint = candidates[1], candidates = candidates,
+                        remaining = share_of(entry)}
+                end
+                for _, entry in ipairs(flow.consumers or {}) do
+                    local role = step_id_of(entry) == "$external" and "out" or "in"
+                    local candidates = demand_endpoint_candidates(work, id, role, entry)
+                    consumers[#consumers + 1] = {endpoint = candidates[1], candidates = candidates,
+                        remaining = share_of(entry)}
+                end
             end
             if #producers == 0 and #consumers == 0 then
                 for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["out"] or {}) do
