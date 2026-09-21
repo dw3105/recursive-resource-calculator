@@ -67,6 +67,32 @@ Identical on both interpreters. Per shape, 2.0 and 2.1 alike:
 `SR2` is expected to **stay** green and to become meaningful once `SR1` closes: today it passes vacuously,
 because no member carries a recipe at all.
 
+### `python3 -m unittest discover -s tests/tools -t .` — 147 tests, 3 failures, 1 error
+
+Two are the pre-spine `test_golden_tools` pair above, unchanged. Two are new, and both are producer/consumer
+handoffs created by the receipt bindings, not defects in the tools that report them:
+
+| test | why it is red | closed by |
+|---|---|---|
+| `tests.tools.test_evidence_contract.EvidenceContractTests.test_companion_shape_is_the_bytes_consumed_by_the_gate` | the synthetic controller drives `tests/golden/engine/mod/scenario.lua`, which does not yet emit `prepared_input_sha256`, `config_sha256` or `harness_qualification_id` | lane **114** emits them; integration re-runs this test after 114 merges |
+| `tests.tools.test_golden_tools.GoldenToolsTests.test_receipt_refuses_hash_candidate_case_and_development_build` | its happy-path observation carries no bindings, so `make_receipt` now refuses before reaching the assertion | lane **115**, which owns `tests/tools/test_golden_tools.py` |
+
+Spine did not repair either. Editing them here would be doing a lane's work in the commit that defines that
+lane's gate, and the ledger exists precisely so a lane cannot be blamed for a failure it inherited or credited
+for one it never caused.
+
+## Receipt bindings, proven before the tag
+
+`tools/evidence_receipt.py` and `tools/release_gate.py` now require `prepared_input_sha256`, `config_sha256`
+and `harness_qualification_id`, and recompute the first two wherever their source is supplied.
+
+| check | result |
+|---|---|
+| `tests.tools.test_release_gate` with the fixture carrying real bindings | 23 tests, all pass |
+| an observation with no `prepared_input_sha256` | `evidence refused: missing binding` |
+| `--prepared-input` whose bytes disagree with the declared digest | `evidence refused: prepared input mismatch` |
+| a case whose `prepared_input` file is swapped after the receipt is written | `release refused: mismatched input` |
+
 ## Dispatcher, proven before the tag
 
 `tools/verify_round9_lane.sh`, with traps for `lua`, `lua5.2`, `lua5.4`, `python3` and `gateslot` first on

@@ -300,6 +300,23 @@ def _check_receipt(case: Mapping[str, Any], observation: Mapping[str, Any], rece
         raise ReleaseGateError(
             f"mismatched archive: receipt hash {receipt.get('zip_sha256')!r}, supplied archive hash {archive_hash}"
         )
+    #The three bindings that say WHICH run this is. A probe replaced a case's input and configuration file,
+    #reused the unchanged observation and receipt, and this gate still returned `accepted`: hashing a receipt
+    #protects the bytes inside it and never establishes what was observed.
+    for key in RECEIPT.REQUIRED_BINDINGS:
+        declared = receipt.get(key)
+        if declared is None or str(declared).strip() == "":
+            raise ReleaseGateError(f"missing binding: receipt for {case_id} declares no {key}")
+        observed = observation.get(key)
+        if observed is None and isinstance(observation.get("bindings"), Mapping):
+            observed = observation["bindings"].get(key)
+        if observed is None or str(observed).strip() == "":
+            raise ReleaseGateError(f"missing binding: observation for {case_id} declares no {key}")
+        if str(observed).lower() != str(declared).lower():
+            raise ReleaseGateError(
+                f"mismatched binding: {key} for {case_id} is {observed!r} in the observation "
+                f"and {declared!r} in the receipt"
+            )
     build = receipt.get("build_id")
     if not isinstance(build, Mapping) or build.get("packaged") is not True:
         raise ReleaseGateError(f"mismatched receipt: {case_id} has no packaged build id")
@@ -408,6 +425,37 @@ def _expected_canonical(expected: Any) -> Any:
     return expected
 
 
+def _check_input_binding(case: Mapping[str, Any], observation: Mapping[str, Any],
+                         golden_root: Path) -> None:
+    """Recompute the case's PreparedInput hash from disk and compare it with what was observed.
+
+    Comparing two copies of the same declared string proves only that nobody edited the receipt. The input
+    that the engine actually consumed has to be hashed again, here, from the file the case names.
+    """
+    named = case.get("prepared_input")
+    if named in (None, ""):
+        return
+    path = Path(named)
+    if not path.is_absolute():
+        #A case names its input relative to the case root, and the same string must resolve the same way for
+        #everyone who checks it.
+        candidates = [Path(golden_root) / named, Path(golden_root).parent / named, Path(named)]
+        path = next((option for option in candidates if option.is_file()), candidates[0])
+    if not path.is_file():
+        raise ReleaseGateError(
+            f"absent input: case {_case_id(case)} names {named}, which is not a file"
+        )
+    actual = RECEIPT.file_sha256(path)
+    declared = observation.get("prepared_input_sha256")
+    if declared is None and isinstance(observation.get("bindings"), Mapping):
+        declared = observation["bindings"].get("prepared_input_sha256")
+    if str(declared).lower() != actual:
+        raise ReleaseGateError(
+            f"mismatched input: case {_case_id(case)} observed {declared!r}, "
+            f"but {path.name} hashes to {actual}"
+        )
+
+
 def _check_outcome(case: Mapping[str, Any], manifest: Mapping[str, Any], expected: Any,
                    observation: Mapping[str, Any]) -> None:
     expected_kind = case.get("outcome_kind")
@@ -508,6 +556,7 @@ def check_case(case: Mapping[str, Any], branch: str, candidate_sha: str, archive
         raise ReleaseGateError(f"mismatched archive: observation candidate is not {candidate_sha}")
     _check_environment(case, observation, build, branch, expected_version)
     _check_receipt(case, observation, receipt, archive, candidate_sha, branch)
+    _check_input_binding(case, observation, golden_root)
     _check_outcome(case, manifest, expected, observation)
     return {"case_id": case_id, "branch": branch, "candidate_sha": candidate_sha, "status": "accepted"}
 

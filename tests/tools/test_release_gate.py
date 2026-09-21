@@ -53,6 +53,12 @@ class ReleaseGateFixture:
         self.golden = root / "golden" / "cases"
         self.evidence = root / "fixture-evidence"
         self.archive = root / "fixture-test-build.zip"
+        #The run this observation describes is identified by its input and configuration, not only by the
+        #bytes inside the receipt. Without these a swapped input file was still accepted.
+        self.prepared_input_name = f"{self.case_id}/prepared_input.json"
+        self.prepared_input = None
+        self.config = {"options": {"round_up": False}, "settings": {"beacon_sharing": True}}
+        self.qualification_id = "fixture-harness-qualification"
         expected = {"blueprint": {"entities": [{"name": "stone-furnace", "position": {"x": 0, "y": 0}}]}}
         self.expected = expected
         self.manifest = {
@@ -82,7 +88,7 @@ class ReleaseGateFixture:
             "outcome_kind": "production",
             "clauses": ["FIXTURE-01"],
             "state": "accepted",
-            "prepared_input": None,
+            "prepared_input": self.prepared_input_name,
         }
         case.update(changes)
         write_json(self.matrix, {"schema_version": 1, "cases": [case]})
@@ -130,9 +136,17 @@ class ReleaseGateFixture:
                 "active_mods": ["base"],
             },
             "production": production,
+            "prepared_input_sha256": self.prepared_input_sha256(),
+            "config_sha256": RECEIPT.config_sha256(self.config),
+            "harness_qualification_id": self.qualification_id,
         }
         observation.update(changes)
         return observation
+
+    def prepared_input_sha256(self):
+        if self.prepared_input is not None and Path(self.prepared_input).is_file():
+            return RECEIPT.file_sha256(Path(self.prepared_input))
+        return "0" * 64
 
     def file_evidence(self, observation=None):
         observation = observation or self.observation()
@@ -148,6 +162,9 @@ class ReleaseGateFixture:
         self.golden_case = self.golden / self.case_id
         write_json(self.golden_case / "manifest.json", self.manifest)
         write_json(self.golden_case / "expected_canonical.json", self.expected)
+        #Written BEFORE the observation, so its declared hash is the hash of a file that really exists.
+        self.prepared_input = self.golden_case / "prepared_input.json"
+        write_json(self.prepared_input, {"case": self.case_id, "steps": []})
         self.make_archive()
         self.file_evidence()
 
@@ -415,3 +432,97 @@ class ReleaseGateTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BindingTests(unittest.TestCase):
+    """A receipt protects the bytes inside it. These prove it also says WHICH run those bytes describe.
+
+    Measured before this existed: an observation with no input or configuration digest was `accepted`, and so
+    was replacing a case's input file while reusing the unchanged observation and receipt.
+    """
+
+    def fixture(self):
+        temp = tempfile.TemporaryDirectory()
+        return temp, ReleaseGateFixture(Path(temp.name))
+
+    def test_the_bound_fixture_is_accepted(self):
+        #The positive control. Every refusal below is meaningless without it.
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            self.assertEqual(fixture.run()[0]["status"], "accepted")
+
+    def test_an_observation_without_a_binding_is_refused(self):
+        for missing in RECEIPT.REQUIRED_BINDINGS:
+            with self.subTest(binding=missing):
+                temp, fixture = self.fixture()
+                with temp:
+                    fixture.prepare()
+                    observation = fixture.observation()
+                    observation.pop(missing)
+                    with self.assertRaises(RECEIPT.EvidenceError) as caught:
+                        RECEIPT.make_receipt(observation, fixture.archive,
+                                             expected_case=fixture.case_id,
+                                             expected_candidate=fixture.candidate)
+                    self.assertIn(missing, str(caught.exception))
+
+    def test_a_declared_input_digest_is_recomputed_from_the_file(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            observation = fixture.observation()
+            observation["prepared_input_sha256"] = "f" * 64
+            with self.assertRaises(RECEIPT.EvidenceError) as caught:
+                RECEIPT.make_receipt(observation, fixture.archive,
+                                     expected_case=fixture.case_id,
+                                     expected_candidate=fixture.candidate,
+                                     prepared_input=Path(fixture.prepared_input))
+            self.assertIn("prepared input mismatch", str(caught.exception))
+
+    def test_a_declared_config_digest_is_recomputed_from_the_file(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            config_path = Path(temp.name) / "config.json"
+            write_json(config_path, fixture.config)
+            observation = fixture.observation()
+            observation["config_sha256"] = "e" * 64
+            with self.assertRaises(RECEIPT.EvidenceError) as caught:
+                RECEIPT.make_receipt(observation, fixture.archive,
+                                     expected_case=fixture.case_id,
+                                     expected_candidate=fixture.candidate,
+                                     config=config_path)
+            self.assertIn("configuration mismatch", str(caught.exception))
+
+    def test_swapping_the_input_after_the_receipt_is_written_is_refused(self):
+        #The exact probe that used to return `accepted`: the receipt and observation are untouched and still
+        #agree with each other, but they no longer describe the input the case now names.
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            self.assertEqual(fixture.run()[0]["status"], "accepted")
+            write_json(Path(fixture.prepared_input), {"case": fixture.case_id, "steps": ["swapped"]})
+            with self.assertRaises(GATE.ReleaseGateError) as caught:
+                fixture.run()
+            self.assertIn("mismatched input", str(caught.exception))
+
+    def test_a_case_naming_a_missing_input_is_refused(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            Path(fixture.prepared_input).unlink()
+            with self.assertRaises(GATE.ReleaseGateError) as caught:
+                fixture.run()
+            self.assertIn("absent input", str(caught.exception))
+
+    def test_a_receipt_binding_edited_apart_from_its_observation_is_refused(self):
+        temp, fixture = self.fixture()
+        with temp:
+            fixture.prepare()
+            path = fixture.evidence / fixture.candidate / fixture.branch / f"{fixture.case_id}.receipt.json"
+            receipt = json.loads(path.read_text())
+            receipt["harness_qualification_id"] = "some-other-qualification"
+            write_json(path, receipt)
+            with self.assertRaises(GATE.ReleaseGateError) as caught:
+                fixture.run()
+            self.assertIn("harness_qualification_id", str(caught.exception))

@@ -130,6 +130,46 @@ def _observation_candidate(observation: Mapping[str, Any]) -> Optional[str]:
     return None
 
 
+#The three bindings that say WHICH run this observation describes. Without them a receipt protects only the
+#bytes inside it: a probe swapped a case's input file, reused the unchanged observation and receipt, and the
+#release gate still reported `accepted`. Hashing an observation never establishes what was observed.
+REQUIRED_BINDINGS = ("prepared_input_sha256", "config_sha256", "harness_qualification_id")
+
+
+def file_sha256(path: Path) -> str:
+    """SHA-256 of exactly the bytes on disk. Never of a re-serialized object."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(65536), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def config_sha256(config: Any) -> str:
+    """SHA-256 of the normalized configuration object: sorted keys, no insignificant whitespace.
+
+    Normalizing matters because the same settings written by two producers must hash the same, and a
+    re-ordered key must never read as a different configuration.
+    """
+    text = json.dumps(config, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def binding_values(observation: Mapping[str, Any]) -> Dict[str, Any]:
+    """The declared bindings, or a named error for the first one that is absent."""
+    values: Dict[str, Any] = {}
+    for key in REQUIRED_BINDINGS:
+        value = observation.get(key)
+        if value is None and isinstance(observation.get("bindings"), Mapping):
+            value = observation["bindings"].get(key)
+        if value is None or str(value).strip() == "":
+            raise EvidenceError(
+                f"missing binding: observation declares no {key}; it cannot say which run it describes"
+            )
+        values[key] = value
+    return values
+
+
 def make_receipt(
     observation: Mapping[str, Any],
     archive: Path,
@@ -137,6 +177,8 @@ def make_receipt(
     expected_case: Any = None,
     expected_candidate: Optional[str] = None,
     expected_environment: Any = None,
+    prepared_input: Optional[Path] = None,
+    config: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Validate and return a receipt; no output is written before all checks pass."""
 
@@ -186,10 +228,31 @@ def make_receipt(
 
     # Keep the original observation intact for auditability, but add the host-owned
     # facts at the top level.  The archive hash is always computed above.
+    #Required, and RECOMPUTED wherever the source is supplied. A declared digest nobody recomputes is a
+    #claim, not a binding.
+    bindings = binding_values(observation)
+    if prepared_input is not None:
+        actual = file_sha256(prepared_input)
+        if str(bindings["prepared_input_sha256"]).lower() != actual:
+            raise EvidenceError(
+                f"prepared input mismatch: observation declares "
+                f"{bindings['prepared_input_sha256']!r}, supplied input hashes to {actual}"
+            )
+        bindings["prepared_input_sha256"] = actual
+    if config is not None:
+        with open(config, "r", encoding="utf-8") as handle:
+            actual = config_sha256(json.load(handle))
+        if str(bindings["config_sha256"]).lower() != actual:
+            raise EvidenceError(
+                f"configuration mismatch: observation declares {bindings['config_sha256']!r}, "
+                f"supplied configuration hashes to {actual}"
+            )
+        bindings["config_sha256"] = actual
+
     outcome_kind = observation.get("outcome_kind")
     if outcome_kind is None and isinstance(observation.get("outcome"), Mapping):
         outcome_kind = observation["outcome"].get("kind")
-    return {
+    receipt = {
         "schema_version": 1,
         "case": observed_case,
         "case_id": observed_case,
@@ -201,6 +264,8 @@ def make_receipt(
         "build_id": dict(build),
         "observation": dict(observation),
     }
+    receipt.update(bindings)
+    return receipt
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -214,6 +279,14 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--candidate", dest="candidate", help="expected candidate SHA")
     parser.add_argument(
         "--environment", dest="environment", help="expected environment id or JSON file/object"
+    )
+    parser.add_argument(
+        "--prepared-input", dest="prepared_input",
+        help="the exact PreparedInput file submitted to the engine run; its hash is RECOMPUTED and compared",
+    )
+    parser.add_argument(
+        "--config", dest="config",
+        help="the configuration JSON used for that run; normalized, then RECOMPUTED and compared",
     )
     return parser
 
@@ -244,6 +317,8 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             expected_case=args.case,
             expected_candidate=args.candidate,
             expected_environment=_environment_argument(args.environment),
+            prepared_input=Path(args.prepared_input) if args.prepared_input else None,
+            config=Path(args.config) if args.config else None,
         )
         encoded = json.dumps(receipt, indent=2, sort_keys=True, ensure_ascii=False) + "\n"
         if args.output:
