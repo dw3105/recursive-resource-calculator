@@ -100,7 +100,52 @@ def read_export(path: Path) -> Dict[str, Any]:
     return json.loads(zlib.decompress(base64.b64decode("".join(text.split()))))
 
 
+def repair_captured(prepared: Dict[str, Any]) -> Dict[str, Any]:
+    """Use the game's OWN PreparedInput, and repair only the fields it delivered empty.
+
+    An export taken after pressing Generate carries `generation.prepared_input`: the exact object the mod
+    handed its own search. That is the real capture and it beats any reconstruction -- it has the modded
+    entity set, the real settings, the real solver result.
+
+    Measured on ~/share/RRC/red_science_1s.txt, build 1.1.53, 2026-09-21: `catalog.inserter` arrives as
+    `{"pickup_offset": {}, "drop_offset": {}, "drop_position": {}, "items_per_second": 4.62}` while
+    `options.catalog_diagnostics` is `{}`. So the capture believed the geometry was fine and the vectors were
+    emptied somewhere after logic/catalog.lua built them and before the JSON was written. Belt, pipe, pole and
+    robo all survive intact, so the loss is specific to the inserter vectors.
+
+    Only those empty vectors are filled, each one named. Everything else is the player's.
+    """
+    repaired = []
+    catalog = prepared.get("catalog")
+    if isinstance(catalog, dict):
+        inserter = catalog.get("inserter")
+        if isinstance(inserter, dict):
+            for field, value in (("pickup_offset", VANILLA_2_0_77["inserter"]["pickup_offset"]),
+                                 ("drop_offset", VANILLA_2_0_77["inserter"]["drop_offset"]),
+                                 ("drop_position", VANILLA_2_0_77["inserter"]["drop_position"])):
+                current = inserter.get(field)
+                if not isinstance(current, dict) or "x" not in current or "y" not in current:
+                    inserter[field] = dict(value)
+                    repaired.append(f"catalog.inserter.{field}")
+    provenance = prepared.setdefault("provenance", {})
+    if repaired:
+        prepared["source_kind"] = "runtime-repaired"
+        provenance["repaired_facts"] = repaired
+        provenance["repaired_from"] = "vanilla Factorio 2.0.77 base prototypes"
+        provenance["certifiable"] = False
+    return prepared
+
+
 def build(export: Dict[str, Any], surface: str) -> Dict[str, Any]:
+    #An export taken after Generate carries the real PreparedInput. Prefer it over anything reconstructed.
+    generation = export.get("generation") or {}
+    captured = generation.get("prepared_input")
+    if isinstance(captured, dict) and captured.get("catalog"):
+        return repair_captured(captured)
+    return build_reconstructed(export, surface)
+
+
+def build_reconstructed(export: Dict[str, Any], surface: str) -> Dict[str, Any]:
     sheet = export.get("sheet") or {}
     calculation = export.get("calculation") or {}
     environment = export.get("environment") or {}
@@ -168,11 +213,15 @@ def main(argv=None) -> int:
     prepared = build(export, args.surface)
     Path(args.output).write_text(json.dumps(prepared, indent=1, sort_keys=True) + "\n")
 
-    facts = prepared["provenance"]["reconstructed_facts"]
+    provenance = prepared.get("provenance") or {}
     sys.stderr.write(f"prepared_from_export.py: wrote {args.output}\n")
-    sys.stderr.write(f"  source_kind = reconstructed, certifiable = False\n")
-    if facts:
-        sys.stderr.write(f"  facts NOT from the player's game: {', '.join(facts)}\n")
+    sys.stderr.write(f"  source_kind = {prepared.get('source_kind')}, "
+                     f"certifiable = {provenance.get('certifiable', True)}\n")
+    for label, key in (("facts NOT from the player's game", "reconstructed_facts"),
+                       ("fields the capture delivered EMPTY and this repaired", "repaired_facts")):
+        facts = provenance.get(key)
+        if facts:
+            sys.stderr.write(f"  {label}: {', '.join(facts)}\n")
     return 0
 
 
