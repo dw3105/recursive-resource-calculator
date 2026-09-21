@@ -1,0 +1,6 @@
+!logic/bp/validate.lua
+tests/test_validate.lua
+tests/test_validated_candidate.lua
+tests/test_power_semantics.lua
+tests/test_blueprint_delivery.lua
+!tests/test_physical_witness.lua

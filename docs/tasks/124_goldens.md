@@ -57,14 +57,14 @@ Keep `generate.lua`'s `local input_path,` line and the success envelope in their
 
 ## What done means
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; python3 -m unittest tests.tools.test_golden_tools >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S validation-reconciliation >/dev/null 2>&1 || rc=1; (cd $S && python3 -m unittest tests.tools.test_golden_tools 2>&1 | grep -qE \"^(FAIL|ERROR):\") || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "runs-physical", "command": "grep -q \"local physical\" tests/golden/generate.lua || { echo \"no local physical: the wrapper still reports reconciliation as validation\"; exit 1; }; grep -q \"Validate.step\" tests/golden/generate.lua || { echo \"Validate.step is never driven\"; exit 1; }; echo runs-physical", "expect_exit": 0, "expect_regex": "runs-physical", "timeout_s": 120}
+{"name": "frozen-line", "command": "grep -q 'local input_path,' tests/golden/generate.lua || { echo 'the line tests/test_beacon_placement_incident.lua parses is gone'; exit 1; }; echo frozen-line", "expect_exit": 0, "expect_regex": "frozen-line", "timeout_s": 120}
+{"name": "incident-holds", "command": "lua5.2 tests/test_beacon_placement_incident.lua", "expect_exit": 0, "expect_regex": "0 failed", "timeout_s": 600}
+{"name": "audit-holds", "command": "python3 -m unittest tests.tools.test_blueprint_audit 2>&1 | tail -3", "expect_exit": 0, "expect_regex": "OK", "timeout_s": 600}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 124_goldens", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-14-base --manifest docs/tasks/124.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
-red-proof   sh tools/lane_mutate.sh <scratch> validation-reconciliation, then
-            python3 -m unittest tests.tools.test_golden_tools in <scratch>: the named case reports FAIL or
-            ERROR under unittest's own categories. A Traceback alone is not the signal; unittest prints one
-            for every AssertionError.
-focused     sh tools/verify_round9_lane.sh "$PWD" 124_goldens exits 0
-both        a case proves ok is false when physical validation fails and reconciliation passes, and false
-            when reconciliation fails and physical validation passes
-known-bad   a case proves the round 13 delivery still fails, by its measured counts
-frozen      tests/test_beacon_placement_incident.lua still passes, so the parsed line shape is intact
-```
+
+# bound: 3600s

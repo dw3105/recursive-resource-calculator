@@ -1,0 +1,7 @@
+!logic/bp/search.lua
+tests/test_search.lua
+tests/test_search_budget.lua
+tests/test_search_allowance.lua
+tests/test_external_ports.lua
+tests/test_port_tile_flow.lua
+!tests/test_demand_terminals.lua

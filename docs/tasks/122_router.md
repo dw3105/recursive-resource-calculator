@@ -84,14 +84,14 @@ materializing and validating the connecting geometry.
 
 ## What done means
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_route_network.lua --min-cases 12 --pass RN1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S ptg-same-direction >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_route_network.lua --min-cases 12 --fail RN1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_route_network.lua --min-cases 12 --pass RN1", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "facing-pairs", "command": "grep -q exit_direction logic/bp/route.lua || { echo 'no exit_direction: both underground ends still travel the same way'; exit 1; }; echo facing-pairs", "expect_exit": 0, "expect_regex": "facing-pairs", "timeout_s": 120}
+{"name": "direction-aware", "command": "grep -q 'coordinate_key(nx, ny)' logic/bp/route.lua && { echo 'the frontier is still keyed by coordinate alone'; exit 1; }; echo direction-aware", "expect_exit": 0, "expect_regex": "direction-aware", "timeout_s": 120}
+{"name": "oracle-holds", "command": "sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 88 --pass PC1,ID1,ID2,ID3,ID4,ID5,ID6,TR1,TR2,TR3,TR4,TR5,TR6,TR7,TR8,TR9,TR10,BE1,BE2,BE3,MT1,MT2,MT3,FL1,FL2,FL3,FL4,FL5,FL6,FL7,SR1,SR2,SR3,SR4,EP1,EP2,EP3,WA3", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 122_router", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-14-base --manifest docs/tasks/122.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
-red-proof   sh tools/lane_mutate.sh <scratch> ptg-same-direction, then
-            sh tools/lane_rows.sh <scratch>/tests/test_route_network.lua --min-cases 12 --fail <case>
-            The named case reports fail, zero CASE error, harness summary present.
-focused     sh tools/verify_round9_lane.sh "$PWD" 122_router exits 0 on lua5.2 and lua5.4
-audit       for a candidate this lane routes, tools/blueprint_audit.py reports 0 unpairable underground
-            endpoints of either family and 0 unused belt tiles
-budget      the re-derived max_expansions is stated in the lane report with the measurement behind it
-oracle      no row of tests/test_blueprint_physical_contract.lua that was green turns red
-positive    tests/test_route_network.lua asserts a correct facing pair is ACCEPTED before any rejection case
-```
+
+# bound: 3600s

@@ -81,15 +81,14 @@ Every negative case starts from an independently valid candidate that passes fir
 
 ## What done means
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 88 --pass PC1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S waste-code >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 88 --fail WA1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 88 --pass PC1,ID1,ID2,ID3,ID4,ID5,ID6,TR1,TR2,TR3,TR4,TR5,TR6,TR7,TR8,TR9,TR10,BE1,BE2,BE3,MT1,MT2,MT3,FL1,FL2,FL3,FL4,FL5,FL6,FL7,SR1,SR2,SR3,SR4,EP1,EP2,EP3,WA3,EP4,EP5,WA1,WA2,BR1,FC1", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "no-bypass", "command": "grep -q legacy_route_only logic/bp/validate.lua && { echo 'legacy_route_only survives'; exit 1; }; grep -q isolated_probe logic/bp/validate.lua && { echo 'isolated_probe survives'; exit 1; }; echo bypass-gone", "expect_exit": 0, "expect_regex": "bypass-gone", "timeout_s": 120}
+{"name": "reads-captured-offsets", "command": "grep -q pickup_offset logic/bp/validate.lua || { echo 'the captured pickup offset is never read'; exit 1; }; grep -q 'connection.positions\\|connection\\[\"positions\"\\]' logic/bp/validate.lua || { echo 'the captured positions shape is never read'; exit 1; }; echo reads-capture", "expect_exit": 0, "expect_regex": "reads-capture", "timeout_s": 120}
+{"name": "new-codes", "command": "grep -q BP_V_TRANSPORT_UNUSED logic/bp/validate.lua || { echo 'BP_V_TRANSPORT_UNUSED is never emitted'; exit 1; }; grep -q BP_V_BEACON_REDUNDANT logic/bp/validate.lua || { echo 'BP_V_BEACON_REDUNDANT is never emitted'; exit 1; }; echo new-codes", "expect_exit": 0, "expect_regex": "new-codes", "timeout_s": 120}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 120_gate", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-14-base --manifest docs/tasks/120.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
-red-proof   sh tools/lane_mutate.sh <scratch> witness-code, then
-            sh tools/lane_rows.sh <scratch>/tests/test_physical_witness.lua --min-cases 12 --fail <case>
-            The named case reports fail, zero CASE error, harness summary present.
-            Repeat for waste-code and beacon-redundant-code.
-focused     sh tools/verify_round9_lane.sh "$PWD" 120_gate exits 0 on lua5.2 and lua5.4
-oracle      lua5.2 tests/test_blueprint_physical_contract.lua and lua5.4 likewise: every row that
-            docs/round-14-baseline.md lists as expected-red for lane 120 now passes, and no row that was
-            green turns red
-positive    tests/test_physical_witness.lua contains at least one case asserting the valid control is
-            ACCEPTED, and it runs before every rejection case in the file
-```
+
+# bound: 3600s

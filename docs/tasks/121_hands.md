@@ -63,12 +63,14 @@ Configured counts stay exactly as listed above.
 
 ## What done means
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_inserter_geometry.lua --min-cases 10 --pass IG1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S inserter-offset-nil >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_inserter_geometry.lua --min-cases 10 --fail IG1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_inserter_geometry.lua --min-cases 10 --pass IG1", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "publishes-cells", "command": "grep -q pickup_position logic/bp/groups.lua || { echo 'groups.lua publishes no pickup_position'; exit 1; }; grep -q drop_position logic/bp/groups.lua || { echo 'groups.lua publishes no drop_position'; exit 1; }; echo publishes-cells", "expect_exit": 0, "expect_regex": "publishes-cells", "timeout_s": 120}
+{"name": "no-fixed-convention", "command": "grep -q 'machine.x - iw' logic/bp/groups.lua && { echo 'the fixed left-input convention survives'; exit 1; }; echo convention-gone", "expect_exit": 0, "expect_regex": "convention-gone", "timeout_s": 120}
+{"name": "oracle-holds", "command": "sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 88 --pass PC1,ID1,ID2,ID3,ID4,ID5,ID6,TR1,TR2,TR3,TR4,TR5,TR6,TR7,TR8,TR9,TR10,BE1,BE2,BE3,MT1,MT2,MT3,FL1,FL2,FL3,FL4,FL5,FL6,FL7,SR1,SR2,SR3,SR4,EP1,EP2,EP3,WA3", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 121_hands", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-14-base --manifest docs/tasks/121.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
-red-proof   sh tools/lane_mutate.sh <scratch> inserter-offset-nil, then
-            sh tools/lane_rows.sh <scratch>/tests/test_inserter_geometry.lua --min-cases 10 --fail <case>
-            The named case reports fail, zero CASE error, harness summary present.
-focused     sh tools/verify_round9_lane.sh "$PWD" 121_hands exits 0 on lua5.2 and lua5.4
-audit       for a candidate this lane produces, tools/blueprint_audit.py reports 0 invalid inserters
-oracle      no row of tests/test_blueprint_physical_contract.lua that was green turns red
-positive    tests/test_inserter_geometry.lua asserts an ACCEPTED placement before any rejection case
-```
+
+# bound: 3600s

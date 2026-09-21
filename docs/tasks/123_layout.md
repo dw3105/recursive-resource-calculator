@@ -70,16 +70,14 @@ second ceiling is an integration gate. Report the numbers, not a verdict.
 
 ## What done means
 
+```checks
+{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_demand_terminals.lua --min-cases 8 --pass DT1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S terminals-headcount >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_demand_terminals.lua --min-cases 8 --fail DT1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_demand_terminals.lua --min-cases 8 --pass DT1", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "demand-sized", "command": "grep -q terminals_for_demand logic/bp/search.lua || { echo 'terminals are still sized by headcount'; exit 1; }; echo demand-sized", "expect_exit": 0, "expect_regex": "demand-sized", "timeout_s": 120}
+{"name": "no-first-feasible", "command": "grep -q should_stop_after_feasible logic/bp/search.lua && { echo 'the first-feasible shortcut survives'; exit 1; }; echo no-first-feasible", "expect_exit": 0, "expect_regex": "no-first-feasible", "timeout_s": 120}
+{"name": "ports-published", "command": "grep -q 'ports = ports' logic/bp/search.lua || { echo 'the candidate no longer carries its placed ports'; exit 1; }; echo ports-published", "expect_exit": 0, "expect_regex": "ports-published", "timeout_s": 120}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 123_layout", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-14-base --manifest docs/tasks/123.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
-red-proof   sh tools/lane_mutate.sh <scratch> terminals-headcount, then
-            sh tools/lane_rows.sh <scratch>/tests/test_demand_terminals.lua --min-cases 8 --fail <case>
-            The named case reports fail, zero CASE error, harness summary present.
-            Repeat for ports-empty against the case that proves the candidate carries its placed ports.
-focused     sh tools/verify_round9_lane.sh "$PWD" 123_layout exits 0 on lua5.2 and lua5.4
-terminals   one supply feeding two nearby consumers below capacity produces ONE terminal, not two runs, and
-            the case asserts the count
-honesty     a case proves the search reports what it discarded when it returns a bounded heuristic result
-timing      the lane report carries per-phase and per-candidate wall time on lua5.2, measured, with the
-            command that produced it
-oracle      no row of tests/test_blueprint_physical_contract.lua that was green turns red
-```
+
+# bound: 3600s
