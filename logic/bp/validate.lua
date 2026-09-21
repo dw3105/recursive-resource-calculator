@@ -675,18 +675,8 @@ local function make_work(input)
     local wires = list_from(root.wires or (root.power and root.power.wires))
     local flows = flow_list(root.flows or (root.route and root.route.flows) or (plan and plan.flows))
     local blocks = list_from(root.blocks); local ports = collect_ports(root); local port_by_id = port_index(ports)
-    --Which ids the candidate DECLARES as external terminals. groups.lua:1154 names a block port `in:<flow>`
-    --and search.lua:811 reuses that same id for the perimeter terminal, so the two collide exactly.
-    --collect_ports adds root.ports before root.external_ports and dedupes by id, so once spine started filling
-    --candidate.ports the block-local copy won and its `perimeter` marker was lost. A binding whose source is
-    --an external supply legitimately carries role "in", and it began rejecting as BP_V_PORT_EDGE_WRONG.
-    --This set is consulted ONLY by the binding role rule, never by reachability, so a block port never gains
-    --external reach from sharing a name.
-    local external_ids = {}
-    for _, port in ipairs(list_from(root.perimeter_ports or root.external_ports)) do
-        local id = port.port_id or port.id
-        if id ~= nil then external_ids[id] = true end
-    end
+    --Port roles are classified from the port itself; perimeter and block ids are disjoint.
+    --The perimeter marker is authoritative now that port ids are disjoint.
     local segments = collect_segments(root); local segment_by_id = map_by_id(segments)
     local bindings = collect_bindings(root); local steps = step_map(plan); local placements = placement_map(root.placements)
     local machines, beacons, poles, power_nodes, roboports, inserters, consumers = {}, {}, {}, {}, {}, {}, {}
@@ -701,7 +691,6 @@ local function make_work(input)
     end
     local work = {input = input, root = root, plan = plan, catalog = catalog, blocks = blocks, entities = entities, infos = infos, info_by_id = info_by_id,
         grid_w = grid_w, grid_h = grid_h, wires = wires, flows = flows, ports = ports, port_by_id = port_by_id,
-        external_ids = external_ids,
         segments = segments, segment_by_id = segment_by_id, bindings = bindings, steps = steps, placements = placements,
         machines = machines, beacons = beacons, poles = poles, power_nodes = power_nodes, roboports = roboports, inserters = inserters,
         consumers = consumers, ids = connector_ids(input), errors = {}, legal_wires = {}, power_parent = {},
@@ -1294,7 +1283,6 @@ local function external_failure_step(work, flow_id, role, start_x, start_y, kind
 end
 
 local function machine_port_for(work, machine, flow_id, role)
-    local fallback
     for _, port in ipairs(work.ports) do
         if not is_external_port(port) and (port.role or port.direction) == role
             and (port.step_id == nil or port.step_id == machine.entity.step_id) then
@@ -1303,11 +1291,10 @@ local function machine_port_for(work, machine, flow_id, role)
                 if port.member_id == nil or port.member_id == machine.id or port.member_id == machine.entity.machine_id then
                     return port
                 end
-                fallback = fallback or port
             end
         end
     end
-    return fallback
+    return nil
 end
 
 local function flow_record(work, flow_id)
@@ -1347,20 +1334,26 @@ local function connection_path(work, flow_id, role, x, y, kind)
     end
     local flow = flow_record(work, flow_id)
     local side = role == "input" and "producers" or "consumers"
+    local missing_port_machine
+    local found_port, found_path, found_machine
     for _, record in ipairs(list_from(flow and flow[side])) do
         local step_id = step_id_of(record)
         if step_id and step_id ~= "$external" then
             for _, machine in ipairs(machines_for_step(work, step_id)) do
                 local port = machine_port_for(work, machine, flow_id, role == "input" and "out" or "in")
+                if not port then missing_port_machine = missing_port_machine or machine end
                 local px, py = port and port_position(work, port)
                 local path
                 if role == "input" then path = transport_path(work, px, py, x, y, flow_id, kind)
                 else path = transport_path(work, x, y, px, py, flow_id, kind) end
-                if port and path then return port, path, machine end
+                if port and path then
+                    found_port, found_path, found_machine = port, path, machine
+                end
             end
         end
     end
-    return nil
+    if missing_port_machine then return nil, nil, nil, missing_port_machine end
+    return found_port, found_path, found_machine
 end
 
 local function transfer_role(info, machine)
@@ -1431,6 +1424,22 @@ local function check_physical_transfers(work)
     local used = {}
     local endpoint_checked = {}
 
+    local function transfer_failure_ladder(candidate_seen, shape_seen, wrong_network, explicit_target)
+        if next(work.transport_by_cell) == nil then
+            return "BP_V_ROUTE_DISCONTINUOUS", {reason = "candidate has no transport", cause = "no_transport"}
+        end
+        if candidate_seen and explicit_target and (not shape_seen or wrong_network) then
+            if wrong_network then
+                return "BP_V_TRANSFER_BROKEN", {reason = "belt is on the wrong flow network", cause = "wrong_network"}
+            end
+            return "BP_V_TRANSFER_BROKEN", {reason = "belt is missing at the inserter outward tile", cause = "missing_belt"}
+        end
+        if candidate_seen then
+            return "BP_V_ROUTE_DISCONTINUOUS", {reason = "inserter is present but its route is discontinuous", cause = "disconnected_route"}
+        end
+        return "BP_V_TRANSFER_BROKEN", {reason = "inserter is missing for the required transfer", cause = "missing_inserter"}
+    end
+
     local function mark_path(path)
         for _, info in ipairs(path or {}) do used[info.id] = true end
     end
@@ -1459,10 +1468,24 @@ local function check_physical_transfers(work)
         return witness
     end
 
-    local function failed_transfer(machine, flow_id, code, first_illegal, witness)
-        local detail = {flow_id = flow_id, first_illegal_step = first_illegal}
+    local function failed_transfer(machine, flow_id, code, first_illegal, witness, failure_detail, missing_port_machine)
+        local detail = {flow_id = flow_id, machine_id = tostring(machine.id), machine_name = name_of(machine.entity),
+            first_illegal_step = first_illegal}
+        for key, value in pairs(failure_detail or {}) do detail[key] = value end
+        if missing_port_machine then
+            local missing_id = tostring(missing_port_machine.id)
+            local missing_name = name_of(missing_port_machine.entity)
+            detail.reason = "machine " .. missing_name .. " has no own port for flow " .. tostring(flow_id)
+            detail.missing_port_machine_id = missing_id
+            detail.missing_port_machine_name = missing_name
+            detail.transport_reason = failure_detail and failure_detail.reason
+        end
         if witness then detail.witness = witness end
-        error_record(work.errors, code, {tostring(machine.id), tostring(flow_id), tostring(first_illegal)}, detail)
+        local ids = {tostring(machine.id), tostring(flow_id), tostring(first_illegal)}
+        if missing_port_machine and tostring(missing_port_machine.id) ~= tostring(machine.id) then
+            ids[#ids + 1] = tostring(missing_port_machine.id)
+        end
+        error_record(work.errors, code, ids, detail)
     end
 
     local function validate_inserter_endpoints(inserter)
@@ -1523,6 +1546,7 @@ local function check_physical_transfers(work)
                 else
                     local found = false
                     local candidate_seen, shape_seen, wrong_network, explicit_target, first_illegal, candidate_id = false, false, false, false, nil, nil
+                    local missing_port_machine
                     for _, inserter in ipairs(work.inserters) do
                         local role = transfer_role(inserter, machine)
                         if role == "input" then
@@ -1536,7 +1560,8 @@ local function check_physical_transfers(work)
                         local pickup_x, pickup_y, drop_x, drop_y = transfer_matches(work, inserter, machine, entry, "input", used)
                         if pickup_x then
                             shape_seen = true
-                            local port, path, source_machine = connection_path(work, flow_id, "input", pickup_x, pickup_y, "belt")
+                            local port, path, source_machine, missing = connection_path(work, flow_id, "input", pickup_x, pickup_y, "belt")
+                            missing_port_machine = missing_port_machine or missing
                             first_illegal = first_illegal or (source_machine and ("internal:" .. tostring(flow_id))
                                 or (flow_side_has_external(work, flow_id, "producers")
                                     and external_failure_step(work, flow_id, "in", pickup_x, pickup_y, "belt")
@@ -1566,11 +1591,9 @@ local function check_physical_transfers(work)
                         end
                     end
                     if not found then
-                        local code = (next(work.transport_by_cell) == nil and "BP_V_ROUTE_DISCONTINUOUS")
-                            or (candidate_seen and explicit_target and (not shape_seen or wrong_network) and "BP_V_TRANSFER_BROKEN")
-                            or (candidate_seen and "BP_V_ROUTE_DISCONTINUOUS")
-                            or "BP_V_TRANSFER_BROKEN"
-                        failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "input transfer")
+                        local code, failure_detail = transfer_failure_ladder(candidate_seen, shape_seen, wrong_network, explicit_target)
+                        failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "input transfer", nil,
+                            failure_detail, missing_port_machine)
                     end
                 end
             end
@@ -1600,6 +1623,7 @@ local function check_physical_transfers(work)
                 else
                     local found = false
                     local candidate_seen, shape_seen, wrong_network, explicit_target, first_illegal, candidate_id = false, false, false, false, nil, nil
+                    local missing_port_machine
                     for _, inserter in ipairs(work.inserters) do
                         local role = transfer_role(inserter, machine)
                         if role == "output" then
@@ -1613,7 +1637,8 @@ local function check_physical_transfers(work)
                         local pickup_x, pickup_y, drop_x, drop_y = transfer_matches(work, inserter, machine, entry, "output", used)
                         if pickup_x then
                             shape_seen = true
-                            local port, path, target_machine = connection_path(work, flow_id, "output", drop_x, drop_y, "belt")
+                            local port, path, target_machine, missing = connection_path(work, flow_id, "output", drop_x, drop_y, "belt")
+                            missing_port_machine = missing_port_machine or missing
                             first_illegal = first_illegal or (target_machine and ("internal:" .. tostring(flow_id))
                                 or (flow_side_has_external(work, flow_id, "consumers")
                                     and external_failure_step(work, flow_id, "out", drop_x, drop_y, "belt")
@@ -1643,11 +1668,9 @@ local function check_physical_transfers(work)
                         end
                     end
                     if not found then
-                        local code = (next(work.transport_by_cell) == nil and "BP_V_ROUTE_DISCONTINUOUS")
-                            or (candidate_seen and explicit_target and (not shape_seen or wrong_network) and "BP_V_TRANSFER_BROKEN")
-                            or (candidate_seen and "BP_V_ROUTE_DISCONTINUOUS")
-                            or "BP_V_TRANSFER_BROKEN"
-                        failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "output transfer")
+                        local code, failure_detail = transfer_failure_ladder(candidate_seen, shape_seen, wrong_network, explicit_target)
+                        failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "output transfer", nil,
+                            failure_detail, missing_port_machine)
                     end
                 end
             end
@@ -1742,8 +1765,8 @@ local function check_ports(work)
     local bound_source, bound_sink = {}, {}
     for _, binding in ipairs(work.bindings) do
         local source_id, sink_id = binding.source_port_id or binding.source, binding.sink_port_id or binding.sink; local source, sink = work.port_by_id[source_id], work.port_by_id[sink_id]
-        local source_external = source and (is_external_port(source) or work.external_ids[source_id] == true)
-        local sink_external = sink and (is_external_port(sink) or work.external_ids[sink_id] == true)
+        local source_external = source and is_external_port(source)
+        local sink_external = sink and is_external_port(sink)
         local source_ok = source and (source.role == "out" or (source.role == "in" and source_external))
         local sink_ok = sink and (sink.role == "in" or (sink.role == "out" and sink_external))
         local bad = not source or not sink or not source_ok or not sink_ok; local flow_id = binding.flow_id

@@ -115,6 +115,8 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " WI2 a broken directed step names the first illegal entity", function()
+        local control = run(candidate())
+        H.equal(control.ok, true, "the broken-transfer mutation starts from a valid candidate")
         local broken = copy(candidate())
         for _, entity in ipairs(broken.entities) do if entity.id == "inserter-out" then entity.dir = 12 end end
         local state = run(broken)
@@ -123,6 +125,38 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(failure ~= nil, true, "the directed witness rejection has the transfer reason: " .. codes(state))
         H.equal(failure and failure.detail and failure.detail.first_illegal_step, "inserter-out",
             "the rejection names the first illegal step")
+        H.equal(failure and failure.detail and failure.detail.reason, "belt is missing at the inserter outward tile",
+            "the rejection says that the belt is missing")
+    end)
+
+    H.test(shape .. " WI3 a missing inserter is named separately from a broken belt", function()
+        local control = run(candidate())
+        H.equal(control.ok, true, "the missing-inserter mutation starts from a valid candidate")
+        local broken = copy(candidate())
+        for index, entity in ipairs(broken.entities) do
+            if entity.id == "inserter-out" then table.remove(broken.entities, index) break end
+        end
+        local state = run(broken)
+        local failure = error_with_code(state, "BP_V_TRANSFER_BROKEN")
+        H.equal(state.ok, false, "the missing inserter is rejected")
+        H.equal(failure and failure.detail and failure.detail.reason, "inserter is missing for the required transfer",
+            "the rejection says that the inserter is missing")
+    end)
+
+    H.test(shape .. " WI4 a candidate with no transport names that whole-candidate cause", function()
+        local control = run(candidate())
+        H.equal(control.ok, true, "the no-transport mutation starts from a valid candidate")
+        local broken = copy(candidate())
+        local kept = {}
+        for _, entity in ipairs(broken.entities) do
+            if entity.kind ~= "belt" then kept[#kept + 1] = entity end
+        end
+        broken.entities = kept
+        local state = run(broken)
+        local failure = error_with_code(state, "BP_V_ROUTE_DISCONTINUOUS")
+        H.equal(state.ok, false, "the candidate with no transport is rejected")
+        H.equal(failure and failure.detail and failure.detail.reason, "candidate has no transport",
+            "the rejection says that the candidate has no transport")
     end)
 end
 

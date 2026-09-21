@@ -55,6 +55,11 @@ local function error_with_code(state, code)
     return nil
 end
 
+local function ids_contain(ids, wanted)
+    for _, id in ipairs(ids or {}) do if id == wanted then return true end end
+    return false
+end
+
 local function entity(id, name, x, extra)
     local result = {id = id, kind = "machine", name = name, x = x, y = 0, w = 1, h = 1}
     for key, value in pairs(extra or {}) do result[key] = value end
@@ -317,21 +322,14 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), false, "the boundary edge connects the poles")
     end)
     -- -----------------------------------------------------------------------------------------------------
-    -- A block port and an external terminal may carry the SAME id. groups.lua:1154 names a block port
-    -- `in:<flow>` and search.lua:811 reuses that id for the perimeter terminal, so the two collide exactly.
-    -- collect_ports adds root.ports before root.external_ports and dedupes by id, so once the candidate began
-    -- carrying its placed ports the block-local copy won and the `perimeter` marker was lost. A binding whose
-    -- source is an external SUPPLY legitimately carries role "in", and six of them rejected on the player's
-    -- sheet as BP_V_PORT_EDGE_WRONG.
+    -- Block and perimeter ports use disjoint ids. The perimeter marker is therefore read directly from the
+    -- resolved port, while a block-local port with the same role remains a wrong binding endpoint.
     -- -----------------------------------------------------------------------------------------------------
 
-    H.test(shape .. " V17 an external supply shadowed by a same-named block port still binds", function()
+    H.test(shape .. " V17 a disjoint external supply keeps its role", function()
         local state = finish({grid = {w = 6, h = 4}, catalog = catalog(),
             entities = {{id = "p", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1}},
-            --The block-local copy is listed FIRST and carries a block id, exactly as the producer emits it.
-            --The sink must exist, or the binding rejects with the SAME code for a different reason:
-            --"binding sink port is missing". A row that passes on a neighbouring reason is not a row.
-            ports = {{port_id = "in:item/iron-plate", flow_id = "item/iron-plate", role = "in",
+            ports = {{port_id = "block:item/iron-plate", flow_id = "item/iron-plate", role = "in",
                       block_id = "b1", x = 0, y = 1, rate_per_second = 1},
                      {port_id = "sink:item/iron-plate", flow_id = "item/iron-plate", role = "in",
                       block_id = "b2", x = 3, y = 1, rate_per_second = 1}},
@@ -355,8 +353,31 @@ for _, shape in ipairs(H.shapes()) do
             bindings = {{source_port_id = "in:item/iron-plate", sink_port_id = "sink:item/iron-plate",
                          flow_id = "item/iron-plate", rate_per_second = 1}},
         })
-        H.equal(has_code(state, "BP_V_PORT_EDGE_WRONG"), true,
+        local failure = error_with_code(state, "BP_V_PORT_EDGE_WRONG")
+        H.equal(failure ~= nil, true,
             "a block-local source with role in is still rejected when nothing declares it external")
+        H.equal(failure and failure.detail and failure.detail.reason, "binding source has role in",
+            "the wrong source half is named")
+        H.equal(ids_contain(failure and failure.ids, "in:item/iron-plate"), true,
+            "the failing source port is named")
+    end)
+
+    H.test(shape .. " V19 a binding with a wrong sink role names the sink half", function()
+        local state = finish({grid = {w = 6, h = 4}, catalog = catalog(),
+            entities = {{id = "p", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1}},
+            ports = {{port_id = "block-out:item/iron-plate", flow_id = "item/iron-plate", role = "out",
+                      block_id = "b2", x = 3, y = 1, rate_per_second = 1}},
+            external_ports = {{port_id = "in:item/iron-plate", flow_id = "item/iron-plate", role = "in",
+                               perimeter = true, x = 0, y = 1, rate_per_second = 1}},
+            bindings = {{source_port_id = "in:item/iron-plate", sink_port_id = "block-out:item/iron-plate",
+                         flow_id = "item/iron-plate", rate_per_second = 1}},
+        })
+        local failure = error_with_code(state, "BP_V_PORT_EDGE_WRONG")
+        H.equal(failure ~= nil, true, "a wrong sink role rejects")
+        H.equal(failure and failure.detail and failure.detail.reason, "binding sink has role out",
+            "the wrong sink half is named")
+        H.equal(ids_contain(failure and failure.ids, "block-out:item/iron-plate"), true,
+            "the failing sink port is named")
     end)
 end
 
