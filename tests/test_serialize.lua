@@ -1,6 +1,8 @@
 --Blueprint serialization assigns stable entity numbers and canonicalizes only representation noise.
 local H = require "tests.harness"
 local Serialize = require "logic.bp.serialize"
+local Groups = require "logic.bp.groups"
+local Grid = require "logic.bp.grid"
 
 local function copy(value)
     if type(value) ~= "table" then return value end
@@ -59,6 +61,29 @@ local function by_name(blueprint, name)
     for _, entity in ipairs(blueprint.entities or {}) do
         if entity.name == name then return entity end
     end
+end
+
+local function fluid_identity_catalog()
+    return {entity = {
+        ["mod-assembler"] = {name = "mod-assembler", etype = "assembling-machine", tile_w = 3, tile_h = 3,
+            fluid_boxes = {
+                {production_type = "input", index = 1,
+                    pipe_connections = {{position = {x = -2, y = 0}, direction = Grid.WEST}}},
+                {production_type = "output", index = 2,
+                    pipe_connections = {{position = {x = 2, y = 0}, direction = Grid.EAST}}},
+            }},
+        ["mod-furnace"] = {name = "mod-furnace", etype = "furnace", tile_w = 3, tile_h = 3},
+        inserter = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1},
+    }}
+end
+
+local function fluid_identity_plan()
+    return {steps = {{step_id = "mixed", machine = "mod-assembler", machine_count = 1,
+        recipe = "mixed-recipe", recipe_quality = "rare", modules = {{name = "speed-module", quality = "epic", slot = 2}},
+        inputs = {{flow_id = "fluid/water", kind = "fluid", is_fluid = true, rate_per_second = 10},
+            {flow_id = "item/ore", kind = "item", rate_per_second = 1}},
+        outputs = {{flow_id = "fluid/steam", kind = "fluid", is_fluid = true, rate_per_second = 5},
+            {flow_id = "item/product", kind = "item", rate_per_second = 1}}}}}
 end
 
 for _, shape in ipairs(H.shapes()) do
@@ -153,6 +178,53 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(#blueprint.wires, 1, "entity wire is also retained at the blueprint boundary")
         H.equal(blueprint.wires[1][1] ~= blueprint.wires[1][3], true, "global wire endpoints remain distinct")
         H.equal(right.type, "output", "explicit endpoint type is retained")
+    end)
+
+    H.test(shape .. " S8 grouped mixed-fluid machines serialize identity and no fluid inserters in all rotations", function()
+        local catalog = fluid_identity_catalog()
+        local state = Groups.begin({plan = fluid_identity_plan(), catalog = catalog})
+        for _ = 1, 100 do
+            if state.done then break end
+            Groups.step(state, {ops = 1000})
+        end
+        H.equal(state.done and state.ok, true, "grouping mixed-fluid identity plan finishes")
+        local block = state.result and state.result.candidates[1] and state.result.candidates[1].blocks[1]
+        H.equal(block ~= nil, true, "grouped mixed-fluid block exists")
+        if not block then return end
+        for _, dir in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
+            local placed = Groups.materialize(block, {x = 20, y = 30, dir = dir})
+            local serialized = serialize({candidate = {entities = placed.entities}, catalog = catalog})
+            local machine, inserters = nil, 0
+            for _, entity in ipairs(serialized.entities) do
+                if entity.name == "mod-assembler" then machine = entity end
+                if entity.name == "inserter" then
+                    inserters = inserters + 1
+                    H.equal(tostring(entity.flow_id or ""):sub(1, 6) == "fluid/", false,
+                        "serialized inserter never serves a fluid flow")
+                end
+            end
+            H.equal(machine ~= nil, true, "serialized machine exists")
+            H.equal(machine and machine.recipe, "mixed-recipe", "serialized recipe survives rotation")
+            H.equal(machine and machine.recipe_quality, "rare", "serialized recipe quality survives rotation")
+            H.equal(machine and machine.items[1].items.in_inventory[1].stack, 2,
+                "serialized module slot survives rotation")
+            H.equal(inserters, 2, "serialized item transfers retain both inserters")
+        end
+    end)
+
+    H.test(shape .. " S9 serializer uses etype for a modded furnace and assembler", function()
+        local catalog = fluid_identity_catalog()
+        local blueprint = serialize({catalog = catalog, entities = {
+            {id = "assembler", name = "mod-assembler", etype = "assembling-machine", recipe = "r",
+                recipe_quality = "rare", position = {x = 0.5, y = 0.5}},
+            {id = "furnace", name = "mod-furnace", etype = "furnace", recipe = "must-not-be-written",
+                recipe_quality = "legendary", position = {x = 4.5, y = 0.5}},
+        }})
+        local assembler, furnace = by_name(blueprint, "mod-assembler"), by_name(blueprint, "mod-furnace")
+        H.equal(assembler.recipe, "r", "etype assembler receives recipe")
+        H.equal(assembler.recipe_quality, "rare", "etype assembler receives recipe quality")
+        H.equal(furnace.recipe, nil, "etype furnace receives no recipe")
+        H.equal(furnace.recipe_quality, nil, "etype furnace receives no recipe quality")
     end)
 end
 

@@ -79,6 +79,34 @@ local function real_one_step_plan()
     }
 end
 
+local function fluid_catalog()
+    local result = catalog()
+    result.entity.assembler.etype = "assembling-machine"
+    result.entity.assembler.fluid_boxes = {
+        {production_type = "input", index = 1,
+            pipe_connections = {{position = {x = -2, y = 0}, direction = Grid.WEST}}},
+        {production_type = "output", index = 2,
+            pipe_connections = {{position = {x = 2, y = 0}, direction = Grid.EAST}}},
+    }
+    return result
+end
+
+local function fluid_mixed_plan()
+    return {
+        steps = {{step_id = "fluid-mix", machine = "assembler", machine_count = 1,
+            recipe = "mixed-recipe", recipe_quality = "rare",
+            inputs = {{flow_id = "fluid/water", kind = "fluid", is_fluid = true, rate_per_second = 10},
+                {flow_id = "item/ore", kind = "item", is_fluid = false, rate_per_second = 1}},
+            outputs = {{flow_id = "fluid/steam", kind = "fluid", is_fluid = true, rate_per_second = 5},
+                {flow_id = "item/product", kind = "item", is_fluid = false, rate_per_second = 1}}}},
+        flows = {
+            {flow_id = "fluid/water", kind = "fluid", is_fluid = true},
+            {flow_id = "fluid/steam", kind = "fluid", is_fluid = true},
+            {flow_id = "item/ore", kind = "item"}, {flow_id = "item/product", kind = "item"},
+        },
+    }
+end
+
 local function three_beacon_plan()
     return {
         steps = {{step_id = "three", machine = "assembler", machine_count = 3,
@@ -292,6 +320,52 @@ for _, shape in ipairs(H.shapes()) do
                 H.equal(port.step_id, "gear", "block port names the step it serves")
                 H.equal(tostring(port.step_id):sub(1, 6) == "block:", false,
                     "block port does not use the synthetic block id")
+            end
+        end
+    end)
+
+    H.test(shape .. " G10 mixed item and fluid connections keep only item inserters and oriented fluid boxes", function()
+        local all = candidates(finish({plan = fluid_mixed_plan(), catalog = fluid_catalog()}))
+        H.equal(#all > 0, true, "mixed fluid block exists")
+        local block = all[1] and all[1].blocks[1]
+        H.equal(block ~= nil, true, "mixed fluid block is present")
+        if not block then return end
+        local item_inserters, fluid_inserters = 0, 0
+        local fluid_ports = {}
+        for _, member in ipairs(block.members) do
+            if member.kind == "inserter" then
+                if tostring(member.flow_id):sub(1, 6) == "fluid/" then fluid_inserters = fluid_inserters + 1
+                else item_inserters = item_inserters + 1 end
+            end
+        end
+        for _, port in ipairs(block.ports) do
+            if port.kind == "fluid" then fluid_ports[#fluid_ports + 1] = port end
+        end
+        H.equal(fluid_inserters, 0, "fluid connections never receive item inserters")
+        H.equal(item_inserters, 2, "both item connections retain their inserter")
+        H.equal(#fluid_ports, 2, "both fluid connections retain a port")
+        for _, port in ipairs(fluid_ports) do
+            H.equal(port.connection ~= nil, true, "fluid port carries a real fluid-box connection")
+            H.equal(port.machine, "assembler", "fluid port names its machine prototype")
+        end
+        for _, dir in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
+            local placed = Groups.materialize(block, {x = 10, y = 20, dir = dir})
+            local machine
+            for _, entity in ipairs(placed.entities) do
+                if entity.kind == "machine" then machine = entity end
+                if entity.kind == "inserter" then
+                    H.equal(tostring(entity.flow_id):sub(1, 6) == "fluid/", false,
+                        "rotated materialization has no fluid inserter")
+                end
+            end
+            H.equal(machine.recipe, "mixed-recipe", "rotated machine keeps recipe")
+            H.equal(machine.recipe_quality, "rare", "rotated machine keeps recipe quality")
+            for _, port in ipairs(placed.ports) do
+                if port.kind == "fluid" then
+                    local expected = port.role == "in" and Grid.WEST or Grid.EAST
+                    H.equal(Grid.rotate_dir(port.connection.direction, dir), Grid.rotate_dir(expected, dir),
+                        "pipe connection rotates with its machine")
+                end
             end
         end
     end)
