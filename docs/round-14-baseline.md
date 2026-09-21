@@ -233,3 +233,20 @@ exactly the old message, so it is a real test. `tests/tools/test_release_gate.py
 
 `tests/run.sh:12` discovers `tests/tools/test_*.py`, so `test_blueprint_audit.py` and
 `test_blueprint_string.py` run with the suite without any further wiring.
+
+## 9. Merge 120, and the one thing it broke
+
+Lane 120 verified independently before merging: oracle 88 of 88 on both interpreters, up from 76, closing
+`EP4`, `EP5`, `WA1`, `WA2`, `BR1` and `FC1`. Ownership clean.
+
+The suite after the merge carried one failure outside section 7.4's list:
+`tests/test_route_layout_contract.lua` `L1` and `L4`, 4 cases per interpreter. Both are POSITIVE controls --
+"cardinal crossing is accepted", "same-flow approach belt remains legal" -- and both rejected with
+`BP_V_TRANSPORT_UNUSED`, three records on `L1`.
+
+The cause is a gap in rule 26.2, not a defect in lane 120. Those fixtures are pure geometry: an underground
+pair and one middle belt, with no machine and no plan step. Waste is measured **against obligations**, so a
+candidate carrying none cannot be judged for it -- every entity is trivially unused when there is nothing to
+serve. The rule now applies only where the plan has at least one step. A candidate whose plan has no steps is
+already refused by plan completeness long before this check, so nothing escapes through the guard, and the
+oracle's `WA1` and `WA2` still reject a spare belt and a spare inserter.

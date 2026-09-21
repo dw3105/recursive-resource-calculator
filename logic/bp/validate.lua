@@ -1637,6 +1637,15 @@ local function check_physical_transfers(work)
         end
     end
 
+    --Waste is measured AGAINST obligations, so a candidate that carries none cannot be judged for it: every
+    --entity is trivially unused when there is nothing to serve. tests/test_route_layout_contract.lua L1 and L4
+    --are pure geometry -- an underground pair and a middle belt, no machine and no plan step -- and the rule
+    --rejected all three of their belts as waste. A candidate whose plan has no steps is already refused by
+    --plan completeness long before this, so nothing escapes through the guard.
+    local has_obligations = false
+    for _ in pairs(work.steps or {}) do has_obligations = true; break end
+    if not has_obligations then return true end
+
     for _, inserter in ipairs(work.inserters) do
         if not used[inserter.id] then
             error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(inserter.id)},
