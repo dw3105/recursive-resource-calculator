@@ -1,0 +1,6 @@
+logic/bp/groups.lua
+logic/bp/serialize.lua
+tests/test_groups.lua
+tests/test_serialize.lua
+tests/test_beacon_coverage.lua
+tests/test_beacons.lua

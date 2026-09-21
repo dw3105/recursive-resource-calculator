@@ -108,3 +108,9 @@
 | `097` | `rrc/agent` | search truth, bounds and spacing provenance | 2026-09-20 |
 | `098` | `rrc/agent` | golden runner truth | 2026-09-20 |
 | `099` | `rrc/agent` | release lifecycle | 2026-09-20 |
+| `110` | `rrc/agent` | producer: recipes, chains both directions, split blocks | 2026-09-21 |
+| `111` | `rrc/agent` | validator: reject a factory that cannot produce | 2026-09-21 |
+| `112` | `rrc/agent` | capture: export completeness, empty geometry refuses | 2026-09-21 |
+| `113` | `rrc/agent` | layout: measured route cost, reserved finalization, 5s ceiling | 2026-09-21 |
+| `114` | `rrc/agent` | harness: qualify the engine boundary | 2026-09-21 |
+| `115` | `rrc/agent` | goldens: real plan, case selector, fail closed | 2026-09-21 |

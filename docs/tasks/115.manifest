@@ -1,0 +1,4 @@
+tests/golden/generate.lua
+tests/golden/lib/runner.py
+tests/incident/replay.py
+tests/tools/test_golden_tools.py
