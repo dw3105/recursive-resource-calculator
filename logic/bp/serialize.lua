@@ -99,6 +99,13 @@ local function entity_id(entity, fallback)
     return entity.id or entity.entity_id or entity._id or entity.entity_number or fallback
 end
 
+local function catalog_entity(catalog, entity)
+    if type(catalog) ~= "table" or type(catalog.entity) ~= "table" then return nil end
+    local name = entity and (entity.name or entity.prototype or entity.entity)
+    if type(name) ~= "string" then return nil end
+    return catalog.entity[name]
+end
+
 local function id_text(entity, fallback)
     return tostring(entity_id(entity, fallback))
 end
@@ -228,6 +235,7 @@ local function normalized_module(module)
     local quality = "normal"
     local count = 1
     local slot
+    local inventory
     if type(module) == "table" then
         id = module.name or module.id or module.prototype
         if type(id) == "table" then
@@ -238,9 +246,10 @@ local function normalized_module(module)
         end
         count = math.max(1, math.floor(finite(module.count, 1)))
         slot = module.slot or module.index
+        inventory = finite(module.inventory or module.inventory_index)
     end
     if type(id) ~= "string" or id == "" then return nil end
-    return {name = id, quality = quality, count = count, slot = slot}
+    return {name = id, quality = quality, count = count, slot = slot, inventory = inventory}
 end
 
 local function module_inventory(entity)
@@ -295,7 +304,7 @@ local function make_items(entity)
             for count = 1, module.count do
                 local slot = first_slot and first_slot + count - 1 or next_slot
                 modules[#modules + 1] = {name = module.name, quality = module.quality,
-                    inventory = module_inventory(entity), stack = slot}
+                    inventory = finite(module.inventory, module_inventory(entity)), stack = slot}
                 if not first_slot then next_slot = next_slot + 1 end
             end
             if first_slot then next_slot = math.max(next_slot, first_slot + module.count) end
@@ -382,7 +391,7 @@ local function global_wires(candidate, references)
     return unique
 end
 
-local function serialize_entity(entity, references)
+local function serialize_entity(entity, references, catalog)
     local result = {entity_number = entity.entity_number, name = entity.name or entity.prototype}
     result.position = entity_position(entity)
     local direction = entity.direction
@@ -390,8 +399,17 @@ local function serialize_entity(entity, references)
     if direction ~= nil then result.direction = direction end
     local quality = quality_name(entity.quality)
     if quality ~= "normal" then result.quality = quality end
-    for _, field in ipairs({"recipe", "recipe_quality", "type", "mirror", "tags", "request_filters", "burner_fuel_inventory"}) do
+    for _, field in ipairs({"type", "mirror", "tags", "request_filters", "burner_fuel_inventory"}) do
         if entity[field] ~= nil then result[field] = copy(entity[field]) end
+    end
+    -- The catalog's etype is the bound prototype fact. Never infer this from a vanilla entity name: mods may
+    -- provide an assembler or furnace under any name. Standalone serializer fixtures without a catalog retain
+    -- their explicit recipe fields for backwards-compatible canonicalization.
+    local spec = catalog_entity(catalog, entity)
+    local etype = (spec and spec.etype) or entity.etype
+    if entity.recipe ~= nil and (etype == nil or etype == "assembling-machine") then
+        result.recipe = copy(entity.recipe)
+        if entity.recipe_quality ~= nil then result.recipe_quality = copy(entity.recipe_quality) end
     end
     if result.type == nil and (entity.ug_role == "input" or entity.ug_role == "output") then result.type = entity.ug_role end
     if result.recipe ~= nil and result.recipe_quality == nil then result.recipe_quality = "normal" end
@@ -509,7 +527,8 @@ function Serialize.step(state, budget)
     if ops < 0 then ops = 0 end
     while ops > 0 and state.cursor.entity_index <= #state.work.entities do
         local entity = state.work.entities[state.cursor.entity_index]
-        state.work.output[#state.work.output + 1] = serialize_entity(entity, state.work.references)
+        state.work.output[#state.work.output + 1] = serialize_entity(entity, state.work.references,
+            state.work.candidate.catalog)
         state.cursor.entity_index = state.cursor.entity_index + 1
         state.progress.done_units = state.progress.done_units + 1
         if ops ~= math.huge then ops = ops - 1 end

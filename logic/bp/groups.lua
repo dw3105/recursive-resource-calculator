@@ -81,6 +81,56 @@ local function lookup_entity(catalog, name, kind)
     return {}
 end
 
+local function flow_id_of(flow)
+    return flow and (flow.flow_id or flow.full_name or flow.id)
+end
+
+local function flow_is_fluid(entry, flows)
+    if type(entry) ~= "table" then return false end
+    if entry.kind == "fluid" or entry.is_fluid == true then return true end
+    local flow_id = entry.flow_id or entry.full_name or entry.id
+    if type(flow_id) == "string" and flow_id:sub(1, 6) == "fluid/" then return true end
+    if type(flows) == "table" and #flows == 0 then
+        local flow = flows[flow_id]
+        if flow and (flow.kind == "fluid" or flow.is_fluid == true) then return true end
+    end
+    for _, flow in ipairs(flows or {}) do
+        if flow_id_of(flow) == flow_id and (flow.kind == "fluid" or flow.is_fluid == true) then return true end
+    end
+    return false
+end
+
+local function fluid_connection(catalog, step, entry, role)
+    if not flow_is_fluid(entry) then return nil end
+    local explicit = entry.connection or entry.pipe_connection or entry.fluid_connection
+    if explicit then return {connection = copy(explicit), box_index = entry.fluidbox_index or entry.box_index,
+        connection_index = entry.connection_index or entry.pipe_connection_index} end
+
+    local entity = lookup_entity(catalog, step.machine, "machine")
+    local boxes = entity.fluid_boxes or entity.fluidbox_prototypes
+    if type(boxes) ~= "table" then return nil end
+    local wanted_box = entry.fluidbox_index or entry.box_index
+    local wanted_connection = entry.connection_index or entry.pipe_connection_index
+    local preferred = role == "input" and "input" or "output"
+    local fallback
+    for box_index, box in ipairs(boxes) do
+        if wanted_box == nil or wanted_box == box.index or wanted_box == box_index then
+            local production = tostring(box.production_type or box.flow_direction or ""):lower()
+            local matches_role = production == preferred or production:find(preferred, 1, true) ~= nil
+            local connections = box.connections or box.pipe_connections or {}
+            for connection_index, connection in ipairs(connections) do
+                if wanted_connection == nil or wanted_connection == connection_index then
+                    local selected = {connection = connection, box_index = box.index or box_index,
+                        connection_index = connection_index, matches_role = matches_role}
+                    if matches_role then return copy(selected) end
+                    fallback = fallback or selected
+                end
+            end
+        end
+    end
+    return fallback and copy(fallback) or nil
+end
+
 local function dimensions(catalog, name, kind, fallback_w, fallback_h)
     local entity = lookup_entity(catalog, name, kind)
     local size = entity.size or entity.footprint
@@ -247,26 +297,46 @@ local function covers(beacon, machine, machine_spec, supply_w, supply_h)
     return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y, supply_w, supply_h)
 end
 
-local function append_inserters(block, step, machine, catalog, input)
+local function append_inserters(block, step, machine, catalog, input, flows)
     local name, iw, ih = inserter_size(catalog, input and input.inserter)
-    local ports = {}
-    for _, port in ipairs(step.inputs or {}) do ports[#ports + 1] = {role = "input", port = port} end
-    for _, port in ipairs(step.outputs or {}) do ports[#ports + 1] = {role = "output", port = port} end
-    -- The block owns the inserters, but their exact belt/pipe connection is completed by the route lane.  A
-    -- separate row per connection keeps the opaque member rectangles disjoint without guessing route geometry.
-    local inserter_y = machine.y + machine.h
-    for index, entry in ipairs(ports) do
+    local inputs, outputs = {}, {}
+    for _, port in ipairs(step.inputs or {}) do
+        if not flow_is_fluid(port, flows) then inputs[#inputs + 1] = port end
+    end
+    for _, port in ipairs(step.outputs or {}) do
+        if not flow_is_fluid(port, flows) then outputs[#outputs + 1] = port end
+    end
+    -- Put inputs along the machine's left face and outputs below it. Each item inserter is therefore adjacent to
+    -- the machine it serves; no later connection is stranded in a second row away from the target. The route
+    -- lane supplies the source/output structure named by the corresponding block port.
+    local function append(role, list)
+        for index, port in ipairs(list) do
+            local entry = {role = role, port = port}
+            local x, y, direction
+            if role == "input" then
+                x, y, direction = machine.x - iw, machine.y + index - 1, EAST
+            else
+                x, y, direction = machine.x + math.max(0, math.min(machine.w - iw, index - 1)), machine.y + machine.h, SOUTH
+            end
         block.inserters[#block.inserters + 1] = {
             id = member_id("inserter", step.step_id, machine.ordinal, entry.role .. ":" .. tostring(index)),
             kind = "inserter", type = "inserter", name = name,
             step_id = step.step_id, machine_id = machine.id, role = entry.role,
+            port_id = (entry.role == "input" and "in:" or "out:")
+                .. tostring(entry.port.port_id or entry.port.flow_id or entry.port.full_name),
             flow_id = entry.port.flow_id or entry.port.full_name,
-            x = machine.x + math.max(0, math.min(machine.w - iw, index - 1)),
-            y = inserter_y, w = iw, h = ih,
-            dir = entry.role == "input" and NORTH or SOUTH,
+            x = x, y = y, w = iw, h = ih, dir = direction,
+            pickup_target = entry.role == "input"
+                and (entry.port.source_id or entry.port.source_port_id or ("port:" .. tostring(entry.port.flow_id or entry.port.full_name)))
+                or machine.id,
+            drop_target = entry.role == "input"
+                and machine.id
+                or (entry.port.drain_id or entry.port.drain_port_id or ("port:" .. tostring(entry.port.flow_id or entry.port.full_name))),
         }
-        inserter_y = inserter_y + ih
+        end
     end
+    append("input", inputs)
+    append("output", outputs)
 end
 
 local function block_ports(block, steps, ports, flows)
@@ -317,15 +387,31 @@ local function block_ports(block, steps, ports, flows)
                 x, y = block.w, (offset or 0) + index - 1
             end
             local source = selected_port.port
-            block.ports[#block.ports + 1] = {
+            local inserter_id
+            local wanted_role = role == "in" and "input" or "output"
+            for _, inserter in ipairs(block.inserters or {}) do
+                if inserter.machine_id == selected_port.member_id and inserter.role == wanted_role
+                    and inserter.flow_id == (source.flow_id or source.full_name or selected_port.flow_id) then
+                    inserter_id = inserter.id
+                    break
+                end
+            end
+            local block_port = {
                 port_id = source.port_id or source.id or ((role or "port") .. ":" .. tostring(index)),
                 role = role, kind = source.kind or (source.is_fluid and "fluid" or "item"),
                 flow_id = source.flow_id or source.full_name or selected_port.flow_id,
                 rate_per_second = source.rate_per_second,
                 step_id = selected_port.step_id,
                 attach_dx = x, attach_dy = y, normal_dir = normal, travel_dir = travel,
-                member_id = selected_port.member_id,
+                member_id = selected_port.member_id, inserter_id = inserter_id,
             }
+            for _, field in ipairs({"full_name", "is_fluid", "machine", "machine_id", "fluidbox_index", "box_index",
+                "connection_index", "pipe_connection_index", "production_type", "filter"}) do
+                if source[field] ~= nil then block_port[field] = copy(source[field]) end
+            end
+            if source.connection ~= nil then block_port.connection = copy(source.connection) end
+            if source.pipe_connection ~= nil then block_port.pipe_connection = copy(source.pipe_connection) end
+            block.ports[#block.ports + 1] = block_port
         end
     end
     place_side(inputs, "in", "top", SOUTH, SOUTH, 0)
@@ -476,6 +562,17 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
     local machine_x0 = 0
     for _, row in ipairs(beacon_row_specs) do machine_x0 = math.max(machine_x0, row.w) end
+    --Inputs occupy the machine's left face. Reserve that side margin even for a machine with no beacons,
+    --otherwise the first input inserter would start outside the block envelope.
+    for _, step in ipairs(steps) do
+        for _, entry in ipairs(step.inputs or {}) do
+            if not flow_is_fluid(entry, flows) then
+                local _, input_w = inserter_size(catalog, input and input.inserter)
+                machine_x0 = math.max(machine_x0, input_w)
+                break
+            end
+        end
+    end
     local x = machine_x0
     for _, spec in ipairs(machine_specs) do
         local machine = {
@@ -485,10 +582,21 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             x = x, y = machine_y, w = spec.w, h = spec.h,
             modules = list_copy(spec.step.modules), forbids_speed_beacon = spec.step.forbids_speed_beacon,
         }
+        local machine_etype = spec.machine_spec and spec.machine_spec.etype
+        if machine_etype ~= nil then machine.etype = machine_etype end
+        -- Recipe fields are meaningful only for assembling-machine prototypes. In particular, a furnace's
+        -- product is determined by its item input and must never be turned into a blueprint recipe field merely
+        -- because the plan step happens to carry a recipe name.
+        if machine_etype == "assembling-machine" and spec.step.recipe ~= nil then
+            machine.recipe = spec.step.recipe
+            machine.recipe_quality = spec.step.recipe_quality
+        end
+        if spec.step.module_inventory ~= nil then machine.module_inventory = copy(spec.step.module_inventory) end
+        if spec.step.inventory ~= nil then machine.inventory = copy(spec.step.inventory) end
         block.machines[#block.machines + 1] = machine
         block.members[#block.members + 1] = machine
         x = x + spec.layout_w + 1
-        append_inserters(block, spec.step, machine, catalog, input)
+        append_inserters(block, spec.step, machine, catalog, input, flows)
     end
 
     -- Inserter rows belonging to different machines have disjoint x ranges because machine_specs reserves the
@@ -687,20 +795,15 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     block_ports(block, steps, ports, flows)
 
     -- A speed beacon is never allowed to claim a quality machine, even if a malformed plan uses a speed
-    -- group on that step.  Such a block remains inspectable but is not offered as a candidate below because
-    -- it cannot satisfy both the configured minimum and the hard isolation rule.
+    -- group on that step. Keep the physical influence record intact: removing covered_members while the beacon
+    -- remains placed only makes bookkeeping look safe. The candidate is rejected and the caller can try a split.
     for _, beacon in ipairs(block.beacons) do
         if beacon.has_speed_module then
-            local safe = {}
             for _, machine_id in ipairs(beacon.required_for) do
                 local machine
                 for _, candidate in ipairs(block.machines) do if candidate.id == machine_id then machine = candidate break end end
-                if not machine or not machine.forbids_speed_beacon then safe[#safe + 1] = machine_id end
+                if machine and machine.forbids_speed_beacon then block.invalid_coverage = true end
             end
-            beacon.required_for = safe
-            beacon.covered_members = list_copy(safe)
-            beacon.member_ids = list_copy(safe)
-            beacon.members = list_copy(safe)
         end
     end
     for _, machine in ipairs(block.machines) do
@@ -785,27 +888,51 @@ local function relevant_ports(block_steps, ports, flows)
     return result
 end
 
-local function step_ports(steps)
+local function step_ports(steps, catalog, flows)
     local ports = {}
     for _, step in ipairs(steps) do
         for _, entry in ipairs(step.inputs or {}) do
             if entry.external ~= false then
-                ports[#ports + 1] = {
-                    port_id = entry.port_id or ("in:" .. tostring(entry.flow_id or entry.full_name)),
-                    role = "in", kind = entry.kind or (entry.is_fluid and "fluid" or "item"),
-                    flow_id = entry.flow_id or entry.full_name, rate_per_second = entry.rate_per_second,
-                    step_id = step.step_id,
-                }
+                local port = copy(entry)
+                port.port_id = entry.port_id or ("in:" .. tostring(entry.flow_id or entry.full_name))
+                port.role = "in"
+                port.kind = entry.kind or (flow_is_fluid(entry, flows) and "fluid" or "item")
+                port.is_fluid = port.kind == "fluid" or entry.is_fluid == true
+                port.flow_id = entry.flow_id or entry.full_name
+                port.rate_per_second = entry.rate_per_second
+                port.step_id = step.step_id
+                port.machine = step.machine
+                if port.is_fluid then
+                    local facts = fluid_connection(catalog, step, entry, "input")
+                    if facts then
+                        port.connection = facts.connection
+                        port.fluidbox_index = facts.box_index
+                        port.connection_index = facts.connection_index
+                    end
+                end
+                ports[#ports + 1] = port
             end
         end
         for _, entry in ipairs(step.outputs or {}) do
             if entry.external ~= false then
-                ports[#ports + 1] = {
-                    port_id = entry.port_id or ("out:" .. tostring(entry.flow_id or entry.full_name)),
-                    role = "out", kind = entry.kind or (entry.is_fluid and "fluid" or "item"),
-                    flow_id = entry.flow_id or entry.full_name, rate_per_second = entry.rate_per_second,
-                    step_id = step.step_id,
-                }
+                local port = copy(entry)
+                port.port_id = entry.port_id or ("out:" .. tostring(entry.flow_id or entry.full_name))
+                port.role = "out"
+                port.kind = entry.kind or (flow_is_fluid(entry, flows) and "fluid" or "item")
+                port.is_fluid = port.kind == "fluid" or entry.is_fluid == true
+                port.flow_id = entry.flow_id or entry.full_name
+                port.rate_per_second = entry.rate_per_second
+                port.step_id = step.step_id
+                port.machine = step.machine
+                if port.is_fluid then
+                    local facts = fluid_connection(catalog, step, entry, "output")
+                    if facts then
+                        port.connection = facts.connection
+                        port.fluidbox_index = facts.box_index
+                        port.connection_index = facts.connection_index
+                    end
+                end
+                ports[#ports + 1] = port
             end
         end
     end
@@ -814,7 +941,7 @@ end
 
 local function make_candidates(input)
     local _, catalog, steps, flows = normalize_plan(input)
-    local ports = step_ports(steps)
+    local ports = step_ports(steps, catalog, flows)
     local limits = input and input.limits or {}
     local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
     local specs = partition_specs(steps, max_candidates * 2)
@@ -896,6 +1023,9 @@ function Groups.materialize(block, placement)
         local entity = copy(member)
         entity.id = "m:" .. tostring(member.id)
         if entity.machine_id then entity.machine_id = "m:" .. tostring(entity.machine_id) end
+        for _, field in ipairs({"inserter_id", "pickup_target", "drop_target"}) do
+            if entity[field] == member.id then entity[field] = "m:" .. tostring(entity[field]) end
+        end
         for _, field in ipairs({"required_for", "covered_members", "member_ids", "members"}) do
             if type(entity[field]) == "table" then
                 local references = {}
