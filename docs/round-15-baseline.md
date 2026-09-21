@@ -205,3 +205,38 @@ stopped being counted. The router binds one port per (step, flow, role) whatever
 Two consequences. Lane 131's change to `build_demands` is the necessary fix and not merely a tidy one: until
 a demand exists per port, a port's rate changes nothing. And `route_live` must be deleted **with** that
 change, because a router that asks for one endpoint per step will still get one even after demands are split.
+
+## 12. The wall lane 130's layout hits, measured
+
+Driving `Groups` on the sheet shape and printing every anchored port with its flow, on the merged tree:
+
+```
+BLOCK block:copper+science w=23 h=4          -- every port on row y = 4, the bottom edge
+  (0,4) item/copper-ore      (1,4) item/copper-plate   (2,4) item/stone
+  (4,4) item/copper-ore      (5,4) item/copper-plate   (6,4) item/stone
+  (8,4) item/iron-gear-wheel (9,4) item/iron-plate     (10,4) item/automation-science-pack
+  (12,4) item/iron-gear-wheel (13,4) item/iron-plate   (14,4) item/automation-science-pack
+  ...
+```
+
+Rule 27.2 as lane 130 implemented it puts **every** item hand of **every** flow on the one bottom face. So
+three different flows sit interleaved one tile apart along a single row.
+
+`logic/bp/route.lua:1061-1072` `path_cell_free` lets a belt cross a reserved port tile only when the tile
+shares that belt's flow. A copper-ore belt therefore has to reach `(0,4)` and `(4,4)` while crossing `(1,4)`
+and `(2,4)`, which belong to copper-plate and stone. It cannot. That is what `BP_R_NO_PATH` reports, and it
+is why lane 131's per-hand demands take candidates reaching `validate` from 2 to **0**: the moment every hand
+asks for its own belt, the single-row layout is provably unroutable.
+
+**The player's own factory never has this problem.** Its machines stand in a column with belt lanes on the
+sides, so each flow owns a lane and the hands of one machine reach different SIDES. Its science machine takes
+copper-plate and iron-gear-wheel from ONE hand on ONE belt, using both lanes of that belt, which is the same
+`26 hands against 22` difference recorded in section 2 -- and it turns out to be load-bearing rather than
+cosmetic.
+
+So contract 27.2 needs one more clause, and it is a layout rule rather than a routing one: **hands of
+different flows do not share a face.** A 3x3 machine has four faces and the science step needs three, two in
+and one out, so it fits. `logic/bp/groups.lua` owns that, and it is the next lane's work.
+
+The rates printed above also show `route_live` at work: every port reads `rate=0` except the last machine's,
+which carries the whole step rate.
