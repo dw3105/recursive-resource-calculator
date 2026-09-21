@@ -407,6 +407,25 @@ local function serialize_entity(entity, references)
     return result
 end
 
+--A table has no stable text form: `tostring` on one yields its address, which changes every run. That
+--address reached the canonical description through the infrastructure block, so the canonical digest of any
+--sheet whose belt or inserter setting is a table differed on every single run -- the one number the golden
+--suite compares and the release gate binds. Render a table by its own sorted contents instead.
+local function stable_text(value, depth)
+    if type(value) ~= "table" then return tostring(value) end
+    if (depth or 0) > 4 then return "{...}" end
+    local parts = {}
+    for index, item in ipairs(value) do parts[#parts + 1] = stable_text(item, (depth or 0) + 1) end
+    local listed = #value
+    for _, key in ipairs(sorted_keys(value)) do
+        local numeric = type(key) == "number" and key >= 1 and key <= listed and key % 1 == 0
+        if not numeric then
+            parts[#parts + 1] = tostring(key) .. "=" .. stable_text(value[key], (depth or 0) + 1)
+        end
+    end
+    return "{" .. table.concat(parts, ",") .. "}"
+end
+
 local function description_for(candidate)
     local root = candidate.candidate or candidate
     if type(root.description) == "string" then return root.description end
@@ -446,7 +465,9 @@ local function description_for(candidate)
     if type(infrastructure) == "string" then
         lines[#lines + 1] = infrastructure
     elseif type(infrastructure) == "table" then
-        for _, key in ipairs(sorted_keys(infrastructure)) do lines[#lines + 1] = tostring(key) .. "=" .. tostring(infrastructure[key]) end
+        for _, key in ipairs(sorted_keys(infrastructure)) do
+            lines[#lines + 1] = tostring(key) .. "=" .. stable_text(infrastructure[key])
+        end
     end
     return table.concat(lines, "\n")
 end

@@ -288,9 +288,25 @@ local function place(state, block)
     }
     state.placements[#state.placements + 1] = placement
 
+    --Reserve a routing corridor around the block, never only the block itself.
+    --
+    --Subtracting the bare placement let the next block sit flush against this one. Every flow leaving either
+    --block then had to share whatever gap happened to be left over -- on the player's sheet that was two
+    --tiles for ten flows, so the first few belts filled it and every later flow reported BP_R_NO_PATH with
+    --its source and sink walled in. Free area was never the problem: 423 of 2916 tiles were in use.
+    --
+    --The margin is the block's own port count, because in the worst case every port leaves by the same side
+    --and each one needs its own lane. It is a reservation for routing, not part of the block, so the block
+    --still places against the area border and the corridor may be shared with the border.
+    local margin = #(block.ports or {})
+    local reserved = placement
+    if margin > 0 then
+        reserved = {x = placement.x - margin, y = placement.y - margin,
+            w = placement.w + margin * 2, h = placement.h + margin * 2}
+    end
     local next_regions = {}
     for _, region in ipairs(state.regions) do
-        local pieces = Grid.subtract(region, placement)
+        local pieces = Grid.subtract(region, reserved)
         for _, piece in ipairs(pieces) do next_regions[#next_regions + 1] = piece end
     end
     for _, slot in ipairs(candidate.port_slots or {}) do

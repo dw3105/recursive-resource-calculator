@@ -940,11 +940,14 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             search.saw_blocked = true
             return false
         end
-        if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
         local allowed, reason = segment_allows(segment, demand, amount)
         if not allowed then
             if reason == "capacity" then search.saw_capacity = true end
             if reason == "occupied" then search.saw_blocked = true end
+            --Only a foreign pipe that actually DENIED the step is fluid mixing. Setting the flag on every
+            --pipe cell the search merely looked at made an item flow report BP_R_FLUID_MIX, so the belt's
+            --real blocker was hidden behind somebody else's pipe.
+            if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
             return false
         end
         if move_direction ~= nil and segment.direction ~= move_direction then
@@ -1246,6 +1249,20 @@ local function fail_demand(state, work, demand, code, detail)
     if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
     local record = {code = code, flow_id = demand and demand.flow_id}
     if detail ~= nil then record.detail = detail end
+    --A bare BP_R_NO_PATH names the flow and nothing else, so every diagnosis of it starts by rebuilding the
+    --endpoints by hand. Carry them on the record: which cell the router started from, which it had to reach,
+    --and how many alternatives it had left.
+    if demand ~= nil then
+        local source, sink = demand.source, demand.sink
+        record.endpoints = {
+            source_x = source and source.x, source_y = source and source.y,
+            source_port_id = source and source.port_id,
+            sink_x = sink and sink.x, sink_y = sink and sink.y,
+            sink_port_id = sink and sink.port_id,
+            source_candidates = #(demand.source_candidates or {}),
+            sink_candidates = #(demand.sink_candidates or {}),
+        }
+    end
     state.errors, state.done, state.ok = {record}, true, false
     state.progress.phase = "failed"
     return true

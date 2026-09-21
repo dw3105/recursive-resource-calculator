@@ -389,26 +389,42 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- Every requested signature has a row on each side of the machine strip.  Starting both rows at the
     -- configured requirement gives sharing a chance, while the loop below adds only the physical beacons that
     -- the source-frame collision boxes actually need.
+    --beacon_rows_h measures ONLY the rows stacked ABOVE the machine strip, because that is the single thing
+    --it is used for: the machine strip's y offset and the top rows' own stacking. Counting a bottom row here
+    --pushed the machines a full row further down while the top row stayed at y=0, so the top row no longer
+    --reached the machine and a three-beacon requirement covered nothing.
     local beacon_rows_h = 0
     local top_rows, bottom_rows, beacon_row_specs = {}, {}, {}
     for _, group in ipairs(ordered_groups) do
         if group.count_per_machine > 0 then
             local bw, bh = dimensions(catalog, group.name, "beacon", 3, 3)
             local count = math.max(1, group.count_per_machine)
+            --One row per side is only worth its height when the near side cannot satisfy the requirement on
+            --its own. A beacon row reaches a machine from above with supply measured from its centre, so a
+            --single row of adjacent beacons already covers a machine several times over. Placing a second
+            --row unconditionally cost a one-beacon machine FOUR beacons and made every block tall enough
+            --that, once rotated, it walled the perimeter ports into a pocket with no route out.
             local top = {group = group, w = bw, h = bh, count = count, side = "top"}
-            local bottom = {group = group, w = bw, h = bh, count = count, side = "bottom"}
             top_rows[#top_rows + 1] = top
-            bottom_rows[#bottom_rows + 1] = bottom
             beacon_row_specs[#beacon_row_specs + 1] = top
-            beacon_row_specs[#beacon_row_specs + 1] = bottom
             beacon_rows_h = beacon_rows_h + bh + 1
+            if count > 2 then
+                local bottom = {group = group, w = bw, h = bh, count = count, side = "bottom"}
+                bottom_rows[#bottom_rows + 1] = bottom
+                beacon_row_specs[#beacon_row_specs + 1] = bottom
+            end
         end
     end
     if beacon_rows_h > 0 then beacon_rows_h = beacon_rows_h - 1 end
 
+    --Beacons sit adjacent. A one-tile gap pushes centres a full pitch apart, and since supply reach is
+    --measured from the CENTRE, that gap costs a narrow machine the third supply area it needs.
     local function row_width(row)
         if row.count <= 0 then return 0 end
-        return row.count * row.w + row.count - 1
+        local far = 0
+        for _, origin_x in ipairs(row.positions or {}) do far = math.max(far, origin_x + row.w) end
+        if far > 0 then return far end
+        return row.count * row.w
     end
 
     local function rows_width()
@@ -454,7 +470,13 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
         if needs_tighter_row then machine_y = beacon_rows_h end
     end
-    local x = 0
+    --Offset the machine strip by one beacon width when any group needs beacons, so a row starting at x=0
+    --straddles the machines instead of starting flush with them. Supply reach is measured from the beacon
+    --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
+    --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
+    local machine_x0 = 0
+    for _, row in ipairs(beacon_row_specs) do machine_x0 = math.max(machine_x0, row.w) end
+    local x = machine_x0
     for _, spec in ipairs(machine_specs) do
         local machine = {
             id = spec.id,
@@ -480,15 +502,21 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         block.members[#block.members + 1] = inserter
     end
 
-    local bottom_y = inserter_bottom + 1
+    --No gap below the inserters. Supply reach is measured from the beacon CENTRE, so one spare tile puts the
+    --bottom row's supply half a tile short of the machine above it and the whole row covers nothing -- which
+    --is why a one-beacon requirement was paying for four beacons and covering with two.
+    local bottom_y = inserter_bottom
     local bottom_row_y = bottom_y
     for _, row in ipairs(bottom_rows) do
         row.y = bottom_row_y
         bottom_row_y = bottom_row_y + row.h + 1
     end
 
+    --Anchored at the machine strip, never centred in a width the row itself sets. Centring made the block
+    --widen as the row grew, which re-centred the row and moved beacons AWAY from the machine that still
+    --needed one, so coverage was not monotone in row.count and the old loop could never converge.
     local function row_x(row)
-        return math.max(0, math.floor((w - row_width(row)) / 2))
+        return 0
     end
 
     local function required_count(machine, group)
@@ -503,54 +531,86 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
 
     local function prospective_beacon(row, index)
-        return {x = row_x(row) + (index - 1) * (row.w + 1), y = row.y, w = row.w, h = row.h}
+        return {x = row_x(row) + (index - 1) * row.w, y = row.y, w = row.w, h = row.h}
     end
 
-    -- A centred row can shift as it grows.  Re-evaluate all machines after every addition so the block is
-    -- sized from the final world boxes, including machines at either edge of a long strip.
-    for _ = 1, 512 do
-        w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
-        local deficient_group, deficient_top, deficient_bottom
-        for _, group in ipairs(ordered_groups) do
-            for _, machine in ipairs(block.machines) do
-                local required = required_count(machine, group)
-                if required > 0 then
-                    local top, bottom = 0, 0
-                    local machine_spec = machine_specs_by_id[machine.id].machine_spec
-                    for _, row in ipairs(top_rows) do
-                        if row.group.signature == group.signature then
-                            for index = 1, row.count do
-                                if covers(prospective_beacon(row, index), machine, machine_spec,
-                                    group.supply_w, group.supply_h) then top = top + 1 end
+    --Beacon positions are derived from real coverage, never discovered by trial and never assumed.
+    --
+    --The origin domain is finite and known before anything is placed: a row anchored at x = 0 can hold a
+    --beacon at every multiple of its own width up to the far edge of the machine strip. That list is the
+    --whole domain. Choosing from it is a measurement, not a search.
+    --
+    --Two earlier shapes were both wrong. The original added one beacon at a time, up to 512 times, always to
+    --the side with FEWER hits; when that side could not reach the machine vertically at all, every addition
+    --was wasted and the block inflated without bound -- 518 beacons and 2059 tiles on the player's
+    --casting-iron block, still 2 of 3 covered. Horizontal additions never cure a vertical miss. Replacing it
+    --with a pure span count went too far the other way: it spaced beacons by their own WIDTH, ignoring that
+    --supply reach is much wider, so two machines that one beacon already covers were given four.
+    --
+    --So: start from zero, and add only a beacon that reduces a real deficit. Each pass takes the position
+    --covering the most still-deficient machines, and stops as soon as no remaining position helps any of
+    --them. A machine left deficient keeps its deficit; the coverage check below reports it honestly.
+    local function row_origins(row)
+        --The domain reaches one supply width PAST the machine strip, never only the strip. Supply is measured
+        --from the beacon centre, so a beacon standing beyond the last machine still reaches it -- and a
+        --machine wanting three beacons on a strip only two beacons wide has nowhere else to get the third.
+        local reach = math.max(0, math.ceil(finite(row.group.supply_w, 0)))
+        local span = math.max(1, machine_x0 + machine_w + reach)
+        local limit = math.max(1, math.ceil(span / row.w))
+        local origins = {}
+        for index = 1, limit do origins[index] = (index - 1) * row.w end
+        return origins
+    end
+
+    local function place_row(row)
+        local group = row.group
+        local deficit, order = {}, {}
+        for _, machine in ipairs(block.machines) do
+            local need = required_count(machine, group)
+            if need > 0 then deficit[machine.id] = need; order[#order + 1] = machine end
+        end
+        row.positions = {}
+        if #order == 0 then row.count = 0 return end
+        local origins, taken = row_origins(row), {}
+        while true do
+            local best_x, best_gain, best_index = nil, 0, nil
+            for index, origin_x in ipairs(origins) do
+                if not taken[index] then
+                    local gain = 0
+                    for _, machine in ipairs(order) do
+                        if deficit[machine.id] > 0 then
+                            local spec = machine_specs_by_id[machine.id].machine_spec
+                            if covers({x = origin_x, y = row.y, w = row.w, h = row.h}, machine, spec,
+                                group.supply_w, group.supply_h) then
+                                gain = gain + 1
                             end
                         end
                     end
-                    for _, row in ipairs(bottom_rows) do
-                        if row.group.signature == group.signature then
-                            for index = 1, row.count do
-                                if covers(prospective_beacon(row, index), machine, machine_spec,
-                                    group.supply_w, group.supply_h) then bottom = bottom + 1 end
-                            end
-                        end
-                    end
-                    if top + bottom < required then
-                        deficient_group = group
-                        deficient_top, deficient_bottom = top, bottom
-                        break
+                    if gain > best_gain then best_x, best_gain, best_index = origin_x, gain, index end
+                end
+            end
+            if best_index == nil then break end
+            taken[best_index] = true
+            row.positions[#row.positions + 1] = best_x
+            for _, machine in ipairs(order) do
+                if deficit[machine.id] > 0 then
+                    local spec = machine_specs_by_id[machine.id].machine_spec
+                    if covers({x = best_x, y = row.y, w = row.w, h = row.h}, machine, spec,
+                        group.supply_w, group.supply_h) then
+                        deficit[machine.id] = deficit[machine.id] - 1
                     end
                 end
             end
-            if deficient_group then break end
         end
-        if not deficient_group then break end
-        local target_rows = top_rows
-        if deficient_bottom < deficient_top then target_rows = bottom_rows end
-        for _, row in ipairs(target_rows) do
-            if row.group.signature == deficient_group.signature then row.count = row.count + 1; break end
-        end
+        table.sort(row.positions)
+        row.count = #row.positions
     end
+    for _, row in ipairs(beacon_row_specs) do place_row(row) end
 
-    w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
+    --The machine strip starts at machine_x0, so the block is that offset wider than the strip itself.
+    --Leaving it out let a machine and its inserters end outside block.w, and the validator then saw a member
+    --sticking out of its own placed envelope.
+    w = math.max(1, machine_x0 + machine_w, rows_width(), input_count, output_count, input_count + output_count)
 
     local group_beacon_indices = {}
     for _, row in ipairs(beacon_row_specs) do
@@ -571,7 +631,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         group_beacon_indices[group.signature] = group_beacon_indices[group.signature] or 0
         for beacon_index = 1, row.count do
             group_beacon_indices[group.signature] = group_beacon_indices[group.signature] + 1
-            local beacon_x = placed_row_x + (beacon_index - 1) * (row.w + 1)
+            local beacon_x = placed_row_x + ((row.positions or {})[beacon_index] or (beacon_index - 1) * row.w)
             local beacon = {
                 --A beacon group signature describes a loadout, not a place: two blocks sharing one loadout
                 --produced two beacons with one id, and every reader that indexes entities by id then saw one
@@ -868,7 +928,10 @@ function Groups.materialize(block, placement)
     for index, port in ipairs(block.ports or {}) do
         local slot = slot_for(port, index)
         local source = port
-        if slot then
+        --A slot only replaces the port's own attachment when it actually HAS one. Overwriting unconditionally
+        --dropped attach_dx to nil, and Grid.place_port then did arithmetic on that nil deep inside the
+        --validator's port-approach check -- a crash no run ever reached while grouping still failed earlier.
+        if slot and slot.attach_dx ~= nil and slot.attach_dy ~= nil then
             source = copy(port)
             source.attach_dx, source.attach_dy = slot.attach_dx, slot.attach_dy
             source.normal_dir, source.travel_dir = slot.normal_dir, slot.travel_dir

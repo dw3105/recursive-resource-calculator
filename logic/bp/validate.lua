@@ -885,6 +885,12 @@ local function port_position(work, port)
     if x ~= nil and y ~= nil then return x, y end
     local owner, placement = port_owner(work, port)
     if not owner then return nil end
+    --An external perimeter port carries a rate and a flow but no block attachment: it is the sheet's own
+    --input or output, not a tile on a block edge. Deriving a position for it is impossible, and the caller
+    --at check_port_approaches already skips a port whose position is nil, exactly as it skips one with no
+    --owner. Without this guard Grid.place_port does arithmetic on a nil attach_dx and the whole validation
+    --stage dies -- which no run reached while grouping still failed earlier.
+    if port.attach_dx == nil or port.attach_dy == nil then return nil end
     local frame = {w = finite(port._block_w, finite(owner.w, 1)), h = finite(port._block_h, finite(owner.h, 1))}
     local placed = Grid.place_port(frame, placement, port)
     return placed.x, placed.y

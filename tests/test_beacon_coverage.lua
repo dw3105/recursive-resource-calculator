@@ -54,21 +54,26 @@ end
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " B1 one beacon covers its machine in all four placed directions", function()
         local block = finish({plan = plan(1, "one"), catalog = catalog(3)})
-        H.equal(#block.beacons, 2, "the requirement is served from rows on both sides")
+        --One configured beacon means one physical beacon. This asserted 2 while placement put a row on each
+        --side of the machine strip whether or not the near side already satisfied the requirement, so the
+        --expectation recorded that waste instead of catching it.
+        H.equal(#block.beacons, 1, "one configured beacon is served by exactly one physical beacon")
         for _, dir in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
             local placed = Groups.materialize(block, {x = 20, y = 30, dir = dir})
             local beacon = entities_of_kind(placed, "beacon")[1]
             local machine = entities_of_kind(placed, "machine")[1]
             H.equal(independently_covered(beacon, machine, {}), true,
                 "placed beacon covers the machine at direction " .. tostring(dir))
-            H.equal(#block.beacon_coverage[block.machines[1].id], 2,
-                "source block records both physical row beacons")
+            H.equal(#block.beacon_coverage[block.machines[1].id], 1,
+                "source block records the one physical beacon that serves the machine")
         end
     end)
 
     H.test(shape .. " B2 one placed beacon covers both machines that request its group", function()
         local block = finish({plan = plan(2, "shared"), catalog = catalog(4)})
-        H.equal(#block.beacons, 2, "sharing uses one beacon in each row")
+        --Sharing is the point: one beacon whose supply area reaches both machines serves both requirements,
+        --so the block needs one beacon, never one per row.
+        H.equal(#block.beacons, 1, "sharing serves both machines from one physical beacon")
         for _, dir in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
             local placed = Groups.materialize(block, {x = 20, y = 30, dir = dir})
             local beacons = entities_of_kind(placed, "beacon")
