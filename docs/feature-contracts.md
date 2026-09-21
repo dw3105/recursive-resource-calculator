@@ -1078,3 +1078,29 @@ record with its attempt ordinal and refusing stage so the flat record list can b
 A code that a change stops emitting scores zero, which is indistinguishable from a code that was fixed. So
 every counted code carries a live emitter test (`tests/test_census_codes_live.lua`) that builds a candidate
 which must provoke it. Deleting an emitter zeroes the census and turns that test red in the same run.
+
+
+### 27.6 One face per flow
+
+**Hands carrying different flows never share a machine face.**
+
+Rule 27.2 puts every port-bound hand's outward cell on the block perimeter. Putting them all on ONE face
+makes that perimeter row carry every flow the block touches, interleaved a tile apart. Measured on the
+player's sheet: `block:copper+science` published `(0,4) item/copper-ore`, `(1,4) item/copper-plate`,
+`(2,4) item/stone`, `(4,4) item/copper-ore`, and so on along row `y = 4`.
+
+`logic/bp/route.lua:1061-1072` `path_cell_free` lets a belt cross a reserved port tile **only** when the tile
+shares that belt's flow, which is correct: a copper-plate belt running over a stone port would deliver stone
+nowhere and take the tile from the hand that needs it. So a copper-ore belt reaching `(0,4)` and `(4,4)` has
+to cross `(1,4)` and `(2,4)` and cannot. A single row carrying several flows is not routable, and the
+measurement is unambiguous: once every hand asks for its own belt, candidates reaching `validate` fall to
+zero with `BP_R_NO_PATH` at stage `route`.
+
+A machine has four faces. A step with two ingredients and one product needs three. When a machine's flows
+outnumber its free faces the block **fails by name**, and the search takes another partition.
+
+The player's own factory obeys this rule without being told: its machines stand in a column with a belt lane
+per side, and its science machine takes copper-plate and iron-gear-wheel through ONE hand from ONE belt,
+using both lanes of that belt. Serving two flows with one hand is the same economy that makes its factory 22
+inserters where ours plans 26; that is a later round's work, and 27.6 is what makes the current one hand per
+ingredient routable at all.

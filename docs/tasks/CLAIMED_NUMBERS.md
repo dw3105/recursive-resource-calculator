@@ -123,3 +123,4 @@
 | `132` | `rrc/agent` | witness: every machine judged by its own port | 2026-09-21 |
 | `133` | `rrc/agent` | goldens: an acceptance case shaped like the player's sheet | 2026-09-21 |
 | `131` | `rrc/agent` | bindings: every hand gets its own belt | 2026-09-21 |
+| `134` | `rrc/agent` | faces: one face per flow, so a belt can reach every hand | 2026-09-21 |

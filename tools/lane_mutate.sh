@@ -134,6 +134,10 @@ case "$mutation" in
     #alternatives again and all but one are never bound -- which is exactly the state lane 130 left behind.
     per-port-demands-off)
         apply logic/bp/route.lua '(per_port_demands *= *)[^,;}\n]+' '\1false' ;;
+    #134: every hand of every flow goes back onto one machine face, which is the interleaved row that
+    #route.lua:1061 cannot cross and that took candidates reaching validate to zero.
+    one-face-per-flow-off)
+        apply logic/bp/groups.lua '(face_per_flow *= *)[^,;}\n]+' '\1false' ;;
     #132: the transport-unused rejection still fires and still names its entity, under a code nobody expects.
     #The census then reads zero for it, which is exactly the suppression tests/test_census_codes_live.lua guards.
     census-code-unused)

@@ -139,6 +139,9 @@ case "$tag" in
     131_bindings)
         tests="tests/test_route.lua tests/test_route_network.lua tests/test_route_layout_contract.lua tests/test_demand_terminals.lua tests/test_port_tile_flow.lua tests/test_bindings_per_hand.lua"
         ;;
+    134_faces)
+        tests="tests/test_groups.lua tests/test_pack.lua tests/test_inserter_geometry.lua tests/test_port_edges.lua tests/test_placed_port_geometry.lua tests/test_transport_handshake.lua"
+        ;;
     132_witness)
         tests="tests/test_validate.lua tests/test_physical_witness.lua tests/test_validated_candidate.lua tests/test_census_codes_live.lua"
         ;;
