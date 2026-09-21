@@ -7,10 +7,18 @@ rule is exercised on its own and a failure names which rule broke.
 """
 
 import importlib.util
+import json
 import os
+import stat
+import subprocess
+import tempfile
+import textwrap
 import unittest
+from pathlib import Path
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+CASES = Path(REPO) / "tests" / "golden" / "cases"
+REAL_SHEET_CENSUS = Path(REPO) / "tools" / "real_sheet_census.py"
 
 
 def _load(name, relative):
@@ -22,6 +30,70 @@ def _load(name, relative):
 
 census = _load("real_sheet_census", "tools/real_sheet_census.py")
 gate = _load("census_gate", "tools/census_gate.py")
+
+
+def _fake_interpreter(path):
+    """Write a tiny generation-envelope producer for the CLI boundary test."""
+    path.write_text(textwrap.dedent(
+        """
+        #!/usr/bin/env python3
+        import json
+        import sys
+
+        arguments = sys.argv[1:]
+        input_path = arguments[arguments.index("--input") + 1]
+        output_path = arguments[arguments.index("--output") + 1]
+        with open(input_path, encoding="utf-8") as stream:
+            prepared = json.load(stream)
+
+        if prepared.get("case_kind") == "broken":
+            payload = {
+                "ok": True,
+                "stage": "done",
+                "result": {
+                    "entities": [{"name": "transport-belt"}],
+                    "discarded_alternatives": [
+                        {"candidate_id": "broken-1", "reason_codes": ["BP_V_TRANSPORT_UNUSED", "BP_V_TRANSFER_BROKEN"]},
+                        {"candidate_id": "broken-2", "reason_codes": ["BP_V_TRANSPORT_UNUSED"]},
+                    ],
+                },
+            }
+        else:
+            payload = {
+                "ok": False,
+                "stage": "failed",
+                "errors": [{
+                    "code": "BP_FAIL_SEARCH_BUDGET",
+                    "reason_details": [
+                        {"code": "BP_V_TRANSFER_BROKEN", "stage": "validate", "attempt": 1},
+                        {"code": "BP_V_TRANSFER_BROKEN", "stage": "validate", "attempt": 2},
+                        {"code": "BP_V_TRANSPORT_UNUSED", "stage": "validate", "attempt": 2},
+                    ],
+                }],
+            }
+        with open(output_path, "w", encoding="utf-8") as stream:
+            json.dump(payload, stream)
+        """
+    ).lstrip(), encoding="utf-8")
+    path.chmod(path.stat().st_mode | stat.S_IXUSR)
+
+
+def _run_census_cli(case_kind):
+    """Run the real census command over a temporary input and a real envelope boundary."""
+    with tempfile.TemporaryDirectory(prefix=".census-e2e-", dir=CASES) as directory:
+        case = Path(directory)
+        prepared = {
+            "case_kind": case_kind,
+            "provenance": {"certifiable": False},
+        }
+        (case / "prepared_input.json").write_text(json.dumps(prepared), encoding="utf-8")
+        interpreter = case / "envelope-interpreter"
+        _fake_interpreter(interpreter)
+        return subprocess.run(
+            ["python3", str(REAL_SHEET_CENSUS), "--case", case.name, "--ops", "17",
+             "--interpreter", str(interpreter), "--timeout", "5", "--quiet"],
+            cwd=REPO, text=True, capture_output=True, check=False,
+        )
 
 
 def report(rates, attempts=10, stage="failed", case="player-red-science-1s", ops=5000000,
@@ -61,6 +133,57 @@ class CensusExtraction(unittest.TestCase):
         counts, attempts = census.census_of(census.records_of(payload))
         self.assertEqual(counts["BP_V_TRANSPORT_UNUSED"], 1)
         self.assertEqual(attempts["validate"], 1)
+
+
+class CensusCommand(unittest.TestCase):
+    def test_the_cli_counts_a_small_hand_countable_failure_envelope(self):
+        completed = _run_census_cli("small")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual(report["envelope"], {"ok": False, "stage": "failed",
+                                               "terminal_code": "BP_FAIL_SEARCH_BUDGET"})
+        self.assertEqual(report["counters"]["validate_attempts"], 2)
+        self.assertEqual(report["census"], {"BP_V_TRANSFER_BROKEN": 2, "BP_V_TRANSPORT_UNUSED": 1})
+        self.assertEqual(report["rates"], {"BP_V_TRANSFER_BROKEN": 1.0, "BP_V_TRANSPORT_UNUSED": 0.5})
+
+    def test_the_cli_counts_discarded_reasons_from_a_broken_candidate(self):
+        completed = _run_census_cli("broken")
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        report = json.loads(completed.stdout)
+        self.assertEqual(report["envelope"], {"ok": True, "stage": "done", "terminal_code": None})
+        self.assertEqual(report["counters"]["validate_attempts"], 2)
+        self.assertEqual(report["census"], {"BP_V_TRANSFER_BROKEN": 1, "BP_V_TRANSPORT_UNUSED": 2})
+        self.assertEqual(report["rates"], {"BP_V_TRANSFER_BROKEN": 0.5, "BP_V_TRANSPORT_UNUSED": 1.0})
+
+
+class PreparedInputCopies(unittest.TestCase):
+    def test_generation_prepared_input_is_distinct_but_same_captured_payload(self):
+        from tests.golden.lib.common import read_export
+
+        export, _ = read_export(CASES / "player-red-science-1s" / "export.txt")
+        top_level = export["prepared_input"]
+        pinned = export["generation"]["prepared_input"]
+        self.assertNotEqual(top_level, pinned)
+
+        #The export writes empty lists as rrc_empty_list markers in the generation copy, while the top-level
+        #copy has already been through the older empty-map encoding. Compare the three data-bearing portions;
+        #metadata such as source_export is deliberately allowed to have its two export encodings.
+        def normalise(value):
+            if isinstance(value, dict):
+                if value == {"rrc_empty_list": True}:
+                    return {}
+                return {key: normalise(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [normalise(item) for item in value]
+            return value
+
+        for field in ("catalog", "snapshot", "solver_result"):
+            left = json.dumps(normalise(top_level[field]), sort_keys=True, separators=(",", ":")).encode()
+            right = json.dumps(normalise(pinned[field]), sort_keys=True, separators=(",", ":")).encode()
+            self.assertEqual(left, right, field)
+
+        provenance = json.loads((CASES / "player-red-science-1s" / "provenance.json").read_text())
+        self.assertEqual(provenance["prepared_input_source"], "generation.prepared_input")
 
     def test_attempts_count_candidates_and_not_records(self):
         payload = {"errors": [{"code": "X", "reason_details": [

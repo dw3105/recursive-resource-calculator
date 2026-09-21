@@ -42,6 +42,7 @@ SEMANTIC_ASSERTIONS = {
     "wire_legality", "port_edges", "collisions",
 }
 FORBIDDEN_GENERATION_OPTIONS = ("search_budget", "max_ops", "max_search_grids", "max_grid_trials")
+GENERATOR_TIMEOUT_SECONDS = 1800
 _SHARED_MATRIX_READER = None
 
 
@@ -604,9 +605,16 @@ def generator_path() -> Path:
 
 
 def run_lua_generator(input_path: Path) -> Dict[str, Any]:
-    command = [lua_interpreter(), str(generator_path()), "--input", str(input_path)]
+    interpreter = lua_interpreter()
+    command = [interpreter, str(generator_path()), "--input", str(input_path)]
+    started = time.monotonic()
     try:
-        result = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False)
+        result = subprocess.run(command, cwd=REPO_ROOT, text=True, capture_output=True, check=False,
+                                timeout=GENERATOR_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as exc:
+        elapsed = time.monotonic() - started
+        raise GoldenError(f"Lua generator timed out after {elapsed:.1f}s using {interpreter} "
+                          f"(limit {GENERATOR_TIMEOUT_SECONDS}s) for {input_path}") from exc
     except OSError as exc:
         raise GoldenError(f"could not start Lua generator: {exc}") from exc
     if result.returncode != 0:
