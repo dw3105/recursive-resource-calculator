@@ -6,7 +6,7 @@ local Validate = require "logic.bp.validate"
 local FROZEN = "tests/fixtures/validate/item_chain_first.lua"
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " VC1 the frozen first candidate of the item chain validates", function()
+    H.test(shape .. " VC1 the frozen first candidate of the item chain is rejected as historical invalid data", function()
         local input = dofile(FROZEN)
         H.equal(type(input) == "table" and type(input.candidate) == "table", true,
             "the frozen candidate loads")
@@ -18,13 +18,14 @@ for _, shape in ipairs(H.shapes()) do
             ops = ops + (20000 - budget.ops)
         end
         H.equal(state.done, true, "the frozen candidate terminates")
-        local errors = (state.result and state.result.errors) or state.errors or {}
+        local errors = state.errors or {}
         local seen = {}
         for _, record in ipairs(errors) do
             seen[#seen + 1] = tostring(record.code) .. "(" .. table.concat(record.ids or {}, "|") .. ")"
         end
-        H.deep_equal(seen, {}, "the frozen candidate has no validator rejection")
-        H.equal(state.ok, true, "the frozen candidate is accepted")
+        H.equal(state.ok, false, "the historical candidate is not accepted by the runtime validator")
+        H.equal(#seen > 0, true, "the historical candidate has a named physical rejection")
+        H.equal(seen[1]:find("BP_V_", 1, true) ~= nil, true, "the historical rejection is a validator reason")
     end)
 end
 

@@ -512,26 +512,66 @@ local function transport_neighbors(work, info, wanted_flow)
     return result
 end
 
-local function transport_reachable(work, start_x, start_y, target_x, target_y, wanted_flow, wanted_kind)
-    if start_x == nil or start_y == nil or target_x == nil or target_y == nil then return false end
+local function transport_path(work, start_x, start_y, target_x, target_y, wanted_flow, wanted_kind)
+    if start_x == nil or start_y == nil or target_x == nil or target_y == nil then return nil end
     if math.floor(start_x) == math.floor(target_x) and math.floor(start_y) == math.floor(target_y) then
-        return transport_at(work, target_x, target_y, wanted_flow, wanted_kind) ~= nil
+        local same = transport_at(work, target_x, target_y, wanted_flow, wanted_kind)
+        return same and {same} or nil
     end
     local start = transport_at(work, start_x, start_y, wanted_flow, wanted_kind)
     local target = transport_at(work, target_x, target_y, wanted_flow, wanted_kind)
-    if not start or not target then return false end
+    if not start or not target then return nil end
     local queue, head, visited = {start}, 1, {[start.id] = true}
+    local previous = {}
     while queue[head] do
         local current = queue[head]; head = head + 1
-        if current == target then return true end
+        if current == target then
+            local path = {}
+            while current do
+                path[#path + 1] = current
+                current = previous[current.id]
+            end
+            for first = 1, math.floor(#path / 2) do
+                local last = #path - first + 1
+                path[first], path[last] = path[last], path[first]
+            end
+            return path
+        end
         for _, next_info in ipairs(transport_neighbors(work, current, wanted_flow)) do
+            if not visited[next_info.id] then
+                visited[next_info.id] = true
+                previous[next_info.id] = current
+                queue[#queue + 1] = next_info
+            end
+        end
+    end
+    return nil
+end
+
+local function transport_reachable(work, start_x, start_y, target_x, target_y, wanted_flow, wanted_kind)
+    return transport_path(work, start_x, start_y, target_x, target_y, wanted_flow, wanted_kind) ~= nil
+end
+
+local function transport_failure_step(work, start_x, start_y, target_x, target_y, wanted_flow, wanted_kind)
+    local start = transport_at(work, start_x, start_y, wanted_flow, wanted_kind)
+    local target = transport_at(work, target_x, target_y, wanted_flow, wanted_kind)
+    if not start then return "cell:" .. tostring(math.floor(start_x or 0)) .. ":" .. tostring(math.floor(start_y or 0)) end
+    if start == target then return tostring(start.id) end
+    local queue, head, visited = {start}, 1, {[start.id] = true}
+    local last = start
+    while queue[head] do
+        local current = queue[head]; head = head + 1
+        last = current
+        local next_items = transport_neighbors(work, current, wanted_flow)
+        if #next_items == 0 then return tostring(current.id) end
+        for _, next_info in ipairs(next_items) do
             if not visited[next_info.id] then
                 visited[next_info.id] = true
                 queue[#queue + 1] = next_info
             end
         end
     end
-    return false
+    return tostring(last.id)
 end
 
 local function tile_of(info)
@@ -650,8 +690,9 @@ local function make_work(input)
         consumers = consumers, ids = connector_ids(input), errors = {}, legal_wires = {}, power_parent = {},
         metrics = {beacon_effects_by_entity_id = {}, beacon_effects_by_instance = {}, available_capacity_by_entity_id = {},
             power_by_entity_id = {}, transport_demand_by_entity_id = {}, achieved_rate_by_port_id = {},
+            connection_witnesses = {}, transfer_witnesses = {},
             peak_power_w = 0, pollution_per_min = 0},
-        legacy_route_only = type(root.ports) == "table" and #root.ports == 0 and root.route ~= nil}
+    }
     work.transport_by_cell = transport_cells(work)
     return work
 end
@@ -773,6 +814,7 @@ local function check_robo(work)
 end
 
 local function check_beacons(work)
+    local influence_by_machine, groups_by_machine = {}, {}
     for _, machine in ipairs(work.machines) do
         local influencing, effects = {}, {speed = 0, consumption = 0, pollution = 0, quality = 0}
         for _, beacon in ipairs(work.beacons) do
@@ -786,6 +828,8 @@ local function check_beacons(work)
                 end
             end
         end
+        influence_by_machine[machine.id] = influencing
+        groups_by_machine[machine.id] = configured_groups(machine, work)
         for _, group in ipairs(configured_groups(machine, work)) do
             local required = finite(group.count_per_machine, finite(group.count, 0))
             if required > 0 then
@@ -806,6 +850,54 @@ local function check_beacons(work)
         --covered, not to the step label (which would let the last machine overwrite the earlier ones).
         work.metrics.beacon_effects_by_entity_id[machine.id] = effects
         work.metrics.beacon_effects_by_instance[machine.id] = effects
+    end
+    --A beacon which is not part of any configured group is pure waste: removing it cannot lower a configured
+    --minimum on any machine.  Matching-group beacons remain legal when influence is above the configured count;
+    --the configured group is the independent obligation that makes that influence intentional.
+    for _, beacon in ipairs(work.beacons) do
+        local load_bearing = false
+        local exact_remove_test = beacon.entity.required_for ~= nil or beacon.entity.covered_members ~= nil
+        if exact_remove_test then
+            for _, machine in ipairs(work.machines) do
+                local influencing = influence_by_machine[machine.id] or {}
+                local groups = groups_by_machine[machine.id] or {}
+                for _, group in ipairs(groups) do
+                    local required = finite(group.count_per_machine, finite(group.count, 0))
+                    if required > 0 then
+                        local got, removes = 0, false
+                        for _, candidate in ipairs(influencing) do
+                            if beacon_group_matches(candidate, group) then
+                                got = got + 1
+                                if candidate.id == beacon.id then removes = true end
+                            end
+                        end
+                        if removes and got - 1 + tolerance(got) < required then load_bearing = true; break end
+                    end
+                end
+                if load_bearing then break end
+            end
+        else
+        for _, machine in ipairs(work.machines) do
+            local influencing = influence_by_machine[machine.id] or {}
+            local groups = groups_by_machine[machine.id] or {}
+            for _, candidate in ipairs(influencing) do
+                if candidate.id == beacon.id then
+                    for _, group in ipairs(groups) do
+                        if finite(group.count_per_machine, finite(group.count, 0)) > 0 and beacon_group_matches(beacon, group) then
+                            load_bearing = true
+                            break
+                        end
+                    end
+                end
+                if load_bearing then break end
+            end
+            if load_bearing then break end
+        end
+        end
+        if not load_bearing then
+            error_record(work.errors, "BP_V_BEACON_REDUNDANT", {tostring(beacon.id)},
+                {reason = "removing beacon leaves every configured beacon count satisfied"})
+        end
     end
     return true
 end
@@ -1084,28 +1176,55 @@ local function cell_inside_machine(machine, x, y)
     return x >= left and x < left + width and y >= top and y < top + height
 end
 
-local function transfer_cells(info)
+local function transfer_cells(info, work)
     local entity = info.entity or {}
-    local pickup = entity.pickup_position or entity.pickup_cell
-    local drop = entity.drop_position or entity.drop_cell
-    local function point(value)
-        if type(value) ~= "table" then return nil end
-        local x, y = finite(value.x), finite(value.y)
-        if x == nil or y == nil then x, y = finite(value[1]), finite(value[2]) end
-        if x == nil or y == nil then return nil end
-        return math.floor(x), math.floor(y)
-    end
-    local pickup_x, pickup_y = point(pickup)
-    local drop_x, drop_y = point(drop)
-    if pickup_x == nil or drop_x == nil then
-        local direction = entity_direction(info) or Grid.NORTH
-        local dx, dy = Grid.dir_vector(direction)
-        if dx == nil then return nil end
-        local cx, cy = info.cx, info.cy
-        pickup_x, pickup_y = math.floor(cx - dx + EPSILON), math.floor(cy - dy + EPSILON)
-        drop_x, drop_y = math.floor(cx + dx + EPSILON), math.floor(cy + dy + EPSILON)
+    local inserter = info.spec or {}
+    local family = work and work.catalog and work.catalog.inserter or {}
+    local pickup_offset = inserter.pickup_offset or family.pickup_offset
+    local drop_offset = inserter.drop_offset or inserter.drop_position or family.drop_offset or family.drop_position
+    local pickup_x, pickup_y, drop_x, drop_y
+    if pickup_offset and drop_offset then
+        local pickup_local_x, pickup_local_y = finite(pickup_offset.x), finite(pickup_offset.y)
+        local drop_local_x, drop_local_y = finite(drop_offset.x), finite(drop_offset.y)
+        local pickup_dx, pickup_dy, drop_dx, drop_dy
+        if pickup_local_x ~= nil and pickup_local_y ~= nil and drop_local_x ~= nil and drop_local_y ~= nil then
+            pickup_dx, pickup_dy = Grid.rotate_vector(pickup_local_x, pickup_local_y,
+                entity_direction(info) or Grid.NORTH)
+            drop_dx, drop_dy = Grid.rotate_vector(drop_local_x, drop_local_y,
+                entity_direction(info) or Grid.NORTH)
+        end
+        if pickup_dx ~= nil and pickup_dy ~= nil and drop_dx ~= nil and drop_dy ~= nil then
+            pickup_x, pickup_y = math.floor(info.cx + pickup_dx + EPSILON), math.floor(info.cy + pickup_dy + EPSILON)
+            drop_x, drop_y = math.floor(info.cx + drop_dx + EPSILON), math.floor(info.cy + drop_dy + EPSILON)
+        end
     end
     return pickup_x, pickup_y, drop_x, drop_y
+end
+
+local function cell_occupant(work, x, y)
+    if x == nil or y == nil then return nil end
+    x, y = math.floor(x), math.floor(y)
+    for _, info in ipairs(work.infos) do
+        local left, top, width, height = entity_tile_rect(info)
+        if x >= left and x < left + width and y >= top and y < top + height then
+            return info
+        end
+    end
+    return nil
+end
+
+local function legal_transfer_occupant(info)
+    return info and (transport_kind(info) == "belt" or is_machine(info))
+end
+
+local function transfer_endpoint_error(work, inserter, x, y, role)
+    local occupant = cell_occupant(work, x, y)
+    if legal_transfer_occupant(occupant) then return occupant end
+    local found = occupant and (occupant.kind or name_of(occupant.entity)) or "empty ground"
+    error_record(work.errors, "BP_V_INSERTER_GEOMETRY", {tostring(inserter.id), tostring(found)},
+        {reason = "inserter " .. tostring(role) .. " cell has invalid occupant", cell = {x = x, y = y},
+            found = found})
+    return occupant
 end
 
 local function external_port_for(work, flow_id, role)
@@ -1118,23 +1237,43 @@ local function external_port_for(work, flow_id, role)
     return nil
 end
 
-local function external_reachable(work, flow_id, role, start_x, start_y, kind)
-    local found = false
+local function external_path(work, flow_id, role, start_x, start_y, kind)
     for _, port in ipairs(work.ports) do
         if is_external_port(port) and (port.role or port.direction) == role then
             local port_flow = port.flow_id or port.full_name
             if flow_id == nil or port_flow == nil or port_flow == flow_id then
-                found = true
                 local px, py = port_position(work, port)
                 if role == "in" then
-                    if transport_reachable(work, px, py, start_x, start_y, flow_id, kind) then return true end
-                elseif transport_reachable(work, start_x, start_y, px, py, flow_id, kind) then
-                    return true
+                    local path = transport_path(work, px, py, start_x, start_y, flow_id, kind)
+                    if path then return port, path end
+                else
+                    local path = transport_path(work, start_x, start_y, px, py, flow_id, kind)
+                    if path then return port, path end
                 end
             end
         end
     end
-    return not found
+    return nil
+end
+
+local function external_reachable(work, flow_id, role, start_x, start_y, kind)
+    return external_path(work, flow_id, role, start_x, start_y, kind) ~= nil
+end
+
+local function external_failure_step(work, flow_id, role, start_x, start_y, kind)
+    for _, port in ipairs(work.ports) do
+        if is_external_port(port) and (port.role or port.direction) == role then
+            local port_flow = port.flow_id or port.full_name
+            if flow_id == nil or port_flow == nil or port_flow == flow_id then
+                local px, py = port_position(work, port)
+                if role == "in" then
+                    return transport_failure_step(work, px, py, start_x, start_y, flow_id, kind)
+                end
+                return transport_failure_step(work, start_x, start_y, px, py, flow_id, kind)
+            end
+        end
+    end
+    return "external:" .. tostring(flow_id)
 end
 
 local function machine_port_for(work, machine, flow_id, role)
@@ -1154,6 +1293,59 @@ local function machine_port_for(work, machine, flow_id, role)
     return fallback
 end
 
+local function flow_record(work, flow_id)
+    for _, flow in ipairs(work.flows or {}) do
+        if flow_id_of(flow) == flow_id then return flow end
+    end
+    return nil
+end
+
+local function flow_side_has_external(work, flow_id, side)
+    local flow = flow_record(work, flow_id)
+    local records = list_from(flow and flow[side])
+    if #records == 0 then return true end
+    for _, record in ipairs(records) do
+        if step_id_of(record) == "$external" then return true end
+    end
+    return false
+end
+
+local function machines_for_step(work, step_id)
+    local result = {}
+    for _, machine in ipairs(work.machines) do
+        if machine.entity.step_id == step_id then result[#result + 1] = machine end
+    end
+    return result
+end
+
+--Return the physical route for an item obligation.  The edge of the factory is one possible source/sink; an
+--intermediate machine port is the other.  A flow with no producer/consumer metadata is an old fixture shape and
+--is conservatively treated as external, so absence of its declared perimeter endpoint still rejects it.
+local function connection_path(work, flow_id, role, x, y, kind)
+    kind = kind or "belt"
+    local external_role = role == "input" and "in" or "out"
+    if flow_side_has_external(work, flow_id, role == "input" and "producers" or "consumers") then
+        local port, path = external_path(work, flow_id, external_role, x, y, kind)
+        if port then return port, path, nil end
+    end
+    local flow = flow_record(work, flow_id)
+    local side = role == "input" and "producers" or "consumers"
+    for _, record in ipairs(list_from(flow and flow[side])) do
+        local step_id = step_id_of(record)
+        if step_id and step_id ~= "$external" then
+            for _, machine in ipairs(machines_for_step(work, step_id)) do
+                local port = machine_port_for(work, machine, flow_id, role == "input" and "out" or "in")
+                local px, py = port and port_position(work, port)
+                local path
+                if role == "input" then path = transport_path(work, px, py, x, y, flow_id, kind)
+                else path = transport_path(work, x, y, px, py, flow_id, kind) end
+                if port and path then return port, path, machine end
+            end
+        end
+    end
+    return nil
+end
+
 local function transfer_role(info, machine)
     local entity = info.entity or {}
     if entity.role == "input" or entity.role == "output" then return entity.role end
@@ -1169,7 +1361,7 @@ local function transfer_matches(work, info, machine, entry, role, used)
     local wanted = entry_flow_id(entry)
     local actual = entity.flow_id or entity.full_name
     if actual ~= nil and wanted ~= nil and actual ~= wanted then return false end
-    local pickup_x, pickup_y, drop_x, drop_y = transfer_cells(info)
+    local pickup_x, pickup_y, drop_x, drop_y = transfer_cells(info, work)
     if pickup_x == nil or drop_x == nil then return false end
     if role == "input" and not cell_inside_machine(machine, drop_x, drop_y) then return false end
     if role == "output" and not cell_inside_machine(machine, pickup_x, pickup_y) then return false end
@@ -1185,6 +1377,7 @@ local function fluid_connection_cells(machine, entry, role)
     local wanted_box = entry and (entry.fluidbox_index or entry.box_index)
     local wanted_connection = entry and (entry.connection_index or entry.pipe_connection_index)
     local dir = entity_direction(machine) or Grid.NORTH
+    local rotation_index = math.floor((dir % 16) / 4) + 1
     for box_index, box in ipairs(boxes) do
         local production = box.production_type or box.type or box.role
         if (wanted_box == nil or wanted_box == box.index or wanted_box == box_index)
@@ -1193,11 +1386,19 @@ local function fluid_connection_cells(machine, entry, role)
             local connections = box.pipe_connections or box.connections or {}
             for connection_index, connection in ipairs(connections) do
                 if wanted_connection == nil or wanted_connection == connection_index then
-                    local position = connection.position or connection.pos
+                    local position
+                    if type(connection.positions) == "table" then
+                        position = connection.positions[rotation_index]
+                    else
+                        --Older hand-written fixtures used one north-frame position.  Captured catalogs use
+                        --the four-entry `positions` vector above; this compatibility branch still rotates the
+                        --singular fixture value into the entity frame.
+                        position = connection.position or connection.pos
+                    end
                     if type(position) == "table" then
                         local px, py = finite(position.x), finite(position.y)
                         if px ~= nil and py ~= nil then
-                            px, py = Grid.rotate_vector(px, py, dir)
+                            if type(connection.positions) ~= "table" then px, py = Grid.rotate_vector(px, py, dir) end
                             result[#result + 1] = {x = math.floor(machine.cx + px + EPSILON),
                                 y = math.floor(machine.cy + py + EPSILON), direction = connection.direction or connection.dir}
                         end
@@ -1210,12 +1411,59 @@ local function fluid_connection_cells(machine, entry, role)
 end
 
 local function check_physical_transfers(work)
-    --The historical captured candidate has only block-local ports (its top-level port list is deliberately empty)
-    --and predates materialized transfer geometry.  Keep that frozen positive capture replayable; every current
-    --candidate and the independent physical-contract control carries the top-level placed ports and takes the
-    --strict graph below.
-    if work.legacy_route_only then return true end
     local used = {}
+    local endpoint_checked = {}
+
+    local function mark_path(path)
+        for _, info in ipairs(path or {}) do used[info.id] = true end
+    end
+
+    local function witness_step(info)
+        return {id = tostring(info.id), name = name_of(info.entity), kind = transport_kind(info) or info.kind}
+    end
+
+    local function add_witness(key, role, source_id, destination_id, prefix, path, suffix)
+        local steps, ids = {}, {}
+        local function add(id, info)
+            if id == nil then return end
+            local text_id = tostring(id)
+            if ids[#ids] == text_id then return end
+            ids[#ids + 1] = text_id
+            if info then steps[#steps + 1] = witness_step(info)
+            else steps[#steps + 1] = {id = text_id, kind = "endpoint"} end
+        end
+        for _, item in ipairs(prefix or {}) do add(item.id or item, item.entity and item or nil) end
+        for _, info in ipairs(path or {}) do add(info.id, info) end
+        for _, item in ipairs(suffix or {}) do add(item.id or item, item.entity and item or nil) end
+        local witness = {key = key, role = role, source_id = tostring(source_id), destination_id = tostring(destination_id),
+            ids = ids, steps = steps}
+        work.metrics.connection_witnesses[#work.metrics.connection_witnesses + 1] = witness
+        work.metrics.transfer_witnesses[#work.metrics.transfer_witnesses + 1] = witness
+        return witness
+    end
+
+    local function failed_transfer(machine, flow_id, code, first_illegal, witness)
+        local detail = {flow_id = flow_id, first_illegal_step = first_illegal}
+        if witness then detail.witness = witness end
+        error_record(work.errors, code, {tostring(machine.id), tostring(flow_id), tostring(first_illegal)}, detail)
+    end
+
+    local function validate_inserter_endpoints(inserter)
+        if endpoint_checked[inserter.id] then return endpoint_checked[inserter.id] end
+        local pickup_x, pickup_y, drop_x, drop_y = transfer_cells(inserter, work)
+        local valid = pickup_x ~= nil and drop_x ~= nil
+        if not valid then
+            error_record(work.errors, "BP_V_INSERTER_GEOMETRY", {tostring(inserter.id)},
+                {reason = "captured inserter offsets are missing", found = "no endpoint cell"})
+        else
+            local pickup = transfer_endpoint_error(work, inserter, pickup_x, pickup_y, "pickup")
+            local drop = transfer_endpoint_error(work, inserter, drop_x, drop_y, "drop")
+            valid = legal_transfer_occupant(pickup) and legal_transfer_occupant(drop)
+        end
+        endpoint_checked[inserter.id] = valid
+        return valid
+    end
+
     -- A fluid connection is a pipe endpoint, never an item inserter.  Check this before looking for a missing
     -- pipe so a malformed transfer receives the actionable entity error.
     for _, inserter in ipairs(work.inserters) do
@@ -1224,41 +1472,40 @@ local function check_physical_transfers(work)
             error_record(work.errors, "BP_V_FLUID_INSERTER", {tostring(inserter.id)}, {flow_id = flow_id})
         end
     end
+    for _, inserter in ipairs(work.inserters) do
+        local flow_id = inserter.entity.flow_id or inserter.entity.full_name
+        if not flow_is_fluid(flow_id, inserter.entity, work) then validate_inserter_endpoints(inserter) end
+    end
 
     for _, machine in ipairs(work.machines) do
         local step = work.steps[machine.entity.step_id]
-        local has_instance_binding = false
-        for _, inserter in ipairs(work.inserters) do
-            if inserter.entity.machine_id == machine.id or inserter.entity.machine_id == machine.entity.id then
-                has_instance_binding = true
-                break
-            end
-        end
-        if not has_instance_binding then
-            for _, port in ipairs(work.ports) do
-                if port.member_id == machine.id or port.member_id == machine.entity.id then has_instance_binding = true; break end
-            end
-        end
-        -- A duplicated machine used only to exercise beacon instance accounting may not carry a material port in
-        -- a hand-built fixture.  Once an instance has a bound port/inserter, however, every one of its declared
-        -- transfers is mandatory and cannot be satisfied by a neighbour.
-        local isolated_probe = step and finite(step.machine_count, 0) > 1 and not has_instance_binding
-        if step and not isolated_probe then
+        if step then
             for _, entry in ipairs(plan_entries(step, "inputs")) do
                 local flow_id = entry_flow_id(entry)
                 if flow_is_fluid(flow_id, entry, work) then
-                    local external = external_port_for(work, flow_id, "in")
                     local reached = false
                     for _, connection in ipairs(fluid_connection_cells(machine, entry, "input")) do
-                        if external_reachable(work, flow_id, "in", connection.x, connection.y, "pipe") then
+                        local port, path, source_machine = connection_path(work, flow_id, "input", connection.x, connection.y, "pipe")
+                        if port then
+                            mark_path(path)
+                            add_witness(tostring(machine.id) .. ":input:" .. tostring(flow_id), "input",
+                                source_machine and source_machine.id or port.port_id, machine.id,
+                                {{id = port.port_id}}, path, {{id = machine.id, entity = machine}})
+                            if source_machine then
+                                local witness = work.metrics.connection_witnesses[#work.metrics.connection_witnesses]
+                                table.insert(witness.ids, 1, tostring(source_machine.id))
+                                table.insert(witness.steps, 1, witness_step(source_machine))
+                            end
                             reached = true
                             break
                         end
                     end
-                    if not reached then error_record(work.errors, "BP_V_FLUID_DISCONNECTED", {tostring(machine.id), tostring(flow_id)}) end
+                    if not reached then
+                        failed_transfer(machine, flow_id, "BP_V_FLUID_DISCONNECTED", "fluid connection")
+                    end
                 else
                     local found = false
-                    local candidate_seen, shape_seen, wrong_network, explicit_target = false, false, false, false
+                    local candidate_seen, shape_seen, wrong_network, explicit_target, first_illegal, candidate_id = false, false, false, false, nil, nil
                     for _, inserter in ipairs(work.inserters) do
                         local role = transfer_role(inserter, machine)
                         if role == "input" then
@@ -1268,22 +1515,36 @@ local function check_physical_transfers(work)
                                 explicit_target = explicit_target or inserter.entity.pickup_target ~= nil or inserter.entity.drop_target ~= nil
                             end
                         end
+                        if role == "input" then candidate_id = candidate_id or tostring(inserter.id) end
                         local pickup_x, pickup_y, drop_x, drop_y = transfer_matches(work, inserter, machine, entry, "input", used)
                         if pickup_x then
                             shape_seen = true
-                            local external = external_port_for(work, flow_id, "in")
-                            local reachable = true
-                            reachable = external_reachable(work, flow_id, "in", pickup_x, pickup_y, "belt")
-                            if reachable then
+                            local port, path, source_machine = connection_path(work, flow_id, "input", pickup_x, pickup_y, "belt")
+                            first_illegal = first_illegal or (source_machine and ("internal:" .. tostring(flow_id))
+                                or (flow_side_has_external(work, flow_id, "producers")
+                                    and external_failure_step(work, flow_id, "in", pickup_x, pickup_y, "belt")
+                                    or ("internal:" .. tostring(flow_id))))
+                            if port then
+                                validate_inserter_endpoints(inserter)
+                                mark_path(path)
                                 used[inserter.id] = true
                                 work.metrics.transport_demand_by_entity_id[inserter.id] = flow_share(entry)
+                                add_witness(tostring(machine.id) .. ":input:" .. tostring(flow_id), "input",
+                                    source_machine and source_machine.id or port.port_id,
+                                    machine.id, {{id = port.port_id}}, path,
+                                    {{id = inserter.id, entity = inserter}, {id = machine.id, entity = machine}})
+                                if source_machine then
+                                    local witness = work.metrics.connection_witnesses[#work.metrics.connection_witnesses]
+                                    table.insert(witness.ids, 1, tostring(source_machine.id))
+                                    table.insert(witness.steps, 1, witness_step(source_machine))
+                                end
                                 found = true
                                 break
                             end
                             local opposite = external_port_for(work, flow_id, "out")
                             if opposite then
                                 local ox, oy = port_position(work, opposite)
-                                if transport_reachable(work, ox, oy, pickup_x, pickup_y, flow_id, "belt") then wrong_network = true end
+                                if transport_path(work, ox, oy, pickup_x, pickup_y, flow_id, "belt") then wrong_network = true end
                             end
                         end
                     end
@@ -1292,25 +1553,36 @@ local function check_physical_transfers(work)
                             or (candidate_seen and explicit_target and (not shape_seen or wrong_network) and "BP_V_TRANSFER_BROKEN")
                             or (candidate_seen and "BP_V_ROUTE_DISCONTINUOUS")
                             or "BP_V_TRANSFER_BROKEN"
-                        error_record(work.errors, code, {tostring(machine.id), tostring(flow_id)})
+                        failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "input transfer")
                     end
                 end
             end
             for _, entry in ipairs(plan_entries(step, "outputs")) do
                 local flow_id = entry_flow_id(entry)
                 if flow_is_fluid(flow_id, entry, work) then
-                    local external = external_port_for(work, flow_id, "out")
                     local reached = false
                     for _, connection in ipairs(fluid_connection_cells(machine, entry, "output")) do
-                        if external_reachable(work, flow_id, "out", connection.x, connection.y, "pipe") then
+                        local port, path, target_machine = connection_path(work, flow_id, "output", connection.x, connection.y, "pipe")
+                        if port then
+                            mark_path(path)
+                            add_witness(tostring(machine.id) .. ":output:" .. tostring(flow_id), "output", machine.id,
+                                target_machine and target_machine.id or port.port_id,
+                                {{id = machine.id, entity = machine}}, path, {{id = port.port_id}})
+                            if target_machine then
+                                local witness = work.metrics.connection_witnesses[#work.metrics.connection_witnesses]
+                                witness.ids[#witness.ids + 1] = tostring(target_machine.id)
+                                witness.steps[#witness.steps + 1] = witness_step(target_machine)
+                            end
                             reached = true
                             break
                         end
                     end
-                    if not reached then error_record(work.errors, "BP_V_FLUID_DISCONNECTED", {tostring(machine.id), tostring(flow_id)}) end
+                    if not reached then
+                        failed_transfer(machine, flow_id, "BP_V_FLUID_DISCONNECTED", "fluid connection")
+                    end
                 else
                     local found = false
-                    local candidate_seen, shape_seen, wrong_network, explicit_target = false, false, false, false
+                    local candidate_seen, shape_seen, wrong_network, explicit_target, first_illegal, candidate_id = false, false, false, false, nil, nil
                     for _, inserter in ipairs(work.inserters) do
                         local role = transfer_role(inserter, machine)
                         if role == "output" then
@@ -1320,22 +1592,36 @@ local function check_physical_transfers(work)
                                 explicit_target = explicit_target or inserter.entity.pickup_target ~= nil or inserter.entity.drop_target ~= nil
                             end
                         end
+                        if role == "output" then candidate_id = candidate_id or tostring(inserter.id) end
                         local pickup_x, pickup_y, drop_x, drop_y = transfer_matches(work, inserter, machine, entry, "output", used)
                         if pickup_x then
                             shape_seen = true
-                            local external = external_port_for(work, flow_id, "out")
-                            local reachable = true
-                            reachable = external_reachable(work, flow_id, "out", drop_x, drop_y, "belt")
-                            if reachable then
+                            local port, path, target_machine = connection_path(work, flow_id, "output", drop_x, drop_y, "belt")
+                            first_illegal = first_illegal or (target_machine and ("internal:" .. tostring(flow_id))
+                                or (flow_side_has_external(work, flow_id, "consumers")
+                                    and external_failure_step(work, flow_id, "out", drop_x, drop_y, "belt")
+                                    or ("internal:" .. tostring(flow_id))))
+                            if port then
+                                validate_inserter_endpoints(inserter)
+                                mark_path(path)
                                 used[inserter.id] = true
                                 work.metrics.transport_demand_by_entity_id[inserter.id] = flow_share(entry)
+                                add_witness(tostring(machine.id) .. ":output:" .. tostring(flow_id), "output", machine.id,
+                                    target_machine and target_machine.id or port.port_id,
+                                    {{id = machine.id, entity = machine}, {id = inserter.id, entity = inserter}},
+                                    path, {{id = port.port_id}})
+                                if target_machine then
+                                    local witness = work.metrics.connection_witnesses[#work.metrics.connection_witnesses]
+                                    witness.ids[#witness.ids + 1] = tostring(target_machine.id)
+                                    witness.steps[#witness.steps + 1] = witness_step(target_machine)
+                                end
                                 found = true
                                 break
                             end
                             local opposite = external_port_for(work, flow_id, "in")
                             if opposite then
                                 local ox, oy = port_position(work, opposite)
-                                if transport_reachable(work, ox, oy, drop_x, drop_y, flow_id, "belt") then wrong_network = true end
+                                if transport_path(work, ox, oy, drop_x, drop_y, flow_id, "belt") then wrong_network = true end
                             end
                         end
                     end
@@ -1344,10 +1630,23 @@ local function check_physical_transfers(work)
                             or (candidate_seen and explicit_target and (not shape_seen or wrong_network) and "BP_V_TRANSFER_BROKEN")
                             or (candidate_seen and "BP_V_ROUTE_DISCONTINUOUS")
                             or "BP_V_TRANSFER_BROKEN"
-                        error_record(work.errors, code, {tostring(machine.id), tostring(flow_id)})
+                        failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "output transfer")
                     end
                 end
             end
+        end
+    end
+
+    for _, inserter in ipairs(work.inserters) do
+        if not used[inserter.id] then
+            error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(inserter.id)},
+                {reason = "inserter serves no required transfer"})
+        end
+    end
+    for _, info in ipairs(work.infos) do
+        if transport_kind(info) and not used[info.id] then
+            error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(info.id)},
+                {reason = "transport entity serves no required transfer"})
         end
     end
     return true
@@ -1480,7 +1779,7 @@ local function check_machines(work)
             --Recipe semantics are catalog facts.  A modded assembler is still an assembler, while a furnace
             --must never receive an assembler recipe merely because its prototype name happens to look similar.
             local etype = etype_of(machine)
-            if not work.legacy_route_only and etype == "assembling-machine" then
+            if etype == "assembling-machine" then
                 if step.recipe ~= nil and machine.entity.recipe ~= step.recipe then
                     error_record(work.errors, "BP_V_MACHINE_IDENTITY", {tostring(machine.id)},
                         {reason = "recipe differs", expected = step.recipe, actual = machine.entity.recipe})
@@ -1490,7 +1789,7 @@ local function check_machines(work)
                         {reason = "recipe quality differs", expected = quality_of(step.recipe_quality),
                             actual = quality_of(machine.entity.recipe_quality)})
                 end
-            elseif not work.legacy_route_only and machine.entity.recipe ~= nil then
+            elseif machine.entity.recipe ~= nil then
                 error_record(work.errors, "BP_V_MACHINE_IDENTITY", {tostring(machine.id)},
                     {reason = "recipe is not supported by catalog etype", etype = etype})
             end
@@ -1603,8 +1902,9 @@ end
 local function finish(work, state)
     block_port_geometry(work.errors, work.root, work.placements)
     local score = make_score(work)
-    if #work.errors == 0 then state.ok = true; state.result = {score = score, metrics = work.metrics}; state.errors = nil
-    else state.ok = false; state.errors = work.errors; state.result = nil end
+    local result = {score = score, metrics = work.metrics}
+    if #work.errors == 0 then state.ok = true; state.result = result; state.errors = nil
+    else state.ok = false; state.errors = work.errors; state.result = result end
     state.done = true; state.cursor = {phase = "done"}; state.progress.phase = "done"; state.progress.done_units = state.progress.total_units
 end
 
