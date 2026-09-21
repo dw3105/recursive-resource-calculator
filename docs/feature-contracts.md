@@ -874,3 +874,131 @@ and the field.
 
 A capture that fails this is immutable history and a negative case. It is never enriched with inferred
 geometry, and it is never the acceptance input.
+
+## 26. A blueprint that is a factory, not a picture of one (2026-09-21, round 14, frozen before lanes 120-124)
+
+Round 13 delivered a blueprint that **loads**. The player pasted it. It is not a factory.
+
+Measured from the delivered bytes, `~/share/RRC/rrc-round13-mine.txt`, sha256
+`9e075dddf2a16485cfa4d24e45b5fc62f2ba6cb04fbc23236ca6b8c78cb3d95a`, by `tools/blueprint_audit.py`:
+
+| contract | measured |
+|---|---:|
+| inserters whose pickup or drop cell holds no belt and no machine | **11 of 18** |
+| pipe-to-ground endpoints with no partner they can pair with | **12 of 12** |
+| underground belt endpoints with no partner they can pair with | **4** |
+| belt entities that serve no obligation | **224 of 224** |
+| pipe tiles touching no machine | **35** |
+| beacons whose removal leaves every machine at its configured count | **3 of 9** |
+| wire edges delivered, against 10 planned | **0** |
+
+The generator reported `ok=true`. One cause, verified line by line at `0b6b607`:
+
+```
+logic/bp/search.lua:777    make_candidate(state, grid, blocks, entities, ports, ...)  -- takes ports
+logic/bp/search.lua:788    ... entities = {}, ports = {},                             -- throws them away
+logic/bp/search.lua:1236   route_result = state.work.route.result or {}               -- route always non-nil
+logic/bp/validate.lua:654  legacy_route_only = #root.ports == 0 and root.route ~= nil -- therefore ALWAYS true
+logic/bp/validate.lua:1217 if work.legacy_route_only then return true end             -- physical checks skipped
+```
+
+The `ports` argument arrives at line 777 and is never read, so every production candidate takes an exception
+written for one old fixture. The comment at `validate.lua:1213` states the opposite and is false. The same
+flag also disables recipe identity at `validate.lua:1483` and `:1493`.
+
+A second, independent bypass: `tests/golden/generate.lua:414` returns `Validate.reconcile_artifact` **as** the
+validation result, leaving `Validate.begin`/`Validate.step` at `:419-468` unreachable. Reconciliation reads
+machines, beacons and wires only (`validate.lua:1759-1902`).
+
+These are the rules the repair holds to. Each is stated once, here, so two lanes cannot build two versions.
+
+### 26.1 Obligation rule
+
+**Every committed transfer keeps an obligation:** material, quality, positive required rate, exact physical
+source entity, exact physical destination entity.
+
+A `flow_id`, a claimed target, a `ug_pair_id`, a segment allocation and `ok = true` are labels. None of them
+is an obligation, and none may stand in for one.
+
+### 26.2 Zero-waste rule
+
+**Every placed transport entity and every placed inserter must serve at least one obligation in the final
+graph**, with legal direction and adequate capacity.
+
+Orphan fragments, unpaired underground endpoints, dead branches, abandoned alternatives and loops that merely
+circulate product each **reject**. An external terminal is a legal end only where it participates in a
+required transfer; it never excuses a loose end. The budget is exactly **zero**, independent of every
+compactness budget.
+
+Membership of a connected component is **not** this test. Measured: joining components across legal
+underground pairs -- which is physically right, a tunnel is a connection -- moved the round 13 artifact's
+unused belt count from 89 to 0, because a single inserter blessed the whole network. The test is directed:
+product must reach the entity from a real source, and leave it toward a real sink.
+
+### 26.3 Inserter endpoint rule
+
+**An inserter's pickup and drop cells come from the catalog's captured `pickup_offset` and `drop_offset`,
+rotated into the entity's frame** -- never from a direction vector, never from a placement convention.
+
+The catalog already carries them (`logic/catalog.lua:402-412`, `:750-757`). `logic/bp/groups.lua:309-320`
+invents a fixed left-input, bottom-output convention instead, and because it emits no position
+`logic/bp/validate.lua:1100-1106` guesses from the direction vector. Both stop.
+
+Each cell must hold a real belt or a real machine. Permitted: belt to machine, machine to belt, belt to belt,
+machine to machine. Empty ground, a pipe, a pipe-to-ground, a pole, a beacon, a roboport, another inserter and
+a chest are each **invalid** endpoints. A fluid connection never receives an inserter.
+
+### 26.4 Connection witness rule
+
+**For every required transfer the validator emits an ordered witness:** the entities the product passes
+through, from physical source to physical destination, each consecutive pair legal for that transport kind.
+
+Coordinate proximity, a drawn route line and a shared pair id are each insufficient. Belt turns, splitters,
+merges and underground spans are each a witness step carrying its own legality check. A rejection names the
+**first** illegal step, never only the obligation.
+
+### 26.5 Underground pairing rule
+
+**Both endpoints exist, prototypes compatible, collinear, facing each other, within the captured
+`max_underground_distance`.**
+
+Belts pair in the **same** direction with `type` `input` at the entrance and `output` at the exit; the
+entrance looks downstream and the exit looks upstream. Pipes pair in **opposite** directions and carry **no**
+`type` field at all -- a pipe-to-ground is oriented by `direction` alone. `logic/bp/route.lua:798-803` and
+`:907-912` write one direction to both ends of both families, which is why all twelve delivered pipe-to-ground
+endpoints faced east or south and none could pair. The emission must agree with `underground_candidate`
+(`route.lua:744-770`), which already demands facing ends.
+
+Surface transport feeds the entrance; the exit feeds surface transport or the physical destination. The
+**observed** partner under engine pairing rules must equal the **intended** partner: an intervening endpoint
+that steals the pairing **rejects**.
+
+### 26.6 Beacon redundancy rule
+
+**Influence above the configured count is legal. A redundant beacon is not.**
+
+A beacon is redundant when removing it leaves **every** machine at or above its configured count. That
+rejects as `BP_V_BEACON_REDUNDANT`, alongside the existing one-sided `BP_V_BEACON_COVERAGE_SHORT`
+(`validate.lua:789-795`). Configured counts stay minima and stay immutable.
+
+This is the player's rule, in the player's words on 2026-09-21: "more beacons per machine is fine, but that
+foundry is affected by 6! it is overkill!". Measured on the delivery: casting-iron is configured for 3 and is
+reached by 6; two of those six are also the copper-plate furnace's; three of nine beacons are removable.
+
+### 26.7 Delivered-bytes rule
+
+**Certification reads the delivered blueprint string, decoded** -- never an internal table, never the
+serializer's intermediate.
+
+Identity reconciliation and physical validation are **both** required and neither substitutes for the other.
+Wires survive conversion with a correct old-to-new entity-number mapping; where a runtime connector id is
+genuinely unavailable offline that is a **named refusal**, never a silent drop.
+
+### 26.8 Search honesty rule
+
+**"A feasible layout was found" is not an optimization certificate.**
+
+`logic/bp/search.lua:602-613` stops the search after the first feasible candidate whenever generated ports
+outnumber planned ports or the beacon count is zero, and `:1262-1266` fast-forwards every cursor to the end,
+so `Validate.compare` never sees the rest. The search must instead prove its bound, compare its documented
+alternatives, or report a bounded heuristic result **naming what it discarded**.

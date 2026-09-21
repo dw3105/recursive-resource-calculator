@@ -1503,7 +1503,24 @@ local function check_machines(work)
     for _, info in ipairs(work.inserters) do
         local rate = finite(info.entity.rate_per_second, finite(info.entity.flow_rate, 0)); local capacity = finite(info.entity.items_per_second, finite(info.spec.items_per_second, work.catalog.inserter and work.catalog.inserter.items_per_second))
         if rate > capacity + tolerance(capacity) then error_record(work.errors, "BP_V_INSERTER_CAPACITY", {tostring(info.id)}, {capacity = capacity, requested = rate}) end
-        local pickup, drop = info.entity.pickup_position or info.entity.pickup_offset, info.entity.drop_position or info.entity.drop_offset
+        --Both sides must be OFFSETS from the entity centre. A published `pickup_position` is in world
+        --coordinates, so it is converted here; comparing it directly against a rotated catalog offset
+        --compared (1.5, 4.5) with (-1, 0) and rejected every correct inserter. The bug never fired only
+        --because groups.lua published no position and the oracle's catalog carried no offset, so both sides
+        --were nil. Publishing either one made the whole positive control fail with BP_V_INSERTER_GEOMETRY.
+        local function as_offset(value)
+            if type(value) ~= "table" then return nil end
+            local x, y = finite(value.x), finite(value.y)
+            if x == nil or y == nil then return nil end
+            return {x = x, y = y}
+        end
+        local function centred(value)
+            local offset = as_offset(value)
+            if offset == nil then return nil end
+            return {x = offset.x - finite(info.cx, 0), y = offset.y - finite(info.cy, 0)}
+        end
+        local pickup = centred(info.entity.pickup_position) or as_offset(info.entity.pickup_offset)
+        local drop = centred(info.entity.drop_position) or as_offset(info.entity.drop_offset)
         local expected_pickup, expected_drop = info.spec.pickup_offset, info.spec.drop_offset or info.spec.drop_position
         local function rotated(offset)
             if not offset then return nil end

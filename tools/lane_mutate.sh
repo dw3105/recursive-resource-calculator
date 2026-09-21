@@ -86,6 +86,39 @@ case "$mutation" in
     #115: the empty-plan fallback returns, which is the defect at generate.lua:382.
     validation-plan-empty)
         apply tests/golden/generate.lua 'plan = prepared[.]plan_result[^,]*' 'plan = {}' ;;
+    #Round 14. A red proof runs against the lane's OWN tree, so every mutation here must bind to code that
+    #exists AFTER the fix. That is only possible when the task mandates the name, so each mutation below names
+    #the exact reason code, field or local its lane is required to introduce. A mutation that finds nothing
+    #exits 1 rather than passing quietly.
+    #
+    #spine and 123: the ports argument reaches make_candidate and is put back on the floor, which is the whole
+    #round 13 bypass in one line.
+    ports-empty)
+        apply logic/bp/search.lua '(ports *= *)ports' '\1{}' ;;
+    #120: the witness rejection still fires and still names its first illegal step, under a code nobody expects.
+    witness-code)
+        apply logic/bp/validate.lua 'BP_V_TRANSFER_BROKEN' 'BP_V_MUTANT_CODE' ;;
+    #120: the zero-waste rejection still fires, under a code nobody expects.
+    waste-code)
+        apply logic/bp/validate.lua 'BP_V_TRANSPORT_UNUSED' 'BP_V_MUTANT_CODE' ;;
+    #120: the beacon redundancy rejection still fires, under a code nobody expects.
+    beacon-redundant-code)
+        apply logic/bp/validate.lua 'BP_V_BEACON_REDUNDANT' 'BP_V_MUTANT_CODE' ;;
+    #121: the inserter stops publishing the captured pickup cell, so the validator falls back to guessing from
+    #the direction vector -- which is exactly the defect at validate.lua:1100-1106.
+    inserter-offset-nil)
+        apply logic/bp/groups.lua '(pickup_position *= *)[^,;}\n]+' '\1nil' ;;
+    #122: both ends of an underground pipe travel the same way again, which is why all twelve delivered
+    #pipe-to-ground endpoints faced east or south and none could pair.
+    ptg-same-direction)
+        apply logic/bp/route.lua '(exit_direction *= *)[^,;}\n]+' '\1direction' ;;
+    #123: external terminals are sized by headcount again instead of by demand, which is what turned one supply
+    #into several perimeter-length runs.
+    terminals-headcount)
+        apply logic/bp/search.lua 'terminals_for_demand\([^()]*\)' '1' ;;
+    #124: the wrapper reports reconciliation as validation again, which is the defect at generate.lua:414.
+    validation-reconciliation)
+        apply tests/golden/generate.lua '(local physical *= *)[^\n]+' '\1{ok = true}' ;;
     *)
         echo "lane_mutate.sh: unknown mutation: $mutation" >&2
         exit 2 ;;

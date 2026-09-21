@@ -57,7 +57,10 @@ end
 
 local function catalog()
     return {
-        inserter = {items_per_second = 5},
+        --Contract 26.3: the pickup and drop cells come from these, rotated into the entity frame.  A base
+        --inserter reaches BEHIND itself to pick up and drops in the direction it faces, so in the north frame
+        --the pickup offset is +y and the drop offset is -y.
+        inserter = {items_per_second = 5, pickup_offset = {x = 0, y = 1}, drop_offset = {x = 0, y = -1}},
         entity = {
             ["assembling-machine-3"] = {name = "assembling-machine-3", etype = "assembling-machine",
                 tile_w = 3, tile_h = 3, module_slots = 4, needs_power = true, energy_usage_w = 375000,
@@ -73,7 +76,8 @@ local function catalog()
             ["electric-furnace"] = {name = "electric-furnace", etype = "furnace", tile_w = 3, tile_h = 3,
                 module_slots = 2, needs_power = true, energy_usage_w = 180000, crafting_speed = 2},
             ["inserter"] = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1,
-                needs_power = true, energy_usage_w = 13000, items_per_second = 5},
+                needs_power = true, energy_usage_w = 13000, items_per_second = 5,
+                pickup_offset = {x = 0, y = 1}, drop_offset = {x = 0, y = -1}},
             ["transport-belt"] = {name = "transport-belt", etype = "transport-belt", tile_w = 1, tile_h = 1},
             ["underground-belt"] = {name = "underground-belt", etype = "underground-belt", tile_w = 1, tile_h = 1},
             ["pipe"] = {name = "pipe", etype = "pipe", tile_w = 1, tile_h = 1},
@@ -105,10 +109,15 @@ local function candidate()
                 recipe = "iron-gear-wheel", recipe_quality = "normal", modules = {}},
             ent{id = "in-belt", name = "transport-belt", kind = "belt", type = "belt", x = 0, y = 4, dir = 4},
             ent{id = "in-belt2", name = "transport-belt", kind = "belt", type = "belt", x = 1, y = 4, dir = 4},
+            --The cells are PUBLISHED, not inferred.  validate.lua:1089 reads them; without them it falls back
+            --to guessing centre plus or minus the direction vector, which is the defect groups.lua leaves it
+            --with today because groups.lua emits no position at all.
             ent{id = "in-ins", name = "inserter", kind = "inserter", type = "inserter", x = 2, y = 4, dir = 4,
-                rate_per_second = 2, pickup_target = "in-belt2", drop_target = "m1"},
+                rate_per_second = 2, pickup_target = "in-belt2", drop_target = "m1",
+                pickup_position = {x = 1.5, y = 4.5}, drop_position = {x = 3.5, y = 4.5}},
             ent{id = "out-ins", name = "inserter", kind = "inserter", type = "inserter", x = 6, y = 4, dir = 4,
-                rate_per_second = 1, pickup_target = "m1", drop_target = "out-belt"},
+                rate_per_second = 1, pickup_target = "m1", drop_target = "out-belt",
+                pickup_position = {x = 5.5, y = 4.5}, drop_position = {x = 7.5, y = 4.5}},
             ent{id = "out-belt", name = "transport-belt", kind = "belt", type = "belt", x = 7, y = 4, dir = 4},
             ent{id = "out-belt2", name = "transport-belt", kind = "belt", type = "belt", x = 8, y = 4, dir = 4},
             ent{id = "out-belt3", name = "transport-belt", kind = "belt", type = "belt", x = 9, y = 4, dir = 4},
@@ -362,6 +371,12 @@ for _, shape in ipairs(H.shapes()) do
             local inserter = entity_named(built, "in-ins")
             inserter.y = 9
             inserter.position = {x = inserter.x + 0.5, y = 9.5}
+            --The published cells move WITH the entity, so they stay consistent with its catalog offsets and
+            --the geometry check has nothing to say. What is left is the real subject of this row: both cells
+            --now sit on empty ground, so the input transfer is broken. Moving the entity alone instead
+            --rejects as BP_V_INSERTER_GEOMETRY, which is a different and also correct complaint.
+            inserter.pickup_position = {x = 1.5, y = 9.5}
+            inserter.drop_position = {x = 3.5, y = 9.5}
         end))
         rejects(state, "BP_V_TRANSFER_BROKEN", "input inserter moved off target")
     end)
@@ -725,6 +740,128 @@ for _, shape in ipairs(H.shapes()) do
             local outcome = Validate.reconcile_artifact({artifact = artifact, plan = plan(), catalog = catalog()})
             H.equal(outcome ~= nil and outcome.ok, false, "a serializer-only recipe change is rejected")
         end
+    end)
+    -- -----------------------------------------------------------------------------------------------------
+    -- 26.3 Inserter endpoint rule. Each cell must hold a real belt or a real machine.
+    -- -----------------------------------------------------------------------------------------------------
+
+    H.test(shape .. " EP1 an inserter dropping onto empty ground is rejected", function()
+        local state = validate(mutate(function(built)
+            entity_named(built, "out-ins").drop_position = {x = 7.5, y = 9.5}
+        end))
+        rejects(state, "BP_V_INSERTER_GEOMETRY", "drop cell on empty ground")
+    end)
+
+    H.test(shape .. " EP2 an inserter dropping onto a pole is rejected", function()
+        local state = validate(mutate(function(built)
+            --The pole sits at x = 4, y = 7. A pole is not a transfer endpoint, whatever is next to it.
+            entity_named(built, "out-ins").drop_position = {x = 4.5, y = 7.5}
+        end))
+        rejects(state, "BP_V_INSERTER_GEOMETRY", "drop cell on a pole")
+    end)
+
+    H.test(shape .. " EP3 an inserter picking up from empty ground is rejected", function()
+        local state = validate(mutate(function(built)
+            entity_named(built, "in-ins").pickup_position = {x = 1.5, y = 9.5}
+        end))
+        rejects(state, "BP_V_INSERTER_GEOMETRY", "pickup cell on empty ground")
+    end)
+
+    --EP1 to EP3 are caught today by the geometry check alone: the published cell disagrees with the catalog
+    --offset, so the inserter is inconsistent with itself. That is a weaker statement than rule 26.3, which is
+    --about WHAT OCCUPIES the cell. EP4 and EP5 keep the geometry perfectly consistent and change only the
+    --occupant, so nothing but occupant resolution can catch them.
+
+    H.test(shape .. " EP4 an inserter dropping onto a pole is rejected, geometry intact", function()
+        local state = validate(mutate(function(built)
+            local belt = entity_named(built, "out-belt")
+            belt.name, belt.kind, belt.type = "medium-electric-pole", "pole", "pole"
+        end))
+        --Rejecting is not enough. Written loosely this row passed on BP_V_TRANSFER_BROKEN, because deleting
+        --the belt also broke the route -- a related complaint that says nothing about the endpoint. Rule 26.3
+        --is about WHAT OCCUPIES the cell, so the code is named.
+        rejects(state, "BP_V_INSERTER_GEOMETRY", "a pole where the product must land")
+    end)
+
+    H.test(shape .. " EP5 an inserter picking up from a pipe is rejected, geometry intact", function()
+        local state = validate(mutate(function(built)
+            local belt = entity_named(built, "in-belt2")
+            belt.name, belt.kind, belt.type = "pipe", "pipe", "pipe"
+        end))
+        rejects(state, "BP_V_INSERTER_GEOMETRY", "a pipe as an item pickup endpoint")
+    end)
+
+    -- -----------------------------------------------------------------------------------------------------
+    -- 26.2 Zero-waste rule. Production still suffices in every case below; the spare entity still rejects.
+    -- -----------------------------------------------------------------------------------------------------
+
+    H.test(shape .. " WA1 a belt that serves no obligation is rejected", function()
+        local state = validate(mutate(function(built)
+            built.entities[#built.entities + 1] = ent{id = "spare-belt", name = "transport-belt",
+                kind = "belt", type = "belt", x = 1, y = 9, dir = 4}
+        end))
+        rejects(state, "BP_V_TRANSPORT_UNUSED", "a spare belt")
+    end)
+
+    H.test(shape .. " WA2 an inserter that serves no obligation is rejected", function()
+        local state = validate(mutate(function(built)
+            built.entities[#built.entities + 1] = ent{id = "spare-ins", name = "inserter", kind = "inserter",
+                type = "inserter", x = 1, y = 10, dir = 4,
+                pickup_position = {x = 0.5, y = 10.5}, drop_position = {x = 2.5, y = 10.5}}
+        end))
+        rejects(state, "BP_V_TRANSPORT_UNUSED", "a spare inserter")
+    end)
+
+    H.test(shape .. " WA3 an underground endpoint with no partner is rejected", function()
+        local state = validate(mutate(function(built)
+            built.entities[#built.entities + 1] = ent{id = "orphan-ug", name = "underground-belt",
+                kind = "belt", type = "input", ug_role = "input", x = 1, y = 8, dir = 4}
+        end))
+        H.equal(state.ok, false, "an orphan underground endpoint is rejected")
+    end)
+
+    -- -----------------------------------------------------------------------------------------------------
+    -- 26.6 Beacon redundancy. Extra influence is legal; a REMOVABLE beacon is not.
+    -- -----------------------------------------------------------------------------------------------------
+
+    H.test(shape .. " BR1 a beacon nothing needs is rejected", function()
+        --The control's single step configures no beacon at all, so any beacon placed here is removable.
+        local state = validate(mutate(function(built)
+            built.entities[#built.entities + 1] = ent{id = "spare-beacon", name = "beacon", kind = "beacon",
+                type = "beacon", x = 3, y = 8, w = 3, h = 3, modules = {}}
+        end))
+        rejects(state, "BP_V_BEACON_REDUNDANT", "a beacon nothing needs")
+    end)
+
+    -- -----------------------------------------------------------------------------------------------------
+    -- P1-4: the catalog writes `positions`, one per rotation. The validator read `position`.
+    -- -----------------------------------------------------------------------------------------------------
+
+    H.test(shape .. " FC1 a fluid connection in the CAPTURED shape is understood", function()
+        --logic/catalog.lua:377-395 emits `connections = {{positions = {4 x {x, y}}, direction, ...}}`.
+        --logic/bp/validate.lua:1196 read `connection.position or connection.pos`, so against real captured
+        --data fluid_connection_cells returned {} for every machine and nothing about fluid could be checked.
+        local real = catalog()
+        real.entity["assembling-machine-3"].fluid_boxes = {
+            {production_type = "input", index = 1, connections = {
+                {positions = {{x = -2, y = 0}, {x = 0, y = -2}, {x = 2, y = 0}, {x = 0, y = 2}},
+                 direction = 12, connection_type = "normal"}}},
+            {production_type = "output", index = 2, connections = {
+                {positions = {{x = 2, y = 0}, {x = 0, y = 2}, {x = -2, y = 0}, {x = 0, y = -2}},
+                 direction = 4, connection_type = "normal"}}},
+        }
+        local state = bounded(function()
+            local built = Validate.begin({candidate = fluid_candidate(), plan = fluid_plan(), catalog = real})
+            local guard = 0
+            while not built.done do
+                guard = guard + 1
+                if guard > 1000 then error("validation did not finish") end
+                Validate.step(built, {ops = 100000})
+            end
+            return built
+        end)
+        H.equal(state.ok, true,
+            "the captured `positions` shape validates: " .. table.concat(codes(state), ","))
     end)
 end
 

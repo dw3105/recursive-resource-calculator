@@ -113,6 +113,25 @@ case "$tag" in
         runner=python
         tests="tests.tools.test_golden_tools tests.tools.test_incident_capture"
         ;;
+    #Round 14. Five lanes, one file set each, no file shared between two lanes. Each lane also names the new
+    #test file it must write; --dispatch-only resolves a selection without demanding the file exists, which is
+    #how spine gates this dispatcher before any lane has written anything.
+    120_gate)
+        tests="tests/test_validate.lua tests/test_validated_candidate.lua tests/test_power_semantics.lua tests/test_blueprint_delivery.lua tests/test_physical_witness.lua"
+        ;;
+    121_hands)
+        tests="tests/test_groups.lua tests/test_serialize.lua tests/test_beacon_coverage.lua tests/test_beacons.lua tests/test_inserter_geometry.lua"
+        ;;
+    122_router)
+        tests="tests/test_route.lua tests/test_route_budget.lua tests/test_route_footprints.lua tests/test_route_layout_contract.lua tests/test_underground_pairs.lua tests/test_route_network.lua"
+        ;;
+    123_layout)
+        tests="tests/test_search.lua tests/test_search_budget.lua tests/test_search_allowance.lua tests/test_external_ports.lua tests/test_port_tile_flow.lua tests/test_demand_terminals.lua"
+        ;;
+    124_goldens)
+        runner=python
+        tests="tests.tools.test_golden_tools tests.tools.test_incident_capture tests.tools.test_blueprint_audit"
+        ;;
     #An unknown tag FAILS. The old arm here set runner=suite, so a typo, a renamed lane, or a tag nobody had
     #mapped yet quietly ran the whole suite and reported the result as that lane's focused gate. A lane that
     #genuinely wants the suite says so with its own entry.

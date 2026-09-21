@@ -37,6 +37,13 @@ ReasonCodes.VIOLATION = {
     "BP_V_TARGET_SHORTFALL", "BP_V_UNDERGROUND_RANGE", "BP_V_UNDERGROUND_UNPAIRED", "BP_V_BELT_CAPACITY",
     "BP_V_PIPE_CAPACITY", "BP_V_INSERTER_CAPACITY", "BP_V_INSERTER_GEOMETRY", "BP_V_PORT_EDGE_WRONG",
     "BP_V_PORT_UNREACHABLE", "BP_V_MACHINE_COUNT_MISMATCH", "BP_V_MODULE_MISMATCH",
+    --Emitted by logic/bp/validate.lua since round 13 and never registered here, so ReasonCodes.all() did not
+    --know them and nothing could assert against them by name.
+    "BP_V_TRANSFER_BROKEN", "BP_V_FLUID_DISCONNECTED", "BP_V_ROUTE_DISCONTINUOUS", "BP_V_FLUID_INSERTER",
+    "BP_V_METRIC_MISSING", "BP_V_MACHINE_IDENTITY",
+    --Round 14, contract 26.2 and 26.6. A transport entity or inserter that serves no obligation is waste, and
+    --a beacon whose removal leaves every machine at its configured count is waste.
+    "BP_V_TRANSPORT_UNUSED", "BP_V_BEACON_REDUNDANT",
 }
 
 --The locale key a code is shown with. Codes a player can see (REJECT and FAIL) have one; an internal retry signal

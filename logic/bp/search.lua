@@ -774,6 +774,14 @@ local function reconcile_generated_ports(state, external_ports, bindings)
     return kept
 end
 
+--`ports` is the list of ports actually PLACED by materialize_candidate (search.lua:345-356).  It arrived here
+--from the start and was dropped on the floor: the candidate published `ports = {}`, and because
+--`route_result` is always a table (search.lua:1236 supplies `or {}`), every production candidate satisfied
+--`legacy_route_only` at validate.lua:654 and took the early return at validate.lua:1217 -- skipping every
+--physical transfer check, and the recipe identity checks at validate.lua:1483 and :1493 with them.  The
+--comment at validate.lua:1213 asserted the opposite and was false for every candidate this function built.
+--Measured consequence on the delivered artifact: 11 of 18 inserters moved nothing, 12 of 12 pipe-to-ground
+--endpoints could not pair, 224 of 224 belt entities served no obligation, and the generator reported ok=true.
 local function make_candidate(state, grid, blocks, entities, ports, route_result, power_result, roboports)
     local segments = {}
     for _, segment in ipairs(route_result and route_result.segments or {}) do
@@ -785,7 +793,7 @@ local function make_candidate(state, grid, blocks, entities, ports, route_result
     for _, port in ipairs(external_ports) do port.id = port.id or port.port_id end
     local candidate = {
         grid = {w = grid.w, h = grid.h, cols = grid.cols, rows = grid.rows}, grid_w = grid.w, grid_h = grid.h,
-        blocks = blocks, placements = state.work.pack.result.placements, entities = {}, ports = {},
+        blocks = blocks, placements = state.work.pack.result.placements, entities = {}, ports = ports,
         external_ports = external_ports,
         flows = state.work.plan_result.flows, plan = state.work.plan_result, route = route_result, power = power_result,
         settings = state.work.input.settings, infrastructure = state.work.input.settings,
