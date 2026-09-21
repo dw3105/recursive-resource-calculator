@@ -96,13 +96,28 @@ A generic tiny-budget test does not reach that boundary. `search.lua:953`, `:102
 recognize only `phase == "serialize"`, so a naive reconcile branch lets `finish_search_budget` call
 `begin_serialization` again.
 
+## The ceiling input, stated honestly
+
+`five-second-ceiling` measures `tests/golden/cases/player-am2-chain/prepared_input.json`, because at this base
+it is the ONLY complete input on the host: every other fixture with a `prepared_input.json` refuses with
+`BP_REJ_PROTOTYPE_FACTS_MISSING`. It requires `ok`, `validation.ok` and a non-empty artifact, never a bare
+`ok` -- the wrapper can return `ok=true` beside a failed external validation.
+
+That input is a **historical negative**: `tests/golden/historical-negatives.json` records that it carries
+empty inserter offsets and must structurally REJECT once lane 112 lands. So this gate is lane-local only. At
+integration it re-points to the fresh complete export from Milestone A prime, and the historical capture
+becomes a required rejection regression. The end-to-end player ceiling stays PENDING until that export exists,
+and this lane never enriches the capture to make its own gate green.
+
+Measured at this base, host legalcopilot-dev 2026-09-21: **12934ms** against the 5000ms limit.
+
 ## What done mean
 
 ```checks
 {"name": "red-proof", "command": "sh tools/lane_rows.sh tests/test_route.lua --min-cases 4 --pass RT1 || exit 1; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S segment-length-zero >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_route.lua --min-cases 4 --fail RT1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
 {"name": "rows", "command": "sh tools/lane_rows.sh tests/test_route.lua --min-cases 4 --pass RT1,RT2", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
 {"name": "finalization-rows", "command": "sh tools/lane_rows.sh tests/test_search_budget.lua --min-cases 4 --pass FN1,FN2,FN3,FN4", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
-{"name": "five-second-ceiling", "command": "start=$(date +%s%N); out=$(timeout 120 lua5.2 tests/golden/generate.lua tests/golden/cases/player-am2-chain/prepared_input.json 2>&1); rc=$?; end=$(date +%s%N); ms=$(( (end - start) / 1000000 )); [ $rc -eq 0 ] || { echo generator-aborted; exit 1; }; printf %s \"$out\" | python3 -c \"import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('ok') else 1)\" || { echo the-generator-did-not-deliver; exit 1; }; [ $ms -lt 5000 ] || { echo took ${ms}ms against the 5000ms ceiling; exit 1; }; echo ceiling-met ${ms}ms", "expect_exit": 0, "expect_regex": "ceiling-met", "timeout_s": 600}
+{"name": "five-second-ceiling", "command": "start=$(date +%s%N); out=$(timeout 120 lua5.2 tests/golden/generate.lua tests/golden/cases/player-am2-chain/prepared_input.json 2>&1); rc=$?; end=$(date +%s%N); ms=$(( (end - start) / 1000000 )); [ $rc -eq 0 ] || { echo generator-aborted; exit 1; }; printf %s \"$out\" | python3 -c \"import json,sys; d=json.load(sys.stdin); ents=(d.get('result') or {}).get('entities') or []; v=(d.get('validation') or {}).get('ok'); sys.exit(0 if (d.get('ok') and v is True and len(ents) > 0) else 1)\" || { echo the-generator-did-not-deliver-a-validated-artifact; exit 1; }; [ $ms -lt 5000 ] || { echo took ${ms}ms against the 5000ms ceiling; exit 1; }; echo ceiling-met ${ms}ms", "expect_exit": 0, "expect_regex": "ceiling-met", "timeout_s": 600}
 {"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 113_layout", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
 {"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/113.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```

@@ -1,16 +1,19 @@
 #!/bin/sh
-#Gate a lane on named cases of a Lua harness file, without failing open.
+#Gate a lane on named cases of a Lua harness file, from an executed-case inventory.
 #
-#Why this exists: a gate written as "grep for FAIL <case>; if absent, pass" reports success when the
-#interpreter never ran. Measured on this host 2026-09-21 with a stub interpreter that printed a startup error
-#and exited 77: the gate printed its success token and exited 0. Absent FAIL is not evidence of executed and
-#passed, so this script requires positive evidence instead:
+#Two generations of this gate failed open, both measured on this host 2026-09-21.
 #
-#  * a completed harness summary line, under EVERY interpreter;
-#  * at least the expected number of cases, so a truncated or filtered run cannot satisfy it;
-#  * zero [error] lines, so a crash is never read as an assertion failure;
-#  * each --pass case absent from the FAIL list;
-#  * each --fail case present in the FAIL list, which is how a red proof states what it expects.
+#First it inferred success from silence: "grep for FAIL <case>; if absent, pass". With a stub interpreter that
+#printed a startup error and exited 77, it printed its success token and exited 0.
+#
+#Then it required the case id to appear in the test file. That is still source text, not execution. A file
+#whose CG1 appeared only in a COMMENT satisfied it; so did a file containing only CG10, because CG1 is its
+#substring; so did a case that genuinely FAILED under a shape label the regex did not match; so did a run that
+#printed its summary and then crashed.
+#
+#So this reads the harness's own inventory. Under RRC_CASE_REPORT=1 the harness prints `CASE <outcome> <name>`
+#for every case it executes and `CASES-COMPLETE <n>` when it terminates. A case that did not run has no line,
+#which is a refusal, and a crash after the summary loses the terminator, which is also a refusal.
 #
 #usage: lane_rows.sh <test-file> --min-cases <n> [--pass a,b,c] [--fail x,y] [--interpreters "lua5.2 lua5.4"]
 set -eu
@@ -36,68 +39,98 @@ if [ -z "$test_file" ] || [ ! -f "$test_file" ]; then
     echo "lane_rows.sh: no such test file: $test_file" >&2
     exit 2
 fi
-if [ "$min_cases" -le 0 ] 2>/dev/null; then
+if ! [ "$min_cases" -gt 0 ] 2>/dev/null; then
     echo "lane_rows.sh: --min-cases must be a positive count, got '$min_cases'" >&2
     exit 2
 fi
 
 commas_to_spaces() { printf '%s\n' "$1" | tr ',' ' '; }
 
+#The outcome of one case id across every shape, as reported by the harness itself. A case id names one row of
+#the contract and the harness runs it once per shape, so every shape must agree.
+outcomes_for() {
+    printf '%s\n' "$2" | sed -n "s/^CASE \\([a-z]*\\) [0-9.]* $1 .*/\\1/p"
+}
+
 status=0
 for lua in $interpreters; do
-    if out=$("$lua" "$test_file" 2>&1); then
+    if out=$(RRC_CASE_REPORT=1 "$lua" "$test_file" 2>&1); then
         run_status=0
     else
         run_status=$?
     fi
 
-    summary=$(printf '%s\n' "$out" | grep -E 'cases, [0-9]+ passed, [0-9]+ failed' | tail -1 || true)
-    if [ -z "$summary" ]; then
-        echo "lane_rows.sh: $lua produced no harness summary (exit $run_status)" >&2
+    complete=$(printf '%s\n' "$out" | grep -E '^CASES-COMPLETE [0-9]+$' | tail -1 || true)
+    if [ -z "$complete" ]; then
+        echo "lane_rows.sh: $lua never reached CASES-COMPLETE (exit $run_status)" >&2
+        echo "lane_rows.sh: the run crashed, was truncated, or the file never called H.done" >&2
         printf '%s\n' "$out" | tail -20 >&2
         exit 1
     fi
 
-    total=$(printf '%s\n' "$summary" | sed -E 's/.*: ([0-9]+) cases,.*/\1/')
-    if [ "$total" -lt "$min_cases" ]; then
-        echo "lane_rows.sh: $lua ran $total cases, fewer than the expected $min_cases" >&2
+    summary=$(printf '%s\n' "$out" | grep -E 'cases, [0-9]+ passed, [0-9]+ failed' | tail -1 || true)
+    if [ -z "$summary" ]; then
+        echo "lane_rows.sh: $lua produced no harness summary (exit $run_status)" >&2
+        exit 1
+    fi
+
+    #A crash AFTER the summary still prints both lines. The exit status is what gives it away: the harness
+    #exits 0 when nothing failed and 1 when something did, so any other status means something ran past the
+    #terminator or died on the way out.
+    failed_count=$(printf '%s\n' "$summary" | sed -E 's/.*, ([0-9]+) failed.*/\1/')
+    if [ "$failed_count" -eq 0 ]; then expected_status=0; else expected_status=1; fi
+    if [ "$run_status" -ne "$expected_status" ]; then
+        echo "lane_rows.sh: $lua exited $run_status with $failed_count failed; expected exit $expected_status" >&2
         echo "  $summary" >&2
         exit 1
     fi
 
-    if printf '%s\n' "$out" | grep -qE '\[error\]'; then
-        echo "lane_rows.sh: $lua reported an [error]; a crash is never an assertion result" >&2
-        printf '%s\n' "$out" | grep -E '\[error\]' | head -5 >&2
+    total=${complete#CASES-COMPLETE }
+    if [ "$total" -lt "$min_cases" ]; then
+        echo "lane_rows.sh: $lua executed $total cases, fewer than the expected $min_cases" >&2
+        echo "  $summary" >&2
+        exit 1
+    fi
+
+    #An [error] means the case never reached its assertion. It is never an assertion result, so it can neither
+    #satisfy a --pass nor kill a mutant for a --fail.
+    if printf '%s\n' "$out" | grep -qE '^CASE error '; then
+        echo "lane_rows.sh: $lua reported a case that errored before its assertion" >&2
+        printf '%s\n' "$out" | grep -E '^CASE error ' | head -5 >&2
         exit 1
     fi
 
     for case_id in $(commas_to_spaces "$pass_list"); do
         [ -n "$case_id" ] || continue
-        #The harness prints failures and totals, never individual passes, so "no FAIL line" is also what a
-        #case that does not exist looks like. Requiring the id to appear in the file turns absence into a
-        #refusal instead of a silent pass -- measured: --pass CG1 against a file with no CG1 exited 0.
-        if ! grep -q "$case_id" "$test_file"; then
-            echo "lane_rows.sh: $test_file names no case $case_id" >&2
-            exit 1
-        fi
-        if printf '%s\n' "$out" | grep -qE "^FAIL [0-9.]+ $case_id "; then
-            echo "lane_rows.sh: $lua still red: $case_id" >&2
-            printf '%s\n' "$out" | grep -E "^FAIL [0-9.]+ $case_id " -A 2 | head -6 >&2
+        seen=$(outcomes_for "$case_id" "$out")
+        if [ -z "$seen" ]; then
+            echo "lane_rows.sh: $lua executed no case named $case_id in $test_file" >&2
             status=1
+            continue
         fi
+        for outcome in $seen; do
+            if [ "$outcome" != "pass" ]; then
+                echo "lane_rows.sh: $lua case $case_id reported '$outcome', expected pass" >&2
+                printf '%s\n' "$out" | grep -E "^FAIL [0-9.]+ $case_id " -A 2 | head -6 >&2
+                status=1
+            fi
+        done
     done
 
     for case_id in $(commas_to_spaces "$fail_list"); do
         [ -n "$case_id" ] || continue
-        if ! grep -q "$case_id" "$test_file"; then
-            echo "lane_rows.sh: $test_file names no case $case_id" >&2
-            exit 1
-        fi
-        if ! printf '%s\n' "$out" | grep -qE "^FAIL [0-9.]+ $case_id "; then
-            echo "lane_rows.sh: $lua did NOT fail $case_id, so the mutation was not detected" >&2
-            echo "  $summary" >&2
+        seen=$(outcomes_for "$case_id" "$out")
+        if [ -z "$seen" ]; then
+            echo "lane_rows.sh: $lua executed no case named $case_id in $test_file" >&2
             status=1
+            continue
         fi
+        for outcome in $seen; do
+            if [ "$outcome" != "fail" ]; then
+                echo "lane_rows.sh: $lua case $case_id reported '$outcome'; the mutation was not detected" >&2
+                status=1
+            fi
+        done
     done
 
     echo "lane_rows.sh: $lua $summary"

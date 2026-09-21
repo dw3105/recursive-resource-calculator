@@ -708,12 +708,20 @@ for _, shape in ipairs(H.shapes()) do
             end
             return serialized.result
         end)
+        local clean = copy(artifact)
         for _, entity in ipairs((artifact or {}).entities or {}) do
             if entity.name == "assembling-machine-3" then entity.recipe = "copper-cable" end
         end
         H.equal(type(Validate.reconcile_artifact), "function",
             "Validate exposes the artifact reconciliation entry point the production path calls")
         if type(Validate.reconcile_artifact) == "function" then
+            --The positive control comes FIRST. Without it a reconciler that returns {ok = false} for
+            --everything satisfies this row: measured 2026-09-21, replacing it with such a stub moved the
+            --oracle from 16 passed to 18 with no SR4 failure on either interpreter. PC1 and FL1 cannot serve
+            --here, because they validate a candidate and never call reconciliation at all.
+            local unmodified = Validate.reconcile_artifact({artifact = clean, plan = plan(), catalog = catalog()})
+            H.equal(unmodified ~= nil and unmodified.ok, true,
+                "reconciliation accepts the unmodified artifact of a valid candidate")
             local outcome = Validate.reconcile_artifact({artifact = artifact, plan = plan(), catalog = catalog()})
             H.equal(outcome ~= nil and outcome.ok, false, "a serializer-only recipe change is rejected")
         end

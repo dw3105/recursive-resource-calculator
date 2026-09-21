@@ -78,14 +78,16 @@ observation carries none of the three receipt bindings.
 `--case player-am2-chain --require-success` on that same case must FAIL. One command cannot be both, which is
 why the selector and the registry role exist.
 
-The red proof replaces the validation plan in `tests/golden/generate.lua` with `{}` and requires a named
-plan-related case to fail, with no `ERROR:` lines. Restoring an unrelated whole file is never accepted as
-detection.
+The red proof replaces the validation plan in `tests/golden/generate.lua` with `{}` and requires a NAMED
+`FAIL: test_...` line with no `ERROR:` lines. It does **not** ban the word `Traceback`: python unittest prints
+a traceback for an ordinary `AssertionError`, so banning it rejected every correctly killed mutant. `FAIL:`
+and `ERROR:` are unittest's own categories and separate an assertion from a crash. Restoring an unrelated
+whole file is never accepted as detection.
 
 ## What done mean
 
 ```checks
-{"name": "red-proof", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_golden_tools 2>&1 | tail -3 | grep -q OK || { echo 'the lane result is not green before its mutation'; exit 1; }; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S validation-plan-empty >/dev/null 2>&1 || rc=1; out=$(cd $S && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_golden_tools 2>&1); echo $out | grep -q FAILED || rc=1; echo $out | grep -q 'Traceback' && rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "red-proof", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_golden_tools 2>&1 | tail -3 | grep -q OK || { echo 'the lane result is not green before its mutation'; exit 1; }; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S validation-plan-empty >/dev/null 2>&1 || rc=1; out=$(cd $S && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v tests.tools.test_golden_tools 2>&1); printf '%s\n' \"$out\" | grep -qE '^FAIL: test_' || { echo 'the mutant produced no named assertion failure'; rc=1; }; printf '%s\n' \"$out\" | grep -qE '^ERROR: ' && { echo 'the mutant errored instead of failing an assertion'; rc=1; }; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
 {"name": "golden-tools-green", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_golden_tools 2>&1 | tail -3 | grep -q OK || { echo 'the lane owned python suite is not green'; exit 1; }; echo golden-tools-green", "expect_exit": 0, "expect_regex": "golden-tools-green", "timeout_s": 1800}
 {"name": "no-empty-plan", "command": "grep -qE 'plan_result or prepared[.]plan or' tests/golden/generate.lua && { echo 'the empty-plan fallback survives'; exit 1; }; echo plan-fails-closed", "expect_exit": 0, "expect_regex": "plan-fails-closed", "timeout_s": 120}
 {"name": "case-selector", "command": "sh tests/incident/run --case player-am2-chain --require-rejection >/dev/null 2>&1 || { echo 'the historical negative does not reject'; exit 1; }; sh tests/incident/run --case player-am2-chain --require-success >/dev/null 2>&1 && { echo 'require-success passed on the historical negative'; exit 1; }; echo case-selector-ok", "expect_exit": 0, "expect_regex": "case-selector-ok", "timeout_s": 2400}

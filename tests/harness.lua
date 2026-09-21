@@ -2076,15 +2076,25 @@ local results = {passed = 0, failed = 0, names = {}}
 --Gates read the tag: a red proof and a killed mutant need [assert]; [error] means the case never reached its assertion.
 H.ASSERT_MARK = "RRC-ASSERT: "
 
+--A gate cannot tell "this case passed" from "this case does not exist" while only failures are printed.
+--Measured 2026-09-21: a file whose CG1 appeared only in a COMMENT, and a file containing only CG10, both
+--satisfied a gate asking for CG1. Under RRC_CASE_REPORT the harness prints one line per executed case, so a
+--gate can require the case to have actually run instead of inferring it from silence.
+local CASE_REPORT = os.getenv("RRC_CASE_REPORT") == "1"
+
 function H.test(name, fn)
     local ok, err = xpcall(fn, debug.traceback)
+    local outcome
     if ok then
         results.passed = results.passed + 1
+        outcome = "pass"
     else
         results.failed = results.failed + 1
         local tag = tostring(err):find(H.ASSERT_MARK, 1, true) and "[assert]" or "[error]"
+        outcome = tag == "[assert]" and "fail" or "error"
         print("FAIL " .. name .. " " .. tag .. "\n  " .. tostring(err):gsub("\n", "\n  "))
     end
+    if CASE_REPORT then print("CASE " .. outcome .. " " .. name) end
 end
 
 --NaN compares false with everything, so a plain tolerance check would let it pass
@@ -2166,6 +2176,9 @@ function H.shapes()
 end
 
 function H.done(file)
+    --The terminator. A gate that reads a summary without this line is reading a truncated run, and a crash
+    --after the summary is what this line's absence catches.
+    if CASE_REPORT then print(string.format("CASES-COMPLETE %d", results.passed + results.failed)) end
     print(string.format("%s [%s]: %d cases, %d passed, %d failed", file, _VERSION, results.passed + results.failed, results.passed, results.failed))
     os.exit(results.failed == 0 and 0 or 1)
 end

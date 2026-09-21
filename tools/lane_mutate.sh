@@ -42,6 +42,22 @@ PY
         echo "lane_mutate.sh: $mutation changed nothing in $file; the target it names is absent" >&2
         exit 1
     fi
+    #A mutant that does not parse makes the harness report [error], which lane_rows.sh refuses, so the red
+    #proof would fail for the wrong reason and block a correct lane result. Measured: the first
+    #port-quality-nil rule produced `scenario.lua:894: unexpected symbol near 'nil'` on both interpreters.
+    case "$file" in
+        *.lua)
+            if ! luac5.2 -p "$target" >/dev/null 2>&1; then
+                echo "lane_mutate.sh: $mutation left $file unparseable; a syntax error is never a red proof" >&2
+                luac5.2 -p "$target" 2>&1 | head -3 >&2
+                exit 1
+            fi ;;
+        *.py)
+            if ! python3 -c "import ast,sys; ast.parse(open(sys.argv[1]).read())" "$target" >/dev/null 2>&1; then
+                echo "lane_mutate.sh: $mutation left $file unparseable" >&2
+                exit 1
+            fi ;;
+    esac
     echo "lane_mutate.sh: applied $mutation to $file"
 }
 
@@ -59,9 +75,12 @@ case "$mutation" in
     #113: every measured segment length becomes zero, which is exactly the defect route cost had.
     segment-length-zero)
         apply logic/bp/route.lua '([.]length *= *)[^,;}\n]+' '\g<1>0' ;;
-    #114: the perimeter loses quality, which is the defect at scenario.lua:893.
+    #114: the stack stops carrying quality, which is the defect at scenario.lua:894. Only the assigned VALUE
+    #changes. Replacing every match of `<name>.quality` also hit the assignment TARGET and produced
+    #`if nil and nil ~= "normal" then nil = nil end`, which does not parse, so the intended assertion was
+    #never reached and a correct lane result was blocked by a syntax error.
     port-quality-nil)
-        apply tests/golden/engine/mod/scenario.lua '[a-z_]+[.]quality' 'nil' ;;
+        apply tests/golden/engine/mod/scenario.lua '([a-z_]+[.]quality *= *)[a-z_]+[.]quality' '\g<1>nil' ;;
     #115: the empty-plan fallback returns, which is the defect at generate.lua:382.
     validation-plan-empty)
         apply tests/golden/generate.lua 'plan = prepared[.]plan_result[^,]*' 'plan = {}' ;;

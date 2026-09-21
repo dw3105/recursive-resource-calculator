@@ -164,3 +164,27 @@ Two holes were measured and closed before relaunch:
   every interpreter, a minimum case count, zero `[error]`, and the named case to exist in the file.
 - `--pass CG1` against a file containing no `CG1` also returned exit 0, because a case that does not exist
   looks exactly like a case that passed. The named case must now appear in the test file.
+
+## Second gate correction, 2026-09-21, with the lanes left running
+
+A second review measured five more holes. The lanes were **not** restarted: a lane snapshots its checks into
+`required.json` at launch, so editing a task afterwards never changes what that lane verifies. Every fix below
+lands on the integration branch, each lane's self-reported verdict is advisory, and I re-run the corrected
+gates myself at merge.
+
+| hole | measured | closed by |
+|---|---|---|
+| the gate proved source text, not execution | a file whose `CG1` was only in a COMMENT passed; so did a file containing only `CG10`; so did a case that genuinely failed under an unmatched shape label; so did a run that printed its summary then crashed | `tests/harness.lua` prints `CASE <outcome> <name>` and `CASES-COMPLETE <n>` under `RRC_CASE_REPORT=1`; `tools/lane_rows.sh` consumes that inventory and checks exit status against the summary |
+| the 114 mutation produced invalid Lua | `if nil and nil ~= "normal" then nil = nil end`, `scenario.lua:894: unexpected symbol near 'nil'` on both interpreters, so the intended assertion was never reached | the mutation changes only the assigned VALUE, and every mutation is now parse-checked before the proof runs |
+| the 115 red proof rejected ordinary failures | python unittest prints a traceback for an `AssertionError`, and the predicate banned `Traceback`, so a correctly killed mutant was refused | the predicate uses unittest's own categories: a named `FAIL: test_` must appear and no `ERROR:` may |
+| the ceiling accepted invalid output | `{"ok":true,"validation":{"ok":false}}` gave `ceiling-met 2ms` | it now requires `ok`, `validation.ok` and a non-empty artifact |
+| `SR4` had no positive control | replacing `Validate.reconcile_artifact` with a stub returning `{ok = false}` moved the oracle to 18 passed with no `SR4` failure | `SR4` asserts acceptance of the unmodified artifact first; the stub now fails it |
+
+`RRC_CASE_REPORT` is opt-in, so ordinary suite output is unchanged: `test_groups` still reports 30 of 30 and
+the oracle still reports 68 cases, 16 passed, 52 failed.
+
+**The five-second ceiling is lane-local only.** Its input is the player capture, because at this base every
+other fixture carrying a `prepared_input.json` refuses with `BP_REJ_PROTOTYPE_FACTS_MISSING`, and that capture
+is a registered historical negative that must REJECT once lane 112 lands. At integration the gate re-points to
+the fresh export from Milestone A prime. The end-to-end player ceiling stays **pending**; measured at this
+base it is **10722ms** against the 5000ms limit.
