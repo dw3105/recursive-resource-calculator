@@ -401,49 +401,59 @@ local function captured_plan(prepared, input_digest)
     return state.result
 end
 
-local function artifact_validation(Validate, candidate, prepared, internal_candidate)
-    -- Keep this call's plan binding explicit.  The lane mutation oracle replaces
-    -- it with {}, and the complete-plan check below must then fail closed.
-    --The internal candidate is what binds a serialized entity to its plan step: the artifact carries no step
-    --identity, because that is bookkeeping the game never sees.
-    local reconciliation = {artifact = candidate, plan = prepared.plan_result,
-        catalog = prepared.catalog or {}, internal = internal_candidate}
-    if not plan_complete(reconciliation.plan) then
-        return {ok = false, errors = {{code = "BP_CAP_INCOMPLETE", detail = "validation plan is missing"}}}
-    end
-    if type(Validate.reconcile_artifact) == "function" then
-        local reconciled = Validate.reconcile_artifact(reconciliation)
-        if type(reconciled) == "table" then return reconciled end
-        return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = "invalid reconciliation result"}}}
-    end
+local function validation_error(code, detail)
+    return {ok = false, errors = {{code = code, detail = detail}}}
+end
+
+local function run_physical_validation(Validate, candidate, plan, catalog)
     local began, state = pcall(function()
-        return Validate.begin({candidate = candidate, plan = reconciliation.plan,
-            catalog = prepared.catalog or {}})
+        return Validate.begin({candidate = candidate, plan = plan, catalog = catalog})
     end)
-    if not began then
-        return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = tostring(state)}}}
-    end
-    -- round-13-base does not yet contain lane 111's additive entry point.  The
-    -- same complete artifact is still checked here, and the production API is
-    -- preferred automatically once it is available.
-    local checked = state
-    if internal_candidate ~= nil then
-        local internal_began, internal_state = pcall(function()
-            return Validate.begin({candidate = internal_candidate, plan = reconciliation.plan,
-                catalog = prepared.catalog or {}})
-        end)
-        if not internal_began then
-            return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = tostring(internal_state)}}}
-        end
-        checked = internal_state
-    end
+    if not began then return validation_error("BP_V_ARTIFACT_PHYSICAL", tostring(state)) end
     local stepped, step_error = pcall(function()
-        while not checked.done do Validate.step(checked, {ops = 1000000}) end
+        while not state.done do Validate.step(state, {ops = 1000000}) end
     end)
-    if not stepped then
-        return {ok = false, errors = {{code = "BP_V_ARTIFACT_RECONCILE", detail = tostring(step_error)}}}
+    if not stepped then return validation_error("BP_V_ARTIFACT_PHYSICAL", tostring(step_error)) end
+    return {ok = state.ok == true, result = state.result, errors = state.errors}
+end
+
+local function artifact_validation(Validate, candidate, prepared, internal_candidate)
+    -- The artifact carries no step identity: that is internal bookkeeping the game never sees. The internal
+    -- candidate is supplied only to bind a decoded artifact entity to its plan step by physical position.
+    local plan = prepared.plan_result
+    local catalog = prepared.catalog or {}
+    -- Keep this assignment as a named boundary: the lane mutation oracle replaces its value to prove that the
+    -- golden tests fail when physical validation is bypassed.
+    -- The physical pass needs the producer's bindings (step_id, ports and segments) to walk obligations. The
+    -- decoded artifact is still the only object sent to reconciliation below; reconciliation binds those fields
+    -- back to the producer candidate by position and catches serialization loss or mutation.
+    local physical_candidate = internal_candidate or candidate
+    local physical = run_physical_validation(Validate, physical_candidate, plan, catalog)
+
+    local reconciliation_input = {artifact = candidate, plan = plan, catalog = catalog, internal = internal_candidate}
+    local reconciliation
+    if not plan_complete(plan) then
+        reconciliation = validation_error("BP_CAP_INCOMPLETE", "validation plan is missing")
+    elseif type(Validate.reconcile_artifact) ~= "function" then
+        reconciliation = validation_error("BP_V_ARTIFACT_RECONCILE", "reconciliation entry point is missing")
+    else
+        local reconciled, result = pcall(Validate.reconcile_artifact, reconciliation_input)
+        if reconciled and type(result) == "table" then
+            reconciliation = result
+        elseif reconciled then
+            reconciliation = validation_error("BP_V_ARTIFACT_RECONCILE", "invalid reconciliation result")
+        else
+            reconciliation = validation_error("BP_V_ARTIFACT_RECONCILE", tostring(result))
+        end
     end
-    return {ok = checked.ok == true, result = checked.result, errors = checked.errors}
+
+    local errors = {}
+    for _, checked in ipairs({physical, reconciliation}) do
+        for _, error_record in ipairs(checked.errors or {}) do errors[#errors + 1] = error_record end
+    end
+    return {ok = physical.ok == true and reconciliation.ok == true,
+        result = physical.result, errors = #errors > 0 and errors or nil,
+        physical = physical, reconciliation = reconciliation}
 end
 
 local input_path, output_path, canonical_path, validate_path
@@ -489,7 +499,8 @@ local ok, result_or_error = xpcall(function()
         if type(candidate) == "table" and type(candidate.candidate) == "table" then candidate = candidate.candidate end
         local validation = artifact_validation(Validate, candidate, prepared)
         return {schema_version = 1, source = "lua-validator", ok = validation.ok == true,
-            result = validation.result, errors = validation.errors, stage = "validate"}
+            result = validation.result, errors = validation.errors, physical = validation.physical,
+            reconciliation = validation.reconciliation, validation = validation, stage = "validate"}
     end
 
     local Search = require "logic.bp.search"
@@ -505,16 +516,22 @@ local ok, result_or_error = xpcall(function()
         return {schema_version = 1, source = "lua-generator", ok = false, stage = state.phase or "search",
             errors = state.errors or {{code = "BP_FAIL_NO_LAYOUT_GRID_LIMIT"}}, progress = state.progress}
     end
-    local canonical, version = Serialize.canonical(state.result)
+    -- Search's result is the serializer's output table.  Treat the encoded/decoded export as the certified
+    -- object so validation cannot accidentally certify the serializer's intermediate candidate.
+    local exported_json = JSON.encode(state.result)
+    local exported = JSON.decode(exported_json)
+    local canonical, version = Serialize.canonical(exported)
     local encoded = JSON.encode(canonical)
     local validation
     if state.incumbent and state.incumbent.candidate then
         local Validate = require "logic.bp.validate"
-        validation = artifact_validation(Validate, state.result, prepared, state.incumbent.candidate)
+        validation = artifact_validation(Validate, exported, prepared, state.incumbent.candidate)
+    else
+        validation = validation_error("BP_V_ARTIFACT_PHYSICAL", "generator produced no bound candidate")
     end
-    return {schema_version = 1, source = "lua-generator", ok = true, stage = "done", ticks = ticks,
+    return {schema_version = 1, source = "lua-generator", ok = validation.ok == true, stage = "done", ticks = ticks,
         canonical = canonical, canonical_version = version, canonical_json = encoded,
-        canonical_sha256 = sha256(encoded), result = state.result,
+        canonical_sha256 = sha256(encoded), result = exported,
         validation = validation}
 end, function(error_message) return debug.traceback(tostring(error_message), 2) end)
 

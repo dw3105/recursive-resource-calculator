@@ -651,6 +651,29 @@ def actual_from_generator(payload: Mapping[str, Any]) -> Any:
     return result if isinstance(result, dict) else payload
 
 
+def validation_receipt_failures(payload: Any) -> List[str]:
+    """Require the combined receipt and both independent validation layers."""
+    if not isinstance(payload, Mapping):
+        return ["missing validation receipt"]
+    receipt = payload.get("validation")
+    if not isinstance(receipt, Mapping):
+        # --validate also exposes the two layers at the envelope boundary so a
+        # handwritten candidate uses the same evidence contract as a generated one.
+        receipt = payload
+    failures: List[str] = []
+    if receipt.get("ok") is not True:
+        failures.append("combined validation did not pass")
+    for name in ("physical", "reconciliation"):
+        layer = receipt.get(name)
+        if not isinstance(layer, Mapping):
+            failures.append(f"missing {name} validation result")
+        elif layer.get("ok") is not True:
+            failures.append(f"{name} validation did not pass")
+        elif name == "physical" and not isinstance(layer.get("result"), Mapping):
+            failures.append("physical validation has no completed result")
+    return failures
+
+
 def canonical_version_of(manifest: Mapping[str, Any], value: Any) -> int:
     if isinstance(value, dict) and isinstance(value.get("canonical_version"), int):
         return value["canonical_version"]
@@ -869,23 +892,18 @@ def compare_case(case: Path, manifest: Mapping[str, Any], candidate_override: Op
     negative, expected_codes = expected_rejection(manifest, expected_raw)
     actual_codes = reason_codes(actual_payload)
     validation = [] if negative else independent_checks(manifest, actual_raw)
+    if generated and not negative:
+        validation.extend(validation_receipt_failures(actual_payload))
     semantic = semantic_assertions(manifest)
     stage = actual_payload.get("stage") if isinstance(actual_payload, dict) else None
     if semantic:
-        if generated:
-            receipt = actual_payload.get("validation") if isinstance(actual_payload, dict) else None
-            if not isinstance(receipt, dict) or receipt.get("ok") is not True:
-                validation.append("independent assertions were not proven by logic/bp/validate.lua")
-            elif receipt.get("errors"):
-                validation.extend(f"validator {error.get('code', error)}" for error in receipt["errors"] if isinstance(error, dict))
-        elif input_path:
+        if input_path and not generated:
             receipt = run_lua_validation(actual_file, input_path)
             stage = receipt.get("stage", stage)
-            if receipt.get("ok") is not True:
-                validation.extend(f"validator {error.get('code', error)}" for error in receipt.get("errors", [])
-                                  if isinstance(error, dict))
+            validation.extend(validation_receipt_failures(receipt))
         else:
-            validation.append("semantic independent assertions require a captured PreparedInput")
+            if not input_path:
+                validation.append("semantic independent assertions require a captured PreparedInput")
 
     expected_canonical = None
     actual_canonical = None
@@ -1176,13 +1194,11 @@ def accept_case(case: Path, manifest: Mapping[str, Any], candidate_override: Opt
         actual_label = str(actual_file)
     negative, old_codes = expected_rejection(manifest, expected_raw)
     failures = [] if negative else independent_checks(manifest, actual_raw)
+    if input_path and not negative:
+        failures.extend(validation_receipt_failures(actual_payload))
     semantic = semantic_assertions(manifest)
     if semantic:
-        if input_path:
-            receipt = actual_payload.get("validation") if isinstance(actual_payload, dict) else None
-            if not isinstance(receipt, dict) or receipt.get("ok") is not True:
-                failures.append("independent assertions were not proven by logic/bp/validate.lua")
-        else:
+        if not input_path:
             failures.append("semantic independent assertions require a captured PreparedInput")
     if failures:
         raise GoldenError("candidate failed independent checks: " + "; ".join(failures))
