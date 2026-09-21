@@ -10,6 +10,8 @@ local Scenario = {}
 Scenario.RUNNER_REVISION = "engine-scenario-v1"
 Scenario.TICKS_PER_SECOND = 60
 Scenario.MAX_TIMEOUT_SECONDS = 3600
+Scenario.PERIMETER_INSERTER_BASE_CAPACITY_PER_SECOND = 60
+Scenario.PERIMETER_CAPACITY_HEADROOM = 0.10
 
 --The only branch-dependent facts owned by the companion live here.  The
 --packaging lane may select the matching info.json branch from branch-manifest.json;
@@ -20,6 +22,7 @@ Scenario.BRANCH_FACTS = {
         source_chest = "wooden-chest",
         drain_chest = "iron-chest",
         inserter = "inserter",
+        inserter_power_pole = "medium-electric-pole",
         pipe = "pipe",
         fluid_buffer = "storage-tank",
         power_source = "electric-energy-interface",
@@ -29,6 +32,7 @@ Scenario.BRANCH_FACTS = {
         source_chest = "wooden-chest",
         drain_chest = "iron-chest",
         inserter = "inserter",
+        inserter_power_pole = "medium-electric-pole",
         pipe = "pipe",
         fluid_buffer = "storage-tank",
         power_source = "electric-energy-interface",
@@ -249,6 +253,45 @@ local function sha256(text)
     return table.concat(result)
 end
 
+local function canonical_json(value)
+    local current_helpers = rawget(_G, "helpers")
+    if current_helpers and type(current_helpers.table_to_json) == "function" then
+        return current_helpers.table_to_json(value or {})
+    end
+    return "{}"
+end
+
+local function submitted_bindings(case, context)
+    local scenario = scenario_of(case)
+    local setup = type(case.setup) == "table" and case.setup or {}
+    local prepared
+    local config
+    if type(context) == "table" then
+        prepared = context.prepared_input or {}
+        config = context.config or {settings = copy(context.settings or {}) or {},
+            options = copy(context.options or {}) or {}, revisions = copy(context.revisions or {}) or {}}
+    else
+        prepared = case.prepared_input or setup.prepared_input or scenario.prepared_input or {}
+        local settings = setup.settings
+        if type(settings) == "table" and type(settings.current) == "table" then settings = settings.current end
+        config = {settings = copy(settings or prepared.settings or {}) or {},
+            options = copy(setup.options or prepared.options or {}) or {},
+            revisions = copy(case.revisions or prepared.revisions or {}) or {}}
+    end
+    local prepared_bytes = type(context) == "table" and context.prepared_input_bytes or nil
+    if type(prepared_bytes) ~= "string" then prepared_bytes = canonical_json(prepared) end
+    local config_bytes = type(context) == "table" and context.config_bytes or nil
+    if type(config_bytes) ~= "string" then config_bytes = canonical_json(config) end
+    local case_id = case_id_of(case)
+    local declared_prepared_sha = type(context) == "table" and context.prepared_input_sha256
+        or case.prepared_input_sha256 or setup.prepared_input_sha256 or scenario.prepared_input_sha256
+    return {
+        prepared_input_sha256 = declared_prepared_sha or sha256(prepared_bytes),
+        config_sha256 = sha256(config_bytes),
+        harness_qualification_id = "rrc-engine-harness-v1:" .. sha256(case_id .. "\n" .. prepared_bytes .. "\n" .. config_bytes),
+    }
+end
+
 local Controller = {}
 Controller.__index = Controller
 
@@ -281,7 +324,7 @@ function Controller:_metadata(state)
     local initial = scenario_of(state.case).initial_state or state.case.initial_state or {}
     local branch = result.factorio_branch or state.build.factorio_branch
         or (state.environment and state.environment.branch) or "unknown"
-    return {
+    local result_observation = {
         schema_version = 1,
         case_id = case_id_of(state.case),
         candidate_sha = tostring(state.build.candidate_sha or "unknown"),
@@ -294,6 +337,9 @@ function Controller:_metadata(state)
         surface = result.surface or (state.environment and state.environment.surface_name)
             or initial.surface or "nauvis",
     }
+    local bindings = submitted_bindings(state.case, state.context)
+    for key, value in pairs(bindings) do result_observation[key] = value end
+    return result_observation
 end
 
 function Controller:_write(state, observation)
@@ -321,9 +367,28 @@ end
 
 function Controller:_rejection(state, stage, codes, detail, final_state)
     local base = self:_metadata(state)
-    local rejection = {stage = stage, reason_codes = sorted_unique(codes)}
+    local harness_stage = stage == "environment" or stage == "build" or stage == "supply"
+        or stage == "power" or stage == "drain" or stage == "perimeter"
+    local verdict = stage == "identity" and "run_refused"
+        or (harness_stage and "harness_failure" or "factory_failure")
+    local failure_code
+    if verdict == "harness_failure" and detail ~= nil and tostring(detail):lower():find("capacity", 1, true) then
+        failure_code = "RRC_HARNESS_CAPACITY"
+    elseif verdict == "harness_failure" and detail ~= nil
+        and tostring(detail):lower():find("position", 1, true) then
+        failure_code = "RRC_HARNESS_PLACEMENT"
+    else
+        failure_code = (verdict == "harness_failure" and "RRC_HARNESS_"
+            or verdict == "factory_failure" and "RRC_FACTORY_" or "RRC_RUN_")
+            .. string.upper(tostring(stage)):gsub("[^%w]+", "_")
+    end
+    local reason_codes = sorted_unique(codes)
+    reason_codes[#reason_codes + 1] = failure_code
+    local rejection = {stage = stage, reason_codes = reason_codes, verdict = verdict,
+        failure_code = failure_code, code = failure_code}
     if detail ~= nil then rejection.detail = tostring(detail) end
     base.outcome_kind = "rejection"
+    base.verdict = verdict
     base.rejection = rejection
     return self:_finish(state, base, final_state or Scenario.STATES.REFUSED)
 end
@@ -640,8 +705,22 @@ local function position_of(value, fallback)
 end
 
 local function full_name_parts(full_name)
-    local kind, name = tostring(full_name or ""):match("^([^/]+)/(.+)$")
-    return kind or "item", name or tostring(full_name or "")
+    local value = tostring(full_name or "")
+    local item_length, rest = value:match("^item%-quality:(%d+):(.+)$")
+    if item_length then
+        item_length = tonumber(item_length)
+        local name = rest:sub(1, item_length)
+        local quality_length, quality = rest:sub(item_length + 1):match("^(%d+):(.+)$")
+        if quality_length and quality then
+            return "item", name, quality
+        end
+    end
+    local kind, name = value:match("^([^/]+)/(.+)$")
+    return kind or "item", name or value, nil
+end
+
+local function quality_identity(item_name, quality)
+    return "item-quality:" .. #item_name .. ":" .. item_name .. #quality .. ":" .. quality
 end
 
 local function scenario_ports(case, side)
@@ -723,6 +802,8 @@ function Scenario.runtime_adapter()
             settings = copy(settings or prepared_input.settings or {}) or {},
             options = copy(setup.options or prepared_input.options or {}) or {},
             prepared_input = prepared_input,
+            prepared_input_bytes = case.prepared_input_bytes or setup.prepared_input_bytes,
+            prepared_input_sha256 = case.prepared_input_sha256 or setup.prepared_input_sha256,
         }
         context.surface = environment.surface_name
         context.force = environment.force_name
@@ -796,14 +877,64 @@ function Scenario.runtime_adapter()
         return entity
     end
 
+    local function item_capacity(rate)
+        rate = math.max(0, finite(rate, 0))
+        local target = math.max(Scenario.PERIMETER_INSERTER_BASE_CAPACITY_PER_SECOND,
+            rate * (1 + Scenario.PERIMETER_CAPACITY_HEADROOM))
+        local stack_size = math.max(1, math.ceil(target / Scenario.PERIMETER_INSERTER_BASE_CAPACITY_PER_SECOND))
+        local capacity = stack_size * Scenario.PERIMETER_INSERTER_BASE_CAPACITY_PER_SECOND
+        return stack_size, capacity, math.max(0, capacity - rate)
+    end
+
+    local function measurement_key(port)
+        if port.kind == "item" and port.quality and port.quality ~= "normal" then
+            return quality_identity(port.name, port.quality)
+        end
+        return port.entry.full_name
+    end
+
+    local function connect_perimeter_power(port, built, environment)
+        if port.kind ~= "item" or not built.power or port.power_pole then return end
+        local position = port.power_position
+        local pole = make_entity(environment.surface, {name = environment.facts.inserter_power_pole,
+            position = position, force = environment.force})
+        local source = built.power
+        if built.power_port then
+            source = make_entity(environment.surface, {name = environment.facts.power_source,
+                position = {x = position.x + 1, y = position.y}, force = environment.force})
+            source.power_production = "10MW"
+            built.perimeter_power_sources = built.perimeter_power_sources or {}
+            built.perimeter_power_sources[#built.perimeter_power_sources + 1] = source
+        else
+            built.power_port = port
+        end
+        local connector_id = defines.wire_connector_id.pole_copper
+        local source_connector = source.get_wire_connector(connector_id, true)
+        local pole_connector = pole.get_wire_connector(connector_id, true)
+        if not source_connector or not pole_connector then error("perimeter power pole has no copper connector", 2) end
+        if not source_connector.connect_to(pole_connector) then error("perimeter power pole could not be powered", 2) end
+        port.power_pole = pole
+        port.power_source = source
+        built.perimeter_power_poles = built.perimeter_power_poles or {}
+        built.perimeter_power_poles[#built.perimeter_power_poles + 1] = pole
+    end
+
     local function make_perimeter_entry(entry, side, built, environment)
-        local kind, name = full_name_parts(entry.full_name)
+        local kind, name, encoded_quality = full_name_parts(entry.full_name)
         local position = endpoint_position(entry, built)
         local dx, dy = direction_vector(entry.travel_dir or entry.direction or 0)
         local far = {x = position.x + dx * (side == "supply" and -2 or 2), y = position.y + dy * (side == "supply" and -2 or 2)}
         local near = {x = position.x + dx * (side == "supply" and -1 or 1), y = position.y + dy * (side == "supply" and -1 or 1)}
+        local power_position = {x = near.x + dy, y = near.y - dx}
         local facts = environment.facts
-        local result = {entry = entry, kind = kind, name = name, accumulator = 0, branch = environment.branch}
+        local quality = entry.quality or encoded_quality
+        local requested_rate = math.max(0, finite(entry.rate_per_second or entry.rate, 0))
+        local stack_size, capacity, headroom = item_capacity(requested_rate)
+        local result = {entry = entry, kind = kind, name = name, quality = quality, accumulator = 0,
+            branch = environment.branch, requested_rate_per_second = requested_rate,
+            inserter_stack_size = stack_size, capacity_per_second = capacity,
+            capacity_headroom_per_second = headroom, power_position = power_position,
+            measured_count = 0, measured_ticks = 0, measured_rate_per_second = 0}
         if kind == "fluid" then
             result.buffer = make_entity(environment.surface, {name = facts.fluid_buffer, position = far, force = environment.force})
             result.pipe = make_entity(environment.surface, {name = facts.pipe, position = near, force = environment.force})
@@ -812,6 +943,8 @@ function Scenario.runtime_adapter()
                 position = far, force = environment.force})
             result.inserter = make_entity(environment.surface, {name = facts.inserter, position = near,
                 direction = opposite_direction(entry.direction or entry.travel_dir or 0), force = environment.force})
+            result.inserter.inserter_stack_size_override = stack_size
+            connect_perimeter_power(result, built, environment)
         end
         built.perimeter[#built.perimeter + 1] = result
         return result
@@ -831,17 +964,28 @@ function Scenario.runtime_adapter()
             if entity.valid ~= false and entity.type == "electric-pole" then poles[#poles + 1] = entity end
         end
         if #poles == 0 then error("blueprint has no electric pole", 2) end
+        local first_item
+        for _, port in ipairs(built.perimeter or {}) do
+            if port.kind == "item" then first_item = port; break end
+        end
         local pole_position = poles[1].position
-        local position = {x = pole_position.x + 1, y = pole_position.y}
+        local position = first_item and {x = first_item.power_position.x + 1, y = first_item.power_position.y}
+            or {x = pole_position.x + 1, y = pole_position.y}
         local source = make_entity(environment.surface, {name = environment.facts.power_source,
             position = position, force = environment.force})
         source.power_production = "100MW"
         local connector_id = defines.wire_connector_id.pole_copper
         local source_connector = source.get_wire_connector(connector_id, true)
-        local pole_connector = poles[1].get_wire_connector(connector_id, true)
-        if not source_connector or not pole_connector then error("power entities have no copper connector", 2) end
-        source_connector.connect_to(pole_connector)
+        if not source_connector then error("power source has no copper connector", 2) end
         built.power = source
+        for _, port in ipairs(built.perimeter or {}) do
+            if port.kind == "item" then
+                if port.capacity_per_second <= port.requested_rate_per_second then
+                    error("perimeter capacity has no headroom for " .. tostring(port.entry.port_id), 2)
+                end
+                connect_perimeter_power(port, built, environment)
+            end
+        end
         return true
     end
 
@@ -891,7 +1035,7 @@ function Scenario.runtime_adapter()
 
     local function stack_for(port, count)
         local stack = {name = port.name, count = count}
-        if port.quality and port.quality ~= "normal" then stack.quality = port.quality end
+        if port.quality and port.quality ~= "normal" then stack["quality"] = port.quality end
         return stack
     end
 
@@ -912,13 +1056,19 @@ function Scenario.runtime_adapter()
                         local accepted_amount = add_fluid(port, port.name, added, existing)
                         accepted_amount = math.max(0, math.min(added, accepted_amount or 0))
                         port.accumulator = math.max(0, amount - accepted_amount)
-                        accepted[port.entry.full_name] = (accepted[port.entry.full_name] or 0) + accepted_amount
+                        local key = measurement_key(port)
+                        accepted[key] = (accepted[key] or 0) + accepted_amount
+                        port.measured_count = port.measured_count + accepted_amount
                     end
                 end
             elseif whole > 0 then
                 local added = inventory(port.buffer).insert(stack_for(port, whole))
-                accepted[port.entry.full_name] = (accepted[port.entry.full_name] or 0) + added
+                local key = measurement_key(port)
+                accepted[key] = (accepted[key] or 0) + added
+                port.measured_count = port.measured_count + added
             end
+            port.measured_ticks = port.measured_ticks + 1
+            port.measured_rate_per_second = Scenario.rate_per_second(port.measured_count, port.measured_ticks)
         end
         return accepted
     end
@@ -936,12 +1086,18 @@ function Scenario.runtime_adapter()
                 local removed = remove_fluid(port, math.min(amount, whole + port.accumulator))
                 if removed > 0 then
                     port.accumulator = math.max(0, whole + port.accumulator - removed)
-                    drained[port.entry.full_name] = (drained[port.entry.full_name] or 0) + removed
+                    local key = measurement_key(port)
+                    drained[key] = (drained[key] or 0) + removed
+                    port.measured_count = port.measured_count + removed
                 end
             elseif whole > 0 then
                 local removed = inventory(port.buffer).remove(stack_for(port, whole))
-                drained[port.entry.full_name] = (drained[port.entry.full_name] or 0) + removed
+                local key = measurement_key(port)
+                drained[key] = (drained[key] or 0) + removed
+                port.measured_count = port.measured_count + removed
             end
+            port.measured_ticks = port.measured_ticks + 1
+            port.measured_rate_per_second = Scenario.rate_per_second(port.measured_count, port.measured_ticks)
         end
         return drained
     end
@@ -994,10 +1150,14 @@ function Scenario.runtime_adapter()
         if not built then return end
         for _, port in ipairs(built.perimeter or {}) do
             if port.inserter and port.inserter.valid ~= false then port.inserter.destroy() end
+            if port.power_pole and port.power_pole.valid ~= false then port.power_pole.destroy() end
             if port.pipe and port.pipe.valid ~= false then port.pipe.destroy() end
             if port.buffer and port.buffer.valid ~= false then port.buffer.destroy() end
         end
         if built.power and built.power.valid ~= false then built.power.destroy() end
+        for _, source in ipairs(built.perimeter_power_sources or {}) do
+            if source.valid ~= false then source.destroy() end
+        end
         for _, entity in ipairs(built.entities or {}) do
             if entity.valid ~= false then entity.destroy() end
         end

@@ -59,7 +59,8 @@ local function assert_adapter_api(shape)
     for _, entry in ipairs(attributes) do assert_pinned(spec, entry[1], entry[2], "attributes") end
     for _, entry in ipairs(methods) do assert_pinned(spec, entry[1], entry[2], "methods") end
 
-    for _, member in ipairs({"name", "type", "valid", "position", "quality", "power_production"}) do
+    for _, member in ipairs({"name", "type", "valid", "position", "quality", "power_production",
+        "inserter_stack_size_override", "power_usage"}) do
         assert_pinned(spec, "LuaEntity", member, "attributes")
     end
     for _, member in ipairs({"get_inventory", "destroy", "get_wire_connector", "revive"}) do
@@ -84,7 +85,7 @@ end
 local function entity_members(shape)
     local attributes = {
         "name", "type", "valid", "position", "force", "direction", "recipe", "items", "quality", "wires",
-        "power_production", "network_id",
+        "power_production", "power_usage", "inserter_stack_size_override", "network_id",
     }
     if shape == "2.0" then attributes[#attributes + 1] = "fluidbox" end
     local methods = {"get_inventory", "get_wire_connector", "destroy", "revive"}
@@ -159,34 +160,47 @@ local function runtime_world(shape)
     end
 
     local function make_inventory(entity, initial)
-        local available = initial or 0
+        local available = {default = initial or 0}
         local inserted = {}
+        local removed = {}
+        local function stack_key(stack)
+            return stack.name .. ":" .. (stack.quality or "normal")
+        end
         local inventory = H.lua_object("LuaInventory", {valid = true, index = 1, name = "chest"},
             members(inventory_attributes, inventory_methods), nil, {
                 insert = {read = function()
                     return function(stack)
                         local count = stack.count or 0
-                        available = available + count
+                        local key = stack_key(stack)
+                        available[key] = (available[key] or 0) + count
                         inserted[#inserted + 1] = {name = stack.name, quality = stack.quality, count = count}
                         return count
                     end
                 end},
                 remove = {read = function()
                     return function(stack)
-                        local count = math.min(available, stack.count or 0)
-                        available = available - count
+                        local key = stack_key(stack)
+                        local count = math.min(available[key] or 0, stack.count or 0)
+                        local used_default = false
+                        if count == 0 and (stack.quality == nil or stack.quality == "normal") then
+                            count = math.min(available.default or 0, stack.count or 0)
+                            available.default = (available.default or 0) - count
+                            used_default = true
+                        end
+                        if not used_default then available[key] = (available[key] or 0) - count end
+                        removed[#removed + 1] = {name = stack.name, quality = stack.quality, count = count}
                         return count
                     end
                 end},
             })
-        return inventory, inserted, function() return available end
+        return inventory, inserted, removed, function() return available end
     end
 
     local function make_entity(params)
         local entity_type = params.type
         local record = {name = params.name, type = entity_type, position = position_copy(params.position), destroyed = false}
         local initial = params.name == "iron-chest" and 100000 or 0
-        local inventory, inserted, available = make_inventory(record, initial)
+        local inventory, inserted, removed, available = make_inventory(record, initial)
         local fluid
         local fluidbox = {[1] = nil}
         local entity
@@ -196,7 +210,9 @@ local function runtime_world(shape)
             name = params.name, type = entity_type, valid = true, position = position_copy(params.position),
             force = params.force, direction = params.direction, recipe = params.recipe, items = params.items,
             quality = params.quality, wires = params.wires, power_production = params.power_production,
-            network_id = params.name == "medium-electric-pole" and "factory-network" or params.network_id,
+            power_usage = params.power_usage, inserter_stack_size_override = params.inserter_stack_size_override,
+            network_id = params.name == "medium-electric-pole" and "factory-network"
+                or (entity_type == "assembling-machine" and "factory-consumer-unpowered" or params.network_id),
             get_inventory = function() return inventory end,
             get_wire_connector = function(id)
                 return connectors[id]
@@ -204,6 +220,7 @@ local function runtime_world(shape)
             revive = function()
                 fields.type = params.revive_type or entity_type
                 record.type = fields.type
+                if fields.type == "assembling-machine" then fields.network_id = "factory-consumer-unpowered" end
                 record.revived = true
                 revived_count = revived_count + 1
                 return {}, entity
@@ -250,7 +267,7 @@ local function runtime_world(shape)
                 end,
             }, connector_members, nil, nil)
         end
-        record.entity, record.inserted, record.available = entity, inserted, available
+        record.entity, record.inserted, record.removed, record.available = entity, inserted, removed, available
         records[#records + 1] = record
         return entity
     end
@@ -370,6 +387,17 @@ local function fluid_adapter_case()
     result.engine_scenario.drain = {{full_name = "fluid/water", rate_per_second = 120,
         position = {x = 5, y = 5}, travel_dir = 8, port_id = "fluid-drain"}}
     return result
+end
+
+local function quality_key(item_name, quality)
+    return "item-quality:" .. #item_name .. ":" .. item_name .. #quality .. ":" .. quality
+end
+
+local function record_for(fixture, entity)
+    for _, record in ipairs(fixture.records) do
+        if record.entity == entity then return record end
+    end
+    return nil
 end
 
 local function assert_shape(actual, exemplar, path)
@@ -536,19 +564,114 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(#fixture.records, 6, "fluid perimeter uses only its buffer and pipe entities")
     end)
 
-    H.test(shape .. " RA6 connects power production to the pole network", function()
+    H.test(shape .. " QS1 legendary item supplied through the perimeter keeps its quality", function()
+        local fixture = runtime_world(shape)
+        assert_adapter_api(shape)
+        local adapter, case = Scenario.runtime_adapter(), adapter_case()
+        case.engine_scenario.supply = {{full_name = "item/iron-plate", quality = "legendary", rate_per_second = 60,
+            position = {x = -5, y = -5}, travel_dir = 0, port_id = "legendary-supply"}}
+        case.engine_scenario.drain = {}
+        local environment = adapter.setup_environment(case, {factorio_branch = shape})
+        local built = adapter.build_blueprint(encoded_blueprint(), {}, environment, case)
+        local supplies = adapter.prepare_supply(built, case, environment)
+        local accepted = adapter.supply(supplies)
+        local inserted = record_for(fixture, supplies[1].buffer).inserted[1]
+        H.equal(inserted ~= nil, true, "supply inserted a stack")
+        H.equal(inserted.quality, "legendary", "supply stack keeps legendary quality")
+        H.equal(accepted[quality_key("iron-plate", "legendary")], 1, "supply measurement keeps quality key")
+        H.equal(accepted["item/iron-plate"], nil, "quality supply is not measured as normal")
+    end)
+
+    H.test(shape .. " QD1 legendary item drained through the perimeter keeps its quality and qualities never collapse", function()
+        local fixture = runtime_world(shape)
+        assert_adapter_api(shape)
+        local adapter, case = Scenario.runtime_adapter(), adapter_case()
+        case.engine_scenario.supply = {}
+        case.engine_scenario.drain = {
+            {full_name = "item/iron-plate", quality = "rare", rate_per_second = 60,
+                position = {x = 5, y = -5}, travel_dir = 4, port_id = "rare-drain"},
+            {full_name = "item/iron-plate", quality = "legendary", rate_per_second = 60,
+                position = {x = 5, y = 5}, travel_dir = 8, port_id = "legendary-drain"},
+        }
+        local environment = adapter.setup_environment(case, {factorio_branch = shape})
+        local built = adapter.build_blueprint(encoded_blueprint(), {}, environment, case)
+        local drains = adapter.prepare_drain(built, case, environment)
+        for _, port in ipairs(drains) do
+            port.buffer.get_inventory(defines.inventory.chest).insert({name = port.name, quality = port.quality, count = 1})
+        end
+        local drained = adapter.drain(drains)
+        H.equal(drains[2].quality, "legendary", "drain perimeter object keeps legendary quality")
+        H.equal(record_for(fixture, drains[2].buffer).removed[1].quality, "legendary",
+            "drain removes a legendary stack")
+        H.equal(drained[quality_key("iron-plate", "rare")], 1, "rare output has its own measurement key")
+        H.equal(drained[quality_key("iron-plate", "legendary")], 1, "legendary output has its own measurement key")
+        H.equal(drained["item/iron-plate"], nil, "two qualities never collapse into normal output")
+    end)
+
+    H.test(shape .. " QC1 a perimeter device carries the declared load with measured headroom including the high-load external item endpoint", function()
+        local fixture = runtime_world(shape)
+        assert_adapter_api(shape)
+        local adapter, case = Scenario.runtime_adapter(), adapter_case()
+        case.engine_scenario.supply = {{full_name = "item/iron-plate", rate_per_second = 600,
+            position = {x = -5, y = -5}, travel_dir = 0, port_id = "incident-high-load"}}
+        case.engine_scenario.drain = {}
+        local environment = adapter.setup_environment(case, {factorio_branch = shape})
+        local built = adapter.build_blueprint(encoded_blueprint(), {}, environment, case)
+        local supplies = adapter.prepare_supply(built, case, environment)
+        adapter.provide_power(built, case, environment)
+        local port = supplies[1]
+        H.equal(port.inserter.inserter_stack_size_override > 1, true, "high-load endpoint derives stack capacity")
+        H.equal(port.capacity_per_second > port.entry.rate_per_second, true, "capacity has measured headroom")
+        H.equal(port.capacity_headroom_per_second > 0, true, "headroom is recorded")
+        H.equal(port.power_pole ~= nil, true, "perimeter inserter has a dedicated power pole")
+        H.equal(port.buffer.position.x ~= port.inserter.position.x or port.buffer.position.y ~= port.inserter.position.y,
+            true, "buffer and inserter occupy legal distinct positions")
+        local accepted = {}
+        for _ = 1, 60 do
+            local counts = adapter.supply(supplies)
+            accepted["item/iron-plate"] = (accepted["item/iron-plate"] or 0) + (counts["item/iron-plate"] or 0)
+        end
+        H.equal(Scenario.rate_per_second(accepted["item/iron-plate"], 60) >= 600, true,
+            "measured endpoint rate carries the incident load")
+        H.equal(port.measured_rate_per_second >= port.entry.rate_per_second, true,
+            "perimeter device records its measured declared rate")
+        H.equal(port.measured_rate_per_second < port.capacity_per_second, true,
+            "measured rate retains headroom")
+    end)
+
+    H.test(shape .. " QP1 harness-only power never covers a deliberately unpowered factory consumer", function()
+        local fixture = runtime_world(shape)
+        assert_adapter_api(shape)
+        local adapter, case = Scenario.runtime_adapter(), adapter_case()
+        local environment = adapter.setup_environment(case, {factorio_branch = shape})
+        local built = adapter.build_blueprint(encoded_blueprint(), {}, environment, case)
+        local supplies = adapter.prepare_supply(built, case, environment)
+        H.equal(adapter.provide_power(built, case, environment), true, "harness perimeter power setup succeeds")
+        H.equal(built.entities[1].network_id, "factory-consumer-unpowered", "factory consumer starts unpowered")
+        H.equal(built.power.network_id == built.entities[1].network_id, false,
+            "harness-only power does not repair the factory consumer")
+        for _, port in ipairs(supplies) do
+            H.equal(port.power_pole ~= built.entities[2], true, "perimeter power is not the factory pole")
+        end
+        H.equal(#fixture.records > #built.entities, true, "power setup created perimeter-only fixtures")
+    end)
+
+    H.test(shape .. " RA6 connects power production to dedicated perimeter poles", function()
         local fixture = runtime_world(shape)
         assert_adapter_api(shape)
         local adapter, case = Scenario.runtime_adapter(), adapter_case()
         local environment = adapter.setup_environment(case, {factorio_branch = shape})
         local built = adapter.build_blueprint(encoded_blueprint(true), {}, environment, case)
+        local supplies = adapter.prepare_supply(built, case, environment)
         H.equal(adapter.provide_power(built, case, environment), true, "power setup succeeds")
         H.equal(built.power.power_production, "100MW", "power source produces energy")
-        H.equal(built.power.network_id, "factory-network", "power source joins the pole network")
+        H.equal(built.power.network_id, supplies[1].power_pole.network_id, "power source joins the perimeter network")
         local connected = false
         for _, record in ipairs(fixture.records) do
             if record.entity == built.power and record.connection and record.connection.wire == defines.wire_type.copper then
                 connected = record.connection.target_entity.type == "electric-pole"
+                    and record.connection.target_entity ~= built.entities[2]
+                    and record.connection.target_entity ~= built.entities[3]
             end
         end
         H.equal(connected, true, "copper wire reaches the blueprint pole")

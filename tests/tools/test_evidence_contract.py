@@ -23,8 +23,20 @@ LUA_DRIVER = r'''
 local output_path = arg[1]
 local scenario_path = arg[2]
 local canonical_sha = arg[3]
+local prepared_input_path = arg[4]
+local config_path = arg[5]
 
 local Scenario = dofile(scenario_path)
+
+local function read_file(path)
+    local stream = assert(io.open(path, "rb"))
+    local value = stream:read("*a")
+    stream:close()
+    return value
+end
+
+local prepared_input_bytes = read_file(prepared_input_path)
+local config_bytes = read_file(config_path)
 
 local function quote(value)
     value = tostring(value)
@@ -102,7 +114,13 @@ local written = false
 local adapter = {
     tick = function() return 0 end,
     setup_environment = function() return {surface_name = "nauvis", force_name = "player"} end,
-    generation_context = function() return {sheet_id = "synthetic-sheet"} end,
+    generation_context = function()
+        return {
+            sheet_id = "synthetic-sheet",
+            prepared_input_bytes = prepared_input_bytes,
+            config_bytes = config_bytes,
+        }
+    end,
     build_blueprint = function() return {entities = {"synthetic-factory"}} end,
     prepare_supply = function()
         return {{entry = {full_name = "item/iron-plate", rate_per_second = 1}, kind = "item", name = "iron-plate"}}
@@ -124,6 +142,11 @@ local adapter = {
     write_observation = function(observation)
         -- These host-visible fields identify the synthetic adapter output.  They do not
         -- turn this temporary file into engine evidence.
+        for _, field in ipairs({"prepared_input_sha256", "config_sha256", "harness_qualification_id"}) do
+            if observation[field] == nil or tostring(observation[field]) == "" then
+                error("controller wrote no " .. field .. " binding")
+            end
+        end
         observation.note = "Synthetic controller output; never engine evidence."
         observation.factorio_branch = "2.0"
         observation.factorio_version = "2.0.77"
@@ -168,6 +191,7 @@ class EvidenceContractTests(unittest.TestCase):
             root = Path(directory)
             fixture = ReleaseGateFixture(root)
             fixture.prepare()
+            (root / "config.json").write_text(json.dumps(fixture.config, sort_keys=True, separators=(",", ":")), encoding="utf-8")
             output = root / "synthetic-controller.observation.json"
             driver = root / "synthetic-controller.lua"
             driver.write_text(LUA_DRIVER, encoding="utf-8")
@@ -178,6 +202,8 @@ class EvidenceContractTests(unittest.TestCase):
                     str(output),
                     str(ROOT / "tests" / "golden" / "engine" / "mod" / "scenario.lua"),
                     GATE.canonical_sha256(fixture.expected),
+                    str(fixture.prepared_input),
+                    str(root / "config.json"),
                 ],
                 cwd=ROOT,
                 capture_output=True,
@@ -189,6 +215,8 @@ class EvidenceContractTests(unittest.TestCase):
             self.assertEqual(observation["note"], "Synthetic controller output; never engine evidence.")
             self.assertEqual(observation["outcome_kind"], PRODUCTION_EXAMPLE["outcome_kind"])
             self.assertIn("production", observation)
+            for field in ("prepared_input_sha256", "config_sha256", "harness_qualification_id"):
+                self.assertTrue(observation[field])
             for field in ("rates", "warm_up", "window", "timings"):
                 self.assertIn(field, observation["production"])
             evidence_path = fixture.evidence / fixture.candidate / fixture.branch
@@ -214,6 +242,9 @@ class EvidenceContractTests(unittest.TestCase):
                 text=True,
             )
             self.assertEqual(receipt_result.returncode, 0, receipt_result.stderr or receipt_result.stdout)
+            receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+            for field in ("prepared_input_sha256", "config_sha256", "harness_qualification_id"):
+                self.assertEqual(receipt[field], observation[field])
             self.assertEqual(observation_path.read_bytes(), raw_observation)
             self.assertEqual(fixture.run()[0]["status"], "accepted")
             self.assertFalse((ROOT / "docs" / "engine-evidence" / fixture.candidate).exists())
