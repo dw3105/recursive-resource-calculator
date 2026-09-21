@@ -102,6 +102,27 @@ local function underground_input(connection_a, connection_b, distance)
     }
 end
 
+local function fluid_detour_input()
+    return {
+        grid = Grid.new(7, 5),
+        catalog = {pipe = {pipe = "pipe", throughput_per_second = 100}},
+        obstacles = {{x = 3, y = 2, w = 1, h = 1, owner = "wall"}},
+        blocks = {
+            {block_id = "source", machines = {{step_id = "source"}}, x = 1, y = 2, w = 1, h = 1, ports = {{
+                port_id = "fluid-out", role = "out", kind = "fluid", flow_id = "fluid/water", rate_per_second = 1,
+                attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.SOUTH,
+            }}},
+            {block_id = "sink", machines = {{step_id = "sink"}}, x = 5, y = 2, w = 1, h = 1, ports = {{
+                port_id = "fluid-in", role = "in", kind = "fluid", flow_id = "fluid/water", rate_per_second = 1,
+                attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.NORTH,
+            }}},
+        },
+        flows = {{flow_id = "fluid/water", is_fluid = true,
+            producers = {{step_id = "source", share_per_second = 1}},
+            consumers = {{step_id = "sink", share_per_second = 1}}}},
+    }
+end
+
 local function perimeter_input(edge, role)
     local sides = {
         top = {attach_dx = 0, attach_dy = -1, x = 2, y = 0, outward = Grid.NORTH, inward = Grid.SOUTH},
@@ -213,6 +234,32 @@ local function genuinely_unbound_port_input()
 end
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " RT1 a nonempty transport path measures a nonzero cost, including underground span once", function()
+        local state = run(underground_input(
+            {connection_type = "underground", direction = Grid.EAST, max_underground_distance = 5},
+            {connection_type = "underground", direction = Grid.WEST, max_underground_distance = 5}, 4))
+        H.equal(state.ok, true, "the underground transport path succeeds")
+        local source_x, sink_x = 2, 4
+        local expected = math.abs(sink_x - source_x) + 0
+        local measured = 0
+        for _, segment in ipairs(state.result.segments or {}) do measured = measured + segment.length end
+        H.equal(#state.result.segments, 1, "the underground pair is one physical segment")
+        H.equal(state.result.segments[1].length, expected, "underground span is measured from its two endpoints")
+        H.equal(measured, expected, "each physical segment contributes once to route cost")
+        H.equal(measured > 0, true, "nonempty transport never reports zero cost")
+    end)
+
+    H.test(shape .. " RT2 a fluid detour is included in measured transport cost", function()
+        local state = run(fluid_detour_input())
+        H.equal(state.ok, true, "the fluid detour succeeds")
+        local direct_cells, detour_cells = 3, 5
+        local measured = 0
+        for _, segment in ipairs(state.result.segments or {}) do measured = measured + segment.length end
+        H.equal(#state.result.segments, detour_cells, "the detour has one physical pipe per routed tile")
+        H.equal(measured, detour_cells, "fluid detour tiles are included in route cost")
+        H.equal(measured > direct_cells, true, "the detour costs more than the blocked direct route")
+    end)
+
     H.test(shape .. " R1 a single producer reaches a consumer with belt travel direction", function()
         local state = run(belt_input())
         H.equal(state.ok, true, "route succeeds")

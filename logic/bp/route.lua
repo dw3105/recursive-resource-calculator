@@ -793,7 +793,7 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     local name = (family and family.underground) or infrastructure(work, kind)
     local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
         capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
-        underground = true}
+        underground = true, length = underground_distance(entry, exit_cell)}
     local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
     local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
         direction = direction, dir = direction, flow_id = demand.flow_id,
@@ -869,7 +869,8 @@ local function append_normal_path(work, demand, path, amount)
         else
             local capacity, kind = capacity_for(work, demand.flow)
             segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
-                capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction}
+                capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
+                length = 1}
             local entity = {id = "r:" .. tostring(#work.entities + 1), name = infrastructure(work, kind),
                 position = entity_position(cell.x, cell.y), direction = direction, dir = direction, flow_id = demand.flow_id}
             work.entities[#work.entities + 1] = entity
@@ -897,7 +898,8 @@ local function append_underground(work, demand, candidate, amount)
     local capacity, kind = capacity_for(work, demand.flow)
     if amount > capacity + tolerance(capacity) then return false, "capacity" end
     local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
-        capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = candidate.direction}
+        capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = candidate.direction,
+        underground = true, length = candidate.distance}
     local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
     local name = infrastructure(work, kind)
     if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
@@ -1087,7 +1089,7 @@ local function result_for(work)
     end
     for _, segment in ipairs(work.segments) do
         local copy = {segment_id = segment.segment_id, kind = segment.kind,
-            capacity_per_second = segment.capacity_per_second, allocations = {}}
+            capacity_per_second = segment.capacity_per_second, allocations = {}, length = segment.length}
         for _, allocation in ipairs(segment.allocations) do
             copy.allocations[#copy.allocations + 1] = {flow_id = allocation.flow_id, sink = allocation.sink,
                 rate_per_second = allocation.rate_per_second}
