@@ -194,3 +194,42 @@ test_corpus_setups                 12 cases x2 interpreters       = 24 cases
 test_search                        8 cases x2 interpreters        = 16 cases
 python                             0
 ```
+
+## 8. Integration findings, landed while the lanes ran
+
+### 8.1 Wires: the loss was silent, and silence was the defect
+
+All ten edges in the round 13 result are pole-to-pole copper carrying connector id `0`, the offline stand-in
+`logic/bp/power.lua:255-263` writes. `tools/blueprint_string.py` dropped them deliberately, reasoning that an
+invented id is worse than none. The reasoning is sound; the silence is not. Contract 26.7 requires a named
+refusal.
+
+`factorio-draftsman` 4.0.0 reports `WireConnectorID.POLE_COPPER = 5`, so `0` is wrong. Draftsman is **not** an
+oracle for this question: measured 2026-09-21, it accepted connector `99` and round-tripped `wires` as
+`None`, discarding wires exactly as it discards every `recipe`. Proving one value wrong never proves another
+right, so nothing here writes `5` on that evidence alone.
+
+Electric poles auto-connect to poles in range when a blueprint is built, so omitting pole-to-pole copper costs
+nothing physically. `--allow-pole-autoconnect` therefore omits it and prints every edge omitted; without the
+flag the converter refuses and names what the capture must supply. A non-pole wire refuses even with the flag.
+`tests/tools/test_blueprint_string.py`, 8 cases, control first.
+
+Also recorded, because it cost time: `draftsman.blueprintable.Blueprint(dict)` takes the **inner** blueprint
+object. Handed the `{"blueprint": ...}` wrapper it raises `'label' must be an instance of str`, naming a field
+that is not the problem.
+
+### 8.2 The release gate discarded an argument it had been given
+
+`tools/release_gate.py:635` replaced `args.archive` with `None` whenever `--release` was set. The intent is
+right: a release covers both branches, so one archive cannot be the exact package for either. The execution
+then failed with `mismatched archive: no archive supplied for branch 2.0`, a complaint about a missing
+argument the caller had supplied.
+
+It now refuses by name and points at `--archive-dir`, which holds `2.0.zip` and `2.1.zip`. A single branch
+still accepts its own `--archive`. The new case was run against the code before the change and failed with
+exactly the old message, so it is a real test. `tests/tools/test_release_gate.py`, 33 cases.
+
+### 8.3 Both new suites are already in the offline gate
+
+`tests/run.sh:12` discovers `tests/tools/test_*.py`, so `test_blueprint_audit.py` and
+`test_blueprint_string.py` run with the suite without any further wiring.
