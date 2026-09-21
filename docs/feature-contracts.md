@@ -747,3 +747,130 @@ connection distance is a diagnostic counterfactual, recorded as such, and never 
 
 No case is marked accepted without validated, case-specific engine evidence bound to the candidate and archive;
 states and expected results are never changed merely to make a gate green.
+
+## 25. A blueprint that physically produces (2026-09-21, round 13, frozen before lanes 110-115)
+
+Round 12 delivered a blueprint the generator called valid. The player pasted it and every machine was blank.
+
+Measured on that exact candidate, against the real seven-step plan, 2026-09-21:
+
+| mutation | entities left | validator |
+|---|---:|---|
+| unmodified | 316 | `ok=true` |
+| every belt and underground belt removed | 76 | `ok=true` |
+| every pipe and pipe-to-ground removed | 286 | `ok=true` |
+| every inserter removed | 296 | `ok=true` |
+| every machine quality set to legendary, plan unchanged | 316 | `ok=true` |
+
+A 76-entity arrangement with no transport at all passes. So the validator is not a validator of production: it
+reads declarations. `logic/bp/validate.lua` contains no occurrence of the word `recipe`, and
+`logic/bp/groups.lua` never copies `step.recipe` onto the machine member it builds, so the field the serializer
+would have written is never present.
+
+These are the rules the repair holds to. Each is stated once, here, so two lanes cannot implement two versions.
+
+### 25.1 Recipe and machine identity rule
+
+**The selected machine prototype, machine quality, recipe, recipe quality, module multiset and module inventory
+placement travel from plan to block member to serialized entity, unchanged.**
+
+Comparison is by a bound identity map. A `step_id` tag is a label, never proof, and a planner flag is not an
+observation of the artifact.
+
+`recipe` is written **only** where the catalog `etype` is `assembling-machine`. A `furnace` never receives a
+`recipe` field: its product follows its input item. So for a furnace the absence of the field is not by itself
+sufficient, and its input path is what must be proven. The catalog already carries the fact —
+`assembling-machine-3`, `foundry` and `electromagnetic-plant` are `assembling-machine`; `electric-furnace` is
+`furnace`.
+
+### 25.2 Physical transfer rule
+
+**A declared flow is an allocation, never a proof.** Every required transfer is reconstructed from placed
+entities and catalog facts alone:
+
+- **input chain** — a source structure, an inserter whose pickup cell touches it, a drop cell touching the
+  target machine. A disconnected belt stub is not a source structure.
+- **output chain** — an inserter whose pickup cell touches the machine, a drop cell touching an output
+  structure that reaches a consumer or a declared external drain.
+- **continuity** — each required path continuous from a declared external supply port, through every intended
+  operation, to a declared external drain, with correct belt direction, legal splits and merges, and matched
+  underground pairs.
+- **fluid** — a pipe network reaching a real oriented fluid-box connection with correct input, output and
+  filter semantics. Incompatible fluids never share a network, and a fluid-only connection never receives an
+  item inserter.
+- **capacity** — every required transfer carries its demanded rate, derived from the immutable production
+  demand and the per-instance allocation. A branch is never assigned more load than its physical path supports.
+- **multi-instance** — a step needing two machines gives both machines an input chain and an output chain.
+
+### 25.3 Beacon rule
+
+**Influence above the configured count is legal.** Configured counts are minima, never maxima, and they are
+never raised to match placement nor lowered to make a check pass.
+
+**One exception: a machine carrying a quality module may never be reached by a beacon carrying a speed
+module.** Checked on real geometry across the whole placed factory, including a neighbouring block's beacon.
+The producer splits blocks until it stops. Stripping the coverage record while the beacon still stands there,
+which is what `logic/bp/groups.lua` did, fixes the bookkeeping and not the factory.
+
+**Recording an effect is not accounting for it.** Per-instance effects feed available production capacity,
+power reporting and transport sizing. Extra speed may leave unused capacity; that is acceptable, and it never
+changes the user's machine count or demands extra input. Computing effects and then ignoring them is not.
+
+Effects and influence are keyed by machine **instance**. Keyed by step, two machines of one step overwrite each
+other's evidence.
+
+### 25.4 Metric rule
+
+Two measurements, never summed into one number.
+
+| key | unit | includes | excludes |
+|---|---|---|---|
+| `production_area` | tiles squared | bounding area of machines, beacons, inserters, poles, belts, pipes | the roboport corner envelope |
+| `cell_envelope_area` | tiles squared | the requested roboport cell | reported only, never optimized against |
+| `transport_cost` | tiles | belt tiles, underground belt span, pipe tiles, underground pipe span, each physical segment counted once, fluid detours included | — |
+| `transport_entities` | count | belt, underground, splitter, pipe, pipe-to-ground | — |
+| `beacon_count` | count | physical beacons | — |
+| `pole_count` | count | electric poles | — |
+| `coord_key` | string | deterministic tiebreak, unchanged | — |
+
+**A metric that cannot be measured is a reported missing fact, and it rejects.** It is never defaulted to zero.
+That default is how `route_length` read 0 while 270 transport entities stood on the grid.
+
+Comparator, first difference wins: `beacon_count`, then `production_area`, then `transport_cost`, then
+`pole_count`, then `transport_entities`, then `coord_key`. `cell_envelope_area` never ranks.
+
+**Frozen reference ceilings are filters, not score components.** A candidate over a ceiling is unacceptable
+however well it ranks on an earlier component. Score chooses among candidates that already pass.
+
+### 25.5 Serialized artifact rule
+
+**The exported artifact is decoded and reconciled against the real plan**, by a bound identity map: machine
+prototype and quality, recipe and recipe quality where supported, module multiset and inventory placement,
+beacon prototype, quality and loadout, entity directions, wires and connectivity. A mutation applied only at
+serialization is detected even when the internal candidate stays valid. A recomputed digest identifies output;
+it never proves output preserves the plan.
+
+**This runs on the production path, not only in tests.** `logic/bp/search.lua` sets `state.ok = true` as soon
+as serialization succeeds, and `logic/bp/generation.lua` then encodes, marks success and may deliver. So
+serialization and reconciliation form **one reserved, bounded finalization sequence**: exploration exhaustion
+never resets either phase, both yield within the tick allowance, cancellation and a revision change invalidate
+the pending result throughout, and success is impossible until reconciliation completes. On mismatch: a named
+failure, no delivered artifact, no success.
+
+The engine's own blueprint preview is not interceptable by the mod. Any artifact edited there and then
+re-imported or re-exported is revalidated before certification; no hook into the preview is promised.
+
+### 25.6 Roboport rule
+
+Roboports stay outside power coverage, as `logic/bp/search.lua` and `logic/bp/validate.lua` already have them.
+Recorded as declined on the user's instruction, never as done.
+
+### 25.7 Capture rule
+
+**Missing required data is an explicit incomplete-capture result, never a default filled in at replay.** Every
+required vector component is checked; an empty table is never valid geometry. Representation shapes that the
+boundary supports are normalized; a shape it does not support is rejected with a diagnostic naming the entity
+and the field.
+
+A capture that fails this is immutable history and a negative case. It is never enriched with inferred
+geometry, and it is never the acceptance input.
