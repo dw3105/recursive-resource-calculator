@@ -76,15 +76,35 @@ exhausted or cancelled.
 **No ceilings here.** Layout work in this lane is correctness and measurement only. Acceptance ceilings come
 from an engine-verified reference in a later stage.
 
+## Case names this lane must use
+
+In `tests/test_route.lua`:
+
+- `RT1` a nonempty transport path measures a NONZERO cost, against an independently derived expectation, with
+  underground span included and each physical segment counted once;
+- `RT2` a fluid detour is included in the cost and never silently omitted.
+
+In `tests/test_search_budget.lua`, the exhausted-budget boundary, all four:
+
+- `FN1` valid incumbent, exploration exhausted, serialization finished, reconciliation yields, save and
+  reload, then finishes WITHOUT restarting serialization;
+- `FN2` the same with an artifact mutation: terminates with NO delivery;
+- `FN3` the same with cancellation: terminates with NO delivery;
+- `FN4` the same with a revision change: the pending result is invalidated.
+
+A generic tiny-budget test does not reach that boundary. `search.lua:953`, `:1021`, `:1145` and `:1291`
+recognize only `phase == "serialize"`, so a naive reconcile branch lets `finish_search_budget` call
+`begin_serialization` again.
+
 ## What done mean
 
 ```checks
-{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-13-base -- logic/bp/route.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_route.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL ' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
-{"name": "measured-length", "command": "grep -qE '\\.length *=' logic/bp/route.lua || { echo 'route.lua still never sets segment.length'; exit 1; }; echo length-measured", "expect_exit": 0, "expect_regex": "length-measured", "timeout_s": 60}
-{"name": "no-stale-score-key", "command": "grep -qE 'footprint_area|route_length' logic/bp/search.lua && { echo 'search.lua still reads a stale score key'; exit 1; }; echo score-keys-consumed", "expect_exit": 0, "expect_regex": "score-keys-consumed", "timeout_s": 60}
-{"name": "finalization-reserved", "command": "grep -qE 'reconcil' logic/bp/search.lua || { echo 'no reconciliation phase exists on the production path'; exit 1; }; for L in lua5.2 lua5.4; do $L tests/test_search_budget.lua 2>&1 | grep -qE 'cases, [0-9]+ passed, 0 failed' || { echo \"$L search budget red\"; exit 1; }; done; echo finalization-reserved", "expect_exit": 0, "expect_regex": "finalization-reserved", "timeout_s": 1800}
-{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 113_layout", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/113.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "sh tools/lane_rows.sh tests/test_route.lua --min-cases 4 --pass RT1 || exit 1; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S segment-length-zero >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_route.lua --min-cases 4 --fail RT1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_route.lua --min-cases 4 --pass RT1,RT2", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "finalization-rows", "command": "sh tools/lane_rows.sh tests/test_search_budget.lua --min-cases 4 --pass FN1,FN2,FN3,FN4", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "five-second-ceiling", "command": "start=$(date +%s%N); out=$(timeout 120 lua5.2 tests/golden/generate.lua tests/golden/cases/player-am2-chain/prepared_input.json 2>&1); rc=$?; end=$(date +%s%N); ms=$(( (end - start) / 1000000 )); [ $rc -eq 0 ] || { echo generator-aborted; exit 1; }; printf %s \"$out\" | python3 -c \"import json,sys; d=json.load(sys.stdin); sys.exit(0 if d.get('ok') else 1)\" || { echo the-generator-did-not-deliver; exit 1; }; [ $ms -lt 5000 ] || { echo took ${ms}ms against the 5000ms ceiling; exit 1; }; echo ceiling-met ${ms}ms", "expect_exit": 0, "expect_regex": "ceiling-met", "timeout_s": 600}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 113_layout", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/113.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
 
 # bound: 3600s

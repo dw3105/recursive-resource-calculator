@@ -65,15 +65,33 @@ copper-cable 1, electronic-circuit 1.
 **Trap.** `tests/test_beacon_coverage.lua` `B1` and `B2` currently assert 1 physical beacon for a 1-beacon
 requirement. That is correct and was re-derived in round 12. Do not widen them back.
 
+## Case names this lane must use
+
+Integration gates named cases, never a count. Use exactly these ids in the frozen oracle's language, and add
+the fluid regressions to your own owned tests:
+
+- `FL7` in `tests/test_blueprint_physical_contract.lua` is already written and is RED today. It measures that
+  grouping emits **no** inserter for a fluid-only connection. Close it.
+- In `tests/test_groups.lua` and `tests/test_serialize.lua`, cover fluid input, fluid output and a mixed
+  item-and-fluid recipe at **all four rotations**, through grouping, materialization and serialization.
+  Assert zero inserters serving fluid connections, that the item connection keeps its inserter, and that the
+  pipe attaches to the machine's oriented fluid-box connection. A matching flow label is never proof of
+  attachment.
+
+Measured on this host 2026-09-21: one fluid input, one item input and one fluid output produced 3
+materialized inserters, **2 of them on fluid flows**, under both interpreters and at all four rotations, with
+explicit fluid flags supplied. `tests/test_groups.lua` passes 30 of 30 while that is true, which is why new
+cases are required and the existing count is not evidence.
+
 ## What done mean
 
 ```checks
-{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-13-base -- logic/bp/groups.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_blueprint_physical_contract.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL [0-9.]+ SR1 ' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
-{"name": "recipe-rows", "command": "for L in lua5.2 lua5.4; do out=$($L tests/test_blueprint_physical_contract.lua 2>&1); printf '%s\\n' \"$out\" | grep -qE \"^FAIL [0-9.]+ SR1 \" && { echo \"$L still red: SR1\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE \"^FAIL [0-9.]+ SR2 \" && { echo \"$L broke SR2: a furnace gained a recipe field\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE \"^FAIL [0-9.]+ SR3 \" && { echo \"$L broke SR3\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE \"^FAIL [0-9.]+ PC1 \" && { echo \"$L broke the positive control\"; exit 1; }; done; echo recipe-rows-closed", "expect_exit": 0, "expect_regex": "recipe-rows-closed", "timeout_s": 1800}
-{"name": "etype-keyed", "command": "grep -qE 'etype' logic/bp/groups.lua || { echo 'the recipe rule is not keyed on catalog etype'; exit 1; }; grep -qE '\"electric-furnace\"' logic/bp/groups.lua && { echo 'the rule is keyed on an entity name'; exit 1; }; echo etype-keyed", "expect_exit": 0, "expect_regex": "etype-keyed", "timeout_s": 60}
-{"name": "counts-unreduced", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_incident_capture 2>&1 | tail -3 | grep -qE 'OK' || { echo 'the captured beacon counts changed'; exit 1; }; echo counts-unreduced", "expect_exit": 0, "expect_regex": "counts-unreduced", "timeout_s": 600}
-{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 110_producer", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/110.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 68 --pass SR1,SR2,SR3,FL7 || exit 1; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S recipe-constant >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 68 --fail SR1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 68 --pass PC1,FL1,SR1,SR2,SR3,FL7,BE1,BE2,ID6", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "etype-keyed", "command": "grep -q etype logic/bp/groups.lua || { echo 'not keyed on catalog etype'; exit 1; }; grep -q electric-furnace logic/bp/groups.lua && { echo 'keyed on an entity name'; exit 1; }; echo etype-keyed", "expect_exit": 0, "expect_regex": "etype-keyed", "timeout_s": 120}
+{"name": "counts-unreduced", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_incident_capture 2>&1 | tail -3 | grep -q OK || { echo 'the captured beacon counts changed'; exit 1; }; echo counts-unreduced", "expect_exit": 0, "expect_regex": "counts-unreduced", "timeout_s": 900}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 110_producer", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/110.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
 
 # bound: 3600s

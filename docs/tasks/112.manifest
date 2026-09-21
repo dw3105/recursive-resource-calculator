@@ -4,4 +4,4 @@ tests/test_catalog.lua
 tests/test_catalog_recipe_facts.lua
 tests/test_export_payload.lua
 tests/test_export_completeness.lua
-docs/tasks/112_findings.md
+!docs/tasks/112_findings.md

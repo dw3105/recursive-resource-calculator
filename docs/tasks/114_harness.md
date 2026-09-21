@@ -62,15 +62,32 @@ consumer. A deliberately unpowered consumer is the negative control.
 sampling windows, expected rate per output and per quality, discrete-count tolerance, timeouts, diagnostics,
 and the exact commands the user runs in game.
 
+## Case names this lane must use
+
+In `tests/test_engine_runtime_adapter.lua`:
+
+- `QS1` a legendary item supplied through the perimeter keeps its quality;
+- `QD1` a legendary item drained through the perimeter keeps its quality, and two qualities of one item never
+  collapse into one total;
+- `QC1` a perimeter device carries the declared load with measured headroom, including the incident's
+  high-load external item endpoint;
+- `QP1` harness-only power never covers a deliberately unpowered factory consumer.
+
+The red proof replaces `port.quality` with `nil` in `tests/golden/engine/mod/scenario.lua`, which is exactly
+the defect at `scenario.lua:893`, and requires `QS1` to fail. The adapter passing 18 of 18 today, while that
+defect is present, is why new named cases are required.
+
+`docs/tasks/114_qualification.md` is a required new deliverable.
+
 ## What done mean
 
 ```checks
-{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-13-base -- tests/golden/engine/mod/scenario.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_engine_runtime_adapter.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL ' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
-{"name": "quality-survives", "command": "grep -qE 'quality' tests/golden/engine/mod/scenario.lua || { echo 'quality is absent from the adapter'; exit 1; }; for L in lua5.2 lua5.4; do $L tests/test_engine_runtime_adapter.lua 2>&1 | grep -qE 'cases, [0-9]+ passed, 0 failed' || { echo \"$L adapter red\"; exit 1; }; done; echo quality-survives", "expect_exit": 0, "expect_regex": "quality-survives", "timeout_s": 1800}
-{"name": "bindings-emitted", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_evidence_contract 2>&1 | tail -3 | grep -qE '^OK' || { echo 'the companion still emits an observation with no bindings'; exit 1; }; echo bindings-emitted", "expect_exit": 0, "expect_regex": "bindings-emitted", "timeout_s": 900}
-{"name": "handoff-runnable", "command": "test -f docs/tasks/114_qualification.md || { echo 'no qualification handoff exists'; exit 1; }; for k in warm_up sampling tolerance timeout; do grep -qi \"$k\" docs/tasks/114_qualification.md || { echo \"the handoff names no $k\"; exit 1; }; done; echo handoff-runnable", "expect_exit": 0, "expect_regex": "handoff-runnable", "timeout_s": 60}
-{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 114_harness", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/114.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "sh tools/lane_rows.sh tests/test_engine_runtime_adapter.lua --min-cases 18 --pass QS1,QD1 || exit 1; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S port-quality-nil >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_engine_runtime_adapter.lua --min-cases 18 --fail QS1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_engine_runtime_adapter.lua --min-cases 18 --pass QS1,QD1,QC1,QP1", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "bindings-emitted", "command": "PYTHONDONTWRITEBYTECODE=1 python3 -m unittest tests.tools.test_evidence_contract 2>&1 | tail -3 | grep -q OK || { echo 'the companion still emits an observation with no bindings'; exit 1; }; echo bindings-emitted", "expect_exit": 0, "expect_regex": "bindings-emitted", "timeout_s": 1200}
+{"name": "handoff-runnable", "command": "test -f docs/tasks/114_qualification.md || { echo 'no qualification handoff exists'; exit 1; }; for k in warm_up sampling tolerance timeout; do grep -qi $k docs/tasks/114_qualification.md || { echo \"the handoff names no $k\"; exit 1; }; done; echo handoff-runnable", "expect_exit": 0, "expect_regex": "handoff-runnable", "timeout_s": 120}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 114_harness", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/114.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
 
 # bound: 3600s

@@ -47,14 +47,38 @@ save then reload. Absence, an explicit zero and an empty selection are three dif
 **Revisions travel too**: sheet, config and solver revisions, surface, force research, mod versions and the
 export schema.
 
+## Case names this lane must use
+
+Integration gates named cases, never a count.
+
+In `tests/test_catalog.lua`:
+
+- `CG1` an empty vector is REFUSED, never published as geometry;
+- `CG2` an unsupported representation is REFUSED with a diagnostic naming the entity and the field;
+- `CG3` a keyed vector and an array vector both normalize where the boundary supports them;
+- `CG4` a complete capture still round-trips unchanged.
+
+In `tests/test_export_completeness.lua`:
+
+- `CX1` every selected machine, recipe, module and beacon survives export and decoding, compared by stable
+  row identity;
+- `CX2` absence, an explicit zero and an empty selection are three different results;
+- `CX3` sheet, config and solver revisions, surface, force research, mod versions and export schema travel.
+
+Use the refusal code `BP_CAP_INCOMPLETE` from contract 25.7; the red proof mutates exactly that string.
+
+Record the origin of the stored capture's empty inserter offsets in `docs/tasks/112_findings.md`. That file is
+a required new deliverable.
+
 ## What done mean
 
 ```checks
-{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-13-base -- logic/catalog.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_catalog.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL ' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE 'cases, .* failed' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
-{"name": "empty-geometry-refuses", "command": "lua5.2 tests/test_catalog.lua 2>&1 | grep -qE 'cases, [0-9]+ passed, 0 failed' || exit 1; grep -qE 'empty|reject|refus' logic/catalog.lua || { echo 'catalog still publishes geometry without refusing an empty vector'; exit 1; }; echo geometry-refuses", "expect_exit": 0, "expect_regex": "geometry-refuses", "timeout_s": 600}
-{"name": "offsets-origin-named", "command": "grep -qiE 'inserter offset|pickup_offset|drop_offset' docs/tasks/112_findings.md || { echo 'the empty inserter offsets have no recorded origin'; exit 1; }; echo origin-named", "expect_exit": 0, "expect_regex": "origin-named", "timeout_s": 60}
-{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 112_capture", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/112.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "sh tools/lane_rows.sh tests/test_catalog.lua --min-cases 4 --pass CG1,CG2 || exit 1; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S capture-code >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_catalog.lua --min-cases 4 --fail CG1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_catalog.lua --min-cases 4 --pass CG1,CG2,CG3,CG4", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "export-rows", "command": "sh tools/lane_rows.sh tests/test_export_completeness.lua --min-cases 4 --pass CX1,CX2,CX3", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "offsets-origin-named", "command": "test -f docs/tasks/112_findings.md || { echo 'no findings file exists'; exit 1; }; grep -qiE 'pickup_offset|drop_offset|inserter offset' docs/tasks/112_findings.md || { echo 'the empty inserter offsets have no recorded origin'; exit 1; }; echo origin-named", "expect_exit": 0, "expect_regex": "origin-named", "timeout_s": 120}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 112_capture", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/112.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
 
 # bound: 3600s

@@ -22,12 +22,20 @@ interpreter.
 Spine goes **known, not green**. The physical contract is written against behaviour that does not exist yet,
 so it is red on purpose; a lane closes its rows, and nothing else may change.
 
-### `lua5.2 tests/test_blueprint_physical_contract.lua` — 54 cases, 12 passed, 42 failed
-### `lua5.4 tests/test_blueprint_physical_contract.lua` — 54 cases, 12 passed, 42 failed
+### `lua5.2 tests/test_blueprint_physical_contract.lua` — 68 cases, 16 passed, 52 failed
+### `lua5.4 tests/test_blueprint_physical_contract.lua` — 68 cases, 16 passed, 52 failed
 
 Identical on both interpreters. Per shape, 2.0 and 2.1 alike:
 
-**Green already (6):**
+The seven `FL` rows were added after a review measured the generator emitting item inserters for FLUID
+connections: one fluid input, one item input and one fluid output produced 3 materialized inserters, **2 of
+them on fluid flows**, under both interpreters and at all four rotations, with explicit fluid flags supplied.
+`tests/test_groups.lua` passes 30 of 30 while that is true, so a count is not evidence and named cases are.
+
+`BE1` was also strengthened: it asserted only the absence of a shortage code, so it could have stayed green
+while extra-beacon factories were rejected for some other reason. It now requires `state.ok == true`.
+
+**Green already (8):**
 
 | case | why it already holds |
 |---|---|
@@ -37,8 +45,10 @@ Identical on both interpreters. Per shape, 2.0 and 2.1 alike:
 | `BE2` a speed beacon reaching a quality machine is rejected | `validate.lua:635-638`, already geometry-driven |
 | `SR2` a furnace member never receives a recipe field | true today only because **no** member receives one |
 | `SR3` serialization preserves the recipe and its quality | `serialize.lua:393` copies the field when it is present; the producer is what never sets it |
+| `FL1` a machine fed by pipe and emptied by inserter is accepted | the fluid positive control is valid under today's rules |
+| `FL5` two fluids sharing one network is rejected | `BP_V_FLUID_MIXING` already exists |
 
-**Red on purpose (21 per shape, 42 in total):**
+**Red on purpose (26 per shape, 52 in total):**
 
 | case | closed by |
 |---|---|
@@ -63,6 +73,11 @@ Identical on both interpreters. Per shape, 2.0 and 2.1 alike:
 | `MT3` the published comparator order | lane 111 |
 | `SR1` grouping carries the recipe | lane 110 |
 | `SR4` a serializer-only mutation is detected | lane 111 produces `Validate.reconcile_artifact`, lane 113 calls it on the production path |
+| `FL2` an item inserter on a fluid connection | lane 111 rejects it, lane 110 stops emitting it |
+| `FL3` a pipe removed from the middle | lane 111 |
+| `FL4` every pipe removed | lane 111 |
+| `FL6` a pipe run that reaches no fluid box | lane 111 |
+| `FL7` grouping emits no inserter for a fluid-only connection | lane 110 |
 
 `SR2` is expected to **stay** green and to become meaningful once `SR1` closes: today it passes vacuously,
 because no member carries a recipe at all.
@@ -125,3 +140,27 @@ registry file and the matrix transfer.
 
 Until `player-am2-chain-fresh` exists, the transfer target is absent and strict release acceptance stays red.
 That is the intended state: engine acceptance is pending, and no relabelling makes it otherwise.
+
+## Lane gates, proven to refuse before the lanes start
+
+A gate that already passes cannot report a repair. Every repair gate was run against the unchanged base:
+
+| gate | result on base |
+|---|---|
+| all four of 110, except `counts-unreduced` | refuses |
+| all four of 111 | refuses |
+| all four of 112 | refuses |
+| all four of 113, including `five-second-ceiling` at **12934ms** against the 5000ms limit | refuses |
+| all four of 114 | refuses |
+| all six of 115, except `frozen-text` | refuses |
+
+`counts-unreduced` and `frozen-text` pass on purpose: they are protections, not repairs. They fail the moment
+a lane reduces the player's configured beacon counts or reflows the frozen `local input_path,` line.
+
+Two holes were measured and closed before relaunch:
+
+- a gate written as "grep for FAIL <case>; absent means pass" returned **exit 0** with a stub interpreter that
+  printed a startup error and exited 77. `tools/lane_rows.sh` now requires a completed harness summary under
+  every interpreter, a minimum case count, zero `[error]`, and the named case to exist in the file.
+- `--pass CG1` against a file containing no `CG1` also returned exit 0, because a case that does not exist
+  looks exactly like a case that passed. The named case must now appear in the test file.

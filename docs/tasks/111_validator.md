@@ -83,14 +83,33 @@ mutation applied ONLY at serialization is detected even when the internal candid
 
 **Keep the requested plan immutable.** Never lower a configured count, never raise one to match placement.
 
+## Case names this lane must use
+
+Integration gates the frozen oracle by case id. Every one of these must pass, and `PC1`, `FL1`, `ID6`, `BE1`
+and `BE2` must STAY passing:
+
+```
+PC1 FL1 ID1 ID2 ID3 ID4 ID5 ID6 TR1 TR2 TR3 TR4 TR5 TR6 TR7 TR8 TR9 TR10
+BE1 BE2 BE3 MT1 MT2 MT3 FL2 FL3 FL4 FL5 FL6 SR4
+```
+
+`SR4` is yours: `Validate.reconcile_artifact` must exist and must reject a serializer-only mutation while
+accepting an unmodified artifact. Lane 113 calls it on the production path; a helper test alone never proves
+that path.
+
+`FL2` `FL3` `FL4` `FL6` are the fluid rows: an item inserter on a fluid connection, a pipe removed from the
+middle, every pipe removed, and a pipe run that reaches no fluid box. `FL1` and `FL5` already pass and must
+stay passing.
+
 ## What done mean
 
 ```checks
-{"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach \"$S\" HEAD >/dev/null || exit 1; git -C \"$S\" checkout round-13-base -- logic/bp/validate.lua || exit 1; if out=$(cd \"$S\" && lua5.2 tests/test_validate.lua 2>&1); then rc=0; else rc=$?; fi; git worktree remove --force \"$S\"; printf '%s\\n' \"$out\" | grep -qE '^FAIL ' || { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE '\\[error\\]' && { printf '%s\\n' \"$out\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE 'cases, .* failed' || { printf '%s\\n' \"$out\"; exit 1; }; [ \"$rc\" -ne 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 900}
-{"name": "contract-rows", "command": "for L in lua5.2 lua5.4; do out=$($L tests/test_blueprint_physical_contract.lua 2>&1); for c in ID1 ID2 ID3 ID4 ID5 TR1 TR2 TR3 TR4 TR5 TR6 TR7 TR8 TR9 TR10 BE3 MT1 MT2 MT3; do printf '%s\\n' \"$out\" | grep -qE \"^FAIL [0-9.]+ $c \" && { echo \"$L still red: $c\"; exit 1; }; done; printf '%s\\n' \"$out\" | grep -qE \"^FAIL [0-9.]+ PC1 \" && { echo \"$L broke the positive control\"; exit 1; }; printf '%s\\n' \"$out\" | grep -qE \"^FAIL [0-9.]+ BE1 \" && { echo \"$L now rejects extra beacons, which the user asked to keep\"; exit 1; }; done; echo contract-rows-closed", "expect_exit": 0, "expect_regex": "contract-rows-closed", "timeout_s": 1800}
-{"name": "no-stale-score-key", "command": "grep -qE 'footprint_area|route_length' logic/bp/validate.lua && { echo 'a stale score key survives in validate.lua'; exit 1; }; grep -q 'production_area' logic/bp/validate.lua || { echo 'production_area is absent'; exit 1; }; echo score-keys-published", "expect_exit": 0, "expect_regex": "score-keys-published", "timeout_s": 60}
-{"name": "focused", "command": "sh tools/verify_round9_lane.sh \"$PWD\" 111_validator", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/111.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 120}
+{"name": "red-proof", "command": "sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 68 --pass ID1 || exit 1; S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_mutate.sh $S identity-code >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 68 --fail ID1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
+{"name": "rows", "command": "sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 68 --pass PC1,FL1,ID1,ID2,ID3,ID4,ID5,ID6,TR1,TR2,TR3,TR4,TR5,TR6,TR7,TR8,TR9,TR10,BE1,BE2,BE3,MT1,MT2,MT3,FL2,FL3,FL4,FL5,FL6,SR4", "expect_exit": 0, "expect_regex": "lane-rows-ok", "timeout_s": 1800}
+{"name": "reconcile-entry", "command": "grep -q reconcile_artifact logic/bp/validate.lua || { echo 'Validate.reconcile_artifact is absent'; exit 1; }; echo reconcile-entry", "expect_exit": 0, "expect_regex": "reconcile-entry", "timeout_s": 120}
+{"name": "no-stale-score-key", "command": "grep -qE 'footprint_area|route_length' logic/bp/validate.lua && { echo 'a stale score key survives'; exit 1; }; grep -q production_area logic/bp/validate.lua || { echo 'production_area is absent'; exit 1; }; echo score-keys-published", "expect_exit": 0, "expect_regex": "score-keys-published", "timeout_s": 120}
+{"name": "focused", "command": "sh tools/verify_round9_lane.sh $PWD 111_validator", "expect_exit": 0, "expect_regex": "ran|OK", "timeout_s": 3600}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py --base round-13-base --manifest docs/tasks/111.manifest", "expect_exit": 0, "expect_regex": "owned-only", "timeout_s": 180}
 ```
 
 # bound: 3600s

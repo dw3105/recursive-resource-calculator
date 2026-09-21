@@ -61,7 +61,15 @@ local function catalog()
         entity = {
             ["assembling-machine-3"] = {name = "assembling-machine-3", etype = "assembling-machine",
                 tile_w = 3, tile_h = 3, module_slots = 4, needs_power = true, energy_usage_w = 375000,
-                crafting_speed = 1.25},
+                crafting_speed = 1.25,
+                --A real oriented fluid box. Without one, "the pipe reaches a fluid connection" cannot be
+                --checked at all, and a test that cannot check it passes for the wrong reason.
+                fluid_boxes = {
+                    {production_type = "input", index = 1,
+                     pipe_connections = {{position = {x = -2, y = 0}, direction = 12}}},
+                    {production_type = "output", index = 2,
+                     pipe_connections = {{position = {x = 2, y = 0}, direction = 4}}},
+                }},
             ["electric-furnace"] = {name = "electric-furnace", etype = "furnace", tile_w = 3, tile_h = 3,
                 module_slots = 2, needs_power = true, energy_usage_w = 180000, crafting_speed = 2},
             ["inserter"] = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1,
@@ -138,6 +146,69 @@ local function candidate()
     }
 end
 
+--A fluid factory: perimeter port -> pipe run -> the machine's INPUT fluid box, and the item product leaves
+--by inserter. No item inserter touches the fluid side, which is the whole point of the FL rows.
+local function fluid_plan()
+    return {steps = {{
+        step_id = "mix", machine = "assembling-machine-3", machine_quality = "normal", machine_count = 1,
+        recipe = "concrete", recipe_quality = "normal", modules = {},
+        inputs = {{full_name = "fluid/water", rate_per_second = 10, kind = "fluid", is_fluid = true}},
+        outputs = {{full_name = "item/concrete", rate_per_second = 1, kind = "item"}},
+    }}}
+end
+
+local function fluid_candidate()
+    return {
+        grid_w = 12, grid_h = 12, wires = {},
+        entities = {
+            ent{id = "m1", name = "assembling-machine-3", kind = "machine", type = "machine",
+                x = 3, y = 3, w = 3, h = 3, step_id = "mix", quality = "normal",
+                recipe = "concrete", recipe_quality = "normal", modules = {}},
+            ent{id = "pipe1", name = "pipe", kind = "pipe", type = "pipe", x = 0, y = 4,
+                flow_id = "fluid/water"},
+            ent{id = "pipe2", name = "pipe", kind = "pipe", type = "pipe", x = 1, y = 4,
+                flow_id = "fluid/water"},
+            ent{id = "pipe3", name = "pipe", kind = "pipe", type = "pipe", x = 2, y = 4,
+                flow_id = "fluid/water"},
+            ent{id = "out-ins", name = "inserter", kind = "inserter", type = "inserter", x = 6, y = 4, dir = 4,
+                rate_per_second = 1, flow_id = "item/concrete",
+                pickup_target = "m1", drop_target = "out-belt"},
+            ent{id = "out-belt", name = "transport-belt", kind = "belt", type = "belt", x = 7, y = 4, dir = 4},
+            ent{id = "out-belt2", name = "transport-belt", kind = "belt", type = "belt", x = 8, y = 4, dir = 4},
+            ent{id = "out-belt3", name = "transport-belt", kind = "belt", type = "belt", x = 9, y = 4, dir = 4},
+            ent{id = "out-belt4", name = "transport-belt", kind = "belt", type = "belt", x = 10, y = 4, dir = 4},
+            ent{id = "out-belt5", name = "transport-belt", kind = "belt", type = "belt", x = 11, y = 4, dir = 4},
+            ent{id = "pole", name = "medium-electric-pole", kind = "pole", type = "pole", x = 4, y = 7},
+        },
+        flows = {{flow_id = "fluid/water"}, {flow_id = "item/concrete"}},
+        ports = {
+            {port_id = "water-port", flow_id = "fluid/water", role = "in", x = 0, y = 4,
+             rate_per_second = 10, kind = "fluid"},
+            {port_id = "out:item/concrete", flow_id = "item/concrete", role = "out", x = 11, y = 4,
+             rate_per_second = 1},
+            {port_id = "mix:in:fluid/water", flow_id = "fluid/water", role = "in", x = 2, y = 4,
+             step_id = "mix", rate_per_second = 10, kind = "fluid"},
+            {port_id = "mix:out:item/concrete", flow_id = "item/concrete", role = "out", x = 6, y = 4,
+             step_id = "mix", rate_per_second = 1},
+        },
+        segments = {
+            {id = "s-water", segment_id = "s-water", kind = "pipe", flow_id = "fluid/water",
+             capacity_per_second = 1200, length = 3,
+             allocations = {{flow_id = "fluid/water", sink = "step:mix", rate_per_second = 10}}},
+            {id = "s-out", segment_id = "s-out", kind = "belt", flow_id = "item/concrete",
+             capacity_per_second = 15, length = 5,
+             allocations = {{flow_id = "item/concrete", sink = "port:out:item/concrete", rate_per_second = 1}}},
+        },
+        bindings = {
+            {source_port_id = "water-port", sink_port_id = "mix:in:fluid/water", sink = "step:mix",
+             flow_id = "fluid/water", segment_id = "s-water", rate_per_second = 10},
+            {source_port_id = "mix:out:item/concrete", sink_port_id = "out:item/concrete",
+             sink = "port:out:item/concrete", flow_id = "item/concrete",
+             segment_id = "s-out", rate_per_second = 1},
+        },
+    }
+end
+
 local function validate(built, built_plan)
     return bounded(function()
         local state = Validate.begin({candidate = built, plan = built_plan or plan(), catalog = catalog()})
@@ -174,6 +245,12 @@ end
 --One mutation, applied to a fresh copy of the control. Returns the mutated candidate.
 local function mutate(change)
     local built = copy(candidate())
+    change(built)
+    return built
+end
+
+local function mutate_fluid(change)
+    local built = copy(fluid_candidate())
     change(built)
     return built
 end
@@ -354,7 +431,10 @@ for _, shape in ipairs(H.shapes()) do
         for index = 1, 2 do
             built.entities[#built.entities + 1] = ent{
                 id = "b" .. index, name = "beacon", kind = "beacon", type = "beacon",
-                x = index == 1 and 3 or 3, y = index == 1 and 0 or 7, w = 3, h = 3,
+                --The second beacon clears the pole at (4,7). Its supply centre lands at (8.5,8.5) and a
+                --9x9 area still reaches the machine box, so this is two beacons over one machine and not a
+                --second beacon parked out of range.
+                x = index == 1 and 3 or 7, y = index == 1 and 0 or 7, w = 3, h = 3,
                 signature = "b", has_speed_module = true,
                 modules = {{name = "speed-module-3", quality = "normal"}},
             }
@@ -362,6 +442,10 @@ for _, shape in ipairs(H.shapes()) do
         local state = validate(built, wanted)
         H.equal(has_code(state, "BP_V_BEACON_COVERAGE_SHORT"), false,
             "two beacons never report a shortage against a requirement of one")
+        --Absence of one code is not acceptance. This case could otherwise stay green while extra-beacon
+        --factories were rejected for some other reason, which is exactly the user's chosen behaviour broken.
+        H.equal(state.ok, true,
+            "an extra beacon is accepted outright: " .. table.concat(codes(state), ","))
     end)
 
     H.test(shape .. " BE2 a speed beacon reaching a quality machine is rejected", function()
@@ -442,6 +526,99 @@ for _, shape in ipairs(H.shapes()) do
     -- -----------------------------------------------------------------------------------------------------
     -- 25.1 / 25.5 The producer carries identity, and the serialized artifact is reconciled
     -- -----------------------------------------------------------------------------------------------------
+
+    -- -----------------------------------------------------------------------------------------------------
+    -- 25.2 Fluids. A pipe reaches a fluid box; an item inserter never serves a fluid connection.
+    -- -----------------------------------------------------------------------------------------------------
+
+    H.test(shape .. " FL1 a machine fed by pipe and emptied by inserter is accepted", function()
+        local state = validate(fluid_candidate(), fluid_plan())
+        H.equal(state.ok, true, "the fluid positive control validates: " .. table.concat(codes(state), ","))
+    end)
+
+    H.test(shape .. " FL2 an item inserter serving a fluid connection is rejected", function()
+        --The exact defect the generator ships: groups.lua:250 appends every input and output to the inserter
+        --list without asking whether the flow is a fluid, so molten iron gets an inserter. An inserter can
+        --never move fluid, so this is not a cosmetic surplus entity.
+        local state = validate(mutate_fluid(function(built)
+            drop_entities(built, function(entity) return entity.name == "pipe" end)
+            built.entities[#built.entities + 1] = ent{
+                id = "bad-ins", name = "inserter", kind = "inserter", type = "inserter", x = 2, y = 4, dir = 4,
+                rate_per_second = 10, flow_id = "fluid/water",
+                pickup_target = "water-port", drop_target = "m1",
+            }
+        end), fluid_plan())
+        rejects(state, "BP_V_FLUID_INSERTER", "an inserter put on a fluid connection")
+    end)
+
+    H.test(shape .. " FL3 removing the pipe breaks the fluid network", function()
+        local state = validate(mutate_fluid(function(built)
+            drop_entities(built, function(entity) return entity.id == "pipe2" end)
+        end), fluid_plan())
+        rejects(state, "BP_V_FLUID_DISCONNECTED", "a pipe removed from the middle of the run")
+    end)
+
+    H.test(shape .. " FL4 removing EVERY pipe is rejected, not accepted with 286 entities", function()
+        local state = validate(mutate_fluid(function(built)
+            drop_entities(built, function(entity) return entity.name == "pipe" end)
+        end), fluid_plan())
+        rejects(state, "BP_V_FLUID_DISCONNECTED", "every pipe removed")
+    end)
+
+    H.test(shape .. " FL5 two fluids sharing one network is rejected", function()
+        local state = validate(mutate_fluid(function(built)
+            built.segments[1].allocations[#built.segments[1].allocations + 1] =
+                {flow_id = "fluid/lubricant", sink = "step:mix", rate_per_second = 1}
+            built.flows[#built.flows + 1] = {flow_id = "fluid/lubricant"}
+        end), fluid_plan())
+        rejects(state, "BP_V_FLUID_MIXING", "two fluids on one network")
+    end)
+
+    H.test(shape .. " FL6 a pipe that reaches no fluid box is rejected", function()
+        local state = validate(mutate_fluid(function(built)
+            --The run still exists and still carries the right flow label. It simply arrives nowhere: a
+            --matching flow label is never proof of attachment.
+            for _, entity in ipairs(built.entities) do
+                if entity.name == "pipe" then
+                    entity.y = 10
+                    entity.position = {x = entity.x + 0.5, y = 10.5}
+                end
+            end
+        end), fluid_plan())
+        rejects(state, "BP_V_FLUID_DISCONNECTED", "a pipe run that reaches no fluid box")
+    end)
+
+    H.test(shape .. " FL7 the producer emits NO inserter for a fluid-only connection", function()
+        --Measured on this host 2026-09-21: one fluid input, one item input and one fluid output produced 3
+        --materialized inserters, 2 of them assigned to fluid flows, under both interpreters and at all four
+        --rotations. Explicit fluid flags were supplied, so it is not a classification artifact.
+        local built = bounded(function()
+            local state = Groups.begin({plan = fluid_plan(), catalog = catalog()})
+            local guard = 0
+            while not state.done do
+                guard = guard + 1
+                if guard > 2000 then error("grouping did not finish") end
+                Groups.step(state, {ops = 5000})
+            end
+            return state
+        end)
+        local inserters, fluid_inserters, checked = 0, 0, 0
+        for _, group in ipairs((built.result or {}).candidates or {}) do
+            for _, block in ipairs(group.blocks or {}) do
+                checked = checked + 1
+                for _, member in ipairs(block.members or {}) do
+                    if member.kind == "inserter" then
+                        inserters = inserters + 1
+                        local flow = tostring(member.flow_id or member.full_name or "")
+                        if flow:sub(1, 6) == "fluid/" then fluid_inserters = fluid_inserters + 1 end
+                    end
+                end
+            end
+        end
+        H.equal(checked > 0, true, "a block was actually inspected")
+        H.equal(fluid_inserters, 0, "no inserter serves a fluid connection")
+        H.equal(inserters > 0, true, "the item connection still keeps its inserter")
+    end)
 
     H.test(shape .. " SR1 grouping carries the recipe onto the machine member", function()
         local built = bounded(function()
