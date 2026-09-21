@@ -451,7 +451,8 @@ for _, shape in ipairs(H.shapes()) do
     --Generate.
     H.test(shape .. " R15 the expansion limit follows the grid, never a fixed million", function()
         local state = Route.begin(belt_input({grid = Grid.new(40, 30)}))
-        H.equal(state.work.max_expansions, 40 * 30 * 16, "a large grid allows sixteen visits per cell")
+        H.equal(state.work.max_expansions, 40 * 30 * 4 * 2 * 2 * 4,
+            "a large grid accounts for heading, transport kind, underground mode and order")
         local small = Route.begin(belt_input({grid = Grid.new(4, 4)}))
         H.equal(small.work.max_expansions, 4096, "a tiny grid keeps a floor that still finds a path")
         local explicit = Route.begin(belt_input({grid = Grid.new(40, 30), max_expansions = 25}))
