@@ -46,7 +46,60 @@ local function terminal(Generation, world, id)
     H.equal(false, true, "engine generation reaches a terminal state")
 end
 
+--These are hand-built control inputs.  Keep the compressed bytes literal: the code under test may consume
+--them, but it may never generate the reference used to judge itself.
+local CONTROL_BLUEPRINTS = {
+    item = "0eAEB+wEE/nsiYmx1ZXByaW50Ijp7ImVudGl0aWVzIjpbeyJlbnRpdHlfbnVtYmVyIjoxLCJuYW1lIjoid29vZGVuLWNoZXN0IiwicG9zaXRpb24iOnsieCI6LTIsInkiOjB9fSx7ImRpcmVjdGlvbiI6NCwiZW50aXR5X251bWJlciI6MiwibmFtZSI6Imluc2VydGVyIiwicG9zaXRpb24iOnsieCI6LTEsInkiOjB9fSx7ImRpcmVjdGlvbiI6MCwiZW50aXR5X251bWJlciI6MywibmFtZSI6ImFzc2VtYmxpbmctbWFjaGluZS0xIiwicG9zaXRpb24iOnsieCI6MCwieSI6MH0sInJlY2lwZSI6Imlyb24tZ2Vhci13aGVlbCJ9LHsiZGlyZWN0aW9uIjo0LCJlbnRpdHlfbnVtYmVyIjo0LCJuYW1lIjoiaW5zZXJ0ZXIiLCJwb3NpdGlvbiI6eyJ4IjoxLCJ5IjowfX0seyJlbnRpdHlfbnVtYmVyIjo1LCJuYW1lIjoiaXJvbi1jaGVzdCIsInBvc2l0aW9uIjp7IngiOjIsInkiOjB9fSx7ImVudGl0eV9udW1iZXIiOjYsIm5hbWUiOiJtZWRpdW0tZWxlY3RyaWMtcG9sZSIsInBvc2l0aW9uIjp7IngiOjAsInkiOjJ9fV19fYNZqfI=",
+    fluid = "0eAEBXAKj/XsiYmx1ZXByaW50Ijp7ImVudGl0aWVzIjpbeyJlbnRpdHlfbnVtYmVyIjoxLCJuYW1lIjoic3RvcmFnZS10YW5rIiwicG9zaXRpb24iOnsieCI6LTMsInkiOi0xfX0seyJlbnRpdHlfbnVtYmVyIjoyLCJuYW1lIjoicGlwZSIsInBvc2l0aW9uIjp7IngiOi0yLCJ5IjotMX19LHsiZGlyZWN0aW9uIjowLCJlbnRpdHlfbnVtYmVyIjozLCJuYW1lIjoiY2hlbWljYWwtcGxhbnQiLCJwb3NpdGlvbiI6eyJ4IjowLCJ5IjowfSwicmVjaXBlIjoic3VsZnVyIn0seyJlbnRpdHlfbnVtYmVyIjo0LCJuYW1lIjoicGlwZSIsInBvc2l0aW9uIjp7IngiOi0yLCJ5IjoxfX0seyJlbnRpdHlfbnVtYmVyIjo1LCJuYW1lIjoic3RvcmFnZS10YW5rIiwicG9zaXRpb24iOnsieCI6LTMsInkiOjF9fSx7ImRpcmVjdGlvbiI6NCwiZW50aXR5X251bWJlciI6NiwibmFtZSI6Imluc2VydGVyIiwicG9zaXRpb24iOnsieCI6MiwieSI6MH19LHsiZW50aXR5X251bWJlciI6NywibmFtZSI6Imlyb24tY2hlc3QiLCJwb3NpdGlvbiI6eyJ4IjozLCJ5IjowfX0seyJlbnRpdHlfbnVtYmVyIjo4LCJuYW1lIjoibWVkaXVtLWVsZWN0cmljLXBvbGUiLCJwb3NpdGlvbiI6eyJ4IjowLCJ5IjozfX1dfX28Jsio",
+    quality = "0eAEBOgHF/nsiYmx1ZXByaW50Ijp7ImVudGl0aWVzIjpbeyJlbnRpdHlfbnVtYmVyIjoxLCJuYW1lIjoid29vZGVuLWNoZXN0IiwicG9zaXRpb24iOnsieCI6LTIsInkiOjB9fSx7ImRpcmVjdGlvbiI6NCwiZW50aXR5X251bWJlciI6MiwibmFtZSI6Imluc2VydGVyIiwicG9zaXRpb24iOnsieCI6LTEsInkiOjB9fSx7ImVudGl0eV9udW1iZXIiOjMsIm5hbWUiOiJpcm9uLWNoZXN0IiwicG9zaXRpb24iOnsieCI6MCwieSI6MH19LHsiZW50aXR5X251bWJlciI6NCwibmFtZSI6Im1lZGl1bS1lbGVjdHJpYy1wb2xlIiwicG9zaXRpb24iOnsieCI6MCwieSI6Mn19XX19n35poQ==",
+}
+
+local CONTROL_EXPECTED = {
+    item = {rates = {["item/iron-gear-wheel"] = 1, ["item/iron-plate"] = -2}},
+    fluid = {rates = {["item/sulfur"] = 2, ["fluid/water"] = -30, ["fluid/petroleum-gas"] = -30}},
+    quality = {rates = {["item-quality:10:iron-plate9:legendary"] = 1}, quality = "legendary"},
+}
+
+local function assert_control(control, observation)
+    H.equal(observation.blueprint_string, control.blueprint, "control blueprint bytes are pinned")
+    for key, expected in pairs(control.expected.rates) do
+        H.equal(observation.rates[key], expected, "control rate " .. key)
+    end
+    H.equal(observation.internal_disconnection, nil, "control has no internal disconnection")
+    H.equal(observation.missing_recipe, nil, "control has a recipe")
+    H.equal(observation.quality, control.expected.quality, "control quality is preserved")
+end
+
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " CT1 hand-built item fluid and quality controls have independent expected rates", function()
+        local observations = {
+            item = {blueprint_string = CONTROL_BLUEPRINTS.item, rates = CONTROL_EXPECTED.item.rates},
+            fluid = {blueprint_string = CONTROL_BLUEPRINTS.fluid, rates = CONTROL_EXPECTED.fluid.rates},
+            quality = {blueprint_string = CONTROL_BLUEPRINTS.quality, rates = CONTROL_EXPECTED.quality.rates,
+                quality = CONTROL_EXPECTED.quality.quality},
+        }
+        for name, expected in pairs(CONTROL_EXPECTED) do
+            assert_control({blueprint = CONTROL_BLUEPRINTS[name], expected = expected}, observations[name])
+        end
+    end)
+
+    H.test(shape .. " CT2 independent controls fail internal disconnection missing recipe and wrong quality", function()
+        local good = {blueprint = CONTROL_BLUEPRINTS.item, expected = CONTROL_EXPECTED.item}
+        H.errors(function()
+            assert_control(good, {blueprint_string = good.blueprint, rates = good.expected.rates,
+                internal_disconnection = "item-input"})
+        end, "internal disconnection", "disconnection negative control")
+        H.errors(function()
+            assert_control(good, {blueprint_string = good.blueprint, rates = good.expected.rates,
+                missing_recipe = true})
+        end, "control has a recipe", "missing recipe negative control")
+        local quality = {blueprint = CONTROL_BLUEPRINTS.quality, expected = CONTROL_EXPECTED.quality}
+        H.errors(function()
+            assert_control(quality, {blueprint_string = quality.blueprint, rates = quality.expected.rates,
+                quality = "normal"})
+        end, "control quality is preserved", "wrong quality negative control")
+    end)
+
     H.test(shape .. " engine case: the interface refuses an unpackaged candidate", function()
         local _, _, _, Api = fixture(shape)
         --This file runs in a source checkout and, during a handoff, inside an extracted package. The rule is

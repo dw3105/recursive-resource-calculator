@@ -162,6 +162,9 @@ test("SM1 pending generation reaches build, perimeter, warm-up, sample and write
     set_tick(6); controller:tick(6); equal(controller:status().state, "drain_setup", "power transition")
     for current = 7, 12 do set_tick(current); controller:tick(current) end
     equal(written().outcome_kind, "production", "production observation")
+    truth(written().prepared_input_sha256 ~= nil, "production binds the submitted prepared input")
+    truth(written().config_sha256 ~= nil, "production binds the submitted configuration")
+    truth(written().harness_qualification_id ~= nil, "production binds the harness qualification")
     near(written().production.rates["item/plate"], 20, "rate arithmetic in production")
     equal(calls[2], "setup_environment", "environment follows identity")
     truth(table.concat(calls, ","):find("build_blueprint", 1, true) ~= nil, "blueprint built")
@@ -198,6 +201,8 @@ test("SM4 a failed build is rejected and cleaned up", function()
     controller:submit(case())
     for current = 1, 6 do set_tick(current); controller:tick(current) end
     equal(written().rejection.stage, "build", "build rejection stage")
+    equal(written().rejection.verdict, "harness_failure", "build failure is a harness verdict")
+    equal(written().rejection.failure_code, "RRC_HARNESS_BUILD", "build failure has its own code")
     truth(table.concat(calls, ","):find("cleanup", 1, true) ~= nil, "failed build cleanup")
 end)
 
@@ -208,6 +213,8 @@ test("SM5 generation timeout cancels the candidate", function()
     controller:submit(timed)
     for current = 1, 65 do set_tick(current); controller:tick(current) end
     equal(written().rejection.stage, "generation-timeout", "timeout stage")
+    equal(written().rejection.verdict, "factory_failure", "generation timeout is a factory verdict")
+    equal(written().rejection.failure_code, "RRC_FACTORY_GENERATION_TIMEOUT", "factory timeout has its own code")
     truth(table.concat(calls, ","):find("cancel_generation", 1, true) ~= nil, "timeout cancellation")
 end)
 
