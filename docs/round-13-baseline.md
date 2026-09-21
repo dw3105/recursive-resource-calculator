@@ -188,3 +188,40 @@ other fixture carrying a `prepared_input.json` refuses with `BP_REJ_PROTOTYPE_FA
 is a registered historical negative that must REJECT once lane 112 lands. At integration the gate re-points to
 the fresh export from Milestone A prime. The end-to-end player ceiling stays **pending**; measured at this
 base it is **10722ms** against the 5000ms limit.
+
+## Merge-time findings, recorded as they land
+
+Lane verdicts are advisory: every lane snapshotted its checks before the gate corrections above, so each
+result is re-verified here with the corrected tooling.
+
+### Lane 111 validator — verified, genuinely closed
+
+Merged onto the integration tip and run under the corrected `lane_rows.sh`, which requires each named case to
+have actually executed:
+
+```
+68 cases, 64 passed, 4 failed   (both interpreters)
+lane-rows-ok
+```
+
+The oracle moved from 16 passed to 64. The four still red are `SR1` and `FL7` on both shapes, and both belong
+to lane **110**: grouping must carry the recipe, and grouping must stop emitting an inserter for a fluid-only
+connection.
+
+### Lane 115 goldens — verified alone, one cross-lane break with 111
+
+Alone on the integration tip: `tests.tools.test_golden_tools` 13 tests, **OK**.
+
+Merged together with lane 111, two cases fail:
+
+| test | cause |
+|---|---|
+| `test_prepared_input_runs_real_generator_and_tiny_change_goes_red` | `run_golden(root, "generated-case")` returns 1 where it expects 0 |
+| `test_accept_generated_case_promotes_reviewed_draft` | the same generated case can no longer be produced |
+
+Neither is a lane defect. Lane 111 made validation physical, so the toy fixture those tests generate cannot
+produce and is now correctly rejected. The repair belongs to integration: the fixture becomes a physically
+valid miniature, or the test asserts the rejection.
+
+**Permitted between the 111 merge and the 115 merge, and only there.** Both must be green at the
+zero-failure checkpoint.
