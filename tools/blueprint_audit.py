@@ -249,34 +249,29 @@ def audit_orphans(entities, cells, pairs) -> Tuple[List[str], int, int]:
         if nxt is not None:
             backward.setdefault(nxt, []).append(cell)
 
-    #The bounding box is taken from entity EXTENTS, not centres.  Using centres made every cell of a one-row
-    #layout sit on the perimeter, and a stray belt then extended the box and inferred ITSELF as both a supply
-    #and a drain terminal -- so it satisfied its own obligation and the waste mutant survived.  A terminal is
-    #only inferred where the belt's own flow actually crosses the boundary: product must arrive from outside
-    #for a supply, and leave to outside for a drain.
-    def extent(entity):
-        half = SIZE.get(entity.get("name"), 1) / 2.0
-        px, py = entity["position"]["x"], entity["position"]["y"]
-        return px - half, px + half, py - half, py + half
-
-    spans = [extent(e) for e in entities]
-    edge = (min(s[0] for s in spans), max(s[1] for s in spans),
-            min(s[2] for s in spans), max(s[3] for s in spans))
-
-    def outside(cell):
-        return not (edge[0] <= cell[0] <= edge[1] and edge[2] <= cell[1] <= edge[3])
-
+    #A belt run that begins nowhere is where the player feeds it; one that ends nowhere is where it leaves.
+    #That is the physical reading, and it needs no bounding box at all.
+    #
+    #The bounding box version was wrong twice over. It missed almost every terminal in a hand-built factory,
+    #because roboports and poles push the box far from the belt ends: measured on
+    #~/share/RRC/red_science_1s_manual_bp.txt, a working 131-entity factory, it inferred 3 terminals and
+    #declared all 84 belts unused. And it missed the real structure -- supply runs feed inserter PICKUPS while
+    #output runs carry inserter DROPS away, so the two never touch. Forward-reachable-from-a-drop and
+    #reaches-a-pickup were disjoint sets of 25, intersecting in 0.
+    #
+    #A cell with neither a predecessor nor a successor would be BOTH a supply and a drain, and so would
+    #satisfy its own obligation. That is exactly the stray-belt case, so it is excluded from both.
     terminals = []
     sources, sinks = set(drops), set(pickups)
     for cell in sorted(transport):
-        direction = transport[cell].get("direction", 0)
-        if direction not in VEC:
+        has_feeder = bool(backward.get(cell))
+        has_next = forward.get(cell) is not None
+        if not has_feeder and not has_next:
             continue
-        vx, vy = VEC[direction]
-        if not backward.get(cell) and cell not in sources and outside((cell[0] - vx, cell[1] - vy)):
+        if not has_feeder and cell not in sources:
             sources.add(cell)
             terminals.append(f"inferred external SUPPLY terminal at {cell}")
-        if forward.get(cell) is None and cell not in sinks and outside((cell[0] + vx, cell[1] + vy)):
+        if not has_next and cell not in sinks:
             sinks.add(cell)
             terminals.append(f"inferred external DRAIN terminal at {cell}")
 

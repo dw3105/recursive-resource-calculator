@@ -99,13 +99,22 @@ class BlueprintAuditTest(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertGreaterEqual(counts["invalid_inserters"], 1)
 
-    def test_ACC4_reversed_output_inserter_strands_its_belt(self):
-        """Both endpoints stay legal, so only the obligation walk can see this."""
+    def test_ACC4_a_reversed_output_inserter_is_BEYOND_byte_level_waste(self):
+        """Honest limit of this tool, kept as a case so nobody re-adds the claim.
+
+        Reversing the output inserter makes the machine drain nowhere, which is a broken obligation. It is NOT
+        a waste violation: the belt it used to receive from becomes an externally fed run that passes an
+        inserter taking from it, and that is a legal arrangement. From bytes alone, with no obligations, the
+        two are indistinguishable. Only the validator, which holds the plan, can reject this.
+
+        An earlier version of this suite asserted the opposite and passed, because the terminal rule was wrong
+        and reported every belt of a working factory as unused.
+        """
         entities = control()
         entities[4]["direction"] = 12
-        status, counts = audit(entities)
-        self.assertEqual(status, 1)
-        self.assertGreaterEqual(counts["unused_belt_tiles"], 1)
+        _, counts = audit(entities)
+        self.assertEqual(counts["unused_belt_tiles"], 0)
+        self.assertEqual(counts["invalid_inserters"], 0)
 
     def test_ACC5_added_waste_belt_is_rejected(self):
         """Production is untouched; contract 26.2 still refuses the spare entity."""
@@ -194,10 +203,36 @@ class BlueprintAuditTest(unittest.TestCase):
         self.assertEqual(counts["invalid_inserters"], 11)
         self.assertEqual(counts["unpairable_pipe_to_ground"], 12)
         self.assertEqual(counts["unpairable_underground_belt"], 4)
-        self.assertEqual(counts["unused_belt_tiles"], 224)
+        #51, not the 224 this suite first froze. The bounding-box terminal rule reported every belt of a
+        #working hand-built factory as unused, so its count here was inflated too. 51 belt entities of 224
+        #genuinely reach no sink or are reached by no source.
+        self.assertEqual(counts["unused_belt_tiles"], 51)
         self.assertEqual(counts["unused_pipe_tiles"], 35)
         self.assertEqual(counts["wires"], 0)
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HandBuiltReferenceTest(unittest.TestCase):
+    """The strongest control available: a factory a person built and the game runs.
+
+    Supplied 2026-09-21 as ~/share/RRC/red_science_1s_manual_bp.txt, sha256
+    934a0034af3069ef40ee1878582d53b26834d287fa4106c2b4480404f6123c30, 131 entities for
+    automation-science-pack at 1/s. A tool that rejects this rejects working factories, and the first version
+    of this auditor did exactly that: it reported all 84 belts unused.
+    """
+
+    def test_ACC14_a_working_hand_built_factory_is_accepted(self):
+        reference = pathlib.Path.home() / "share" / "RRC" / "red_science_1s_manual_bp.txt"
+        if not reference.exists():
+            self.skipTest("the hand-built reference is not present on this host")
+        done = subprocess.run([sys.executable, str(AUDIT), str(reference), "--json"],
+                              capture_output=True, text=True)
+        counts = json.loads(done.stdout)
+        self.assertEqual(counts["unused_belt_tiles"], 0, "a working factory has no unused belt")
+        self.assertEqual(counts["invalid_inserters"], 0, "a working factory has no invalid inserter")
+        self.assertEqual(counts["unpairable_underground"], 0)
+        self.assertEqual(counts["wires"], 12)
+        self.assertEqual(done.returncode, 0, "the reference must pass outright")
