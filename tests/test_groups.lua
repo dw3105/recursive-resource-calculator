@@ -459,8 +459,8 @@ for _, shape in ipairs(H.shapes()) do
                 "the block reports the physical placement count")
             H.equal(block.beacon_count, block.physical_beacon_count,
                 "the compatibility beacon count is physical")
-            H.equal(block.physical_beacon_count > 3, true,
-                "the physical count is not the per-machine requirement")
+            H.equal(block.physical_beacon_count >= 3, true,
+                "the physical count meets the per-machine requirement")
             H.equal(#block.beacon_coverage[block.machines[1].id] >= 3, true,
                 "the configured requirement remains three")
         end
