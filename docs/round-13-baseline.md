@@ -225,3 +225,29 @@ valid miniature, or the test asserts the rejection.
 
 **Permitted between the 111 merge and the 115 merge, and only there.** Both must be green at the
 zero-failure checkpoint.
+
+### Lane 110 producer — verified
+
+Alone on the integration tip: oracle **16 → 20 passed**, `lane-rows-ok`. `SR1` and `FL7` closed, so grouping
+carries the recipe and stops putting an inserter on a fluid-only connection.
+
+With lane 111 together, both interpreters:
+
+```
+68 cases, 68 passed, 0 failed
+lane-rows-ok
+```
+
+The whole physical contract is met. On the player capture, six of seven machines now carry their recipe and
+the `electric-furnace` correctly carries none; inserters fall from 20 to 18, losing exactly the two that sat
+on `fluid/molten-iron`; pipes rise from 24 to 29 plus 12 pipe-to-ground. 314 entities, `validation.ok` true.
+
+### Lane 112 capture — verified, after a gate bug of my own
+
+`CG1`–`CG4` green, `CX1`–`CX3` green, and `docs/tasks/112_findings.md` names where the empty inserter offsets
+come from: the catalog projection boundary, before `ExportPayload.build` runs, and it says plainly that the
+fixture cannot establish whether the runtime or an adapter supplied the array shape.
+
+The gate first reported `executed no case named CX1`. That was **my** defect, not the lane's: `outcomes_for`
+required a numeric shape between the outcome and the case id, and this suite registers its cases once with no
+shape prefix. The shape is now optional, and all four earlier counterexamples still refuse.

@@ -46,10 +46,12 @@ fi
 
 commas_to_spaces() { printf '%s\n' "$1" | tr ',' ' '; }
 
-#The outcome of one case id across every shape, as reported by the harness itself. A case id names one row of
-#the contract and the harness runs it once per shape, so every shape must agree.
+#The outcome of one case id, as reported by the harness itself. Most suites register a case once per shape
+#(`2.0 CG1 ...`), and some register it once with no shape at all (`CX1 ...`), so the shape is OPTIONAL here.
+#Demanding it refused lane 112's CX1, CX2 and CX3 although all three existed and passed.
 outcomes_for() {
-    printf '%s\n' "$2" | sed -n "s/^CASE \\([a-z]*\\) [0-9.]* $1 .*/\\1/p"
+    printf '%s\n' "$2" \
+        | sed -n -e "s/^CASE \\([a-z]*\\) [0-9.][0-9.]* $1 .*/\\1/p" -e "s/^CASE \\([a-z]*\\) $1 .*/\\1/p"
 }
 
 status=0
