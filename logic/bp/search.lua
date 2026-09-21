@@ -302,6 +302,12 @@ local function stage_input(state, extra)
     return result
 end
 
+--`port_flow_id` is defined below, next to the other port helpers, but candidate_orders reads it. A Lua local
+--is invisible above its own declaration, so the call at interface_weight resolved to a nil GLOBAL and the real
+--player case died with "attempt to call global 'port_flow_id' (a nil value)" inside search.lua:320. The lane's
+--focused tests never drove prepare_candidate down that path, so nothing caught it before the merge.
+local port_flow_id
+
 local function candidate_orders(state, candidate)
     local input = state.work.input
     local supplied = candidate.block_orderings or candidate.orders or input.block_orderings or input.block_orders
@@ -604,7 +610,7 @@ local function perimeter_port_needs_route(port)
     return rate == nil or rate > 0
 end
 
-local function port_flow_id(port)
+function port_flow_id(port)
     return port and (port.flow_id or port.full_name or port.flow)
 end
 
