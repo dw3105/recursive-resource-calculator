@@ -1,0 +1,42 @@
+{
+ "case_id": "player-red-science-1s",
+ "engine_capture_pending": "This case drives producers. It never certifies: its inserter vectors were repaired from vanilla prototypes, its source_kind is runtime-repaired, and the export itself carries provenance.packaged = false. Any one of those three refuses acceptance.",
+ "expected_outcome": "production",
+ "factorio_branch": "2.0",
+ "facts_missing": [
+  "inserter_offsets",
+  "engine_observation"
+ ],
+ "note": "The player's red-science sheet, captured 2026-09-21 from build 1.1.53 with 54 active mods. Four steps, one target, no modules, no beacons, no fluids. reference_manual_blueprint.txt is the factory the player built by hand for this same sheet and the game runs; it is evidence about what a correct answer looks like and is NEVER an expected output.",
+ "observed_outcome": {
+  "note": "What the player's game did. History. Never moved, and never replaced by an offline measurement.",
+  "observed_by": "the player's own running game",
+  "observed_on": "2026-09-21",
+  "progress": {
+   "done_units": 184,
+   "total_units": 49
+  },
+  "reason_codes": [
+   "BP_FAIL_SEARCH_BUDGET"
+  ],
+  "stage": "search",
+  "state": "failure"
+ },
+ "prepared_input": "prepared_input.json",
+ "prepared_input_source": "generation.prepared_input",
+ "source_kind": "runtime-repaired",
+ "state": "captured",
+ "supported_outcome": "production",
+ "targets": [
+  {
+   "full_name": "item/automation-science-pack",
+   "quality": "normal",
+   "rate_per_second": 1
+  }
+ ],
+ "versions": {
+  "base_game_version": "2.0.77",
+  "mod": "1.1.53",
+  "rrc_version": "1.1.53"
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "captured_from": "the player's running game, build 1.1.53, base 2.0.77, 54 active mods",
+ "captured_on": "2026-09-21",
+ "case_id": "player-red-science-1s",
+ "certifiable": false,
+ "export_sha256": "482110b1cb94cf40f77163958e018aa6b3f6c525a46bd5818abe52160fd23c5e",
+ "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
+ "prepared_input_source": "generation.prepared_input",
+ "prepared_input_source_note": "The export carries TWO PreparedInput objects: prepared_input at the top level and generation.prepared_input. tests/golden/lib/common.py reads the first, tools/prepared_from_export.py reads the second. Measured 2026-09-21: after normalising the rrc_empty_list sentinel that logic/export_payload.lua:100 writes for an empty list, catalog, snapshot and solver_result are BYTE-IDENTICAL between the two, so they are one input in two encodings and not two inputs. The generation copy is pinned because it is the object the mod handed its own search, and because tools/prepared_from_export.py already decodes the sentinel.",
+ "reference_manual_blueprint_role": "reference-only",
+ "reference_manual_blueprint_sha256": "934a0034af3069ef40ee1878582d53b26834d287fa4106c2b4480404f6123c30",
+ "repair_warning": "The captured inserter runs at 4.62 items/s against vanilla's 0.83, so the player's 54-mod game plainly ships a different inserter prototype. Every BP_V_INSERTER_GEOMETRY number measured on this case is therefore measured against RECONSTRUCTED geometry: directionally useful, never certifiable. The only real repair is a capture from a build that writes the offsets.",
+ "repaired_facts": [
+  "catalog.inserter.pickup_offset",
+  "catalog.inserter.drop_offset",
+  "catalog.inserter.drop_position"
+ ],
+ "repaired_from": "vanilla Factorio 2.0.77 base prototypes"
+}

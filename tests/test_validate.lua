@@ -208,7 +208,7 @@ for _, shape in ipairs(H.shapes()) do
         local state = finish({grid = {w = 8, h = 2}, catalog = catalog(), entities = {
             {id = "p-left", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1},
             {id = "p-right", kind = "pole", name = "pole", x = 5, y = 0, w = 1, h = 1},
-        }, wires = {{a_id = "p-left", a_connector = 0, b_id = "p-right", b_connector = 0}}})
+        }, wires = {{a_id = "p-left", a_connector = 5, b_id = "p-right", b_connector = 5}}})
         H.equal(state.ok, false, "over-range wire is rejected")
         H.equal(has_code(state, "BP_V_WIRE_ILLEGAL"), true, "over-range wire is illegal")
         H.equal(state.errors[1].code, "BP_V_WIRE_ILLEGAL", "legality is recorded before connectivity")
@@ -218,7 +218,7 @@ for _, shape in ipairs(H.shapes()) do
         local state = finish({grid = {w = 4, h = 2}, catalog = catalog(), entities = {
             {id = "p-left", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1},
             {id = "p-right", kind = "pole", name = "pole", x = 1, y = 0, w = 1, h = 1},
-        }, wires = {{a_id = "p-left", a_connector = 3, b_id = "p-right", b_connector = 0}}})
+        }, wires = {{a_id = "p-left", a_connector = 3, b_id = "p-right", b_connector = 5}}})
         H.equal(state.ok, false, "circuit bridge is rejected")
         H.equal(has_code(state, "BP_V_WIRE_ILLEGAL"), true, "circuit bridge is illegal")
     end)
@@ -227,7 +227,7 @@ for _, shape in ipairs(H.shapes()) do
         local state = finish({grid = {w = 8, h = 2}, catalog = catalog(), entities = {
             {id = "p-left", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1},
             {id = "p-right", kind = "pole", name = "pole", x = 5, y = 0, w = 1, h = 1},
-        }, wires = {{a_id = "p-left", a_connector = 0, b_id = "p-right", b_connector = 0}}})
+        }, wires = {{a_id = "p-left", a_connector = 5, b_id = "p-right", b_connector = 5}}})
         H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), true, "illegal edge is excluded from connectivity")
     end)
 
@@ -287,7 +287,7 @@ for _, shape in ipairs(H.shapes()) do
         local state = finish({grid = {w = 7, h = 2}, catalog = catalog(), entities = {
             {id = "p-long", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1, wire_reach = 5},
             {id = "p-short", kind = "pole", name = "pole", x = 4, y = 0, w = 1, h = 1},
-        }, wires = {{a_id = "p-long", a_connector = 0, b_id = "p-short", b_connector = 0}}})
+        }, wires = {{a_id = "p-long", a_connector = 5, b_id = "p-short", b_connector = 5}}})
         H.equal(state.ok, false, "a wire beyond the shorter reach is rejected")
         local illegal = error_with_code(state, "BP_V_WIRE_ILLEGAL")
         H.equal(illegal ~= nil, true, "the mixed-reach edge is illegal")
@@ -301,7 +301,7 @@ for _, shape in ipairs(H.shapes()) do
         local state = finish({grid = {w = 4, h = 2}, catalog = catalog(), entities = {
             {id = "p-long", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1, wire_reach = 5},
             {id = "p-short", kind = "pole", name = "pole", x = 1, y = 0, w = 1, h = 1},
-        }, wires = {{a_id = "p-long", a_connector = 0, b_id = "p-short", b_connector = 0}}})
+        }, wires = {{a_id = "p-long", a_connector = 5, b_id = "p-short", b_connector = 5}}})
         H.equal(state.ok, true, "a wire inside the shorter reach is legal")
         H.equal(has_code(state, "BP_V_WIRE_ILLEGAL"), false, "the inside-range edge is not illegal")
         H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), false, "the poles form one component")
@@ -311,7 +311,7 @@ for _, shape in ipairs(H.shapes()) do
         local state = finish({grid = {w = 5, h = 2}, catalog = catalog(), entities = {
             {id = "p-long", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1, wire_reach = 5},
             {id = "p-short", kind = "pole", name = "pole", x = 2, y = 0, w = 1, h = 1},
-        }, wires = {{a_id = "p-long", a_connector = 0, b_id = "p-short", b_connector = 0}}})
+        }, wires = {{a_id = "p-long", a_connector = 5, b_id = "p-short", b_connector = 5}}})
         H.equal(state.ok, true, "a wire at the shorter reach boundary is legal")
         H.equal(has_code(state, "BP_V_WIRE_ILLEGAL"), false, "the boundary edge is not illegal")
         H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), false, "the boundary edge connects the poles")

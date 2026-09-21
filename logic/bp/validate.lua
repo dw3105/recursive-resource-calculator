@@ -338,8 +338,12 @@ local function collect_segments(root)
     return list_from(root.segments or (root.route and root.route.segments))
 end
 
+--pole_copper is 5. The player's own 2.0.77 blueprint writes 5 on both ends of all twelve of its pole-to-pole
+--copper wires (measured from its bytes, 2026-09-21). This default and logic/bp/power.lua's fallback have to
+--agree: while power.lua emitted 5 and this table still said 0, `connector_role` classified every delivered
+--wire as non-copper and 55 BP_V_WIRE_ILLEGAL records appeared on the player's sheet out of nowhere.
 local function connector_ids(input)
-    local ids = {pole_copper = 0, power_switch_left_copper = 1, power_switch_right_copper = 2, circuit_red = 3, circuit_green = 4}
+    local ids = {pole_copper = 5, power_switch_left_copper = 1, power_switch_right_copper = 2, circuit_red = 3, circuit_green = 4}
     local supplied = input and (input.wire_connector_ids or input.connector_ids)
     if type(supplied) == "table" then for key, value in pairs(supplied) do ids[key] = value end end
     return ids

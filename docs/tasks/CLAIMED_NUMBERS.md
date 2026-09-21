@@ -119,3 +119,6 @@
 | `122` | `rrc/agent` | router: facing underground pairs, direction-aware search, zero waste | 2026-09-21 |
 | `123` | `rrc/agent` | layout: terminals from demand, no first-feasible shortcut | 2026-09-21 |
 | `124` | `rrc/agent` | goldens: report physical validation, freeze the known-bad artifact | 2026-09-21 |
+| `130` | `rrc/agent` | anchor: one port per hand, on the perimeter, never moved | 2026-09-21 |
+| `132` | `rrc/agent` | witness: every machine judged by its own port | 2026-09-21 |
+| `133` | `rrc/agent` | goldens: an acceptance case shaped like the player's sheet | 2026-09-21 |

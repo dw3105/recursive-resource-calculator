@@ -132,6 +132,17 @@ case "$tag" in
         runner=python
         tests="tests.tools.test_golden_tools tests.tools.test_incident_capture tests.tools.test_blueprint_audit tests.tools.test_capture_workflow"
         ;;
+    #Round 15. The port anchor: a hand and its port are the same tile (contract section 27).
+    130_anchor)
+        tests="tests/test_groups.lua tests/test_pack.lua tests/test_inserter_geometry.lua tests/test_port_edges.lua tests/test_placed_port_geometry.lua tests/test_port_not_self_blocked.lua tests/test_transport_handshake.lua"
+        ;;
+    132_witness)
+        tests="tests/test_validate.lua tests/test_physical_witness.lua tests/test_validated_candidate.lua tests/test_census_codes_live.lua"
+        ;;
+    133_goldens)
+        runner=python
+        tests="tests.tools.test_golden_tools tests.tools.test_real_sheet_census tests.tools.test_capture_workflow"
+        ;;
     #An unknown tag FAILS. The old arm here set runner=suite, so a typo, a renamed lane, or a tag nobody had
     #mapped yet quietly ran the whole suite and reported the result as that lane's focused gate. A lane that
     #genuinely wants the suite says so with its own entry.

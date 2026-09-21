@@ -34,11 +34,13 @@ local function error_with_code(result, code)
     return nil
 end
 
+--The fallback matches logic/bp/power.lua's: pole_copper is 5, measured from the player's own 2.0.77 blueprint
+--on 2026-09-21, not guessed from the position of the field.
 local function copper_id()
     if type(defines) == "table" and type(defines.wire_connector_id) == "table" then
         return defines.wire_connector_id.pole_copper
     end
-    return 0
+    return 5
 end
 
 for _, shape in ipairs(H.shapes()) do

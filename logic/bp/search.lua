@@ -104,9 +104,17 @@ local function failure(state, code, details)
     state.result = nil
 end
 
-local function record_rejection(state, errors)
+--Every call is ONE candidate attempt that ONE stage refused, and the records are then flattened into a single
+--list. Flat, the list cannot answer "how many candidates were judged", so a count of any code is unreadable:
+--a change that tries fewer candidates reports fewer errors and looks like an improvement. Stamping the attempt
+--ordinal and the refusing stage makes the list countable, which is what lets a census divide a code's count by
+--the attempts that reached `validate` instead of comparing raw totals.
+local function record_rejection(state, errors, stage)
     local records = state.work.rejections or {}
     state.work.rejections = records
+    state.work.rejection_attempts = (state.work.rejection_attempts or 0) + 1
+    local attempt = state.work.rejection_attempts
+    stage = stage or state.phase
     local seen = false
     for _, entry in ipairs(errors or {}) do
         local record
@@ -117,11 +125,13 @@ local function record_rejection(state, errors)
             record = {code = tostring(entry)}
         end
         if type(record) == "table" and record.code ~= nil then
+            record.attempt = attempt
+            record.stage = stage
             records[#records + 1] = record
             seen = true
         end
     end
-    if not seen then records[#records + 1] = {code = "BP_V_UNSPECIFIED"} end
+    if not seen then records[#records + 1] = {code = "BP_V_UNSPECIFIED", attempt = attempt, stage = stage} end
 end
 
 local function rejection_details(state)
@@ -1313,7 +1323,7 @@ local function candidate_fits_grid(state, candidate)
     if not fits then
         record_rejection(state, {{code = "BP_P_NO_FIT", detail = "candidate does not fit this grid",
             candidate_size = {area = needed, width = widest, height = tallest},
-            grid_size = {w = grid.w, h = grid.h}}})
+            grid_size = {w = grid.w, h = grid.h}}}, "fit")
     end
     return fits
 end
@@ -1418,7 +1428,7 @@ function Search.step(container, budget)
             run_stage(state, "pack", Pack, budget)
             if stage_done(state.work.pack) then
                 if not state.work.pack.ok then
-                    record_rejection(state, state.work.pack.errors)
+                    record_rejection(state, state.work.pack.errors, "pack")
                     discard_candidate(state)
                 else
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
@@ -1429,7 +1439,7 @@ function Search.step(container, budget)
                         state.work.route = Route.begin(route_input)
                         set_phase(state, "route")
                     else
-                        record_rejection(state, {state.work.route_input_error})
+                        record_rejection(state, {state.work.route_input_error}, "route_input")
                         discard_candidate(state)
                     end
                 end
@@ -1438,7 +1448,7 @@ function Search.step(container, budget)
             run_stage(state, "route", Route, budget)
             if stage_done(state.work.route) then
                 if not state.work.route.ok then
-                    record_rejection(state, state.work.route.errors)
+                    record_rejection(state, state.work.route.errors, "route")
                     discard_candidate(state)
                 else
                     local power_entities = list_copy(state.work.materialized.entities)
@@ -1452,7 +1462,7 @@ function Search.step(container, budget)
             run_stage(state, "power", Power, budget)
             if stage_done(state.work.power) then
                 if not state.work.power.ok then
-                    record_rejection(state, state.work.power.errors)
+                    record_rejection(state, state.work.power.errors, "power")
                     for _, power_error in ipairs(state.work.power.errors or {}) do
                         if power_error.code == "BP_PW_SEARCH_BOUND" then state.work.power_bound_hit = true; break end
                     end
@@ -1479,7 +1489,7 @@ function Search.step(container, budget)
                     --A candidate discarded without a record makes every validator rejection look like a routing
                     --failure from outside.  Counting the codes costs nothing and is what the failure message and
                     --the debug export need.
-                    record_rejection(state, state.work.validate.errors)
+                    record_rejection(state, state.work.validate.errors, "validate")
                     discard_candidate(state)
                 else
                     local score = state.work.validate.result and state.work.validate.result.score or {}

@@ -1,0 +1,99 @@
+{
+ "frozen_at": "round-15-base",
+ "frozen_on": "2026-09-21",
+ "host": "legalcopilot-dev",
+ "note": "What the player's captured red-science sheet does before any round 15 lane starts. Not a target: a number here may only be corrected by a measurement that says WHICH number moved and why. Wall seconds were measured while the fast tier ran concurrently and are advisory only; the gate never judges on time, because the run is bounded by ops so that its counts are reproducible on a busy host.",
+ "policy": {
+  "denominator_floor": "validate_attempts may never fall below the baseline",
+  "monotone": "no code rate may rise; a code absent from the baseline has baseline 0, so a renamed or brand new code is caught by the same rule",
+  "ops_is_an_instrument": "search_budget is injected into a private copy at measurement time and is NEVER written into the committed prepared_input.json; tests/golden/lib/runner.py refuses a case carrying a generation option.",
+  "rate": "a code's count divided by the candidates that reached validate; a raw total falls when fewer candidates are judged, which is not an improvement",
+  "sensitivity_floor": 50,
+  "stage_floor": "the run must still reach search or done; breaking preflight zeroes every BP_V_ code and would read as a triumph",
+  "suppression_guard": "tests/test_census_codes_live.lua proves each counted code can still be provoked; deleting an emitter zeroes its census and turns that test red in the same run.",
+  "waiver_budget_rate": 0.15
+ },
+ "schema_version": 1,
+ "tiers": {
+  "fast": {
+   "case": "player-red-science-1s",
+   "census": {
+    "BP_V_INSERTER_GEOMETRY": 86,
+    "BP_V_ROUTE_DISCONTINUOUS": 16,
+    "BP_V_TARGET_SHORTFALL": 8,
+    "BP_V_TRANSFER_BROKEN": 192,
+    "BP_V_TRANSPORT_UNUSED": 1122
+   },
+   "certifiable": false,
+   "counters": {
+    "attempts_by_stage": {
+     "validate": 8
+    },
+    "entities_delivered": 0,
+    "records": 1424,
+    "validate_attempts": 8
+   },
+   "envelope": {
+    "ok": false,
+    "stage": "failed",
+    "terminal_code": "BP_FAIL_SEARCH_BUDGET"
+   },
+   "interpreter": "lua5.2",
+   "ops_budget": 5000000,
+   "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
+   "rates": {
+    "BP_V_INSERTER_GEOMETRY": 10.75,
+    "BP_V_ROUTE_DISCONTINUOUS": 2.0,
+    "BP_V_TARGET_SHORTFALL": 1.0,
+    "BP_V_TRANSFER_BROKEN": 24.0,
+    "BP_V_TRANSPORT_UNUSED": 140.25
+   },
+   "schema_version": 1,
+   "timeout": 1800,
+   "timings": {
+    "wall_seconds": 56.1
+   },
+   "tool": "real_sheet_census"
+  },
+  "full": {
+   "case": "player-red-science-1s",
+   "census": {
+    "BP_V_INSERTER_GEOMETRY": 485,
+    "BP_V_ROUTE_DISCONTINUOUS": 69,
+    "BP_V_TARGET_SHORTFALL": 47,
+    "BP_V_TRANSFER_BROKEN": 1138,
+    "BP_V_TRANSPORT_UNUSED": 6984
+   },
+   "certifiable": false,
+   "counters": {
+    "attempts_by_stage": {
+     "validate": 47
+    },
+    "entities_delivered": 0,
+    "records": 8723,
+    "validate_attempts": 47
+   },
+   "envelope": {
+    "ok": false,
+    "stage": "failed",
+    "terminal_code": "BP_FAIL_SEARCH_BUDGET"
+   },
+   "interpreter": "lua5.2",
+   "ops_budget": 40000000,
+   "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
+   "rates": {
+    "BP_V_INSERTER_GEOMETRY": 10.3191,
+    "BP_V_ROUTE_DISCONTINUOUS": 1.4681,
+    "BP_V_TARGET_SHORTFALL": 1.0,
+    "BP_V_TRANSFER_BROKEN": 24.2128,
+    "BP_V_TRANSPORT_UNUSED": 148.5957
+   },
+   "schema_version": 1,
+   "timeout": 1800,
+   "timings": {
+    "wall_seconds": 340.86
+   },
+   "tool": "real_sheet_census"
+  }
+ }
+}

@@ -1,0 +1,5 @@
+!tests/acceptance/red_science_case.lua
+!tests/acceptance/lib/chains.lua
+!tests/golden/lib/runner.py
+tests/tools/test_real_sheet_census.py
+tests/golden/required-matrix.json

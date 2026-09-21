@@ -1151,7 +1151,15 @@ local function step_ports(steps, catalog, flows)
         for _, entry in ipairs(step.inputs or {}) do
             if entry.external ~= false then
                 local port = copy(entry)
-                port.port_id = entry.port_id or ("in:" .. tostring(entry.flow_id or entry.full_name))
+                --Contract 27.4: a port id must be unique inside the candidate. The old flow-only form
+                --"in:"..flow was minted here AND, byte for byte, by logic/bp/plan.lua:646 for the perimeter
+                --terminal of the same flow. logic/bp/validate.lua:1740 looks bindings up in a single-valued
+                --port_by_id, so one shadowed the other and check_ports judged the binding against the wrong
+                --role -- six BP_V_PORT_EDGE_WRONG records "binding source has role in" on player-am2-chain.
+                --Qualifying by step makes the two id spaces disjoint; a perimeter id never carries a step.
+                --tests/test_blueprint_physical_contract.lua:130-136 already asserts this exact shape.
+                port.port_id = entry.port_id
+                    or (tostring(step.step_id) .. ":in:" .. tostring(entry.flow_id or entry.full_name))
                 port.role = "in"
                 port.kind = entry.kind or (flow_is_fluid(entry, flows) and "fluid" or "item")
                 port.is_fluid = port.kind == "fluid" or entry.is_fluid == true
@@ -1173,7 +1181,9 @@ local function step_ports(steps, catalog, flows)
         for _, entry in ipairs(step.outputs or {}) do
             if entry.external ~= false then
                 local port = copy(entry)
-                port.port_id = entry.port_id or ("out:" .. tostring(entry.flow_id or entry.full_name))
+                --Contract 27.4, the output twin of the rule above.
+                port.port_id = entry.port_id
+                    or (tostring(step.step_id) .. ":out:" .. tostring(entry.flow_id or entry.full_name))
                 port.role = "out"
                 port.kind = entry.kind or (flow_is_fluid(entry, flows) and "fluid" or "item")
                 port.is_fluid = port.kind == "fluid" or entry.is_fluid == true

@@ -257,9 +257,12 @@ local function connector_id(name)
         and defines.wire_connector_id[name] ~= nil then
         return defines.wire_connector_id[name]
     end
-    --The data contract gives pole_copper the first connector id.  Keeping the
-    --fallback makes the pure module usable without the Factorio globals too.
-    return 0
+    --The fallback exists so the pure module works without the Factorio globals.  It is 5 because the player's
+    --own 2.0.77 blueprint writes 5 on both ends of all twelve of its pole-to-pole copper wires, measured from
+    --its bytes on 2026-09-21.  It was 0 on the belief that pole_copper takes the FIRST connector id, which is a
+    --guess about field order rather than an observation, and factorio-draftsman is no oracle here: it accepted
+    --an invented connector id of 99 and round-tripped `wires` as None.
+    return 5
 end
 
 local function supplied_connector_id(input, name)

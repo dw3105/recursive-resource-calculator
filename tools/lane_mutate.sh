@@ -116,6 +116,27 @@ case "$mutation" in
     #into several perimeter-length runs.
     terminals-headcount)
         apply logic/bp/search.lua 'terminals_for_demand\([^()]*\)' '1' ;;
+    #Round 15, contract section 27. Each mutation below binds to code the task MANDATES, so a red proof cannot
+    #bind to nothing.
+    #
+    #130: the block port stops carrying the inserter it belongs to, so pack cannot tell an anchored port from
+    #a synthetic one and relocates it again -- which is why the belt never ended on the hand's tile.
+    port-anchor-off)
+        apply logic/bp/groups.lua '(inserter_id *= *)inserter_id' '\1nil' ;;
+    #130: packing offers the whole perimeter to an anchored port again, which is pack.lua:141-160 before the fix.
+    slot-override-on)
+        apply logic/bp/pack.lua '(pinned *= *)[^,;}\n]+' '\1false' ;;
+    #130 and spine: the port id goes back to the flow-only form, which collides byte for byte with the
+    #perimeter terminal id logic/bp/plan.lua:646 mints for the same flow.
+    port-id-flow-only)
+        apply logic/bp/groups.lua 'tostring\(step[.]step_id\) [.][.] ":in:"' '"in:"' ;;
+    #132: the transport-unused rejection still fires and still names its entity, under a code nobody expects.
+    #The census then reads zero for it, which is exactly the suppression tests/test_census_codes_live.lua guards.
+    census-code-unused)
+        apply logic/bp/validate.lua 'BP_V_TRANSPORT_UNUSED' 'BP_V_MUTANT_CODE' ;;
+    #132: the copper connector id goes back to the guess, so every delivered wire reads as non-copper.
+    connector-zero)
+        apply logic/bp/validate.lua '(pole_copper *= *)5' '\g<1>0' ;;
     #124: the wrapper reports reconciliation as validation again, which is the defect at generate.lua:414.
     validation-reconciliation)
         apply tests/golden/generate.lua '(local physical *= *)[^\n]+' '\1{ok = true}' ;;

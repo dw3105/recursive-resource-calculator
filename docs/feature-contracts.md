@@ -1002,3 +1002,79 @@ genuinely unavailable offline that is a **named refusal**, never a silent drop.
 outnumber planned ports or the beacon count is zero, and `:1262-1266` fast-forwards every cursor to the end,
 so `Validate.compare` never sees the rest. The search must instead prove its bound, compare its documented
 alternatives, or report a bounded heuristic result **naming what it discarded**.
+
+## 27. The port anchor: a hand and its port are the same tile (2026-09-21, round 15, frozen before lanes 130-133)
+
+Round 14 closed the bypass that stopped the validator failing, and the product still could not produce. The
+census on the player's own captured red-science sheet, measured on `legalcopilot-dev`, was 17265
+`BP_V_TRANSPORT_UNUSED`, 2706 `BP_V_TRANSFER_BROKEN`, 1114 `BP_V_INSERTER_GEOMETRY`, 180
+`BP_V_ROUTE_DISCONTINUOUS`.
+
+Those are four symptoms of one defect. The decisive line is `logic/bp/validate.lua:1381-1382`: a belt
+carrying the right flow must sit **on the inserter's own outward tile**. Routing only ever terminates a belt
+at a block **port** (`logic/bp/route.lua:406-417`), and route reads no inserter at all (`route.lua:3`). Four
+independent causes keep the port and the hand apart:
+
+- `groups.lua:490-500` mints one port per (step, flow) from `members_by_step[step_id][1]`, the **first**
+  machine, so every later machine of a multi-machine step has no port of its own;
+- `groups.lua:359-360` aims an input inserter at the machine's LEFT face, which is interior for every machine
+  after the leftmost; measured on the player's sheet, 1 of 18 inserters had its outward cell on the edge;
+- `groups.lua:1044-1048` inflates `block.w`/`block.h` to the port count **after** the inserters are placed,
+  which moves an outward cell that was on the edge into the interior;
+- `pack.lua:199-200` filters a source-frame slot by placed dimensions and `pack.lua:256-258` tries only the
+  region corner, so packing silently relocates a port that groups had anchored correctly.
+
+Section 26.3 forbids guessing an inserter's cells. Section 27 is the missing half: the cells must be
+**reachable**, and there must be **one port per hand**.
+
+### 27.1 One port per hand
+
+**Every port-bound item inserter in a block has exactly one block port, and every block port has exactly one
+inserter.** A port is never shared between two machines, whatever flow it carries or which step it serves.
+
+An inserter is *port-bound* when its counterpart lies outside the block. An inserter whose counterpart is
+another member of the same block is machine-to-machine and needs no port.
+
+### 27.2 The port sits on the hand's outward cell
+
+**An inserter's outward cell is its pickup cell when it feeds a machine and its drop cell when it drains
+one**, each derived from the catalog's captured offsets rotated into the entity frame (26.3).
+
+The block layout places every port-bound item inserter so that this cell lies on the block's one-tile
+perimeter ring, and the port bound to that inserter attaches to exactly that cell. When no legal placement
+achieves it, the block **fails by name**. It never falls back to a synthetic port slot, because a port with
+no hand behind it is the defect this section exists to forbid.
+
+### 27.3 Nothing moves an anchored port
+
+**Packing chooses a placement and a rotation; it never chooses a different attachment for an anchored port.**
+
+When an anchored port's tile is unusable in a placement, that **placement** is rejected, not the anchor. The
+machinery for that already exists: `pack.lua:210` requires the port tile and its approach tile to be free and
+`pack.lua:214` rejects the whole placement when a port has no usable option. Today it is used to pick a
+different tile; under 27.3 it picks a different place for the block.
+
+### 27.4 A port id is unique in the candidate
+
+**Two physically distinct ports never share an id, whatever flow they carry.**
+
+A block port id is `<member_id>:<role>:<flow_id>`, minted by `logic/bp/groups.lua` and by nothing else. It can
+never collide with a perimeter terminal id, which is minted by `logic/bp/plan.lua` and carries no member
+prefix. `logic/bp/validate.lua:1740` looks bindings up in a single-valued `port_by_id`, so two ports sharing
+an id means one shadows the other and the binding is judged against the wrong role.
+
+The round 14 `work.external_ids` patch (`validate.lua:681-685`, `:700`, `:1741-1742`) recovered the
+`perimeter` marker that the dedupe destroyed. Once ids are disjoint it is dead and is deleted.
+
+### 27.5 The census is measured per candidate, never in total
+
+**A code's census is its count divided by the number of candidates that reached `validate`.**
+
+A raw total falls when fewer candidates are judged, which rewards a change that gives up sooner. The
+denominator is reported with every census and may never fall below its baseline, because a rate with a
+collapsing denominator is the same lie from the other side. `logic/bp/search.lua:112` stamps each rejection
+record with its attempt ordinal and refusing stage so the flat record list can be counted at all.
+
+A code that a change stops emitting scores zero, which is indistinguishable from a code that was fixed. So
+every counted code carries a live emitter test (`tests/test_census_codes_live.lua`) that builds a candidate
+which must provoke it. Deleting an emitter zeroes the census and turns that test red in the same run.

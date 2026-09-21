@@ -48,8 +48,10 @@ local function assert_legal_edges(result, message)
     for _, edge in ipairs(result.wires) do
         local a, b = wire_endpoints(result, edge)
         H.equal(a ~= nil and b ~= nil, true, message .. " endpoints exist")
-        H.equal(edge.a_connector, 0, message .. " starts on copper")
-        H.equal(edge.b_connector, 0, message .. " ends on copper")
+        --pole_copper is 5, measured from the player's own 2.0.77 blueprint on 2026-09-21, not guessed from
+        --the position of the field. logic/bp/power.lua, logic/bp/validate.lua and tests/harness.lua all say 5.
+        H.equal(edge.a_connector, 5, message .. " starts on copper")
+        H.equal(edge.b_connector, 5, message .. " ends on copper")
         H.equal(wire_distance(a, b) <= math.min(a.wire_reach, b.wire_reach) + 1e-9,
             true, message .. " is inside both endpoint reaches")
     end

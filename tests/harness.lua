@@ -874,8 +874,12 @@ function H.new_world(shape)
         mouse_button_type = {none = 1, left = 2, right = 4, middle = 3},
         --2.0 serializes directions on the 16-step scale; a blueprint only ever uses the four cardinals
         direction = {north = 0, northeast = 2, east = 4, southeast = 6, south = 8, southwest = 10, west = 12, northwest = 14},
-        --copper carries power, the circuit connectors never do; a wire edge is legal only between copper connectors
-        wire_connector_id = {pole_copper = 0, power_switch_left_copper = 1, power_switch_right_copper = 2,
+        --copper carries power, the circuit connectors never do; a wire edge is legal only between copper connectors.
+        --pole_copper is 5, not 0: the player's own 2.0.77 blueprint writes 5 on both ends of all twelve of its
+        --pole-to-pole copper wires (~/share/RRC/red_science_1s_manual_bp.txt, measured 2026-09-21). The mock had
+        --invented 0 from the position of the field rather than from the engine, and logic/bp/power.lua copied that
+        --guess into every offline wire it emitted.
+        wire_connector_id = {pole_copper = 5, power_switch_left_copper = 1, power_switch_right_copper = 2,
             circuit_red = 3, circuit_green = 4},
         wire_type = {copper = 0, red = 1, green = 2}}
     --named sprite prototypes the data stage defined; item, fluid and entity paths are checked against their prototypes

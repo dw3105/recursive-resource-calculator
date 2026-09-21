@@ -1,0 +1,6 @@
+{
+ "schema_version": 1,
+ "task": "130_anchor",
+ "note": "A waiver is a CEILING, never a mute. It names the code that may rise, how far, why a correct fix makes it rise, and which task repays it. `census_gate.py --prove-waiver` runs the gate twice and fails the lane if the waiver changes no outcome, because a waiver that is not load-bearing is a lie. Integration runs --no-waivers on the merged tree: a lane may borrow, the round must repay. Leave `waivers` empty unless a measured rise forces one.",
+ "waivers": []
+}
