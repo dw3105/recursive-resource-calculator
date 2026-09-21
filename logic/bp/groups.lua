@@ -361,7 +361,13 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
     else
         desired_x, desired_y = machine.x + math.max(0, math.min(machine.w - iw, index - 1)), machine.y + machine.h
     end
-    local occupied = block.members or {}
+    --Inserters are appended to block.inserters, never to block.members, so a members-only occupancy test
+    --cannot see an inserter this same call placed a moment ago. Measured on the player's sheet: the two input
+    --inserters of assembling-machine-2 both scored the same best cell and the candidate rejected with
+    --BP_V_COLLISION naming `:input:3` against `:input:4`.
+    local occupied = {}
+    for _, member in ipairs(block.members or {}) do occupied[#occupied + 1] = member end
+    for _, placed in ipairs(block.inserters or {}) do occupied[#occupied + 1] = placed end
     local best, best_score
     -- Offsets are prototype facts, not necessarily one tile.  The bounded search covers the ordinary inserter
     -- envelope plus modded long-reach prototypes without ever trying a different inserter family.

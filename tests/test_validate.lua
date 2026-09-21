@@ -316,6 +316,48 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(has_code(state, "BP_V_WIRE_ILLEGAL"), false, "the boundary edge is not illegal")
         H.equal(has_code(state, "BP_V_WIRE_DISCONNECTED"), false, "the boundary edge connects the poles")
     end)
+    -- -----------------------------------------------------------------------------------------------------
+    -- A block port and an external terminal may carry the SAME id. groups.lua:1154 names a block port
+    -- `in:<flow>` and search.lua:811 reuses that id for the perimeter terminal, so the two collide exactly.
+    -- collect_ports adds root.ports before root.external_ports and dedupes by id, so once the candidate began
+    -- carrying its placed ports the block-local copy won and the `perimeter` marker was lost. A binding whose
+    -- source is an external SUPPLY legitimately carries role "in", and six of them rejected on the player's
+    -- sheet as BP_V_PORT_EDGE_WRONG.
+    -- -----------------------------------------------------------------------------------------------------
+
+    H.test(shape .. " V17 an external supply shadowed by a same-named block port still binds", function()
+        local state = finish({grid = {w = 6, h = 4}, catalog = catalog(),
+            entities = {{id = "p", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1}},
+            --The block-local copy is listed FIRST and carries a block id, exactly as the producer emits it.
+            --The sink must exist, or the binding rejects with the SAME code for a different reason:
+            --"binding sink port is missing". A row that passes on a neighbouring reason is not a row.
+            ports = {{port_id = "in:item/iron-plate", flow_id = "item/iron-plate", role = "in",
+                      block_id = "b1", x = 0, y = 1, rate_per_second = 1},
+                     {port_id = "sink:item/iron-plate", flow_id = "item/iron-plate", role = "in",
+                      block_id = "b2", x = 3, y = 1, rate_per_second = 1}},
+            external_ports = {{port_id = "in:item/iron-plate", flow_id = "item/iron-plate", role = "in",
+                               perimeter = true, x = 0, y = 1, rate_per_second = 1}},
+            bindings = {{source_port_id = "in:item/iron-plate", sink_port_id = "sink:item/iron-plate",
+                         flow_id = "item/iron-plate", rate_per_second = 1}},
+        })
+        H.equal(has_code(state, "BP_V_PORT_EDGE_WRONG"), false,
+            "an external supply keeps its role even when a block port shares its id")
+    end)
+
+    H.test(shape .. " V18 a block port that is NOT declared external still fails the binding role", function()
+        --The positive control for V17. Without it, V17 is satisfied by dropping the rule entirely.
+        local state = finish({grid = {w = 6, h = 4}, catalog = catalog(),
+            entities = {{id = "p", kind = "pole", name = "pole", x = 0, y = 0, w = 1, h = 1}},
+            ports = {{port_id = "in:item/iron-plate", flow_id = "item/iron-plate", role = "in",
+                      block_id = "b1", x = 0, y = 1, rate_per_second = 1},
+                     {port_id = "sink:item/iron-plate", flow_id = "item/iron-plate", role = "in",
+                      block_id = "b2", x = 3, y = 1, rate_per_second = 1}},
+            bindings = {{source_port_id = "in:item/iron-plate", sink_port_id = "sink:item/iron-plate",
+                         flow_id = "item/iron-plate", rate_per_second = 1}},
+        })
+        H.equal(has_code(state, "BP_V_PORT_EDGE_WRONG"), true,
+            "a block-local source with role in is still rejected when nothing declares it external")
+    end)
 end
 
 H.done("test_validate")

@@ -671,6 +671,18 @@ local function make_work(input)
     local wires = list_from(root.wires or (root.power and root.power.wires))
     local flows = flow_list(root.flows or (root.route and root.route.flows) or (plan and plan.flows))
     local blocks = list_from(root.blocks); local ports = collect_ports(root); local port_by_id = port_index(ports)
+    --Which ids the candidate DECLARES as external terminals. groups.lua:1154 names a block port `in:<flow>`
+    --and search.lua:811 reuses that same id for the perimeter terminal, so the two collide exactly.
+    --collect_ports adds root.ports before root.external_ports and dedupes by id, so once spine started filling
+    --candidate.ports the block-local copy won and its `perimeter` marker was lost. A binding whose source is
+    --an external supply legitimately carries role "in", and it began rejecting as BP_V_PORT_EDGE_WRONG.
+    --This set is consulted ONLY by the binding role rule, never by reachability, so a block port never gains
+    --external reach from sharing a name.
+    local external_ids = {}
+    for _, port in ipairs(list_from(root.perimeter_ports or root.external_ports)) do
+        local id = port.port_id or port.id
+        if id ~= nil then external_ids[id] = true end
+    end
     local segments = collect_segments(root); local segment_by_id = map_by_id(segments)
     local bindings = collect_bindings(root); local steps = step_map(plan); local placements = placement_map(root.placements)
     local machines, beacons, poles, power_nodes, roboports, inserters, consumers = {}, {}, {}, {}, {}, {}, {}
@@ -685,6 +697,7 @@ local function make_work(input)
     end
     local work = {input = input, root = root, plan = plan, catalog = catalog, blocks = blocks, entities = entities, infos = infos, info_by_id = info_by_id,
         grid_w = grid_w, grid_h = grid_h, wires = wires, flows = flows, ports = ports, port_by_id = port_by_id,
+        external_ids = external_ids,
         segments = segments, segment_by_id = segment_by_id, bindings = bindings, steps = steps, placements = placements,
         machines = machines, beacons = beacons, poles = poles, power_nodes = power_nodes, roboports = roboports, inserters = inserters,
         consumers = consumers, ids = connector_ids(input), errors = {}, legal_wires = {}, power_parent = {},
@@ -1725,8 +1738,10 @@ local function check_ports(work)
     local bound_source, bound_sink = {}, {}
     for _, binding in ipairs(work.bindings) do
         local source_id, sink_id = binding.source_port_id or binding.source, binding.sink_port_id or binding.sink; local source, sink = work.port_by_id[source_id], work.port_by_id[sink_id]
-        local source_ok = source and (source.role == "out" or (source.role == "in" and is_external_port(source)))
-        local sink_ok = sink and (sink.role == "in" or (sink.role == "out" and is_external_port(sink)))
+        local source_external = source and (is_external_port(source) or work.external_ids[source_id] == true)
+        local sink_external = sink and (is_external_port(sink) or work.external_ids[sink_id] == true)
+        local source_ok = source and (source.role == "out" or (source.role == "in" and source_external))
+        local sink_ok = sink and (sink.role == "in" or (sink.role == "out" and sink_external))
         local bad = not source or not sink or not source_ok or not sink_ok; local flow_id = binding.flow_id
         if not bad and flow_id then
             local source_flow, sink_flow = source.flow_id or source.full_name, sink.flow_id or sink.full_name
