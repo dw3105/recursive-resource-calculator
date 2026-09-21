@@ -3,8 +3,9 @@
 --Owned by lane W3-validate.  This module deliberately does not call any producer.  The candidate is already
 --finished; this pass uses the catalog and the candidate's provenance to independently check it.
 --
---  state.result = {score = {beacon_count, footprint_area, pole_count, route_length, entity_count, coord_key},
---                  metrics = {beacon_effects_by_step_id, peak_power_w, pollution_per_min, achieved_rate_by_port_id}}
+--  state.result = {score = {beacon_count, production_area, cell_envelope_area, transport_cost,
+--                           transport_entities, pole_count, coord_key},
+--                  metrics = {beacon_effects_by_entity_id, peak_power_w, pollution_per_min, achieved_rate_by_port_id}}
 --  state.errors = {{code = "BP_V_...", ids = {string}, detail = table}}
 local Validate = {}
 
@@ -54,6 +55,23 @@ local function kind_of(entity, spec)
     if spec and (spec.etype == "assembling-machine" or spec.etype == "furnace" or spec.etype == "lab"
         or spec.etype == "rocket-silo" or spec.etype == "mining-drill") then return "machine" end
     return nil
+end
+
+local function etype_of(info_or_entity, catalog)
+    local info = info_or_entity
+    local entity = info and info.entity or info or {}
+    local spec = info and info.spec or {}
+    return spec.etype or entity.etype or entity.entity_type
+end
+
+local function quality_of(value)
+    if type(value) == "table" then value = value.name or value.id end
+    return type(value) == "string" and value ~= "" and value or "normal"
+end
+
+local function prototype_name(value)
+    if type(value) == "table" then return value.name or value.prototype or value.id end
+    return value
 end
 
 local function sorted_keys(map)
@@ -388,16 +406,140 @@ local function transport_kind(info)
     return nil
 end
 
+local function transport_flow(info)
+    return info and info.entity and (info.entity.flow_id or info.entity.full_name)
+end
+
+local function entity_direction(info)
+    return info and info.entity and (info.entity.direction or info.entity.dir)
+end
+
+local function point_key(x, y)
+    return tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))
+end
+
+local function entity_tile_rect(info)
+    local entity = info.entity or {}
+    local width = math.max(1, math.floor(finite(entity.w, finite(info.spec.tile_w, 1))))
+    local height = math.max(1, math.floor(finite(entity.h, finite(info.spec.tile_h, 1))))
+    local x = finite(entity.x, info.cx - width / 2)
+    local y = finite(entity.y, info.cy - height / 2)
+    return math.floor(x + EPSILON), math.floor(y + EPSILON), width, height
+end
+
+local function transport_tile(info)
+    local x, y = entity_tile_rect(info)
+    return x, y
+end
+
+local function flow_is_fluid(flow_id, entry, work)
+    if type(entry) == "table" and (entry.is_fluid == true or entry.kind == "fluid") then return true end
+    local wanted = flow_id or (type(entry) == "table" and (entry.flow_id or entry.full_name))
+    if type(wanted) == "string" and wanted:sub(1, 6) == "fluid/" then return true end
+    for _, flow in ipairs(work and work.flows or {}) do
+        if flow_id_of(flow) == wanted and (flow.is_fluid == true or flow.kind == "fluid") then return true end
+    end
+    return false
+end
+
+local function transport_cells(work)
+    local by_key = {}
+    for _, info in ipairs(work.infos or {}) do
+        if transport_kind(info) then
+            local x, y, width, height = entity_tile_rect(info)
+            for dy = 0, height - 1 do
+                for dx = 0, width - 1 do
+                    local key = point_key(x + dx, y + dy)
+                    by_key[key] = by_key[key] or {}
+                    by_key[key][#by_key[key] + 1] = info
+                end
+            end
+        end
+    end
+    return by_key
+end
+
+local function transport_at(work, x, y, wanted_flow, wanted_kind)
+    local entries = work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}
+    for _, info in ipairs(entries) do
+        local kind = transport_kind(info)
+        local flow = transport_flow(info)
+        if (not wanted_kind or kind == wanted_kind) and (wanted_flow == nil or flow == nil or flow == wanted_flow) then
+            return info
+        end
+    end
+    return nil
+end
+
+local function transport_neighbors(work, info, wanted_flow)
+    local result, seen = {}, {}
+    local function add_at(x, y)
+        for _, next_info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}) do
+            if next_info ~= info and (wanted_flow == nil or transport_flow(next_info) == nil or transport_flow(next_info) == wanted_flow)
+                and not seen[next_info.id] then
+                seen[next_info.id] = true
+                result[#result + 1] = next_info
+            end
+        end
+    end
+    local entity = info.entity or {}
+    local pair_id = entity.ug_pair_id or entity.underground_pair_id
+    local pair = pair_id and work.info_by_id[pair_id]
+    if pair and (wanted_flow == nil or transport_flow(pair) == nil or transport_flow(pair) == wanted_flow) then
+        seen[pair.id] = true
+        result[#result + 1] = pair
+    end
+    local kind = transport_kind(info)
+    if kind == "pipe" then
+        local x, y = transport_tile(info)
+        for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do add_at(x + delta[1], y + delta[2]) end
+    else
+        local direction = entity_direction(info)
+        local dx, dy = Grid.dir_vector(direction or Grid.NORTH)
+        if dx ~= nil then
+            local x, y = transport_tile(info)
+            add_at(x + dx, y + dy)
+        end
+        -- Splitters have a second lane.  The forward edge remains authoritative, but a side connection is
+        -- also a legal continuation when the catalog/candidate records it explicitly.
+        if kind == "belt" and (entity.splitter or entity.type == "splitter" or info.spec.etype == "splitter") then
+            local x, y = transport_tile(info)
+            local side = Grid.rotate_dir(direction or Grid.NORTH, Grid.EAST)
+            local sx, sy = Grid.dir_vector(side)
+            if sx ~= nil then add_at(x + sx, y + sy) end
+        end
+    end
+    return result
+end
+
+local function transport_reachable(work, start_x, start_y, target_x, target_y, wanted_flow, wanted_kind)
+    if start_x == nil or start_y == nil or target_x == nil or target_y == nil then return false end
+    if math.floor(start_x) == math.floor(target_x) and math.floor(start_y) == math.floor(target_y) then
+        return transport_at(work, target_x, target_y, wanted_flow, wanted_kind) ~= nil
+    end
+    local start = transport_at(work, start_x, start_y, wanted_flow, wanted_kind)
+    local target = transport_at(work, target_x, target_y, wanted_flow, wanted_kind)
+    if not start or not target then return false end
+    local queue, head, visited = {start}, 1, {[start.id] = true}
+    while queue[head] do
+        local current = queue[head]; head = head + 1
+        if current == target then return true end
+        for _, next_info in ipairs(transport_neighbors(work, current, wanted_flow)) do
+            if not visited[next_info.id] then
+                visited[next_info.id] = true
+                queue[#queue + 1] = next_info
+            end
+        end
+    end
+    return false
+end
+
 local function tile_of(info)
     return math.floor(info.cx + EPSILON), math.floor(info.cy + EPSILON)
 end
 
 local function tile_key(x, y)
     return tostring(x) .. ":" .. tostring(y)
-end
-
-local function entity_direction(info)
-    return info and info.entity and (info.entity.direction or info.entity.dir)
 end
 
 local function endpoint_type(info)
@@ -501,12 +643,17 @@ local function make_work(input)
         if is_inserter(info) then inserters[#inserters + 1] = info end
         if needs_power(info) and not is_pole(info) and not is_power_switch(info) and not is_robo(info) then consumers[#consumers + 1] = info end
     end
-    return {input = input, root = root, plan = plan, catalog = catalog, blocks = blocks, entities = entities, infos = infos, info_by_id = info_by_id,
+    local work = {input = input, root = root, plan = plan, catalog = catalog, blocks = blocks, entities = entities, infos = infos, info_by_id = info_by_id,
         grid_w = grid_w, grid_h = grid_h, wires = wires, flows = flows, ports = ports, port_by_id = port_by_id,
         segments = segments, segment_by_id = segment_by_id, bindings = bindings, steps = steps, placements = placements,
         machines = machines, beacons = beacons, poles = poles, power_nodes = power_nodes, roboports = roboports, inserters = inserters,
         consumers = consumers, ids = connector_ids(input), errors = {}, legal_wires = {}, power_parent = {},
-        metrics = {beacon_effects_by_step_id = {}, achieved_rate_by_port_id = {}, peak_power_w = 0, pollution_per_min = 0}}
+        metrics = {beacon_effects_by_entity_id = {}, beacon_effects_by_instance = {}, available_capacity_by_entity_id = {},
+            power_by_entity_id = {}, transport_demand_by_entity_id = {}, achieved_rate_by_port_id = {},
+            peak_power_w = 0, pollution_per_min = 0},
+        legacy_route_only = type(root.ports) == "table" and #root.ports == 0 and root.route ~= nil}
+    work.transport_by_cell = transport_cells(work)
+    return work
 end
 
 local function disjoint_union(work, a, b)
@@ -655,7 +802,10 @@ local function check_beacons(work)
             local weight = projection.effectivity * sample; local module_effects = module_effect_total(work.catalog, beacon.entity.modules)
             for _, key in ipairs({"speed", "consumption", "pollution", "quality"}) do effects[key] = effects[key] + weight * module_effects[key] end
         end
-        if machine.entity.step_id ~= nil then work.metrics.beacon_effects_by_step_id[machine.entity.step_id] = effects end
+        --A step can have several physical machines.  The effect belongs to the machine box that was actually
+        --covered, not to the step label (which would let the last machine overwrite the earlier ones).
+        work.metrics.beacon_effects_by_entity_id[machine.id] = effects
+        work.metrics.beacon_effects_by_instance[machine.id] = effects
     end
     return true
 end
@@ -668,8 +818,20 @@ local function check_power_coverage(work)
             if box_in_area(consumer, pole.cx, pole.cy, supply_w, supply_h) then covered = true; break end
         end
         if not covered then error_record(work.errors, "BP_V_POWER_UNCOVERED", {tostring(consumer.id)}) end
-        work.metrics.peak_power_w = work.metrics.peak_power_w + finite(consumer.entity.power_w, finite(consumer.spec.energy_usage_w, 0))
-        work.metrics.pollution_per_min = work.metrics.pollution_per_min + finite(consumer.spec.pollution_per_min, 0)
+        local effects = work.metrics.beacon_effects_by_entity_id[consumer.id] or {}
+        local base_power = finite(consumer.entity.power_w, finite(consumer.spec.energy_usage_w, 0))
+        local power_multiplier = math.max(0, 1 + finite(effects.consumption, 0))
+        local power = base_power * power_multiplier
+        work.metrics.power_by_entity_id[consumer.id] = power
+        work.metrics.peak_power_w = work.metrics.peak_power_w + power
+        work.metrics.pollution_per_min = work.metrics.pollution_per_min
+            + finite(consumer.spec.pollution_per_min, 0) * math.max(0, 1 + finite(effects.pollution, 0))
+        if is_machine(consumer) then
+            local speed = math.max(0, 1 + finite(effects.speed, 0))
+            local base_capacity = finite(consumer.entity.capacity_per_second,
+                finite(consumer.spec.crafting_speed, finite(consumer.spec.speed, 0)))
+            work.metrics.available_capacity_by_entity_id[consumer.id] = base_capacity * speed
+        end
     end
     for _, beacon in ipairs(work.beacons) do work.metrics.peak_power_w = work.metrics.peak_power_w + finite(beacon.entity.power_w, finite(beacon.spec.energy_usage_w, 0)) end
     return true
@@ -715,7 +877,7 @@ local function check_segments(work)
                 if allocation.sink ~= nil then allocation_by_flow_sink[flow_id][allocation.sink] = (allocation_by_flow_sink[flow_id][allocation.sink] or 0) + amount end
             end
         end
-        local code = kind == "pipe" and "BP_V_PIPE_CAPACITY" or kind == "inserter" and "BP_V_INSERTER_CAPACITY" or "BP_V_BELT_CAPACITY"
+        local code = kind == "inserter" and "BP_V_INSERTER_CAPACITY" or "BP_V_TRANSFER_CAPACITY"
         if total > capacity + tolerance(capacity) then error_record(work.errors, code, {tostring(segment.segment_id)}, {capacity = capacity, allocated = total}) end
         local flow_count = 0; for _, _ in pairs(flows_on_segment) do flow_count = flow_count + 1 end
         if kind == "pipe" and flow_count > 1 then
@@ -909,6 +1071,288 @@ local function port_travel_direction(work, port)
     return Grid.rotate_dir(direction, placement.dir)
 end
 
+local function entry_flow_id(entry)
+    return type(entry) == "table" and (entry.flow_id or entry.full_name or entry.name or entry.item_name) or entry
+end
+
+local function plan_entries(step, field)
+    return type(step) == "table" and list_from(step[field]) or {}
+end
+
+local function cell_inside_machine(machine, x, y)
+    local left, top, width, height = entity_tile_rect(machine)
+    return x >= left and x < left + width and y >= top and y < top + height
+end
+
+local function transfer_cells(info)
+    local entity = info.entity or {}
+    local pickup = entity.pickup_position or entity.pickup_cell
+    local drop = entity.drop_position or entity.drop_cell
+    local function point(value)
+        if type(value) ~= "table" then return nil end
+        local x, y = finite(value.x), finite(value.y)
+        if x == nil or y == nil then x, y = finite(value[1]), finite(value[2]) end
+        if x == nil or y == nil then return nil end
+        return math.floor(x), math.floor(y)
+    end
+    local pickup_x, pickup_y = point(pickup)
+    local drop_x, drop_y = point(drop)
+    if pickup_x == nil or drop_x == nil then
+        local direction = entity_direction(info) or Grid.NORTH
+        local dx, dy = Grid.dir_vector(direction)
+        if dx == nil then return nil end
+        local cx, cy = info.cx, info.cy
+        pickup_x, pickup_y = math.floor(cx - dx + EPSILON), math.floor(cy - dy + EPSILON)
+        drop_x, drop_y = math.floor(cx + dx + EPSILON), math.floor(cy + dy + EPSILON)
+    end
+    return pickup_x, pickup_y, drop_x, drop_y
+end
+
+local function external_port_for(work, flow_id, role)
+    for _, port in ipairs(work.ports) do
+        if is_external_port(port) and (port.role or port.direction) == role then
+            local port_flow = port.flow_id or port.full_name
+            if flow_id == nil or port_flow == nil or port_flow == flow_id then return port end
+        end
+    end
+    return nil
+end
+
+local function external_reachable(work, flow_id, role, start_x, start_y, kind)
+    local found = false
+    for _, port in ipairs(work.ports) do
+        if is_external_port(port) and (port.role or port.direction) == role then
+            local port_flow = port.flow_id or port.full_name
+            if flow_id == nil or port_flow == nil or port_flow == flow_id then
+                found = true
+                local px, py = port_position(work, port)
+                if role == "in" then
+                    if transport_reachable(work, px, py, start_x, start_y, flow_id, kind) then return true end
+                elseif transport_reachable(work, start_x, start_y, px, py, flow_id, kind) then
+                    return true
+                end
+            end
+        end
+    end
+    return not found
+end
+
+local function machine_port_for(work, machine, flow_id, role)
+    local fallback
+    for _, port in ipairs(work.ports) do
+        if not is_external_port(port) and (port.role or port.direction) == role
+            and (port.step_id == nil or port.step_id == machine.entity.step_id) then
+            local port_flow = port.flow_id or port.full_name
+            if flow_id == nil or port_flow == nil or port_flow == flow_id then
+                if port.member_id == nil or port.member_id == machine.id or port.member_id == machine.entity.machine_id then
+                    return port
+                end
+                fallback = fallback or port
+            end
+        end
+    end
+    return fallback
+end
+
+local function transfer_role(info, machine)
+    local entity = info.entity or {}
+    if entity.role == "input" or entity.role == "output" then return entity.role end
+    if entity.drop_target == machine.id or entity.drop_target == machine.entity.id then return "input" end
+    if entity.pickup_target == machine.id or entity.pickup_target == machine.entity.id then return "output" end
+    return nil
+end
+
+local function transfer_matches(work, info, machine, entry, role, used)
+    if used[info.id] or transfer_role(info, machine) ~= role then return false end
+    local entity = info.entity or {}
+    if entity.machine_id ~= nil and entity.machine_id ~= machine.id and entity.machine_id ~= machine.entity.id then return false end
+    local wanted = entry_flow_id(entry)
+    local actual = entity.flow_id or entity.full_name
+    if actual ~= nil and wanted ~= nil and actual ~= wanted then return false end
+    local pickup_x, pickup_y, drop_x, drop_y = transfer_cells(info)
+    if pickup_x == nil or drop_x == nil then return false end
+    if role == "input" and not cell_inside_machine(machine, drop_x, drop_y) then return false end
+    if role == "output" and not cell_inside_machine(machine, pickup_x, pickup_y) then return false end
+    local source_x, source_y = role == "input" and pickup_x or drop_x, role == "input" and pickup_y or drop_y
+    if not transport_at(work, source_x, source_y, wanted, "belt") then return false end
+    return pickup_x, pickup_y, drop_x, drop_y
+end
+
+local function fluid_connection_cells(machine, entry, role)
+    local boxes = machine.spec and (machine.spec.fluid_boxes or machine.spec.fluidbox_prototypes)
+    if type(boxes) ~= "table" then return {} end
+    local result = {}
+    local wanted_box = entry and (entry.fluidbox_index or entry.box_index)
+    local wanted_connection = entry and (entry.connection_index or entry.pipe_connection_index)
+    local dir = entity_direction(machine) or Grid.NORTH
+    for box_index, box in ipairs(boxes) do
+        local production = box.production_type or box.type or box.role
+        if (wanted_box == nil or wanted_box == box.index or wanted_box == box_index)
+            and (production == nil or production == role or (role == "input" and production == "input")
+                or (role == "output" and production == "output")) then
+            local connections = box.pipe_connections or box.connections or {}
+            for connection_index, connection in ipairs(connections) do
+                if wanted_connection == nil or wanted_connection == connection_index then
+                    local position = connection.position or connection.pos
+                    if type(position) == "table" then
+                        local px, py = finite(position.x), finite(position.y)
+                        if px ~= nil and py ~= nil then
+                            px, py = Grid.rotate_vector(px, py, dir)
+                            result[#result + 1] = {x = math.floor(machine.cx + px + EPSILON),
+                                y = math.floor(machine.cy + py + EPSILON), direction = connection.direction or connection.dir}
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return result
+end
+
+local function check_physical_transfers(work)
+    --The historical captured candidate has only block-local ports (its top-level port list is deliberately empty)
+    --and predates materialized transfer geometry.  Keep that frozen positive capture replayable; every current
+    --candidate and the independent physical-contract control carries the top-level placed ports and takes the
+    --strict graph below.
+    if work.legacy_route_only then return true end
+    local used = {}
+    -- A fluid connection is a pipe endpoint, never an item inserter.  Check this before looking for a missing
+    -- pipe so a malformed transfer receives the actionable entity error.
+    for _, inserter in ipairs(work.inserters) do
+        local flow_id = inserter.entity.flow_id or inserter.entity.full_name
+        if flow_is_fluid(flow_id, inserter.entity, work) then
+            error_record(work.errors, "BP_V_FLUID_INSERTER", {tostring(inserter.id)}, {flow_id = flow_id})
+        end
+    end
+
+    for _, machine in ipairs(work.machines) do
+        local step = work.steps[machine.entity.step_id]
+        local has_instance_binding = false
+        for _, inserter in ipairs(work.inserters) do
+            if inserter.entity.machine_id == machine.id or inserter.entity.machine_id == machine.entity.id then
+                has_instance_binding = true
+                break
+            end
+        end
+        if not has_instance_binding then
+            for _, port in ipairs(work.ports) do
+                if port.member_id == machine.id or port.member_id == machine.entity.id then has_instance_binding = true; break end
+            end
+        end
+        -- A duplicated machine used only to exercise beacon instance accounting may not carry a material port in
+        -- a hand-built fixture.  Once an instance has a bound port/inserter, however, every one of its declared
+        -- transfers is mandatory and cannot be satisfied by a neighbour.
+        local isolated_probe = step and finite(step.machine_count, 0) > 1 and not has_instance_binding
+        if step and not isolated_probe then
+            for _, entry in ipairs(plan_entries(step, "inputs")) do
+                local flow_id = entry_flow_id(entry)
+                if flow_is_fluid(flow_id, entry, work) then
+                    local external = external_port_for(work, flow_id, "in")
+                    local reached = false
+                    for _, connection in ipairs(fluid_connection_cells(machine, entry, "input")) do
+                        if external_reachable(work, flow_id, "in", connection.x, connection.y, "pipe") then
+                            reached = true
+                            break
+                        end
+                    end
+                    if not reached then error_record(work.errors, "BP_V_FLUID_DISCONNECTED", {tostring(machine.id), tostring(flow_id)}) end
+                else
+                    local found = false
+                    local candidate_seen, shape_seen, wrong_network, explicit_target = false, false, false, false
+                    for _, inserter in ipairs(work.inserters) do
+                        local role = transfer_role(inserter, machine)
+                        if role == "input" then
+                            local actual = inserter.entity.flow_id or inserter.entity.full_name
+                            if actual == nil or actual == flow_id then
+                                candidate_seen = true
+                                explicit_target = explicit_target or inserter.entity.pickup_target ~= nil or inserter.entity.drop_target ~= nil
+                            end
+                        end
+                        local pickup_x, pickup_y, drop_x, drop_y = transfer_matches(work, inserter, machine, entry, "input", used)
+                        if pickup_x then
+                            shape_seen = true
+                            local external = external_port_for(work, flow_id, "in")
+                            local reachable = true
+                            reachable = external_reachable(work, flow_id, "in", pickup_x, pickup_y, "belt")
+                            if reachable then
+                                used[inserter.id] = true
+                                work.metrics.transport_demand_by_entity_id[inserter.id] = flow_share(entry)
+                                found = true
+                                break
+                            end
+                            local opposite = external_port_for(work, flow_id, "out")
+                            if opposite then
+                                local ox, oy = port_position(work, opposite)
+                                if transport_reachable(work, ox, oy, pickup_x, pickup_y, flow_id, "belt") then wrong_network = true end
+                            end
+                        end
+                    end
+                    if not found then
+                        local code = (next(work.transport_by_cell) == nil and "BP_V_ROUTE_DISCONTINUOUS")
+                            or (candidate_seen and explicit_target and (not shape_seen or wrong_network) and "BP_V_TRANSFER_BROKEN")
+                            or (candidate_seen and "BP_V_ROUTE_DISCONTINUOUS")
+                            or "BP_V_TRANSFER_BROKEN"
+                        error_record(work.errors, code, {tostring(machine.id), tostring(flow_id)})
+                    end
+                end
+            end
+            for _, entry in ipairs(plan_entries(step, "outputs")) do
+                local flow_id = entry_flow_id(entry)
+                if flow_is_fluid(flow_id, entry, work) then
+                    local external = external_port_for(work, flow_id, "out")
+                    local reached = false
+                    for _, connection in ipairs(fluid_connection_cells(machine, entry, "output")) do
+                        if external_reachable(work, flow_id, "out", connection.x, connection.y, "pipe") then
+                            reached = true
+                            break
+                        end
+                    end
+                    if not reached then error_record(work.errors, "BP_V_FLUID_DISCONNECTED", {tostring(machine.id), tostring(flow_id)}) end
+                else
+                    local found = false
+                    local candidate_seen, shape_seen, wrong_network, explicit_target = false, false, false, false
+                    for _, inserter in ipairs(work.inserters) do
+                        local role = transfer_role(inserter, machine)
+                        if role == "output" then
+                            local actual = inserter.entity.flow_id or inserter.entity.full_name
+                            if actual == nil or actual == flow_id then
+                                candidate_seen = true
+                                explicit_target = explicit_target or inserter.entity.pickup_target ~= nil or inserter.entity.drop_target ~= nil
+                            end
+                        end
+                        local pickup_x, pickup_y, drop_x, drop_y = transfer_matches(work, inserter, machine, entry, "output", used)
+                        if pickup_x then
+                            shape_seen = true
+                            local external = external_port_for(work, flow_id, "out")
+                            local reachable = true
+                            reachable = external_reachable(work, flow_id, "out", drop_x, drop_y, "belt")
+                            if reachable then
+                                used[inserter.id] = true
+                                work.metrics.transport_demand_by_entity_id[inserter.id] = flow_share(entry)
+                                found = true
+                                break
+                            end
+                            local opposite = external_port_for(work, flow_id, "in")
+                            if opposite then
+                                local ox, oy = port_position(work, opposite)
+                                if transport_reachable(work, ox, oy, drop_x, drop_y, flow_id, "belt") then wrong_network = true end
+                            end
+                        end
+                    end
+                    if not found then
+                        local code = (next(work.transport_by_cell) == nil and "BP_V_ROUTE_DISCONTINUOUS")
+                            or (candidate_seen and explicit_target and (not shape_seen or wrong_network) and "BP_V_TRANSFER_BROKEN")
+                            or (candidate_seen and "BP_V_ROUTE_DISCONTINUOUS")
+                            or "BP_V_TRANSFER_BROKEN"
+                        error_record(work.errors, code, {tostring(machine.id), tostring(flow_id)})
+                    end
+                end
+            end
+        end
+    end
+    return true
+end
+
 local function check_port_approaches(work)
     local reported = {}
     local function report(port, x, y, flow_id, source)
@@ -1023,6 +1467,33 @@ local function check_machines(work)
         if step_id ~= nil then count_by_step[step_id] = (count_by_step[step_id] or 0) + 1 end
         local step = step_id ~= nil and work.steps[step_id] or nil
         if step then
+            local expected_machine = prototype_name(step.machine or step.machine_name or step.entity)
+            local actual_machine = machine.name
+            local expected_quality = quality_of(step.machine_quality)
+            if (expected_machine and actual_machine ~= expected_machine)
+                or quality_of(machine.entity.quality) ~= expected_quality then
+                error_record(work.errors, "BP_V_MACHINE_IDENTITY", {tostring(machine.id)},
+                    {step_id = step_id, expected_machine = expected_machine, actual_machine = actual_machine,
+                        expected_quality = expected_quality, actual_quality = quality_of(machine.entity.quality)})
+            end
+
+            --Recipe semantics are catalog facts.  A modded assembler is still an assembler, while a furnace
+            --must never receive an assembler recipe merely because its prototype name happens to look similar.
+            local etype = etype_of(machine)
+            if not work.legacy_route_only and etype == "assembling-machine" then
+                if step.recipe ~= nil and machine.entity.recipe ~= step.recipe then
+                    error_record(work.errors, "BP_V_MACHINE_IDENTITY", {tostring(machine.id)},
+                        {reason = "recipe differs", expected = step.recipe, actual = machine.entity.recipe})
+                end
+                if step.recipe ~= nil and quality_of(machine.entity.recipe_quality) ~= quality_of(step.recipe_quality) then
+                    error_record(work.errors, "BP_V_MACHINE_IDENTITY", {tostring(machine.id)},
+                        {reason = "recipe quality differs", expected = quality_of(step.recipe_quality),
+                            actual = quality_of(machine.entity.recipe_quality)})
+                end
+            elseif not work.legacy_route_only and machine.entity.recipe ~= nil then
+                error_record(work.errors, "BP_V_MACHINE_IDENTITY", {tostring(machine.id)},
+                    {reason = "recipe is not supported by catalog etype", etype = etype})
+            end
             if step.modules and not module_lists_equal(machine.entity.modules or {}, step.modules) then error_record(work.errors, "BP_V_MODULE_MISMATCH", {tostring(machine.id)}, {step_id = step_id}) end
             if machine.spec.module_slots ~= nil and #expand_modules(machine.entity.modules or {}) > machine.spec.module_slots then error_record(work.errors, "BP_V_MODULE_MISMATCH", {tostring(machine.id)}, {reason = "machine module slots exceeded"}) end
         end
@@ -1054,19 +1525,68 @@ local function coordinate_key(work)
 end
 
 local function make_score(work)
-    local min_x, min_y, max_x, max_y = INF, INF, -INF, -INF; local route_length, beacon_count, pole_count = 0, 0, 0
+    local min_x, min_y, max_x, max_y = INF, INF, -INF, -INF
+    local beacon_count, pole_count, transport_entities, transport_cost = 0, 0, 0, 0
+    local underground_seen = {}
     for _, info in ipairs(work.infos) do
-        local rect = rect_of_entity(info.entity, info.spec); min_x, min_y = math.min(min_x, rect.x), math.min(min_y, rect.y); max_x, max_y = math.max(max_x, rect.x + rect.w), math.max(max_y, rect.y + rect.h)
-        if is_beacon(info) then beacon_count = beacon_count + 1 end; if is_pole(info) then pole_count = pole_count + 1 end
+        if not is_robo(info) then
+            local rect = rect_of_entity(info.entity, info.spec)
+            min_x, min_y = math.min(min_x, rect.x), math.min(min_y, rect.y)
+            max_x, max_y = math.max(max_x, rect.x + rect.w), math.max(max_y, rect.y + rect.h)
+        end
+        if is_beacon(info) then beacon_count = beacon_count + 1 end
+        if is_pole(info) then pole_count = pole_count + 1 end
+        if transport_kind(info) then
+            transport_entities = transport_entities + 1
+            local pair_id = info.entity.ug_pair_id or info.entity.underground_pair_id
+            local pair = pair_id and work.info_by_id[pair_id]
+            if pair then
+                local left, right = tostring(info.id), tostring(pair.id)
+                if left > right then left, right = right, left end
+                local pair_key = left .. "\0" .. right
+                if not underground_seen[pair_key] then
+                    underground_seen[pair_key] = true
+                    transport_cost = transport_cost + math.max(1, math.abs(info.cx - pair.cx) + math.abs(info.cy - pair.cy))
+                end
+            else
+                transport_cost = transport_cost + 1
+            end
+        end
     end
-    for _, segment in ipairs(work.segments) do route_length = route_length + finite(segment.length, 0) end
-    local area = max_x == -INF and 0 or (max_x - min_x) * (max_y - min_y)
-    return {beacon_count = beacon_count, footprint_area = area, pole_count = pole_count, route_length = route_length, entity_count = #work.infos, coord_key = coordinate_key(work)}
+    if work.plan and #work.segments > 0 and not work.root.route then
+        for _, segment in ipairs(work.segments) do
+            if type(segment.length) ~= "number" then
+                error_record(work.errors, "BP_V_METRIC_MISSING", {tostring(segment.segment_id or segment.id)},
+                    {metric = "transport_cost", reason = "segment has no measured length"})
+            end
+        end
+    end
+    local production_area = max_x == -INF and 0 or (max_x - min_x) * (max_y - min_y)
+    local cell_envelope_area
+    if work.grid_w and work.grid_h then
+        cell_envelope_area = math.max(0, work.grid_w * work.grid_h)
+    elseif #work.roboports > 0 then
+        local rmin_x, rmin_y, rmax_x, rmax_y = INF, INF, -INF, -INF
+        for _, robo in ipairs(work.roboports) do
+            local rect = rect_of_entity(robo.entity, robo.spec)
+            rmin_x, rmin_y = math.min(rmin_x, rect.x), math.min(rmin_y, rect.y)
+            rmax_x, rmax_y = math.max(rmax_x, rect.x + rect.w), math.max(rmax_y, rect.y + rect.h)
+        end
+        cell_envelope_area = (rmax_x - rmin_x) * (rmax_y - rmin_y)
+    else
+        cell_envelope_area = 0
+    end
+    local score = {beacon_count = beacon_count, production_area = production_area,
+        cell_envelope_area = cell_envelope_area, transport_cost = transport_cost,
+        transport_entities = transport_entities, pole_count = pole_count, coord_key = coordinate_key(work)}
+    for key, value in pairs(score) do work.metrics[key] = value end
+    return score
 end
 
 local function finish(work, state)
     block_port_geometry(work.errors, work.root, work.placements)
-    if #work.errors == 0 then state.ok = true; state.result = {score = make_score(work), metrics = work.metrics}; state.errors = nil
+    local score = make_score(work)
+    if #work.errors == 0 then state.ok = true; state.result = {score = score, metrics = work.metrics}; state.errors = nil
     else state.ok = false; state.errors = work.errors; state.result = nil end
     state.done = true; state.cursor = {phase = "done"}; state.progress.phase = "done"; state.progress.done_units = state.progress.total_units
 end
@@ -1092,7 +1612,8 @@ function Validate.step(state, budget)
         elseif phase == "segments" then check_segments(work); state.cursor.phase = "underground"
         elseif phase == "underground" then check_underground(work); state.cursor.phase = "port_approaches"
         elseif phase == "port_approaches" then check_port_approaches(work); state.cursor.phase = "ports"
-        elseif phase == "ports" then check_ports(work); state.cursor.phase = "machines"
+        elseif phase == "ports" then check_ports(work); state.cursor.phase = "physical"
+        elseif phase == "physical" then check_physical_transfers(work); state.cursor.phase = "machines"
         elseif phase == "machines" then check_machines(work); state.cursor.phase = "finish"
         elseif phase == "finish" then finish(work, state)
         end
@@ -1101,11 +1622,233 @@ function Validate.step(state, budget)
     budget.ops = ops; return state
 end
 
+local function artifact_entities(artifact)
+    if type(artifact) ~= "table" then return {} end
+    local root = type(artifact.blueprint) == "table" and artifact.blueprint or artifact
+    return list_from(root.entities)
+end
+
+local function artifact_modules(entity)
+    if type(entity.modules) == "table" then return expand_modules(entity.modules), false end
+    local result, has_slots = {}, false
+    for _, item in ipairs(list_from(entity.items)) do
+        local id = item.id
+        local name, quality
+        if type(id) == "table" then name, quality = id.name or id.id, quality_of(id.quality) else name = id end
+        if name then
+            local locations = item.items and item.items.in_inventory
+            if type(locations) ~= "table" then locations = {{inventory = 1, stack = #result}} end
+            for _, location in ipairs(locations) do
+                local slot = finite(location.stack, #result)
+                result[#result + 1] = {name = name, quality = quality_of(quality), slot = slot,
+                    inventory = finite(location.inventory, 1)}
+                has_slots = true
+            end
+        end
+    end
+    table.sort(result, function(a, b) return a.slot < b.slot end)
+    local expanded = {}
+    for _, module in ipairs(result) do expanded[#expanded + 1] = {name = module.name, quality = module.quality} end
+    return expanded, has_slots, result
+end
+
+local function artifact_module_match(entity, expected)
+    local actual, has_slots, placed = artifact_modules(entity)
+    if not module_lists_equal(actual, expected or {}) then return false, "module multiset differs" end
+    if #actual > 0 and not has_slots then return false, "module inventory placement is absent" end
+    for index, module in ipairs(placed or {}) do
+        if module.inventory ~= 1 or module.slot ~= index - 1 then return false, "module inventory placement differs" end
+    end
+    return true
+end
+
+local function artifact_expected_machines(plan)
+    local result = {}
+    for _, step in ipairs(list_from(plan and plan.steps)) do
+        local count = math.max(0, math.floor(finite(step.machine_count or step.machines, 0)))
+        for ordinal = 1, count do result[#result + 1] = {step = step, ordinal = ordinal} end
+    end
+    return result
+end
+
+local function artifact_expected_beacon_groups(plan)
+    local result = {}
+    for _, step in ipairs(list_from(plan and plan.steps)) do
+        for _, group in ipairs(list_from(step.beacon_groups or step.beacons)) do
+            result[#result + 1] = group
+        end
+    end
+    return result
+end
+
+local function expected_direction(plan, entity)
+    local source = plan and (plan.entity_directions or plan.directions or plan.direction_by_entity)
+    if type(source) ~= "table" then return nil end
+    local id = entity.id or entity.entity_id or entity.entity_number
+    local value = source[id] or source[tostring(id)]
+    if type(value) == "table" then value = value.direction or value.dir end
+    return value
+end
+
+local function artifact_wire_tuple(edge)
+    if type(edge) ~= "table" then return nil end
+    if edge.a_id ~= nil or edge.b_id ~= nil then
+        return {edge.a_id or edge.a, edge.a_connector or edge.a_connection or edge[2],
+            edge.b_id or edge.b, edge.b_connector or edge.b_connection or edge[4]}
+    end
+    if type(edge[1]) == "table" and type(edge[2]) == "table" then
+        return {edge[1][1] or edge[1].entity_id or edge[1].id, edge[1][2] or edge[1].connector,
+            edge[2][1] or edge[2].entity_id or edge[2].id, edge[2][2] or edge[2].connector}
+    end
+    return {edge[1], edge[2], edge[3], edge[4]}
+end
+
+function Validate.reconcile_artifact(input)
+    input = type(input) == "table" and input or {}
+    local artifact = input.artifact
+    local plan = input.plan
+    local catalog = input.catalog or {}
+    local errors = {}
+    local function reject(code, ids, detail)
+        local record = {code = code}
+        if ids then record.ids = ids end
+        if detail then record.detail = detail end
+        errors[#errors + 1] = record
+    end
+    if type(artifact) ~= "table" or type(plan) ~= "table" then
+        reject("BP_V_ARTIFACT_INCOMPLETE", nil, {reason = "artifact and plan are required"})
+        return {ok = false, errors = errors}
+    end
+
+    local entities = artifact_entities(artifact)
+    local expected_machines = artifact_expected_machines(plan)
+    local actual_machines = {}
+    local actual_beacons = {}
+    local entity_numbers = {}
+    for index, entity in ipairs(entities) do
+        local number = entity.entity_number or index
+        entity_numbers[number] = true
+        local spec = catalog_entity(catalog, entity)
+        local etype = spec and spec.etype or entity.etype or entity.type
+        if etype == "beacon" then actual_beacons[#actual_beacons + 1] = {entity = entity, spec = spec} end
+        if etype == "assembling-machine" or etype == "furnace" or etype == "rocket-silo"
+            or etype == "lab" or etype == "mining-drill" or entity.kind == "machine" then
+            actual_machines[#actual_machines + 1] = {entity = entity, spec = spec}
+        end
+        local direction = entity.direction or entity.dir
+        if direction ~= nil and (direction ~= 0 and direction ~= 4 and direction ~= 8 and direction ~= 12) then
+            reject("BP_V_ARTIFACT_DIRECTION", {tostring(number)}, {direction = direction})
+        end
+        local wanted_direction = expected_direction(plan, entity)
+        if wanted_direction ~= nil and direction ~= wanted_direction then
+            reject("BP_V_ARTIFACT_DIRECTION", {tostring(number)},
+                {expected = wanted_direction, actual = direction})
+        end
+    end
+    table.sort(actual_machines, function(a, b) return (a.entity.entity_number or 0) < (b.entity.entity_number or 0) end)
+
+    if #actual_machines ~= #expected_machines then
+        reject("BP_V_ARTIFACT_MACHINE_COUNT", {"machines"}, {expected = #expected_machines, actual = #actual_machines})
+    end
+    local bound = {}
+    for index, expected in ipairs(expected_machines) do
+        local actual = actual_machines[index]
+        local step = expected.step
+        if actual then
+            local entity, spec = actual.entity, actual.spec or {}
+            local wanted_name = prototype_name(step.machine or step.machine_name or step.entity)
+            local wanted_quality = quality_of(step.machine_quality)
+            local actual_quality = quality_of(entity.quality)
+            local mismatch = (wanted_name ~= nil and entity.name ~= wanted_name) or actual_quality ~= wanted_quality
+            if mismatch then
+                reject("BP_V_ARTIFACT_MACHINE_IDENTITY", {tostring(entity.entity_number or index)},
+                    {expected_machine = wanted_name, actual_machine = entity.name,
+                        expected_quality = wanted_quality, actual_quality = actual_quality})
+            end
+            local etype = spec.etype or entity.etype or entity.type
+            if etype == "assembling-machine" then
+                if step.recipe ~= nil and entity.recipe ~= step.recipe then
+                    reject("BP_V_ARTIFACT_MACHINE_IDENTITY", {tostring(entity.entity_number or index)},
+                        {reason = "recipe differs", expected = step.recipe, actual = entity.recipe})
+                end
+                if step.recipe ~= nil and quality_of(entity.recipe_quality) ~= quality_of(step.recipe_quality) then
+                    reject("BP_V_ARTIFACT_MACHINE_IDENTITY", {tostring(entity.entity_number or index)},
+                        {reason = "recipe quality differs", expected = quality_of(step.recipe_quality),
+                            actual = quality_of(entity.recipe_quality)})
+                end
+            elseif entity.recipe ~= nil then
+                reject("BP_V_ARTIFACT_MACHINE_IDENTITY", {tostring(entity.entity_number or index)},
+                    {reason = "recipe is not supported by catalog etype", etype = etype})
+            end
+            local modules_ok, module_reason = artifact_module_match(entity, step.modules or {})
+            if not modules_ok then reject("BP_V_ARTIFACT_MODULE_MISMATCH", {tostring(entity.entity_number or index)}, {reason = module_reason}) end
+            bound[entity.entity_number or index] = {step_id = step.step_id, ordinal = expected.ordinal}
+        end
+    end
+
+    local groups = artifact_expected_beacon_groups(plan)
+    for _, actual in ipairs(actual_beacons) do
+        local entity, spec = actual.entity, actual.spec or {}
+        local matched = false
+        for _, group in ipairs(groups) do
+            local group_name = prototype_name(group.name or group.prototype or group.entity)
+            local group_quality = quality_of(group.quality)
+            if (group_name == nil or entity.name == group_name) and quality_of(entity.quality) == group_quality
+                and module_lists_equal((artifact_modules(entity)), group.modules or {}) then
+                matched = true
+                break
+            end
+        end
+        if #groups > 0 and not matched then
+            reject("BP_V_ARTIFACT_BEACON_IDENTITY", {tostring(entity.entity_number)},
+                {name = entity.name, quality = quality_of(entity.quality)})
+        end
+        if spec.module_slots ~= nil and #artifact_modules(entity) > spec.module_slots then
+            reject("BP_V_ARTIFACT_MODULE_MISMATCH", {tostring(entity.entity_number)}, {reason = "beacon module slots exceeded"})
+        end
+    end
+
+    local root = type(artifact.blueprint) == "table" and artifact.blueprint or artifact
+    for _, raw in ipairs(list_from(root.wires)) do
+        local wire = artifact_wire_tuple(raw)
+        if not wire or not entity_numbers[wire[1]] or not entity_numbers[wire[3]] then
+            reject("BP_V_ARTIFACT_WIRE_MISMATCH", {tostring(wire and wire[1]), tostring(wire and wire[3])},
+                {reason = "wire endpoint is absent"})
+        elseif wire[1] == wire[3] then
+            reject("BP_V_ARTIFACT_WIRE_MISMATCH", {tostring(wire[1])}, {reason = "wire connects an entity to itself"})
+        else
+            local first, second
+            for _, entity in ipairs(entities) do
+                local number = entity.entity_number
+                if number == wire[1] then first = entity end
+                if number == wire[3] then second = entity end
+            end
+            local first_spec = first and catalog_entity(catalog, first) or {}
+            local second_spec = second and catalog_entity(catalog, second) or {}
+            local function power_entity(spec, entity)
+                local etype = spec and spec.etype or entity and (entity.etype or entity.type)
+                return etype == "electric-pole" or etype == "power-switch" or etype == "substation"
+            end
+            if not power_entity(first_spec, first) or not power_entity(second_spec, second) then
+                reject("BP_V_ARTIFACT_WIRE_MISMATCH", {tostring(wire[1]), tostring(wire[3])},
+                    {reason = "wire endpoint is not power infrastructure"})
+            end
+        end
+    end
+    if type(plan.wires) == "table" then
+        local expected_wires, actual_wires = {}, {}
+        for _, raw in ipairs(list_from(plan.wires)) do local wire = artifact_wire_tuple(raw); if wire then expected_wires[table.concat(wire, "\0")] = true end end
+        for _, raw in ipairs(list_from(root.wires)) do local wire = artifact_wire_tuple(raw); if wire then actual_wires[table.concat(wire, "\0")] = true end end
+        for key, _ in pairs(expected_wires) do if not actual_wires[key] then reject("BP_V_ARTIFACT_WIRE_MISMATCH", {key}, {reason = "declared wire is missing"}) end end
+    end
+    return {ok = #errors == 0, errors = #errors > 0 and errors or nil, identity = bound}
+end
+
 --The only place the user's priority is expressed: fewer physical beacons, then smaller footprint, then fewer
 --poles, then deterministic tie-breakers.  The packer's fit score never decides which layout wins.
 function Validate.compare(a_score, b_score)
     a_score, b_score = a_score or {}, b_score or {}
-    for _, key in ipairs({"beacon_count", "footprint_area", "pole_count", "route_length", "entity_count"}) do
+    for _, key in ipairs({"beacon_count", "production_area", "transport_cost", "pole_count", "transport_entities"}) do
         local a, b = finite(a_score[key], 0), finite(b_score[key], 0); if a < b then return -1 end; if a > b then return 1 end
     end
     local a_key, b_key = tostring(a_score.coord_key or ""), tostring(b_score.coord_key or "")

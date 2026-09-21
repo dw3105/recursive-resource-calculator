@@ -274,12 +274,12 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(has_code(state, "BP_V_MACHINE_COUNT_MISMATCH"), true, "machine count has the reason")
     end)
 
-    H.test(shape .. " V13 compare is beacon first then footprint then poles", function()
-        H.equal(Validate.compare({beacon_count = 1, footprint_area = 1, pole_count = 1}, {beacon_count = 2, footprint_area = 0, pole_count = 0}), -1,
+    H.test(shape .. " V13 compare is beacon first then production area then poles", function()
+        H.equal(Validate.compare({beacon_count = 1, production_area = 1, pole_count = 1}, {beacon_count = 2, production_area = 0, pole_count = 0}), -1,
             "beacon count is first")
-        H.equal(Validate.compare({beacon_count = 2, footprint_area = 1, pole_count = 3}, {beacon_count = 2, footprint_area = 2, pole_count = 0}), -1,
-            "footprint is second")
-        H.equal(Validate.compare({beacon_count = 2, footprint_area = 2, pole_count = 1}, {beacon_count = 2, footprint_area = 2, pole_count = 2}), -1,
+        H.equal(Validate.compare({beacon_count = 2, production_area = 1, pole_count = 3}, {beacon_count = 2, production_area = 2, pole_count = 0}), -1,
+            "production area is second")
+        H.equal(Validate.compare({beacon_count = 2, production_area = 2, pole_count = 1}, {beacon_count = 2, production_area = 2, pole_count = 2}), -1,
             "pole count is third")
     end)
 
