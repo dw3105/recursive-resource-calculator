@@ -114,3 +114,8 @@
 | `113` | `rrc/agent` | layout: measured route cost, reserved finalization, 5s ceiling | 2026-09-21 |
 | `114` | `rrc/agent` | harness: qualify the engine boundary | 2026-09-21 |
 | `115` | `rrc/agent` | goldens: real plan, case selector, fail closed | 2026-09-21 |
+| `120` | `rrc/agent` | gate: delete the bypass, witness, zero waste, beacon redundancy | 2026-09-21 |
+| `121` | `rrc/agent` | hands: inserters from captured offsets, no redundant beacon | 2026-09-21 |
+| `122` | `rrc/agent` | router: facing underground pairs, direction-aware search, zero waste | 2026-09-21 |
+| `123` | `rrc/agent` | layout: terminals from demand, no first-feasible shortcut | 2026-09-21 |
+| `124` | `rrc/agent` | goldens: report physical validation, freeze the known-bad artifact | 2026-09-21 |
