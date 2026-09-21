@@ -164,3 +164,23 @@ moving the port, which is what contract 27.3 asks for.
 suites and the frozen oracle are green on both interpreters, so the tree is sound; the census gate is not
 satisfied and the round does not end here. `docs/tasks/131.census-waiver.json` names the two risen codes,
 their ceilings, the cause and the task that repays them. Integration runs `--no-waivers`.
+
+## 11. Why lane 130's rises were guaranteed, not accidental
+
+Reading the merged diff rather than the verdict: `logic/bp/groups.lua:565-568` keeps **one route-visible
+endpoint per (step, flow, role)** and comments that "the other anchored hands remain physical witnesses with
+zero independent demand, so the unchanged router does not report them as unreachable aliases".
+
+That is a workaround for the frozen router, and it cannot satisfy the contract. Rule 27.1 gives every hand a
+port; `logic/bp/validate.lua:1381-1382` then demands a belt on every hand's own outward tile. A port carrying
+zero demand is never bound, so its hand's tile stays bare, which produces exactly the two codes that rose and
+the `BP_V_PORT_UNREACHABLE` records that say `no binding uses this port as a sink`.
+
+Lane 130's own gates could not catch this: `tests/test_transport_handshake.lua` asserts that the ports exist,
+are anchored and are distinct. It never asserts that anything routes to them. A test can be green and the
+factory still starve.
+
+**Integration owes one deletion.** Once lane 131 divides demand per hand in `logic/bp/route.lua`, the
+`route_live` aggregation in `logic/bp/groups.lua` has no purpose and must go, or the router will still see
+one endpoint per step. `logic/bp/groups.lua` is PRESERVE-listed for lane 131, so this deletion belongs to
+integration and is not the lane's to make.
