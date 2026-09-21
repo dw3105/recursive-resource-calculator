@@ -250,3 +250,59 @@ candidate carrying none cannot be judged for it -- every entity is trivially unu
 serve. The rule now applies only where the plan has at least one step. A candidate whose plan has no steps is
 already refused by plan completeness long before this check, so nothing escapes through the guard, and the
 oracle's `WA1` and `WA2` still reject a spare belt and a spare inserter.
+
+## 10. What the integrated tree actually does on the player's sheet
+
+All five lanes merged and were verified here, never on their verdicts. The oracle is 88 of 88 on both
+interpreters and the python suite is green. On `player-am2-chain` the pipeline still delivers nothing.
+
+One candidate reached validation in 240s and failed with 449 errors:
+
+| count | code | reason as reported |
+|---:|---|---|
+| 403 | `BP_V_TRANSPORT_UNUSED` | consequence of the rows below |
+| 18 | `BP_V_INSERTER_GEOMETRY` | **captured inserter offsets are missing** |
+| 18 | `BP_V_TRANSFER_BROKEN` | consequence |
+| 6 | `BP_V_PORT_EDGE_WRONG` | `binding source has role in`, `binding sink has role out` |
+| 2 | `BP_V_FLUID_DISCONNECTED` | consequence |
+| 1 | `BP_V_UNDERGROUND_UNPAIRED` | `endpoints do not carry transport direction` |
+| 1 | `BP_V_COLLISION` | `m:inserter:assembling-machine-2:1:input:3` against `:input:4` |
+
+### 10.1 The dominant cause is the INPUT, and it was already declared incomplete
+
+```
+catalog.inserter: {"drop_offset": {}, "drop_position": {}, "pickup_offset": {}, "items_per_second": 4.62}
+```
+
+Every inserter offset in the stored capture is an **empty table**. Lane 121 reads the captured offsets exactly
+as rule 26.3 requires; there are none to read. Lane 120 rejects exactly as rule 26.3 requires. The 403 unused
+transport records follow from that single fact, because an inserter that cannot be placed serves no
+obligation and every belt that would have fed it serves nothing either.
+
+Contract section 25.8, written in round 13, already names `player-am2-chain` a **historical negative** that
+must reject with `BP_CAP_INCOMPLETE`, precisely because of these empty offsets. Driving it as the acceptance
+input, and timing it against the five second ceiling, was an error in this round's integration, not a defect
+in any lane.
+
+### 10.2 Two genuine code defects survive that reading
+
+- `BP_V_COLLISION`: `m:inserter:assembling-machine-2:1:input:3` and `:input:4` occupy the same cell. Lane 121
+  places two input inserters of one machine on top of each other.
+- `BP_V_PORT_EDGE_WRONG`, 6 records: `binding source has role in` and `binding sink has role out`. The route
+  bindings and the validator disagree about which role a binding endpoint carries.
+
+### 10.3 Why five passing lanes left a product that does not work
+
+Every lane gate ran that lane's own hand-built fixtures. **No lane gate drove the player's sheet**, and no
+lane gate could have: of the whole golden corpus, only `player-am2-chain` gets past preflight at all -- every
+other case rejects with `BP_REJ_PROTOTYPE_FACTS_MISSING`. So the offline corpus cannot exercise generation,
+and the single input that can is the one already declared incomplete.
+
+That is the structural finding of round 14, and it outranks every individual defect above: a lane cannot be
+gated on the only input that matters, so lane verdicts can never stand in for integration.
+
+### 10.4 What round 14 did deliver
+
+The validator now catches all seven classes above. Round 13 reported `ok=true` on an artifact whose 224 belt
+entities served nothing, whose 11 of 18 inserters moved nothing and whose 12 pipe-to-ground endpoints could
+not pair. The pipeline now tells the truth about itself, in detail, for the first time.
