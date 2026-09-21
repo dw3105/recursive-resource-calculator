@@ -1,7 +1,20 @@
 {
  "actual": null,
  "case_id": "player-am2-chain",
- "engine_capture_pending": "Captured from the player's own running game, not from the harness, so the sheet and its solver result are real. The engine observation of a delivered blueprint is still missing, and today this input does not produce one, so this case is not accepted coverage.",
+ "current_outcome": {
+  "canonical_sha256": "14d336125017591ed4c13b019c0e467c46901bc5678f969da4f645bbc67223ba",
+  "engine_verified": false,
+  "entity_count": 316,
+  "note": "Measured offline on this host, not in the engine. It records what the generator does at the named revision. It is evidence, never a target, and it never replaces observed_outcome.",
+  "observed_by": "offline replay, tests/golden/generate.lua, lua5.2 and lua5.4",
+  "observed_on": "2026-09-21",
+  "reason_codes": [],
+  "source_revision": "8f08fc117eb2493149718ce6b7c940f9ae607d36",
+  "stage": "done",
+  "state": "success",
+  "validation_ok": true
+ },
+ "engine_capture_pending": "Captured from the player's own running game, not from the harness, so the sheet and its solver result are real. This input now produces a validated blueprint offline, but the engine observation of that blueprint is still missing, so this case is not accepted coverage.",
  "engine_scenario": {
   "allowed_discrete_error": 0,
   "drain": [
@@ -38,7 +51,7 @@
   "engine_observation"
  ],
  "observed_outcome": {
-  "note": "The outcome recorded here is what the game did, and what an offline replay of this exact input reproduces. It is not a target. When the generator improves, this field moves with the evidence.",
+  "note": "What the player's own game did, on the day it was captured. This field is history and is NEVER moved when the generator improves; the generator's present behaviour is recorded separately in current_outcome, bound to the revision that produced it.",
   "observed_by": "player, in game, Factorio 2.0.77 + Space Age",
   "observed_on": "2026-09-20",
   "progress": {

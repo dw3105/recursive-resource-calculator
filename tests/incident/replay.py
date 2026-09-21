@@ -71,7 +71,13 @@ def main() -> int:
         raise SystemExit(f"FAIL the incident case is missing: {CASE}")
     manifest = load(CASE / "manifest.json")
     prepared = load(CASE / "prepared_input.json")
-    recorded = manifest["observed_outcome"]
+    # observed_outcome is history: what the player's game did, kept immutable. current_outcome is what this
+    # source revision does now. Compare against the current one when it exists, so improving the generator
+    # never means rewriting what the player saw.
+    recorded = manifest.get("current_outcome") or manifest["observed_outcome"]
+    # --require-success is the completion gate. It rejects a failure WHATEVER either field records, so a run
+    # can never pass by faithfully reproducing a failure.
+    require_success = "--require-success" in sys.argv
 
     # The input is the player's, unchanged.
     options = prepared.get("options") or {}
@@ -105,7 +111,15 @@ def main() -> int:
         codes = [error.get("code") for error in result.get("errors") or []]
         progress = result.get("progress") or {}
 
-        if recorded["state"] == "failure":
+        if require_success:
+            equal(result.get("ok"), True, f"{label} the replay delivers a blueprint")
+            entities = ((result.get("result") or {}).get("entities")
+                        or result.get("entities") or [])
+            check(len(entities) > 0, f"{label} the delivered blueprint carries entities")
+            validation = result.get("validation") or {}
+            check(validation.get("ok") is True,
+                  f"{label} the delivered blueprint passes independent validation")
+        elif recorded["state"] == "failure":
             equal(result.get("ok"), False, f"{label} the replay reproduces a failure")
             equal(codes, recorded["reason_codes"], f"{label} the reason codes match the recorded outcome")
             equal(progress.get("done_units"), recorded["progress"]["done_units"],
@@ -116,8 +130,20 @@ def main() -> int:
                   f"{label} the terminal phase matches the recorded outcome")
         else:
             equal(result.get("ok"), True, f"{label} the replay reproduces a delivered blueprint")
-            check(bool(result.get("blueprint") or result.get("entities")),
-                  f"{label} the delivered blueprint carries entities")
+            # The generator's success envelope carries its entities under `result`, never at the top level.
+            # Reading the top level alone made this check pass on an empty blueprint.
+            entities = ((result.get("result") or {}).get("entities")
+                        or result.get("entities") or [])
+            check(len(entities) > 0, f"{label} the delivered blueprint carries entities")
+            validation = result.get("validation") or {}
+            check(validation.get("ok") is True,
+                  f"{label} the delivered blueprint passes independent validation")
+            if recorded.get("entity_count") is not None:
+                equal(len(entities), recorded["entity_count"],
+                      f"{label} the entity count matches the recorded outcome")
+            if recorded.get("canonical_sha256") is not None:
+                equal(result.get("canonical_sha256"), recorded["canonical_sha256"],
+                      f"{label} the canonical digest matches the recorded outcome")
 
     print(f"incident replay: {checks} checks, {checks - len(failures)} passed, {len(failures)} failed")
     if failures:
