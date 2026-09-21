@@ -7,6 +7,8 @@ filed below a temporary fixture directory, never below docs/engine-evidence.
 from __future__ import annotations
 
 import importlib.util
+import contextlib
+import io
 import json
 import copy
 import sys
@@ -526,3 +528,29 @@ class BindingTests(unittest.TestCase):
             with self.assertRaises(GATE.ReleaseGateError) as caught:
                 fixture.run()
             self.assertIn("harness_qualification_id", str(caught.exception))
+
+
+class ReleaseArchiveArgumentTest(unittest.TestCase):
+    """--release covers BOTH branches, so a single --archive can never be the exact package for either.
+
+    That was already the intent, and release_gate.py:635 carried it out by replacing args.archive with None.
+    The run then failed with "no archive supplied for branch 2.0" -- a complaint about a missing argument the
+    caller had supplied, which sends the reader to look for a bug in their own command line.
+    """
+
+    def test_release_with_a_single_archive_is_refused(self):
+        status = GATE.main(["--release", "--candidate", "deadbeef", "--archive", "/nonexistent/x.zip"])
+        self.assertEqual(status, 2)
+
+    def test_one_branch_still_accepts_its_own_archive(self):
+        """The refusal must be about --release, never about --archive itself."""
+        status = GATE.main(["2.0", "--candidate", "deadbeef", "--archive", "/nonexistent/x.zip"])
+        self.assertEqual(status, 2)
+
+    def test_the_refusal_names_archive_dir_as_the_way_through(self):
+        buffer = io.StringIO()
+        with contextlib.redirect_stderr(buffer):
+            GATE.main(["--release", "--candidate", "deadbeef", "--archive", "/nonexistent/x.zip"])
+        message = buffer.getvalue()
+        self.assertIn("conflicting archive", message)
+        self.assertIn("--archive-dir", message)

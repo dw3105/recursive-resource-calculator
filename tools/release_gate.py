@@ -628,11 +628,20 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
             raise ReleaseGateError("missing branch: --release takes no branch argument")
         if not args.release and not args.branch:
             raise ReleaseGateError("missing branch: specify 2.0, 2.1, or --release")
+        # A release covers BOTH branches, so one --archive cannot be the exact package for either without
+        # being wrong about the other. That was already the intent, but it was carried out by silently
+        # replacing args.archive with None, and the run then failed with "no archive supplied for branch 2.0"
+        # -- a message about a missing argument the caller had actually supplied. Refuse by name instead.
+        if args.release and args.archive is not None:
+            raise ReleaseGateError(
+                "conflicting archive: --release verifies both branches, so it needs --archive-dir holding "
+                "2.0.zip and 2.1.zip, never a single --archive. One branch's package is never valid "
+                "evidence for the other")
         branches = list(SUPPORTED_BRANCHES if args.release else [args.branch])
         candidate = args.candidate or _git_candidate(args.repo)
         for branch in branches:
             archive = _archive_for_branch(
-                str(args.archive) if args.archive is not None and not args.release else None,
+                str(args.archive) if args.archive is not None else None,
                 branch, candidate, args.archive_dir,
             )
             results = run_gate(
