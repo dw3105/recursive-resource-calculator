@@ -324,3 +324,16 @@ golden tools:  13 of 13
 
 Still open and now integration's, inherited from lane 113's failure: the reserved finalization sequence
 (`FN1`-`FN4`) and the five-second ceiling.
+
+## Candidate ordering — measured and refuted, 2026-09-21
+
+Route is 85% of a 29.41s run. Measured per candidate: 14 tried, **#14 succeeds in 1.07s**, and the first 13
+burn about 26 seconds. So the lever is which candidate is tried first, never the inner loop.
+
+One ordering was tried: sort candidates by block count DESCENDING, on the theory that a more-split partition
+routes more easily. **It is worse.** 74.10s and 59 candidates, against 27.60s and 14. The experiment was made
+in a scratch worktree and discarded.
+
+Four hypotheses about routing speed are now refuted by measurement and must not be retried: an A* frontier
+(never finished one candidate in 110s), disabling the direction-order retries (13%, and it removes a real
+fallback), restarting only while it buys progress (66.72s), and this block-count ordering (74.10s).
