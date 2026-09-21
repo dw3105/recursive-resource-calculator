@@ -61,7 +61,7 @@ failure; never strip `covered_members` to hide it. Extra influence from a load-b
 
 Configured counts stay exactly as listed above.
 
-## What done means
+## What done mean
 
 ```checks
 {"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_inserter_geometry.lua --min-cases 10 --pass IG1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S inserter-offset-nil >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_inserter_geometry.lua --min-cases 10 --fail IG1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}

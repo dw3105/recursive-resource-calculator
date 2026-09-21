@@ -82,7 +82,7 @@ and DISCARD abandoned geometry before returning. Rule 26.2's budget is zero.
 `mirrored_port` never moves a logical attachment away from its real inserter or fluid connector without also
 materializing and validating the connecting geometry.
 
-## What done means
+## What done mean
 
 ```checks
 {"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_route_network.lua --min-cases 12 --pass RN1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S ptg-same-direction >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_route_network.lua --min-cases 12 --fail RN1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}

@@ -68,7 +68,7 @@ feasible corridors, respecting beacon and collision constraints.
 Measure and report wall time per phase and per candidate on lua5.2. This lane carries NO time gate; the five
 second ceiling is an integration gate. Report the numbers, not a verdict.
 
-## What done means
+## What done mean
 
 ```checks
 {"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_demand_terminals.lua --min-cases 8 --pass DT1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S terminals-headcount >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_demand_terminals.lua --min-cases 8 --fail DT1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}

@@ -55,7 +55,7 @@ Keep structural regression, canonical golden and engine golden as separate layer
 
 Keep `generate.lua`'s `local input_path,` line and the success envelope in their exact line shape.
 
-## What done means
+## What done mean
 
 ```checks
 {"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; python3 -m unittest tests.tools.test_golden_tools >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S validation-reconciliation >/dev/null 2>&1 || rc=1; (cd $S && python3 -m unittest tests.tools.test_golden_tools 2>&1 | grep -qE \"^(FAIL|ERROR):\") || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}

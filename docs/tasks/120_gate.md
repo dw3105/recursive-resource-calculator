@@ -79,7 +79,7 @@ Enforce rule 26.6: a beacon whose removal leaves every machine at or above its c
 
 Every negative case starts from an independently valid candidate that passes first.
 
-## What done means
+## What done mean
 
 ```checks
 {"name": "red-proof", "command": "S=$(mktemp -d) || exit 1; git worktree add --detach $S HEAD >/dev/null 2>&1 || exit 1; rc=0; sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 88 --pass PC1 >/dev/null 2>&1 || rc=1; sh tools/lane_mutate.sh $S waste-code >/dev/null 2>&1 || rc=1; (cd $S && sh tools/lane_rows.sh tests/test_blueprint_physical_contract.lua --min-cases 88 --fail WA1) >/dev/null 2>&1 || rc=1; git worktree remove --force $S >/dev/null 2>&1; [ $rc -eq 0 ] || exit 1; echo red-proof-ok", "expect_exit": 0, "expect_regex": "red-proof-ok", "timeout_s": 1800}
