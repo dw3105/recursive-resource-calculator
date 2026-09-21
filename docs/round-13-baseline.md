@@ -266,3 +266,28 @@ cannot find its target is not a passing red proof, so the mutation now matches b
 kills `QS1` and three more, and the lane's tests do detect the defect.
 
 Milestone E stays **pending**. This is implemented, never qualified: no Factorio on this host.
+
+### Lane 113 layout — FAILED, taken in part
+
+```
+113_layout FAIL after 3600s | reason: engine-timeout
+```
+
+`RT1` and `RT2` pass: `logic/bp/route.lua` now sets `length` on every belt segment, the real span on every
+underground, and carries it through `result_for`. That is +6/-4 lines, exactly the contract, and it is taken.
+
+Everything the lane did to `logic/bp/search.lua` is **rejected**. It crashes —
+`search.lua:1279: bad argument #1 to 'remove' (position out of bounds)` — and takes all 18
+`test_search_budget` cases with it, 0 passed. The cause is debugging scaffolding left in production code:
+sixteen `io.stderr:write("DBG ...")` calls, and
+
+```lua
+local preferred = table.remove(state.work.groups.result.candidates, 19)
+```
+
+a hardcoded index 19 hand-picking a candidate, which is out of bounds whenever fewer than 19 exist. That is an
+experiment, not a repair, and no verdict can rest on it.
+
+**Still open, and now integration's:** the reserved finalization sequence (`FN1`–`FN4`) and the five-second
+ceiling. `tests/test_search_budget.lua` from this lane is not taken either, because its `FN` cases require the
+implementation that was rejected.
