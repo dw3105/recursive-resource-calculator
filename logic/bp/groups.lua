@@ -19,6 +19,7 @@ local Groups = {}
 
 local Grid = require "logic.bp.grid"
 local Geometry = require "logic.bp.geometry"
+local Flags = require "logic.bp.flags"
 
 local NORTH, EAST, SOUTH, WEST = Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST
 
@@ -508,7 +509,7 @@ local function forced_multi_flow_hands(input)
     return false
 end
 
-local multi_flow_hands = false
+local multi_flow_hands = Flags.multi_flow_hands
 
 local function flow_entry_rate(entry)
     return math.max(0, finite(entry and entry.share_per_second,

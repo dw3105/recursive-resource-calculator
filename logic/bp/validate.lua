@@ -12,6 +12,7 @@ local Validate = {}
 local Grid = require "logic.bp.grid"
 --The world-box conversion is shared with the planner, so the two can never drift apart again.
 local Geometry = require "logic.bp.geometry"
+local Flags = require "logic.bp.flags"
 
 local EPSILON = 1e-9
 local INF = math.huge
@@ -465,7 +466,7 @@ local function is_inserter(info) return info.kind == "inserter" end
 --for every lane: three lanes build three halves of one feature behind it -- groups pairs the hands, route shares the belt, validate witnesses per flow -- and integration
 --flips all three together, because that is the only point where the halves meet.  Golden tests therefore keep
 --passing at default configuration while the halves are being built.
-local multi_flow_hands = false
+local multi_flow_hands = Flags.multi_flow_hands
 
 --The production switch remains off until grouping, routing and validation are integrated together.  The
 --underscored input is a test-only seam: lane tests can exercise this half without changing the default or the
