@@ -118,6 +118,27 @@ class DeliverTests(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertIn("verdict=accepted", done.stdout)
 
+    def test_no_target_skips_only_count_contract_and_keeps_physical_audit(self):
+        result = json.loads(self.recorded_json.read_text())
+        result["result"]["entities"].append(
+            {"name": "wooden-chest", "position": {"x": 0.5, "y": 0.5}})
+        self.recorded_json.write_text(json.dumps(result))
+        expected = self.run_delivery(CASE)
+        self.output_path(expected.stdout).unlink()
+        without_target = self.run_delivery(CASE, "--no-target")
+        self.assertNotEqual(expected.returncode, 0, expected.stderr)
+        self.assertIn("target entities_excluding_roboports", expected.stderr)
+        self.assertEqual(without_target.returncode, 0, without_target.stderr)
+        self.assertIn("verdict=accepted", without_target.stdout)
+        for family in FAMILIES:
+            self.assertRegex(without_target.stdout, rf"\b{family}=\d+\b")
+
+    def test_no_target_and_target_is_named_usage_refusal(self):
+        done = self.run_delivery(CASE, "--no-target", "--target", "ignored.json")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("--no-target cannot be combined with --target", done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+
     def test_existing_output_is_named_and_not_overwritten(self):
         output_dir = self.home / "share" / "RRC"
         output_dir.mkdir(parents=True)

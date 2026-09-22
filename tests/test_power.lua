@@ -44,6 +44,23 @@ local function copper_id()
 end
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " BP9 publishes pole position at the rect center", function()
+        local result = finish({
+            grid_w = 12, grid_h = 6,
+            occupied = occupied(rect(4, 2, 1, 1), "assembler"),
+            consumers = {consumer("assembler", rect(4, 2, 1, 1))},
+            pole = {name = "medium-electric-pole", quality = "normal", tile_w = 1, tile_h = 1,
+                supply_w = 3.5, supply_h = 3.5, wire_reach = 9},
+            limits = {max_poles = 4},
+        })
+        local pole = result.entities[1]
+        local expected_x, expected_y = pole.rect.x + pole.rect.w / 2, pole.rect.y + pole.rect.h / 2
+        local actual = pole.position and (tostring(pole.position.x) .. "," .. tostring(pole.position.y)) or "missing"
+        local expected = tostring(expected_x) .. "," .. tostring(expected_y)
+        H.equal(actual, expected,
+            "pole position " .. actual .. " matches rect center " .. expected)
+    end)
+
     H.test(shape .. " BP1 covers every consumer and reports the pole count", function()
         local result = finish({
             grid_w = 12, grid_h = 6,
