@@ -39,6 +39,10 @@ def inserter(x, y, direction=4):
     return {"name": "inserter", "position": {"x": x, "y": y}, "direction": direction}
 
 
+def splitter(x, y, direction=4):
+    return {"name": "splitter", "position": {"x": x, "y": y}, "direction": direction}
+
+
 def control():
     """Belt in, inserter, machine, inserter, belt, tunnel, belt out.  Every entity serves the one obligation."""
     return [
@@ -75,6 +79,36 @@ def audit(entities, *extra):
 
 
 class BlueprintAuditTest(unittest.TestCase):
+
+    def test_splitter_east_west_anchor_tile_output(self):
+        entities = [belt(2.5, 4.5), belt(3.5, 4.5), belt(2.5, 5.5), belt(3.5, 5.5),
+                    splitter(4.5, 5), belt(5.5, 4.5), belt(6.5, 4.5),
+                    belt(5.5, 5.5), belt(6.5, 5.5)]
+        status, counts = audit(entities)
+        self.assertEqual(counts["unused_belt_tiles"], 0, counts)
+        self.assertEqual(status, 0, counts)
+
+    def test_splitter_east_west_second_tile_output_and_inserter_pickup(self):
+        entities = [belt(2.5, 4.5), belt(3.5, 4.5), belt(2.5, 5.5), belt(3.5, 5.5),
+                    splitter(4.5, 5), belt(5.5, 4.5), belt(6.5, 4.5),
+                    belt(5.5, 5.5), inserter(6.5, 5.5), {"name": "assembling-machine-1", "position": {"x": 7.5, "y": 5.5}}]
+        status, counts = audit(entities)
+        self.assertEqual(counts["invalid_inserters"], 0, counts)
+        self.assertEqual(counts["unused_belt_tiles"], 0, counts)
+        self.assertEqual(status, 0, counts)
+
+    def test_splitter_north_south_rotation(self):
+        entities = [belt(4.5, 2.5, 8), belt(4.5, 3.5, 8), belt(5.5, 2.5, 8), belt(5.5, 3.5, 8),
+                    splitter(5, 4.5, 8), belt(4.5, 5.5, 8), belt(4.5, 6.5, 8),
+                    belt(5.5, 5.5, 8), belt(5.5, 6.5, 8)]
+        status, counts = audit(entities)
+        self.assertEqual(counts["unused_belt_tiles"], 0, counts)
+        self.assertEqual(status, 0, counts)
+
+    def test_splitter_unreachable_still_fails(self):
+        status, counts = audit([splitter(4.5, 5)])
+        self.assertEqual(status, 1)
+        self.assertEqual(counts["unused_belt_tiles"], 2)
 
     def test_ACC1_control_is_accepted(self):
         """Without this the whole suite below is satisfied by an auditor that rejects everything."""
