@@ -499,9 +499,121 @@ end
 --for every lane: three lanes build three halves of one feature behind it -- groups pairs the hands, route shares the belt, validate witnesses per flow -- and integration
 --flips all three together, because that is the only point where the halves meet.  Golden tests therefore keep
 --passing at default configuration while the halves are being built.
+local function forced_multi_flow_hands(input)
+    --A characterization test may exercise the dormant half without changing the production default.  This
+    --local capability is intentionally named the same way as the switch: lane_mutate can turn it off and the
+    --test then proves that the paired-hand assertions really depend on the implementation.
+    local multi_flow_hands = true
+    if input and input._force_multi_flow_hands then return multi_flow_hands end
+    return false
+end
+
 local multi_flow_hands = false
 
-local function append_inserters(block, step, machine, catalog, input, flows)
+local function flow_entry_rate(entry)
+    return math.max(0, finite(entry and entry.share_per_second,
+        finite(entry and entry.rate_per_second, finite(entry and entry.rate, 0))))
+end
+
+local function flow_entry_id(entry)
+    return entry and (entry.flow_id or entry.full_name or entry.id)
+end
+
+local function arrival_cell(entry)
+    -- The planner may carry either a decoded blueprint cell or the continuous position from which that cell
+    -- was recovered.  Pairing without an authored arrival cell would turn "same belt tile" into a guess, so
+    -- an otherwise compatible pair is deliberately left as two hands when neither entry carries one.
+    for _, key in ipairs({"pickup_cell", "source_cell", "belt_cell", "arrival_cell", "belt_tile",
+        "pickup_position", "source_position", "belt_position", "arrival_position"}) do
+        local position = point(entry and entry[key])
+        if position then return cell_of(position.x), cell_of(position.y) end
+    end
+    return nil, nil
+end
+
+local function same_cell(first, second)
+    local first_x, first_y = arrival_cell(first)
+    local second_x, second_y = arrival_cell(second)
+    return first_x ~= nil and first_x == second_x and first_y == second_y
+end
+
+local function hand_key(role, ports)
+    local ids = {}
+    for _, port in ipairs(ports) do ids[#ids + 1] = tostring(flow_entry_id(port)) end
+    table.sort(ids)
+    return tostring(role) .. ":" .. table.concat(ids, "+")
+end
+
+local function hand_group(role, ports, machine_count)
+    local ids, shares, total = {}, {}, 0
+    for _, port in ipairs(ports) do
+        local id = flow_entry_id(port)
+        if id ~= nil then
+            local share = flow_entry_rate(port)
+            ids[#ids + 1] = id
+            shares[id] = share
+            total = total + share
+        end
+    end
+    table.sort(ids)
+    local count = math.max(1, machine_count or 1)
+    local per_machine = {}
+    for _, id in ipairs(ids) do per_machine[id] = shares[id] / count end
+    return {
+        key = hand_key(role, ports), role = role, ports = ports, port = ports[1],
+        flow_ids = ids, flow_shares = shares, flow_shares_per_machine = per_machine,
+        rate_per_second = total, rate_per_second_per_machine = total / count,
+        port_bound = true,
+    }
+end
+
+local function hand_groups_for(block, step, machine, catalog, input, flows)
+    local machine_count = step._rate_machine_count or step.machine_count or 1
+    local inputs, outputs = {}, {}
+    for _, port in ipairs(step.inputs or {}) do
+        if not flow_is_fluid(port, flows) then inputs[#inputs + 1] = port end
+    end
+    for _, port in ipairs(step.outputs or {}) do
+        if not flow_is_fluid(port, flows) then outputs[#outputs + 1] = port end
+    end
+
+    local groups, used = {}, {}
+    local capacity = finite(catalog and catalog.belt and catalog.belt.items_per_second)
+    local function input_bound(port)
+        return port_bound_for(block, machine, "input", port, flows)
+    end
+    for index, port in ipairs(inputs) do
+        if not used[index] then
+            local pair
+            if multi_flow_hands and capacity and capacity > 0 and input_bound(port) then
+                for other_index = index + 1, #inputs do
+                    local other = inputs[other_index]
+                    if not used[other_index] and input_bound(other) and same_cell(port, other)
+                        and flow_entry_rate(port) + flow_entry_rate(other) <= capacity + math.max(1e-9, capacity * 1e-9) then
+                        pair = other_index
+                        break
+                    end
+                end
+            end
+            local entries = pair and {port, inputs[pair]} or {port}
+            groups[#groups + 1] = hand_group("input", entries, machine_count)
+            used[index] = true
+            if pair then used[pair] = true end
+        end
+    end
+    for _, port in ipairs(outputs) do groups[#groups + 1] = hand_group("output", {port}, machine_count) end
+    return groups
+end
+
+local function contains_flow(hand, flow_id)
+    if type(hand and hand.flow_ids) == "table" then
+        for _, id in ipairs(hand.flow_ids) do if id == flow_id then return true end end
+        return false
+    end
+    return hand and hand.flow_id == flow_id
+end
+
+local function append_single_flow_inserters(block, step, machine, catalog, input, flows)
     local name, iw, ih = inserter_size(catalog, input and input.inserter)
     local inputs, outputs = {}, {}
     for _, port in ipairs(step.inputs or {}) do
@@ -563,6 +675,92 @@ local function append_inserters(block, step, machine, catalog, input, flows)
     append("output", outputs)
 end
 
+local function append_multi_flow_inserters(block, step, machine, catalog, input, flows)
+    local name, iw, ih = inserter_size(catalog, input and input.inserter)
+    local groups = block.hand_groups_by_machine and block.hand_groups_by_machine[machine.id] or
+        hand_groups_for(block, step, machine, catalog, input, flows)
+    local machine_count = math.max(1, step._rate_machine_count or step.machine_count or 1)
+    local face_column = 0
+    for index, hand in ipairs(groups) do
+        local port_bound, source_member, target_member = port_bound_for(block, machine, hand.role, hand.port, flows)
+        hand.port_bound = port_bound
+        if port_bound then face_column = face_column + 1 end
+        local source_x, source_y = explicit_cell(hand.port, hand.role == "input"
+            and {"pickup_cell", "source_cell", "source_position"}
+            or {"drop_cell", "drain_cell", "drain_position"})
+        local target_x, target_y = explicit_cell(hand.port, hand.role == "input"
+            and {"drop_cell", "target_cell", "target_position"}
+            or {"pickup_cell", "source_cell", "source_position"})
+        local source_cell = source_x ~= nil and {source_x, source_y} or nil
+        local target_cell = target_x ~= nil and {target_x, target_y} or nil
+        local transfer_source_member = hand.role == "output" and machine or source_member
+        local face = block.face_by_machine and block.face_by_machine[machine.id]
+            and block.face_by_machine[machine.id][hand.flow_ids[1]]
+        local placement = candidate_inserter(block, machine, hand.role, index, iw, ih, catalog, input,
+            transfer_source_member, target_member, source_cell, target_cell, port_bound, face_column, face)
+        if not placement then
+            block.failure = {name = "inserter-reach", code = "BP_P_NO_FIT",
+                detail = "no catalog inserter reach for " .. tostring(step.step_id) .. ":" .. tostring(hand.key)}
+            return
+        end
+        local id = member_id("inserter", step.step_id, machine.ordinal, hand.role .. ":" .. tostring(index))
+        local shared = #hand.flow_ids > 1
+        local flow_ids = shared and list_copy(hand.flow_ids) or nil
+        local flow_shares = shared and copy(hand.flow_shares_per_machine) or nil
+        block.inserters[#block.inserters + 1] = {
+            id = id, kind = "inserter", type = "inserter", name = name,
+            step_id = step.step_id, machine_id = machine.id, role = hand.role,
+            port_id = shared and ((hand.role == "input" and "in:" or "out:") .. "shared:" .. hand.key)
+                or ((hand.role == "input" and "in:" or "out:")
+                    .. tostring(hand.port.port_id or hand.port.flow_id or hand.port.full_name)),
+            flow_id = shared and nil or hand.flow_ids[1], flow_ids = flow_ids, flow_shares = flow_shares,
+            rate_per_second = hand.rate_per_second_per_machine,
+            x = placement.x, y = placement.y, w = iw, h = ih, dir = placement.dir,
+            pickup_position = placement.pickup_position, drop_position = placement.drop_position,
+            flow_entries = shared and list_copy(hand.ports) or nil,
+            pickup_target = hand.role == "input"
+                and (shared and ("port:" .. id)
+                    or (hand.port.source_id or hand.port.source_port_id
+                        or ("port:" .. tostring(hand.port.flow_id or hand.port.full_name))))
+                or machine.id,
+            drop_target = hand.role == "input"
+                and machine.id
+                or (shared and ("port:" .. id)
+                    or (hand.port.drain_id or hand.port.drain_port_id
+                        or ("port:" .. tostring(hand.port.flow_id or hand.port.full_name)))),
+            port_bound = port_bound,
+            _hand_key = hand.key,
+        }
+    end
+end
+
+local function append_inserters(block, step, machine, catalog, input, flows)
+    if multi_flow_hands then
+        return append_multi_flow_inserters(block, step, machine, catalog, input, flows)
+    end
+    return append_single_flow_inserters(block, step, machine, catalog, input, flows)
+end
+
+local function port_for_hand(inserter, fallback)
+    if not (inserter and type(inserter.flow_ids) == "table" and #inserter.flow_ids > 1) then
+        return fallback
+    end
+    local source = copy(fallback or {})
+    source.flow_id, source.full_name = nil, nil
+    source.flow_ids = list_copy(inserter.flow_ids)
+    source.flow_shares = {}
+    source.rate_per_second = 0
+    for _, entry in ipairs(inserter.flow_entries or {}) do
+        local id = flow_entry_id(entry)
+        local share = flow_entry_rate(entry)
+        if id ~= nil then source.flow_shares[id] = share; source.rate_per_second = source.rate_per_second + share end
+    end
+    source.port_id = inserter.port_id
+    source.role = inserter.role == "input" and "in" or "out"
+    source.kind, source.is_fluid = "item", false
+    return source
+end
+
 local function block_ports(block, steps, ports, flows)
     local members_by_step = {}
     local machine_count_by_step = {}
@@ -574,7 +772,7 @@ local function block_ports(block, steps, ports, flows)
         members_by_step[machine.step_id][#members_by_step[machine.step_id] + 1] = machine
     end
 
-    local selected = {}
+    local selected, selected_hands = {}, {}
     for _, port in ipairs(ports or {}) do
         local flow_id = port.flow_id or port.full_name or port.id
         local step_id = port.step_id or port.member_step_id
@@ -590,11 +788,14 @@ local function block_ports(block, steps, ports, flows)
                 for _, inserter in ipairs(block.inserters or {}) do
                     local wanted_role = port.role == "out" and "output" or "input"
                     if inserter.port_bound and inserter.step_id == step_id and inserter.role == wanted_role
-                        and inserter.flow_id == flow_id then
-                        selected[#selected + 1] = {
-                            port = port, flow_id = flow_id, step_id = step_id,
+                        and contains_flow(inserter, flow_id) and not selected_hands[inserter.id] then
+                        selected_hands[inserter.id] = true
+                        local selected_port = {
+                            port = port_for_hand(inserter, port), flow_id = flow_id, step_id = step_id,
                             member_id = inserter.machine_id, inserter_id = inserter.id, inserter = inserter,
                         }
+                        if inserter.flow_ids then selected_port.flow_id = nil end
+                        selected[#selected + 1] = selected_port
                     end
                 end
             end
@@ -605,7 +806,7 @@ local function block_ports(block, steps, ports, flows)
     -- external to this block even though the flow has no sheet perimeter terminal, so it still needs a real
     -- block port for the unchanged router to connect.  External plan ports were selected above; this fills only
     -- the missing cross-block interfaces and never duplicates an already selected hand.
-    local selected_hands = {}
+    selected_hands = {}
     for _, selected_port in ipairs(selected) do
         if selected_port.inserter_id ~= nil then selected_hands[selected_port.inserter_id] = true end
     end
@@ -617,14 +818,14 @@ local function block_ports(block, steps, ports, flows)
                 if step.step_id == inserter.step_id then
                     local entries = wanted_role == "in" and step.inputs or step.outputs
                     for _, entry in ipairs(entries or {}) do
-                        if (entry.flow_id or entry.full_name) == inserter.flow_id then
-                            source = copy(entry)
+                        if contains_flow(inserter, entry.flow_id or entry.full_name) then
+                            source = port_for_hand(inserter, entry)
                             source.port_id = source.port_id
                                 or (tostring(step.step_id) .. ":" .. wanted_role .. ":" .. tostring(inserter.flow_id))
                             source.role = wanted_role
                             source.kind = source.kind or (flow_is_fluid(source, flows) and "fluid" or "item")
                             source.is_fluid = source.kind == "fluid" or source.is_fluid == true
-                            source.flow_id = source.flow_id or source.full_name
+                            if not source.flow_ids then source.flow_id = source.flow_id or source.full_name end
                             break
                         end
                     end
@@ -675,7 +876,7 @@ local function block_ports(block, steps, ports, flows)
             else
                 for _, candidate_inserter in ipairs(block.inserters or {}) do
                     if candidate_inserter.machine_id == selected_port.member_id and candidate_inserter.role == wanted_role
-                        and candidate_inserter.flow_id == (source.flow_id or source.full_name or selected_port.flow_id) then
+                        and contains_flow(candidate_inserter, source.flow_id or source.full_name or selected_port.flow_id) then
                         inserter_id = candidate_inserter.id
                         local position = role == "in" and point(candidate_inserter.pickup_position)
                             or point(candidate_inserter.drop_position)
@@ -725,12 +926,15 @@ local function block_ports(block, steps, ports, flows)
                 block.port_sides = block.port_sides or {}
                 block.port_sides[side] = true
             end
+            local shared = type(source.flow_ids) == "table" and #source.flow_ids > 1
             local block_port_id = source.port_id or source.id or ((role or "port") .. ":" .. tostring(index))
             if inserter_id ~= nil then block_port_id = tostring(block_port_id) .. ":" .. tostring(inserter_id) end
             local block_port = {
                 port_id = block_port_id,
                 role = role, kind = source.kind or (source.is_fluid and "fluid" or "item"),
-                flow_id = source.flow_id or source.full_name or selected_port.flow_id,
+                flow_id = shared and nil or (source.flow_id or source.full_name or selected_port.flow_id),
+                flow_ids = shared and list_copy(source.flow_ids) or nil,
+                flow_shares = shared and copy(source.flow_shares) or nil,
                 rate_per_second = source.rate_per_second,
                 step_id = selected_port.step_id,
                 attach_dx = x, attach_dy = y, normal_dir = actual_normal, travel_dir = actual_travel,
@@ -739,6 +943,11 @@ local function block_ports(block, steps, ports, flows)
             local machine_count = machine_count_by_step[selected_port.step_id]
             if block_port.rate_per_second ~= nil and machine_count and machine_count > 0 then
                 block_port.rate_per_second = block_port.rate_per_second / machine_count
+            end
+            if shared then
+                for flow_id, share in pairs(block_port.flow_shares or {}) do
+                    block_port.flow_shares[flow_id] = share / math.max(1, machine_count or 1)
+                end
             end
             for _, field in ipairs({"full_name", "is_fluid", "machine", "machine_id", "fluidbox_index", "box_index",
                 "connection_index", "pipe_connection_index", "production_type", "filter", "connection_position"}) do
@@ -957,6 +1166,24 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         if face_layout then y = y + spec.h + 1 else x = x + spec.layout_w + 1 end
     end
 
+    if multi_flow_hands then
+        block.hand_groups_by_machine, block.hand_key_by_machine, block.hand_flows = {}, {}, {}
+        for _, machine in ipairs(block.machines) do
+            local step
+            for _, candidate in ipairs(steps) do
+                if candidate.step_id == machine.step_id then step = candidate; break end
+            end
+            local groups = hand_groups_for(block, step or {}, machine, catalog, input, flows)
+            local by_flow = {}
+            block.hand_groups_by_machine[machine.id] = groups
+            block.hand_key_by_machine[machine.id] = by_flow
+            for _, hand in ipairs(groups) do
+                block.hand_flows[hand.key] = list_copy(hand.flow_ids)
+                for _, flow_id in ipairs(hand.flow_ids) do by_flow[flow_id] = hand.key end
+            end
+        end
+    end
+
     if logical_face_layout then
         local flow_machines, machine_indices = {}, {}
         for index, machine in ipairs(block.machines) do machine_indices[machine.id] = index end
@@ -971,6 +1198,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                         local bound = port_bound_for(block, machine, role, port, flows)
                         if bound then
                             local flow_id = port.flow_id or port.full_name
+                            if multi_flow_hands then
+                                flow_id = block.hand_key_by_machine[machine.id][flow_id] or flow_id
+                            end
                             flow_machines[flow_id] = flow_machines[flow_id] or {}
                             flow_machines[flow_id][machine.id] = machine
                         end
@@ -984,6 +1214,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local flow_ids = {}
         for flow_id, _ in pairs(flow_machines) do flow_ids[#flow_ids + 1] = flow_id end
         table.sort(flow_ids)
+        local function set_face(machine_id, flow_id, side)
+            block.face_by_machine[machine_id][flow_id] = side
+            if multi_flow_hands and block.hand_flows[flow_id] then
+                for _, member_flow_id in ipairs(block.hand_flows[flow_id]) do
+                    block.face_by_machine[machine_id][member_flow_id] = side
+                end
+            end
+        end
         if #flow_ids > 4 then
             block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
                 detail = "more distinct port-bound item flows than machine faces for " .. tostring(block.id)}
@@ -1005,7 +1243,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                     local side = index == 1 and "top" or "bottom"
                     block.face_by_flow[flow_id] = side
                     for machine_id, _ in pairs(flow_machines[flow_id]) do
-                        block.face_by_machine[machine_id][flow_id] = side
+                        set_face(machine_id, flow_id, side)
                     end
                 end
             end
@@ -1105,7 +1343,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                     for _, entry in ipairs(horizontal) do
                         local side = side_by_flow[entry.flow_id]
                         for _, machine in ipairs(entry.members) do
-                            block.face_by_machine[machine.id][entry.flow_id] = side
+                            set_face(machine.id, entry.flow_id, side)
                         end
                     end
                     for _, entry in ipairs(vertical) do
@@ -1119,7 +1357,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                                     detail = "two port-bound item flows claim one machine face for " .. tostring(machine.id)}
                                 break
                             end
-                            block.face_by_machine[machine.id][entry.flow_id] = side
+                            set_face(machine.id, entry.flow_id, side)
                         end
                         if block.failure then break end
                     end
@@ -1581,6 +1819,9 @@ local function step_ports(steps, catalog, flows)
 end
 
 local function make_candidates(input)
+    local previous_multi_flow_hands = multi_flow_hands
+    multi_flow_hands = input and input._force_multi_flow_hands == true
+        and forced_multi_flow_hands(input) or previous_multi_flow_hands
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
     -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a
@@ -1656,6 +1897,7 @@ local function make_candidates(input)
         if a.physical_beacon_count == b.physical_beacon_count then return a.id < b.id end
         return a.physical_beacon_count < b.physical_beacon_count
     end)
+    multi_flow_hands = previous_multi_flow_hands
     return candidates, failures
 end
 
