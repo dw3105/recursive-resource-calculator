@@ -1121,10 +1121,24 @@ local function check_underground(work)
             return (horizontal and y == sy and x > min_x and x < max_x)
                 or (vertical and x == sx and y > min_y and y < max_y)
         end
+        --Only a run PARALLEL to the span is a second path for this flow.  A run crossing it at a right angle is
+        --the very thing an underground is for, and the engine places it: contract 26.5 names the hazard as "an
+        --intervening ENDPOINT that steals the pairing", never a surface belt, and logic/bp/route.lua:1672
+        --already refuses an intervening endpoint for exactly that reason.
+        --Measured 2026-09-22 on legalcopilot-dev, first record on the player's sheet: pair r:1481 to r:1482 ran
+        --(11,26) to (8,26) facing WEST, and the flagged middle r:1372 at (10,26) faced NORTH, carrying the same
+        --item/iron-gear-wheel on a genuine right-angle crossing.  Flow equality alone flagged 7 such crossings.
+        --A direction this validator cannot read stays flagged, because an unknown run may well be parallel.
+        local function parallel_to_span(direction)
+            if direction == nil then return true end
+            if horizontal then return direction == Grid.EAST or direction == Grid.WEST end
+            return direction == Grid.NORTH or direction == Grid.SOUTH
+        end
         local source_flow = source.entity.flow_id
         for _, candidate in ipairs(work.infos) do
             if candidate ~= source and candidate ~= sink and transport_kind(candidate)
-                and source_flow ~= nil and candidate.entity.flow_id == source_flow then
+                and source_flow ~= nil and candidate.entity.flow_id == source_flow
+                and parallel_to_span(entity_direction(candidate)) then
                 local x, y = tile_of(candidate)
                 if between(x, y) then return candidate, {x = x, y = y} end
             end
@@ -1136,7 +1150,7 @@ local function check_underground(work)
                     if allocation.flow_id == source_flow then same_flow = true; break end
                 end
             end
-            if same_flow then
+            if same_flow and parallel_to_span(segment.direction) then
                 local points = segment.cells or segment.tiles or segment.path or segment.positions
                 for _, point in ipairs(list_from(points)) do
                     local x, y
