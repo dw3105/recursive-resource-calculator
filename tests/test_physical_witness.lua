@@ -84,8 +84,37 @@ local function candidate()
         }}
 end
 
-local function run(input)
-    local state = Validate.begin({candidate = input, plan = plan(), catalog = catalog()})
+local function shared_input_candidate()
+    local input = copy(candidate())
+    for _, entity in ipairs(input.entities) do
+        if entity.id == "in-belt" or entity.id == "in-belt2" then
+            entity.flow_ids = {"item/in", "item/in2"}
+        elseif entity.id == "inserter-in" then
+            entity.flow_ids = {"item/in", "item/in2"}
+        end
+    end
+    input.flows[#input.flows + 1] = {flow_id = "item/in2"}
+    input.ports[#input.ports + 1] = {port_id = "external-in2", flow_id = "item/in2", role = "in", x = 0, y = 4, rate_per_second = 1}
+    for _, port in ipairs(input.ports) do
+        if port.port_id == "machine-in" then port.flow_ids = {"item/in", "item/in2"} end
+    end
+    input.segments[1].allocations[#input.segments[1].allocations + 1] =
+        {flow_id = "item/in2", sink = "step:step", rate_per_second = 1}
+    input.bindings[#input.bindings + 1] = {source_port_id = "external-in2", sink_port_id = "machine-in",
+        flow_id = "item/in2", sink = "step:step", segment_id = "input", rate_per_second = 1}
+    return input
+end
+
+local function shared_plan()
+    local result = plan()
+    result.steps[1].inputs[#result.steps[1].inputs + 1] = {full_name = "item/in2", rate_per_second = 1}
+    return result
+end
+
+local function run(input, requested_plan, force_multi_flow_hands)
+    local request = {candidate = input, plan = requested_plan or plan(), catalog = catalog()}
+    if force_multi_flow_hands then request._force_multi_flow_hands = true end
+    local state = Validate.begin(request)
     while not state.done do Validate.step(state, {ops = 100000}) end
     return state
 end
@@ -157,6 +186,33 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.ok, false, "the candidate with no transport is rejected")
         H.equal(failure and failure.detail and failure.detail.reason, "candidate has no transport",
             "the rejection says that the candidate has no transport")
+    end)
+
+    H.test(shape .. " WI5 one hand can witness two declared flows when the lane switch is forced on", function()
+        local input = shared_input_candidate()
+        local off = run(input, shared_plan(), false)
+        H.equal(off.ok, false, "the shared hand remains rejected with the production switch off")
+        local state = run(input, shared_plan(), true)
+        H.equal(state.ok, true, "the shared hand is valid when the witness switch is forced on")
+        local witnesses = ((state.result or {}).metrics or {}).connection_witnesses or {}
+        local seen = {}
+        for _, witness in ipairs(witnesses) do seen[witness.key] = true end
+        H.equal(seen["machine:input:item/in"] and seen["machine:input:item/in2"], true,
+            "the same hand publishes one physical witness per flow")
+    end)
+
+    H.test(shape .. " WI6 a hand with no declared flow fails closed under the switch", function()
+        local input = shared_input_candidate()
+        for _, entity in ipairs(input.entities) do
+            if entity.id == "inserter-in" then
+                entity.flow_id = nil
+                entity.flow_ids = nil
+            end
+        end
+        local state = run(input, shared_plan(), true)
+        H.equal(state.ok, false, "an undeclared hand cannot witness either flow")
+        H.equal(error_with_code(state, "BP_V_TRANSFER_BROKEN") ~= nil, true,
+            "the closed failure names the missing hand rather than accepting it as a wildcard")
     end)
 end
 

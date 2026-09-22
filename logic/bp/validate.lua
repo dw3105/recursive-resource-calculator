@@ -263,6 +263,71 @@ local function flow_id_of(flow)
     return flow and (flow.flow_id or flow.full_name or flow.id)
 end
 
+--A hand or transport entity normally carries one `flow_id`.  The shared-hand route carries the same
+--declaration as a set instead (`flow_ids`, `flow_set`, or `flows`) while older candidates keep the scalar
+--form.  Keep the validator tolerant of all of those boundary spellings, but never treat an explicitly empty
+--set as a wildcard when a flow is being witnessed.
+local function declared_flow_ids(value)
+    local entity = type(value) == "table" and (value.entity or value) or nil
+    local result, seen = {}, {}
+    local function add(flow_id)
+        if type(flow_id) == "table" then flow_id = flow_id.flow_id or flow_id.full_name or flow_id.id or flow_id.name end
+        if type(flow_id) == "string" and flow_id ~= "" and not seen[flow_id] then
+            seen[flow_id] = true; result[#result + 1] = flow_id
+        end
+    end
+    local function add_collection(collection)
+        if type(collection) ~= "table" then
+            add(collection)
+            return
+        end
+        if #collection > 0 then
+            for _, item in ipairs(collection) do add(item) end
+        else
+            for key, item in pairs(collection) do
+                local before = #result
+                add(item)
+                if #result == before then add(key) end
+            end
+        end
+    end
+    if entity then
+        add_collection(entity.flow_ids or entity.flow_set or entity.flows or entity.flow_shares)
+        add(entity.flow_id or entity.full_name)
+    end
+    table.sort(result)
+    return result
+end
+
+local function declares_flow(value, wanted_flow)
+    if wanted_flow == nil then return false end
+    for _, flow_id in ipairs(declared_flow_ids(value)) do
+        if flow_id == wanted_flow then return true end
+    end
+    return false
+end
+
+local function flow_compatible(value, wanted_flow)
+    if wanted_flow == nil then return true end
+    return #declared_flow_ids(value) == 0 or declares_flow(value, wanted_flow)
+end
+
+--Unannotated transport is retained as a compatibility fallback for the old hand-written fixtures.  Once a
+--belt publishes a flow set, however, membership is exact: a belt carrying another flow is not a path for this
+--one.  Inserter declarations use `declares_flow` below and therefore fail closed when they are absent.
+local function transport_accepts_flow(info, wanted_flow)
+    if wanted_flow == nil then return true end
+    local declared = declared_flow_ids(info)
+    if #declared == 0 then return true end
+    for _, flow_id in ipairs(declared) do if flow_id == wanted_flow then return true end end
+    return false
+end
+
+local function flow_detail_id(value)
+    local ids = declared_flow_ids(value)
+    return ids[1] or "undeclared"
+end
+
 local function flow_list(source)
     local result = {}
     if type(source) ~= "table" then return result end
@@ -402,6 +467,13 @@ local function is_inserter(info) return info.kind == "inserter" end
 --passing at default configuration while the halves are being built.
 local multi_flow_hands = false
 
+--The production switch remains off until grouping, routing and validation are integrated together.  The
+--underscored input is a test-only seam: lane tests can exercise this half without changing the default or the
+--frozen generator path.
+local function multi_flow_hands_enabled(work)
+    return multi_flow_hands or (work and work.input and work.input._force_multi_flow_hands == true)
+end
+
 local function transport_kind(info)
     if not info then return nil end
     if info.kind == "belt" then return "belt" end
@@ -474,8 +546,7 @@ local function transport_at(work, x, y, wanted_flow, wanted_kind)
     local entries = work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}
     for _, info in ipairs(entries) do
         local kind = transport_kind(info)
-        local flow = transport_flow(info)
-        if (not wanted_kind or kind == wanted_kind) and (wanted_flow == nil or flow == nil or flow == wanted_flow) then
+        if (not wanted_kind or kind == wanted_kind) and transport_accepts_flow(info, wanted_flow) then
             return info
         end
     end
@@ -486,7 +557,7 @@ local function transport_neighbors(work, info, wanted_flow)
     local result, seen = {}, {}
     local function add_at(x, y)
         for _, next_info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}) do
-            if next_info ~= info and (wanted_flow == nil or transport_flow(next_info) == nil or transport_flow(next_info) == wanted_flow)
+            if next_info ~= info and transport_accepts_flow(next_info, wanted_flow)
                 and not seen[next_info.id] then
                 seen[next_info.id] = true
                 result[#result + 1] = next_info
@@ -496,7 +567,7 @@ local function transport_neighbors(work, info, wanted_flow)
     local entity = info.entity or {}
     local pair_id = entity.ug_pair_id or entity.underground_pair_id
     local pair = pair_id and work.info_by_id[pair_id]
-    if pair and (wanted_flow == nil or transport_flow(pair) == nil or transport_flow(pair) == wanted_flow) then
+    if pair and transport_accepts_flow(pair, wanted_flow) then
         seen[pair.id] = true
         result[#result + 1] = pair
     end
@@ -744,7 +815,7 @@ local function sink_key(entry, flow, ports, role)
         local wanted = type(entry) == "table" and (entry.port_id or entry.port) or nil
         if wanted then return "port:" .. tostring(wanted) end
         for _, port in ipairs(ports) do
-            if (port.flow_id or port.full_name) == flow_id_of(flow) and (port.role == role or port.direction == role) then return "port:" .. tostring(port.port_id) end
+            if declares_flow(port, flow_id_of(flow)) and (port.role == role or port.direction == role) then return "port:" .. tostring(port.port_id) end
         end
         return nil
     end
@@ -1003,7 +1074,10 @@ local function check_segments(work)
                 local required = flow_share(entry)
                 if required > tolerance(required) then
                     local sink = sink_key(entry, flow, work.ports, "out"); local reached = sink and finite(sinks[sink], 0) or 0
-                    if reached + tolerance(required) < required then error_record(work.errors, "BP_V_TARGET_SHORTFALL", {tostring(flow_id), tostring(step_id_of(entry))}, {required = required, reached = reached, sink = sink}) end
+                    if reached + tolerance(required) < required then
+                        error_record(work.errors, "BP_V_TARGET_SHORTFALL", {tostring(flow_id), tostring(step_id_of(entry))},
+                            {required = required, reached = reached, sink = sink, step_id = step_id_of(entry)})
+                    end
                 end
             end
             for _, segment in ipairs(work.segments) do
@@ -1243,8 +1317,7 @@ end
 local function external_port_for(work, flow_id, role)
     for _, port in ipairs(work.ports) do
         if is_external_port(port) and (port.role or port.direction) == role then
-            local port_flow = port.flow_id or port.full_name
-            if flow_id == nil or port_flow == nil or port_flow == flow_id then return port end
+            if flow_id == nil or flow_compatible(port, flow_id) then return port end
         end
     end
     return nil
@@ -1253,8 +1326,7 @@ end
 local function external_path(work, flow_id, role, start_x, start_y, kind)
     for _, port in ipairs(work.ports) do
         if is_external_port(port) and (port.role or port.direction) == role then
-            local port_flow = port.flow_id or port.full_name
-            if flow_id == nil or port_flow == nil or port_flow == flow_id then
+            if flow_id == nil or flow_compatible(port, flow_id) then
                 local px, py = port_position(work, port)
                 if role == "in" then
                     local path = transport_path(work, px, py, start_x, start_y, flow_id, kind)
@@ -1276,8 +1348,7 @@ end
 local function external_failure_step(work, flow_id, role, start_x, start_y, kind)
     for _, port in ipairs(work.ports) do
         if is_external_port(port) and (port.role or port.direction) == role then
-            local port_flow = port.flow_id or port.full_name
-            if flow_id == nil or port_flow == nil or port_flow == flow_id then
+            if flow_id == nil or flow_compatible(port, flow_id) then
                 local px, py = port_position(work, port)
                 if role == "in" then
                     return transport_failure_step(work, px, py, start_x, start_y, flow_id, kind)
@@ -1293,8 +1364,7 @@ local function machine_port_for(work, machine, flow_id, role)
     for _, port in ipairs(work.ports) do
         if not is_external_port(port) and (port.role or port.direction) == role
             and (port.step_id == nil or port.step_id == machine.entity.step_id) then
-            local port_flow = port.flow_id or port.full_name
-            if flow_id == nil or port_flow == nil or port_flow == flow_id then
+            if flow_id == nil or flow_compatible(port, flow_id) then
                 if port.member_id == nil or port.member_id == machine.id or port.member_id == machine.entity.machine_id then
                     return port
                 end
@@ -1372,12 +1442,22 @@ local function transfer_role(info, machine)
 end
 
 local function transfer_matches(work, info, machine, entry, role, used)
-    if used[info.id] or transfer_role(info, machine) ~= role then return false end
+    local multi_flow = multi_flow_hands_enabled(work)
+    local wanted = entry_flow_id(entry)
+    if multi_flow and used[info.id] and used[info.id][tostring(wanted)] then
+        return false
+    elseif not multi_flow and used[info.id] then
+        return false
+    end
+    if transfer_role(info, machine) ~= role then return false end
     local entity = info.entity or {}
     if entity.machine_id ~= nil and entity.machine_id ~= machine.id and entity.machine_id ~= machine.entity.id then return false end
-    local wanted = entry_flow_id(entry)
     local actual = entity.flow_id or entity.full_name
-    if actual ~= nil and wanted ~= nil and actual ~= wanted then return false end
+    if multi_flow then
+        if wanted == nil or not declares_flow(entity, wanted) then return false end
+    elseif actual ~= nil and wanted ~= nil and actual ~= wanted then
+        return false
+    end
     local pickup_x, pickup_y, drop_x, drop_y = transfer_cells(info, work)
     if pickup_x == nil or drop_x == nil then return false end
     if role == "input" and not cell_inside_machine(machine, drop_x, drop_y) then return false end
@@ -1429,6 +1509,7 @@ end
 
 local function check_physical_transfers(work)
     local used = {}
+    local multi_flow = multi_flow_hands_enabled(work)
     local endpoint_checked = {}
 
     local function transfer_failure_ladder(candidate_seen, shape_seen, wrong_network, explicit_target)
@@ -1447,8 +1528,22 @@ local function check_physical_transfers(work)
         return "BP_V_TRANSFER_BROKEN", {reason = "inserter is missing for the required transfer", cause = "missing_inserter"}
     end
 
-    local function mark_path(path)
-        for _, info in ipairs(path or {}) do used[info.id] = true end
+    local function mark_used(info, flow_id)
+        if multi_flow then
+            used[info.id] = used[info.id] or {}
+            used[info.id][tostring(flow_id)] = true
+        else
+            used[info.id] = true
+        end
+    end
+
+    local function used_any(info)
+        if not multi_flow then return used[info.id] == true end
+        return used[info.id] ~= nil and next(used[info.id]) ~= nil
+    end
+
+    local function mark_path(path, flow_id)
+        for _, info in ipairs(path or {}) do mark_used(info, flow_id) end
     end
 
     local function witness_step(info)
@@ -1534,7 +1629,7 @@ local function check_physical_transfers(work)
                     for _, connection in ipairs(fluid_connection_cells(machine, entry, "input")) do
                         local port, path, source_machine = connection_path(work, flow_id, "input", connection.x, connection.y, "pipe")
                         if port then
-                            mark_path(path)
+                            mark_path(path, flow_id)
                             add_witness(tostring(machine.id) .. ":input:" .. tostring(flow_id), "input",
                                 source_machine and source_machine.id or port.port_id, machine.id,
                                 {{id = port.port_id}}, path, {{id = machine.id, entity = machine}})
@@ -1558,7 +1653,8 @@ local function check_physical_transfers(work)
                         local role = transfer_role(inserter, machine)
                         if role == "input" then
                             local actual = inserter.entity.flow_id or inserter.entity.full_name
-                            if actual == nil or actual == flow_id then
+                            if (multi_flow and declares_flow(inserter.entity, flow_id))
+                                or (not multi_flow and (actual == nil or actual == flow_id)) then
                                 candidate_seen = true
                                 explicit_target = explicit_target or inserter.entity.pickup_target ~= nil or inserter.entity.drop_target ~= nil
                             end
@@ -1575,8 +1671,8 @@ local function check_physical_transfers(work)
                                     or ("internal:" .. tostring(flow_id))))
                             if port then
                                 validate_inserter_endpoints(inserter)
-                                mark_path(path)
-                                used[inserter.id] = true
+                                mark_path(path, flow_id)
+                                mark_used(inserter, flow_id)
                                 work.metrics.transport_demand_by_entity_id[inserter.id] = flow_share(entry)
                                 add_witness(tostring(machine.id) .. ":input:" .. tostring(flow_id), "input",
                                     source_machine and source_machine.id or port.port_id,
@@ -1611,7 +1707,7 @@ local function check_physical_transfers(work)
                     for _, connection in ipairs(fluid_connection_cells(machine, entry, "output")) do
                         local port, path, target_machine = connection_path(work, flow_id, "output", connection.x, connection.y, "pipe")
                         if port then
-                            mark_path(path)
+                            mark_path(path, flow_id)
                             add_witness(tostring(machine.id) .. ":output:" .. tostring(flow_id), "output", machine.id,
                                 target_machine and target_machine.id or port.port_id,
                                 {{id = machine.id, entity = machine}}, path, {{id = port.port_id}})
@@ -1635,7 +1731,8 @@ local function check_physical_transfers(work)
                         local role = transfer_role(inserter, machine)
                         if role == "output" then
                             local actual = inserter.entity.flow_id or inserter.entity.full_name
-                            if actual == nil or actual == flow_id then
+                            if (multi_flow and declares_flow(inserter.entity, flow_id))
+                                or (not multi_flow and (actual == nil or actual == flow_id)) then
                                 candidate_seen = true
                                 explicit_target = explicit_target or inserter.entity.pickup_target ~= nil or inserter.entity.drop_target ~= nil
                             end
@@ -1652,8 +1749,8 @@ local function check_physical_transfers(work)
                                     or ("internal:" .. tostring(flow_id))))
                             if port then
                                 validate_inserter_endpoints(inserter)
-                                mark_path(path)
-                                used[inserter.id] = true
+                                mark_path(path, flow_id)
+                                mark_used(inserter, flow_id)
                                 work.metrics.transport_demand_by_entity_id[inserter.id] = flow_share(entry)
                                 add_witness(tostring(machine.id) .. ":output:" .. tostring(flow_id), "output", machine.id,
                                     target_machine and target_machine.id or port.port_id,
@@ -1693,16 +1790,54 @@ local function check_physical_transfers(work)
     for _ in pairs(work.steps or {}) do has_obligations = true; break end
     if not has_obligations then return true end
 
+    local function published_cell(entity, field)
+        local position = entity and entity[field]
+        if type(position) ~= "table" then return nil end
+        local x, y = finite(position.x), finite(position.y)
+        if x == nil or y == nil then return nil end
+        return math.floor(x + EPSILON), math.floor(y + EPSILON)
+    end
+
+    local function inserter_outward_cell(inserter)
+        local entity = inserter.entity or {}
+        local role = entity.role
+        if role ~= "input" and role ~= "output" then
+            local machine = entity.machine_id and work.info_by_id[entity.machine_id]
+            role = machine and transfer_role(inserter, machine) or nil
+            if not role then
+                for _, candidate in ipairs(work.machines) do
+                    role = transfer_role(inserter, candidate)
+                    if role then break end
+                end
+            end
+        end
+        local pickup_x, pickup_y, drop_x, drop_y = transfer_cells(inserter, work)
+        local x, y = role == "output" and drop_x or pickup_x, role == "output" and drop_y or pickup_y
+        if x == nil or y == nil then
+            x, y = published_cell(entity, role == "output" and "drop_position" or "pickup_position")
+        end
+        if x == nil or y == nil then x, y = transport_tile(inserter) end
+        return x, y
+    end
+
+    local function unused_detail(info, inserter)
+        local x, y
+        if inserter then x, y = inserter_outward_cell(info) else x, y = transport_tile(info) end
+        return {x = x, y = y, flow_id = flow_detail_id(info), facing = entity_direction(info) or Grid.NORTH}
+    end
+
     for _, inserter in ipairs(work.inserters) do
-        if not used[inserter.id] then
-            error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(inserter.id)},
-                {reason = "inserter serves no required transfer"})
+        if not used_any(inserter) then
+            local detail = unused_detail(inserter, true)
+            detail.reason = "inserter serves no required transfer"
+            error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(inserter.id)}, detail)
         end
     end
     for _, info in ipairs(work.infos) do
-        if transport_kind(info) and not used[info.id] then
-            error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(info.id)},
-                {reason = "transport entity serves no required transfer"})
+        if transport_kind(info) and not used_any(info) then
+            local detail = unused_detail(info, false)
+            detail.reason = "transport entity serves no required transfer"
+            error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(info.id)}, detail)
         end
     end
     return true
@@ -1778,8 +1913,7 @@ local function check_ports(work)
         local sink_ok = sink and (sink.role == "in" or (sink.role == "out" and sink_external))
         local bad = not source or not sink or not source_ok or not sink_ok; local flow_id = binding.flow_id
         if not bad and flow_id then
-            local source_flow, sink_flow = source.flow_id or source.full_name, sink.flow_id or sink.full_name
-            if (source_flow and source_flow ~= flow_id) or (sink_flow and sink_flow ~= flow_id) then bad = true end
+            if not flow_compatible(source, flow_id) or not flow_compatible(sink, flow_id) then bad = true end
         end
         if bad then
             --Name the failing half. A bare code cannot be repaired: the reader needs to know whether the port is
