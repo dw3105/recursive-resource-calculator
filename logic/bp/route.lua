@@ -35,6 +35,10 @@ local HEURISTIC_PER_TILE = 1
 --did not ask for, is the LAST answer the search should take: high enough that any real approach wins,
 --finite so a sink with no other approach is still served.
 local SEEDED_SINK_LAST = 0
+--A splitter is the expensive answer, never the forbidden one (contract 28.8).  Leaving a trunk through a
+--splitter body costs two belts' worth of commitment and forces the branch to jog one tile, so it is priced
+--above the plain turn it replaces and a continuation keeps winning wherever one exists.
+local SPLITTER_BODY_COST = 4
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 local DIRECTION_ORDERS = {
     DIRECTIONS,
@@ -912,6 +916,19 @@ local function splitter_second_cell(x, y, direction)
     return x + dx, y + dy
 end
 
+--A splitter NEVER turns flow.  It carries items in ONE direction: in at the back of both tiles it covers,
+--out at the front of both.  There is no side output, so a branch leaving a trunk does not turn ON the trunk
+--cell.  It steps sideways into the splitter's other tile, leaves that tile FORWARD, and turns one tile
+--later.  The second tile is therefore one step in the BRANCH direction from the anchor, and the splitter
+--keeps the TRUNK's heading.  Measured 2026-09-22 on legalcopilot-dev, the player's real sheet: r:279
+--covered (12,19)+(12,20) facing WEST while the copper trunk ran north through (12,21), so the walk went
+--12:21 -> 12:19 -> 11:20 and 12:18 was never reached.  The north trunk was orphaned by its own splitter.
+local function splitter_branch_cell(x, y, branch_direction)
+    local dx, dy = Grid.dir_vector(branch_direction)
+    if dx == nil or dy == nil then return nil, nil end
+    return x + dx, y + dy
+end
+
 local function splitter_can_absorb(segment)
     return segment ~= nil and segment.kind == "belt" and not segment.underground and not segment.splitter
 end
@@ -976,26 +993,43 @@ local add_allocation
 
 local function splitter_branch_allowed(work, demand, x, y, direction, segment, search)
     if segment and segment.splitter then
-        local second_x, second_y = splitter_second_cell(x, y, direction)
-        return second_x ~= nil and segment.splitter_direction == direction
-            and segment.splitter_second_key == coordinate_key(second_x, second_y)
+        --An existing splitter serves a further branch only when it is a real one -- oriented to its own
+        --trunk -- and the branch leaves through the tile it already covers.  The old test asked
+        --`splitter_direction == direction`, which can only ever match a splitter that TURNS.
+        local branch_x, branch_y = splitter_branch_cell(x, y, direction)
+        return branch_x ~= nil and segment.splitter_direction == segment.direction
+            and segment.splitter_second_key == coordinate_key(branch_x, branch_y)
     end
     if not segment or segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then
         if search then search.saw_blocked = true end
         return false
     end
-    local second_x, second_y = splitter_second_cell(x, y, direction)
-    if second_x == nil then
+    local branch_x, branch_y = splitter_branch_cell(x, y, direction)
+    if branch_x == nil then
         if search then search.saw_blocked = true end
         return false
     end
-    return splitter_cell_allowed(work, demand, second_x, second_y, segment, search)
+    return splitter_cell_allowed(work, demand, branch_x, branch_y, segment, search)
 end
 
-local function terminal_splitter_refused(work, x, y, segment)
+local function terminal_splitter_refused(work, x, y, segment, direction)
     if not splitter_can_absorb(segment) then return false end
-    local second_x, second_y = splitter_second_cell(x, y, segment.direction)
-    return second_x ~= nil and work.splitter_blocked_cells[coordinate_key(second_x, second_y)] == true
+    --The tile a conversion here would claim is the one the BRANCH steps into, so that is the tile whose
+    --reservation decides whether the splitter is refused.  With no branch direction in hand -- the sink's
+    --own port tile, where the approach is unknown -- either covered tile being reserved is enough.
+    if direction ~= nil then
+        local branch_x, branch_y = splitter_branch_cell(x, y, direction)
+        return branch_x ~= nil and work.splitter_blocked_cells[coordinate_key(branch_x, branch_y)] == true
+    end
+    for _, side in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
+        if side ~= segment.direction and side ~= Grid.dir_opposite(segment.direction) then
+            local branch_x, branch_y = splitter_branch_cell(x, y, side)
+            if branch_x ~= nil and work.splitter_blocked_cells[coordinate_key(branch_x, branch_y)] == true then
+                return true
+            end
+        end
+    end
+    return false
 end
 
 --A splitter replaces the two one-tile belts in its footprint.  When the side tile is already part of the
@@ -1305,6 +1339,15 @@ local function append_normal_path(work, demand, path, amount)
         local next_cell = path[index + 1] or path[index - 1] or cell
         local direction = direction_from_step(cell.x, cell.y, next_cell.x, next_cell.y)
         if index == #path and #path > 1 then direction = direction_from_step(path[index - 1].x, path[index - 1].y, cell.x, cell.y) end
+        --A cell has TWO directions and they decide different things.  `incoming` is how the items arrived,
+        --`outgoing` is how they leave.  Arriving at a run already laid from one of its SIDES is a merge and
+        --builds nothing; the run keeps its own heading and carries the items on.  LEAVING a run sideways is
+        --the only thing that needs a splitter.  Judging both with one direction converted a merge into a
+        --splitter it could never place: measured 2026-09-22 on legalcopilot-dev, item/copper-plate
+        --(7,24) -> (12,11) died BP_R_NO_PATH because the sink tile's branch cell (13,11) holds an inserter.
+        local incoming = index > 1 and direction_from_step(path[index - 1].x, path[index - 1].y, cell.x, cell.y) or nil
+        local outgoing = path[index + 1]
+            and direction_from_step(cell.x, cell.y, path[index + 1].x, path[index + 1].y) or nil
         local key = coordinate_key(cell.x, cell.y)
         local segment = work.segments_by_cell[key]
         if segment and direction == nil and segment_has_flow(segment, demand.flow_id) then
@@ -1314,8 +1357,13 @@ local function append_normal_path(work, demand, path, amount)
             direction = segment.direction
         end
         if segment then
+            --A path may END on a splitter's second tile: that is where the sink's own port sits, and an
+            --inserter picks from the tile, never from a tile further on.  Only LEAVING the body needs the
+            --splitter's own heading.  Demanding it on arrival refused the branch outright: measured
+            --2026-09-22 on legalcopilot-dev, tests/test_route.lua R6, intermediate-in at (4,3) died
+            --BP_R_NO_PATH with the splitter at (4,2)+(4,3) already legal.
             local splitter_continuation = segment.splitter and key == segment.splitter_second_key
-                and direction == segment.splitter_direction
+                and (outgoing == nil or outgoing == segment.splitter_direction)
             if not allocated_segments[segment.segment_id] then
                 local allowed, reason = segment_allows(work, segment, demand, amount)
                 if not allowed then return reject(reason or "occupied") end
@@ -1323,8 +1371,10 @@ local function append_normal_path(work, demand, path, amount)
             if segment.splitter and key == segment.splitter_second_key and not splitter_continuation then return reject("occupied") end
             --A sink is reached by entering its port tile.  Its existing belt need not point out of that tile,
             --but only when the otherwise required splitter footprint is reserved by an underground endpoint.
-            if segment.direction ~= direction and not splitter_continuation
-                and not (index == #path and terminal_splitter_refused(work, cell.x, cell.y, segment)) then
+            local leaves_sideways = outgoing ~= nil and outgoing ~= segment.direction
+            local rode_the_trunk = incoming == nil or incoming == segment.direction
+            if leaves_sideways and rode_the_trunk and not splitter_continuation
+                and not terminal_splitter_refused(work, cell.x, cell.y, segment, outgoing) then
                 if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) then
                     return reject("splitter-footprint")
                 end
@@ -1333,22 +1383,27 @@ local function append_normal_path(work, demand, path, amount)
                 --allocation may still share the segment, but its published pair keeps the direction it was built
                 --for.  Surface belts retain their existing splitter behaviour.
                     if not splitter_can_absorb(segment)
-                        or not splitter_branch_allowed(work, demand, cell.x, cell.y, direction, segment) then
+                        or not splitter_branch_allowed(work, demand, cell.x, cell.y, outgoing, segment) then
                         work.last_route_rejection = work.last_route_rejection or {}
                         work.last_route_rejection.x, work.last_route_rejection.y = cell.x, cell.y
-                        work.last_route_rejection.direction = direction
+                        work.last_route_rejection.direction = outgoing
                         work.last_route_rejection.segment = segment.segment_id
                         work.last_route_rejection.splitter = segment.splitter
                         work.last_route_rejection.segment_direction = segment.direction
-                        local second_x, second_y = splitter_second_cell(cell.x, cell.y, direction)
+                        local second_x, second_y = splitter_branch_cell(cell.x, cell.y, outgoing)
                         work.last_route_rejection.second = second_x and (tostring(second_x) .. ":" .. tostring(second_y))
                         work.last_route_rejection.second_segment = second_x and work.segments_by_cell[coordinate_key(second_x, second_y)]
                             and work.segments_by_cell[coordinate_key(second_x, second_y)].segment_id
                         return reject("splitter-footprint")
                     end
                     local entity = work.entity_by_segment[segment.segment_id]
-                    local splitter_direction = direction
-                    local second_x, second_y = splitter_second_cell(cell.x, cell.y, splitter_direction)
+                    --The splitter keeps the TRUNK's heading, never the new demand's.  Orienting it to the
+                    --demand severed the trunk feeding it: the input side turned to face the branch, so every
+                    --tile of the trunk beyond the splitter was orphaned.  The second tile is then literally
+                    --the NEXT path cell, which is what makes contract 28.5 true by construction -- the
+                    --search and the materializer cannot disagree about a tile the path already names.
+                    local splitter_direction = segment.direction
+                    local second_x, second_y = splitter_branch_cell(cell.x, cell.y, outgoing)
                     local second_key = coordinate_key(second_x, second_y)
                     local side_segment = work.segments_by_cell[second_key]
                     if not merge_splitter_footprint(work, segment, second_key, demand) then
@@ -1465,7 +1520,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     if segment then
         local splitter_continuation = segment.splitter and segment.splitter_second_key == coordinate_key(x, y)
-            and segment.splitter_direction == move_direction
+            and (is_target or segment.splitter_direction == move_direction)
         if segment.splitter and segment.splitter_second_key == coordinate_key(x, y) and not splitter_continuation then
             search.saw_blocked = true
             return false
@@ -1480,32 +1535,27 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             if not segment_has_flow(segment, demand.flow_id) and segment.kind == "pipe" then search.saw_fluid_mix = true end
             return false
         end
-        local terminal_refused = is_target and terminal_splitter_refused(work, x, y, segment)
+        local terminal_refused = is_target and terminal_splitter_refused(work, x, y, segment, move_direction)
         if move_direction ~= nil and segment.direction ~= move_direction and not terminal_refused then
             if not splitter_continuation then
+                --A belt takes items from behind and from its TWO SIDES, never from the tile it faces.  So a
+                --side entry into a run already laid is a MERGE, it is legal, and it builds nothing: three
+                --furnaces feeding one gear machine is exactly that shape, and refusing it cost 3
+                --BP_R_NO_PATH on the player's sheet, measured 2026-09-22 on legalcopilot-dev.  Only the
+                --head-on entry is impossible.  TAKING items off a run is the other half, and that is not
+                --decided here: it is the body jump in `search_step`, because a splitter never turns flow.
+                if move_direction == Grid.dir_opposite(segment.direction) then
+                    search.saw_blocked = true
+                    return false
+                end
                 if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) then
                     search.saw_blocked = true
                     return false
                 end
-                --A crossing the MATERIALIZER already refused is refused here too, for this demand, for the
-                --rest of its routing.  Contract 28.5 says search and materializer ask the same question, and
-                --calling the same predicate is not enough to make that true: the search plans a whole path
-                --against the world as it stands, while `append_normal_path` mutates the world cell by cell,
-                --so an earlier cell of the SAME path can take the splitter's second tile before the crossing
-                --is reached.  Measured 2026-09-22 on legalcopilot-dev against
-                --tests/fixtures/routing/player_chain_first_candidate.lua: the search passed (10,6), the
-                --materializer refused it with second=10:7 held by r:s:19, and the demand died BP_R_NO_PATH
-                --with a route still available around it.
                 if demand.crossing_blocked and demand.crossing_blocked[coordinate_key(x, y)] then
                     search.saw_blocked = true
                     return false
                 end
-                if not splitter_can_absorb(segment)
-                    or not splitter_branch_allowed(work, demand, x, y, move_direction, segment, search) then
-                    search.saw_blocked = true
-                    return false
-                end
-                search.saw_branch = true
             end
         end
     end
@@ -1745,11 +1795,68 @@ local function search_step(work, search)
         --each other, and contract 28.7's walk then loops instead of reaching the sink: measured 2026-09-22 on
         --the frozen candidate as item/plate 0:16 -> 12:2 stepping 10:6 west to 9:6 and diving east again.
         local reversed = current.direction ~= nil and direction == Grid.dir_opposite(current.direction)
-        if not surfaced and not reversed
+        --An inserter picks from the belt TILE, never from the belt's facing, so when a same-flow run already
+        --crosses this sink's own port tile the sink is fed however the search arrives there.  Demanding the
+        --port's own travel direction made the search jog off the trunk and come back east, and the detour it
+        --laid was then real waste: measured 2026-09-22 on legalcopilot-dev, item/copper-plate into
+        --automation-science-pack:2 built a splitter at (11,12)+(12,12) and an orphan belt at (11,11) while
+        --the trunk already ran through (12,11).  Contract 28.8 wants the continuation, and this is it.
+        local sink_on_existing_run = false
+        if target and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
+            local sink_segment = work.segments_by_cell[coordinate_key(nx, ny)]
+            sink_on_existing_run = sink_segment ~= nil and not sink_segment.underground
+                and segment_has_flow(sink_segment, search.demand.flow_id)
+        end
+        --A splitter body outputs ONLY in front of the tiles it covers.  A search that turns while it is
+        --inside the body plans a belt the splitter never feeds, so the body is committed to the trunk's
+        --heading for exactly the one tile it spans.  Mode 2 is that commitment, and it is the same shape of
+        --rule as `surfaced` above.
+        local in_body = current.mode == 2 and current.direction ~= nil and current.direction ~= direction
+        if not surfaced and not reversed and not in_body
             and (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction)
-            and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction) then
-            local free = path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search)
-            if free then
+            and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction
+                or sink_on_existing_run) then
+            local leaving = work.segments_by_cell[coordinate_key(current.x, current.y)]
+            --The body jump.  Leaving a belt already laid is not a turn -- no entity turns flow.  It is a
+            --step into the OTHER tile of the splitter this cell is about to become, and the items keep the
+            --trunk's heading right through the body.  The tile stepped into is exactly the tile
+            --`splitter_branch_allowed` checks and exactly the tile `append_normal_path` claims, so search
+            --and materializer cannot disagree about it -- that is contract 28.5 by construction rather than
+            --by two predicates agreeing to agree.
+            local body_jump = false
+            if leaving ~= nil and leaving.kind == "belt" and not leaving.underground and not leaving.splitter
+                and current.direction ~= nil and leaving.direction == current.direction
+                and direction ~= current.direction and work.belt and work.belt.splitter
+                and not (search.demand.crossing_blocked
+                    and search.demand.crossing_blocked[coordinate_key(current.x, current.y)])
+                and segment_allows(work, leaving, search.demand, search.amount)
+                and splitter_can_absorb(leaving)
+                and splitter_branch_allowed(work, search.demand, current.x, current.y, direction, leaving, nil) then
+                body_jump = true
+            end
+            --A merge adopts the trunk's heading.  Once the items are on a run already laid they travel the
+            --way that run faces, so the search must plan from there with the trunk's direction, never with
+            --the direction it arrived from.  Mode 2 holds it to that heading for the one tile, exactly as it
+            --does inside a splitter body.
+            local entering = work.segments_by_cell[coordinate_key(nx, ny)]
+            local merge = not body_jump and entering ~= nil and not entering.splitter
+                and entering.direction ~= nil and entering.direction ~= direction
+                and direction ~= Grid.dir_opposite(entering.direction)
+            local free = path_cell_free(work, search.demand, nx, ny,
+                body_jump and leaving.direction or direction, target, search.amount, search)
+            if free and body_jump then
+                --A splitter costs two belts' worth of commitment and forces the branch to jog a tile, so it
+                --is priced above the plain turn it replaces.  Contract 28.8 wants a continuation to win
+                --whenever one exists, and this is the price that keeps it winning.
+                search.saw_branch = true
+                local cost = current.cost + transition_cost(work, search.demand, nx, ny, leaving.direction,
+                    current.direction, 0, 0, search.amount) + SPLITTER_BODY_COST
+                enqueue_state(search, nx, ny, leaving.direction, 2, current.key, cost)
+            elseif free and merge then
+                local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
+                    current.direction, 0, 0, search.amount)
+                enqueue_state(search, nx, ny, entering.direction, 2, current.key, cost)
+            elseif free then
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)

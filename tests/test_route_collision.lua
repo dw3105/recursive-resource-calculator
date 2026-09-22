@@ -173,9 +173,13 @@ for _, shape in ipairs(H.shapes()) do
         local result = run(dofile(FROZEN), "RX1")
         if not result then return end
         local counts = report("RX1", result)
-        H.equal(counts.entities, 91, "RX1 entity count")
+        --91 to 93 and 6 to 8 on 2026-09-22, legalcopilot-dev: one more underground PAIR, because a run that
+        --meets a foreign flow head-on now dives under it instead of converting that cell into a splitter
+        --that turns, which no splitter does.  Belt count and splitter count are unchanged, so this is the
+        --crossing being paid for honestly and nothing else moved.
+        H.equal(counts.entities, 93, "RX1 entity count")
         H.equal(counts.belts, 85, "RX1 belt count")
-        H.equal(counts.undergrounds, 6, "RX1 underground endpoint count")
+        H.equal(counts.undergrounds, 8, "RX1 underground endpoint count")
         H.equal(counts.splitters, 0, "RX1 splitter count")
         assert_no_overlap(result, "RX1")
     end)

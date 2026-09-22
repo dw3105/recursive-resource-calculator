@@ -200,9 +200,15 @@ for _, shape in ipairs(H.shapes()) do
         local geometry = measure(shape .. " RC2", state)
         H.equal(geometry.splitters, 0, "28.8 serves the column by continuation, so no splitter is built")
         H.equal(geometry.surface <= 85, true, "surface belts stay at or below the measured 85")
-        H.equal(geometry.underground <= 6, true, "underground endpoints stay at or below the measured 6")
-        H.equal(geometry.surface + geometry.underground + geometry.splitters <= 91, true,
-            "total transport stays at or below the measured 91")
+        --6 to 8 on 2026-09-22, legalcopilot-dev, and the two new endpoints are a real crossing, not waste.
+        --A splitter never turns flow and a foreign flow may never be merged into, so a run that meets a
+        --belt of another flow head-on has exactly one legal answer: dive under it.  Measured here as
+        --item/plate running WEST along y=2 crossing r:244, a NORTH-facing item/gear belt at (14,2), with
+        --its endpoints at (15,2) input and (13,2) output.  Before the splitter could not turn, the router
+        --converted that cell instead and published a factory whose items never crossed.
+        H.equal(geometry.underground <= 8, true, "underground endpoints stay at or below the measured 8")
+        H.equal(geometry.surface + geometry.underground + geometry.splitters <= 93, true,
+            "total transport stays at or below the measured 93")
     end)
 
     H.test(shape .. " RC5 forced-on frozen candidate keeps continuation geometry", function()
@@ -244,7 +250,8 @@ for _, shape in ipairs(H.shapes()) do
         local geometry = measure(shape .. " RC8", state)
         H.equal(state.work.multi_flow_hands, false, "the seam forces multi-flow hands off")
         H.equal(geometry.surface, 85, "forced-off surface belts stay at the measured 85")
-        H.equal(geometry.underground, 6, "forced-off underground endpoints stay at the measured 6")
+        --Same measurement as RC2: the foreign-flow crossing at (14,2) is dived under, never split through.
+        H.equal(geometry.underground, 8, "forced-off underground endpoints stay at the measured 8")
         H.equal(geometry.splitters, 0, "forced-off geometry has no splitters")
         H.equal(broken_count(state), 0, "forced-off bindings keep directed chains")
     end)
