@@ -1,7 +1,7 @@
 # 153 audit: the byte auditor has never seen a splitter, and it covers two tiles
 
 Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-153`, branch
-`lane/153`, base tag `round-18-base` (resolve with `git rev-parse round-18-base`), merge target
+`lane/153`, base tag `round-18-audit-base` (resolve with `git rev-parse round-18-audit-base`), merge target
 `feat/round-8-blueprints`. Host `legalcopilot-dev`.
 
 ## What is true
@@ -150,8 +150,8 @@ Two checks. A check block takes one `gateslot` lease PER check and hands it back
 checks means nine trips to the back of a shared queue. Everything cheap is folded in with `&&`.
 
 ```checks
-{"name": "audit-splitter", "command": "git diff --name-only round-18-base HEAD | grep -v '^docs/tasks/153' | grep -Ev '^(tools/blueprint_audit\\.py|tests/tools/test_blueprint_audit\\.py)$' | ( ! grep . ) && python3 -m unittest tests.tools.test_blueprint_audit 2>&1 | tail -1 | grep -q '^OK' && python3 -m unittest tests.tools.test_real_sheet_census 2>&1 | tail -1 | grep -q '^OK' && python3 -m unittest tests.tools.test_deliver 2>&1 | tail -1 | grep -q '^OK' && python3 -c \"import re,pathlib; t=pathlib.Path('tests/tools/test_blueprint_audit.py').read_text(); assert t.lower().count('splitter') >= 8, 'splitter cases are missing'\" && echo audit-splitter-ok", "expect_exit": 0, "expect_regex": "audit-splitter-ok", "timeout_s": 1200}
-{"name": "red-at-base", "command": "set -e; base=$(mktemp -d); git worktree add -q --detach \"$base\" round-18-base; cp tests/tools/test_blueprint_audit.py \"$base/tests/tools/test_blueprint_audit.py\"; cd \"$base\"; fail=0; python3 -m unittest tests.tools.test_blueprint_audit 2>&1 | tail -1 | grep -q '^OK' && fail=1 || true; cd - >/dev/null; git worktree remove --force \"$base\"; [ \"$fail\" = 0 ] || { echo 'the new splitter cases are GREEN at round-18-base; they prove nothing'; exit 1; }; echo red-at-base-ok", "expect_exit": 0, "expect_regex": "red-at-base-ok", "timeout_s": 900}
+{"name": "audit-splitter", "command": "git diff --name-only round-18-audit-base HEAD | grep -v '^docs/tasks/153' | grep -Ev '^(tools/blueprint_audit\\.py|tests/tools/test_blueprint_audit\\.py)$' | ( ! grep . ) && python3 -m unittest tests.tools.test_blueprint_audit 2>&1 | tail -1 | grep -q '^OK' && python3 -m unittest tests.tools.test_real_sheet_census 2>&1 | tail -1 | grep -q '^OK' && python3 -m unittest tests.tools.test_deliver 2>&1 | tail -1 | grep -q '^OK' && python3 -c \"import re,pathlib; t=pathlib.Path('tests/tools/test_blueprint_audit.py').read_text(); assert t.lower().count('splitter') >= 8, 'splitter cases are missing'\" && echo audit-splitter-ok", "expect_exit": 0, "expect_regex": "audit-splitter-ok", "timeout_s": 1200}
+{"name": "red-at-base", "command": "set -e; base=$(mktemp -d); git worktree add -q --detach \"$base\" round-18-audit-base; cp tests/tools/test_blueprint_audit.py \"$base/tests/tools/test_blueprint_audit.py\"; cd \"$base\"; fail=0; python3 -m unittest tests.tools.test_blueprint_audit 2>&1 | tail -1 | grep -q '^OK' && fail=1 || true; cd - >/dev/null; git worktree remove --force \"$base\"; [ \"$fail\" = 0 ] || { echo 'the new splitter cases are GREEN at round-18-audit-base; they prove nothing'; exit 1; }; echo red-at-base-ok", "expect_exit": 0, "expect_regex": "red-at-base-ok", "timeout_s": 900}
 ```
 
 Re-cut because: none
