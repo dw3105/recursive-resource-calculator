@@ -66,7 +66,40 @@ today     ok=true   entities_delivered=352  validate_attempts=1   records=121
 | `BP_V_ROUTE_MISSING` | 0 | 4 |
 | `BP_PW_DISCONNECTED` | 1 | 1 |
 
-**Every one of today's 121 records belongs to the ONE alternative the search discarded**, because
+### 4a. Where those 121 records actually come from
+
+Measured from the delivered run's own `result.discarded_alternatives`, 2026-09-22:
+
+```
+ 0 reason=lower_score        grid=54x54   PORT_UNREACHABLE 2 INSERTER_GEOMETRY 2 TRANSFER_BROKEN 2 TRANSPORT_UNUSED 2
+ 1 reason=lower_score        grid=54x54   TARGET_SHORTFALL 2 ROUTE_MISSING 1 PORT_UNREACHABLE 7 INSERTER_GEOMETRY 6 TRANSFER_BROKEN 6 TRANSPORT_UNUSED 6
+ 2 reason=lower_score        grid=54x104  ... the same two layouts again
+ 3 reason=lower_score        grid=54x104
+ 4 reason=rejected           grid=104x54  PW_DISCONNECTED 1
+ 5 reason=lower_score        grid=104x54
+ 6 reason=lower_score        grid=54x154
+ 7 reason=lower_score        grid=54x154
+ 8 reason=BP_FAIL_GRID_LIMIT kind=search-space   no codes
+ 9 reason=outscored          grid=54x54         no codes
+10 reason=outscored          grid=54x104        no codes
+11 reason=None               grid=54x154        no codes
+```
+
+**12 alternatives, and only 2 distinct `candidate_id`.** The same two losing layouts are re-scored at
+54x54, 54x104, 104x54 and 54x154, and each re-scoring is counted again. **Not one record belongs to the
+candidate that shipped**, which carries zero. Nine of the twelve were discarded for `lower_score` or
+`outscored` -- for being WORSE, never for being invalid.
+
+Two consequences, both named and neither fixed here:
+
+1. `counters.validate_attempts` is **not** a count of candidates. `tools/real_sheet_census.py:census_of`
+   counts distinct `attempt` values and `records_of` sets `attempt = alternative.candidate_id`, so twelve
+   alternatives collapse to one.
+2. The four codes that ROSE in absolute count -- `BP_V_PORT_UNREACHABLE` 5 to 30,
+   `BP_V_INSERTER_GEOMETRY` 5 to 26, `BP_V_TRANSFER_BROKEN` 5 to 26, `BP_V_ROUTE_MISSING` 0 to 4 -- are
+   four re-measurements of two layouts nobody ships. **This ledger blesses none of them.**
+
+**Every one of today's 121 records belongs to an alternative the search discarded**, because
 `tools/real_sheet_census.py:records_of` reads `result.discarded_alternatives` on a succeeding run. The
 accepted candidate carries zero. `tools/census_gate.py` divides by that discard count, so success inflates
 every rate while the absolute total collapsed. Lane 154 owns the rule.
