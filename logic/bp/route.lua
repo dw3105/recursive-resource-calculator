@@ -1379,6 +1379,19 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         local terminal_refused = is_target and terminal_splitter_refused(work, x, y, segment)
         if move_direction ~= nil and segment.direction ~= move_direction and not terminal_refused then
             if not splitter_continuation then
+                --A crossing the MATERIALIZER already refused is refused here too, for this demand, for the
+                --rest of its routing.  Contract 28.5 says search and materializer ask the same question, and
+                --calling the same predicate is not enough to make that true: the search plans a whole path
+                --against the world as it stands, while `append_normal_path` mutates the world cell by cell,
+                --so an earlier cell of the SAME path can take the splitter's second tile before the crossing
+                --is reached.  Measured 2026-09-22 on legalcopilot-dev against
+                --tests/fixtures/routing/player_chain_first_candidate.lua: the search passed (10,6), the
+                --materializer refused it with second=10:7 held by r:s:19, and the demand died BP_R_NO_PATH
+                --with a route still available around it.
+                if demand.crossing_blocked and demand.crossing_blocked[coordinate_key(x, y)] then
+                    search.saw_blocked = true
+                    return false
+                end
                 if not splitter_can_absorb(segment)
                     or not splitter_branch_allowed(work, demand, x, y, move_direction, segment, search) then
                     search.saw_blocked = true
@@ -1938,7 +1951,24 @@ function Route.step(state, budget)
                 if type(outcome) == "table" then
                     local placed, reason = append_normal_path(work, demand, outcome, amount)
                     work.current = nil
-                    if not placed then
+                    if not placed and reason == "splitter-footprint" then
+                        --A refused splitter footprint is a refused CROSSING, never a refused demand.  Record
+                        --the anchor cell so the search stops offering it, then search again.  Without this,
+                        --contract 28.5's named refusal turns every crossing it correctly rejects into
+                        --BP_R_NO_PATH for the whole flow, which is strictly worse than the silent
+                        --mismatched belt it replaced.
+                        local rejection = work.last_route_rejection or {}
+                        local blocked_x, blocked_y = rejection.x, rejection.y
+                        if blocked_x ~= nil and blocked_y ~= nil then
+                            demand.crossing_blocked = demand.crossing_blocked or {}
+                            local blocked_key = coordinate_key(blocked_x, blocked_y)
+                            if not demand.crossing_blocked[blocked_key] then
+                                demand.crossing_blocked[blocked_key] = true
+                                work.current = begin_search(work, demand, amount, 1)
+                            end
+                        end
+                        if work.current == nil then fail_demand(state, work, demand, "BP_R_NO_PATH") end
+                    elseif not placed then
                         fail_demand(state, work, demand, reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH")
                     else demand.remaining = demand.remaining - amount end
                 elseif outcome == "failed" then
