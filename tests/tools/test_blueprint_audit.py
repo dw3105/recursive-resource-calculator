@@ -235,4 +235,76 @@ class HandBuiltReferenceTest(unittest.TestCase):
         self.assertEqual(counts["invalid_inserters"], 0, "a working factory has no invalid inserter")
         self.assertEqual(counts["unpairable_underground"], 0)
         self.assertEqual(counts["wires"], 12)
+        self.assertEqual({key: counts[key] for key in (
+            "entities", "belts", "inserters", "poles", "machines", "roboports", "splitters",
+            "undergrounds", "pipes", "beacons", "entities_excluding_roboports")}, {
+            "entities": 131, "belts": 84, "inserters": 22, "poles": 10, "machines": 11, "roboports": 4,
+            "splitters": 0, "undergrounds": 0, "pipes": 0, "beacons": 0,
+            "entities_excluding_roboports": 127,
+        })
         self.assertEqual(done.returncode, 0, "the reference must pass outright")
+
+    def test_ACC15_family_census_keeps_zero_families_and_unknowns(self):
+        entities = control()
+        entities.append({"name": "modded-widget", "position": {"x": 30.5, "y": 30.5}})
+        status, counts = audit(entities)
+        self.assertEqual(status, 0)
+        self.assertEqual(counts["belts"], 4)
+        self.assertEqual(counts["undergrounds"], 2)
+        self.assertEqual(counts["splitters"], 0)
+        self.assertEqual(counts["inserters"], 2)
+        self.assertEqual(counts["machines"], 1)
+        self.assertEqual(counts["poles"], 0)
+        self.assertEqual(counts["pipes"], 0)
+        self.assertEqual(counts["beacons"], 0)
+        self.assertEqual(counts["roboports"], 0)
+        self.assertEqual(counts["other"], 1)
+        self.assertEqual(counts["entities_excluding_roboports"], 10)
+
+    def test_ACC16_target_accepts_exact_values_and_windows(self):
+        target = {
+            "note": "roboports are excluded",
+            "belts": {"min": 4, "max": 4},
+            "inserters": 2,
+            "entities_excluding_roboports": 9,
+        }
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump(target, handle)
+            target_path = handle.name
+        try:
+            status, counts = audit(control(), "--expect-target", target_path)
+            self.assertEqual(status, 0, counts)
+        finally:
+            pathlib.Path(target_path).unlink()
+
+    def test_ACC17_target_reports_mismatch_after_counts(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"splitters": 99}, handle)
+            target_path = handle.name
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write(encode(control()) + "\n")
+            artifact_path = handle.name
+        try:
+            done = subprocess.run([sys.executable, str(AUDIT), artifact_path, "--expect-target", target_path, "-q"],
+                                  capture_output=True, text=True)
+            self.assertEqual(done.returncode, 1)
+            self.assertIn("splitters", done.stderr)
+            self.assertIn("delivered 0", done.stderr)
+            self.assertIn("entities", done.stdout)
+        finally:
+            pathlib.Path(target_path).unlink()
+            pathlib.Path(artifact_path).unlink()
+
+    def test_ACC18_human_report_names_roboport_exclusion(self):
+        entities = control() + [{"name": "roboport", "position": {"x": 30.5, "y": 30.5}}]
+        with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+            handle.write(encode(entities) + "\n")
+            artifact_path = handle.name
+        try:
+            done = subprocess.run([sys.executable, str(AUDIT), artifact_path], capture_output=True, text=True)
+            self.assertEqual(done.returncode, 0)
+            self.assertIn("roboport", done.stdout.lower())
+            self.assertIn("exclud", done.stdout.lower())
+            self.assertIn("1", done.stdout)
+        finally:
+            pathlib.Path(artifact_path).unlink()

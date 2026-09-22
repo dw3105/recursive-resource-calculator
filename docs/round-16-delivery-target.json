@@ -1,0 +1,12 @@
+{
+  "note": "Roboport entities are excluded from entities_excluding_roboports on the player's instruction.",
+  "belts": {
+    "min": 84,
+    "max": 126
+  },
+  "inserters": 22,
+  "machines": 11,
+  "splitters": 0,
+  "undergrounds": 0,
+  "entities_excluding_roboports": 127
+}

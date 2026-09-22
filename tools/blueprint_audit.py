@@ -19,7 +19,8 @@ Frozen baseline, measured on this host 2026-09-21 against
 11 invalid inserters, 12 unpairable pipe-to-ground endpoints, 89 untouched belt tiles, 3 redundant beacons.
 Any change to those four numbers is a change to this tool, not a discovery.
 
-usage: blueprint_audit.py <blueprint.txt | generator.json> [--beacon-config FILE] [--json] [-q]
+usage: blueprint_audit.py <blueprint.txt | generator.json> [--beacon-config FILE] [--expect-target FILE]
+                           [--expect-wires N] [--json] [-q]
 """
 
 from __future__ import annotations
@@ -52,6 +53,7 @@ UG_BELTS = {"underground-belt", "fast-underground-belt", "express-underground-be
 SPLITTERS = {"splitter", "fast-splitter", "express-splitter", "turbo-splitter"}
 PIPES = {"pipe"}
 UG_PIPES = {"pipe-to-ground"}
+POLES = {"small-electric-pole", "medium-electric-pole", "big-electric-pole", "substation"}
 
 #Underground reach per family, in tiles between the two endpoint centres.  Vanilla 2.0 values.
 UG_REACH = {
@@ -80,6 +82,85 @@ def load_entities(path: Path) -> Tuple[List[Dict[str, Any]], List[Any], str]:
     if blueprint is None:
         raise SystemExit("blueprint_audit.py: the string decodes to a book or an upgrade planner, not a blueprint")
     return list(blueprint.get("entities") or []), list(blueprint.get("wires") or []), blueprint.get("label") or ""
+
+
+def family_census(entities: List[Dict[str, Any]]) -> Dict[str, int]:
+    """Count every delivered entity by the audit's known physical families.
+
+    The family sets are deliberately the same ones used by the physical checks below.  Unknown names remain
+    visible under ``other`` instead of disappearing from the report.
+    """
+    counts = {
+        "belts": 0,
+        "undergrounds": 0,
+        "splitters": 0,
+        "inserters": 0,
+        "machines": 0,
+        "poles": 0,
+        "pipes": 0,
+        "beacons": 0,
+        "roboports": 0,
+        "other": 0,
+    }
+    for entity in entities:
+        name = entity.get("name") or ""
+        if name in BELTS:
+            family = "belts"
+        elif name in UG_BELTS:
+            family = "undergrounds"
+        elif name in SPLITTERS:
+            family = "splitters"
+        elif "inserter" in name:
+            family = "inserters"
+        elif name in MACHINES:
+            family = "machines"
+        elif name in POLES:
+            family = "poles"
+        elif name in PIPES or name in UG_PIPES:
+            family = "pipes"
+        elif name == "beacon":
+            family = "beacons"
+        elif name == "roboport":
+            family = "roboports"
+        else:
+            family = "other"
+        counts[family] += 1
+    counts["entities_excluding_roboports"] = len(entities) - counts["roboports"]
+    return counts
+
+
+def target_mismatches(counts: Dict[str, int], path: Path) -> List[str]:
+    """Return one readable mismatch for each count pinned by a target JSON file."""
+    target = json.loads(path.read_text())
+    if not isinstance(target, dict):
+        raise SystemExit(f"blueprint_audit.py: target {path} must contain a JSON object")
+
+    mismatches = []
+    for key, expectation in target.items():
+        # Delivery targets may carry a human note alongside their count pins.
+        if key in ("note", "_note"):
+            continue
+        delivered = counts.get(key)
+        if isinstance(expectation, dict):
+            lower = expectation.get("min")
+            upper = expectation.get("max")
+            valid = ((lower is None or delivered is not None and delivered >= lower)
+                     and (upper is None or delivered is not None and delivered <= upper))
+            if lower is not None and upper is not None:
+                expected_text = f"between {lower} and {upper}"
+            elif lower is not None:
+                expected_text = f"at least {lower}"
+            elif upper is not None:
+                expected_text = f"at most {upper}"
+            else:
+                valid = False
+                expected_text = "a target window"
+        else:
+            valid = delivered == expectation
+            expected_text = str(expectation)
+        if not valid:
+            mismatches.append(f"target {key}: delivered {delivered}, expected {expected_text}")
+    return mismatches
 
 
 def occupancy(entities: List[Dict[str, Any]]) -> Dict[Tuple[float, float], Dict[str, Any]]:
@@ -363,6 +444,8 @@ def main(argv=None) -> int:
     parser.add_argument("--beacon-config", help="JSON map of recipe-or-machine name to configured beacon count")
     parser.add_argument("--expect-wires", type=int, default=None,
                         help="fail unless exactly this many wire edges are delivered")
+    parser.add_argument("--expect-target",
+                        help="JSON file pinning exact or min/max expected delivery counts")
     parser.add_argument("--json", action="store_true", help="print the counts as JSON")
     parser.add_argument("-q", "--quiet", action="store_true", help="print counts only, never each violation")
     args = parser.parse_args(argv)
@@ -379,6 +462,7 @@ def main(argv=None) -> int:
     beacon_failures, redundant = audit_beacons(entities, config)
 
     counts = {
+        **family_census(entities),
         "entities": len(entities),
         "wires": len(wires),
         "invalid_inserters": len(inserter_failures),
@@ -401,6 +485,7 @@ def main(argv=None) -> int:
         print(f"blueprint_audit: {args.input}" + (f"  label={label!r}" if label else ""))
         for key in sorted(counts):
             print(f"  {key:24s} {counts[key]}")
+        print(f"  roboport entities are excluded from entities_excluding_roboports: {counts['roboports']} excluded")
         if not args.quiet:
             if terminals:
                 print(f"\ninferred external terminals: {len(terminals)}")
@@ -416,6 +501,10 @@ def main(argv=None) -> int:
     if args.expect_wires is not None and len(wires) != args.expect_wires:
         print(f"\nwires: delivered {len(wires)}, expected {args.expect_wires}", file=sys.stderr)
         failed += 1
+    if args.expect_target:
+        for mismatch in target_mismatches(counts, Path(args.expect_target)):
+            print(mismatch, file=sys.stderr)
+            failed += 1
     return 1 if failed else 0
 
 
