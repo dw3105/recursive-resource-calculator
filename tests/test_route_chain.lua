@@ -6,8 +6,8 @@ local Route = require "logic.bp.route"
 local FROZEN = "tests/fixtures/routing/player_chain_first_candidate.lua"
 
 local function run(force)
-    local input = dofile(FROZEN)
-    if force ~= nil then input._force_multi_flow_hands = force end
+    local input = type(force) == "table" and force or dofile(FROZEN)
+    if type(force) ~= "table" and force ~= nil then input._force_multi_flow_hands = force end
     local state = Route.begin(input)
     local ticks = 0
     while not state.done and ticks < 200000 do
@@ -117,6 +117,23 @@ local function run_parallel(flow_count)
     end
     H.equal(state.done, true, "the parallel-flow route reaches a terminal state")
     return state
+end
+
+local function science_pack_external_output()
+    return {
+        grid = {w = 8, h = 3},
+        catalog = {belt = {belt = "basic-belt", items_per_second = 10, lane_items_per_second = 5}},
+        blocks = {{block_id = "science-pack-machine", machines = {{step_id = "science-pack-machine"}},
+            x = 1, y = 1, w = 1, h = 1, ports = {{
+                port_id = "science-pack-output", role = "out", kind = "item",
+                flow_id = "item/automation-science-pack", rate_per_second = 1,
+                attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST,
+            }}}},
+        perimeter_ports = {{port_id = "science-pack-edge", role = "out", kind = "item",
+            flow_id = "item/automation-science-pack", rate_per_second = 1, x = 7, y = 1, travel_dir = Grid.EAST}},
+        flows = {{flow_id = "item/automation-science-pack", producers = {{step_id = "science-pack-machine", share_per_second = 1}},
+            consumers = {{step_id = "$external", share_per_second = 1}}}},
+    }
 end
 
 local function measure(label, state)
@@ -230,6 +247,22 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(geometry.underground, 6, "forced-off underground endpoints stay at the measured 6")
         H.equal(geometry.splitters, 0, "forced-off geometry has no splitters")
         H.equal(broken_count(state), 0, "forced-off bindings keep directed chains")
+    end)
+
+    H.test(shape .. " RC9 science-pack output allocates its implicit external sink", function()
+        local state = run(science_pack_external_output())
+        H.equal(state.ok, true, "the science-pack output route succeeds")
+        if not state.ok then return end
+        local allocated = 0
+        for _, segment in ipairs(state.result.segments or {}) do
+            for _, allocation in ipairs(segment.allocations or {}) do
+                if allocation.flow_id == "item/automation-science-pack"
+                    and allocation.sink == "port:science-pack-output" then
+                    allocated = allocated + allocation.rate_per_second
+                end
+            end
+        end
+        H.equal(allocated > 0, true, "science-pack rate is allocated against the external output obligation")
     end)
 end
 
