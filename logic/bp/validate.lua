@@ -514,6 +514,19 @@ local function entity_tile_rect(info)
     local entity = info.entity or {}
     local width = math.max(1, math.floor(finite(entity.w, finite(info.spec.tile_w, 1))))
     local height = math.max(1, math.floor(finite(entity.h, finite(info.spec.tile_h, 1))))
+    --A catalog footprint is the NORTH one, so a body facing east or west is a quarter turn round and its tile
+    --extents SWAP.  The splitter spec is `tile_w = 2, tile_h = 1` (logic/catalog.lua:8) and a routed splitter
+    --publishes no `w`/`h` of its own, so without this every east or west splitter was registered on the wrong
+    --pair of tiles: a real hole in `transport_by_cell` plus a phantom occupancy beside it.
+    --Measured 2026-09-22 on legalcopilot-dev, the player's own sheet: `r:343` at `(17.5, 41)` facing WEST
+    --covers `(17,40)` and `(17,41)`; unrotated it registered `(16,40)` and `(17,40)`, so the walk arriving at
+    --`(17,41)` found nothing and the whole branch behind it read as discontinuous.
+    --A member that publishes its own `w`/`h` is already in world terms, so it is never turned here.
+    --`corners_box` has always rotated, which is why collision never saw this and the transport grid did.
+    if entity.w == nil and entity.h == nil then
+        local direction = entity.direction or entity.dir
+        if direction == Grid.EAST or direction == Grid.WEST then width, height = height, width end
+    end
     local x = finite(entity.x, info.cx - width / 2)
     local y = finite(entity.y, info.cy - height / 2)
     return math.floor(x + EPSILON), math.floor(y + EPSILON), width, height
@@ -588,16 +601,22 @@ local function transport_neighbors(work, info, wanted_flow)
         local direction = entity_direction(info)
         local dx, dy = Grid.dir_vector(direction or Grid.NORTH)
         if dx ~= nil then
-            local x, y = transport_tile(info)
-            add_at(x + dx, y + dy)
-        end
-        -- Splitters have a second lane.  The forward edge remains authoritative, but a side connection is
-        -- also a legal continuation when the catalog/candidate records it explicitly.
-        if kind == "belt" and (entity.splitter or entity.type == "splitter" or info.spec.etype == "splitter") then
-            local x, y = transport_tile(info)
-            local side = Grid.rotate_dir(direction or Grid.NORTH, Grid.EAST)
-            local sx, sy = Grid.dir_vector(side)
-            if sx ~= nil then add_at(x + sx, y + sy) end
+            --A body wider than one tile has an output in front of EVERY tile it covers.  A splitter is the only
+            --one today: two tiles, two outputs.  Leaving only by the anchor's output silently deleted one whole
+            --branch of every fork, so a walk that took the other branch died at its far end and the entire run
+            --behind it was then reported as waste.
+            --logic/bp/route.lua:1214-1227 learned this on 2026-09-22 and the validator was never mirrored.
+            --Measured the same day on the player's sheet: 20 BP_V_ROUTE_DISCONTINUOUS and 257 cascading
+            --BP_V_TRANSPORT_UNUSED on the first candidate, every break at the far end of a splitter spur.
+            --The old code added `rotate_dir(direction, EAST)` from the anchor, which is the splitter's OWN
+            --second tile, registered under the SAME `info`, and `add_at` rejects that by `next_info ~= info`.
+            --It was a dead branch that could never fire.
+            local x, y, w, h = entity_tile_rect(info)
+            for ox = 0, w - 1 do
+                for oy = 0, h - 1 do
+                    add_at(x + ox + dx, y + oy + dy)
+                end
+            end
         end
     end
     return result
@@ -1442,7 +1461,15 @@ local function connection_path(work, flow_id, role, x, y, kind)
             for _, machine in ipairs(machines_for_step(work, step_id)) do
                 local port = machine_port_for(work, machine, flow_id, role == "input" and "out" or "in")
                 if not port then missing_port_machine = missing_port_machine or machine end
-                local px, py = port and port_position(work, port)
+                --`local px, py = port and port_position(...)` was silently WRONG: in Lua a call as the right
+                --operand of `and` is adjusted to exactly ONE value, so `py` was ALWAYS nil and every internal
+                --machine-to-machine walk died on transport_path's first line, which refuses a nil endpoint.
+                --Only flows produced at the sheet edge survived, because those go through external_path.
+                --Measured 2026-09-22 on legalcopilot-dev, the player's own sheet: every copper-plate and
+                --iron-gear-wheel obligation failed this way and was reported BP_V_ROUTE_DISCONTINUOUS, with
+                --every belt behind it then swept up as BP_V_TRANSPORT_UNUSED.
+                local px, py
+                if port then px, py = port_position(work, port) end
                 local path
                 if role == "input" then path = transport_path(work, px, py, x, y, flow_id, kind)
                 else path = transport_path(work, x, y, px, py, flow_id, kind) end
