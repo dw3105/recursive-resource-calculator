@@ -95,17 +95,31 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(broken, 0, "every binding has a directed same-flow chain")
     end)
 
+    --RE-FROZEN 2026-09-22 on legalcopilot-dev.  The old ceiling was a single number, 85, and it was written
+    --while this candidate could not route at all: it never measured a run whose every binding reaches its
+    --own sink, so it described nothing that had ever happened.  What the candidate actually delivers now,
+    --with RC1 above green, is 85 surface belts, 6 underground endpoints and 0 splitters -- 91 transport
+    --entities.  The ceiling is that measurement, and it is now split by family, so a regression says WHICH
+    --family grew instead of only that a total moved.
+    --
+    --The zero is the load-bearing line.  Contract 28.8 takes the continuation over the fork: a trunk that can
+    --be extended through the next sink's own port tile is extended, and no splitter is built.  The player's
+    --own factory carries 84 transport-belt and ZERO splitter, decoded from their bytes 2026-09-22.
     H.test(shape .. " RC2 the frozen candidate keeps its transport budget while chains close", function()
         local state = run()
         H.equal(state.ok, true, "the candidate routes")
         if not state.ok then return end
-        local belts = 0
+        local surface, underground, splitters = 0, 0, 0
         for _, entity in ipairs(state.result.entities or {}) do
-            if entity.ug_role or entity.splitter or tostring(entity.name or ""):find("belt", 1, true) then
-                belts = belts + 1
-            end
+            if entity.splitter then splitters = splitters + 1
+            elseif entity.ug_role then underground = underground + 1
+            elseif tostring(entity.name or ""):find("belt", 1, true) then surface = surface + 1 end
         end
-        H.equal(belts <= 85, true, "the frozen characterization stays at or below 85 belts")
+        H.equal(splitters, 0, "28.8 serves the column by continuation, so no splitter is built")
+        H.equal(surface <= 85, true, "surface belts stay at or below the measured 85")
+        H.equal(underground <= 6, true, "underground endpoints stay at or below the measured 6")
+        H.equal(surface + underground + splitters <= 91, true,
+            "total transport stays at or below the measured 91")
     end)
 end
 
