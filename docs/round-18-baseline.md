@@ -149,4 +149,9 @@ item/copper-ore               belts=25   underground=2   splitters=0
 Contract 28.8 already names the answer: one trunk through every port tile in turn, continuation and never
 a fork. The player's own factory has **zero** splitters and **zero** undergrounds.
 
+Also carried, unchanged and frozen at its red-list count: `tests/test_search.lua` **6 failing on both
+interpreters**, all three `BP-20` candidate-scoring rows -- "the better candidate found second wins", "the
+better first candidate survives a worse follow-up", "equal beacon counts defer to footprint area". Round 18
+did not touch candidate scoring, and `docs/round-16-red-list.txt:194-195` already carries the same 6.
+
 Also carried: `transport_demand_by_entity_id`, written twice and read nowhere.
