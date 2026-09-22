@@ -1,0 +1,2 @@
+tools/blueprint_audit.py
+tests/tools/test_blueprint_audit.py

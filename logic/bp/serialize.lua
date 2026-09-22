@@ -391,11 +391,33 @@ local function global_wires(candidate, references)
     return unique
 end
 
+--A BLUEPRINT's inserter direction points at its PICKUP: the game takes from the tile the inserter faces and
+--drops behind it.  Our internal frame is the prototype's, where `pickup_offset` is +y and `drop_offset` is
+---y in the north frame, so internally an inserter with dir=NORTH DROPS north.  Publishing that number
+--unchanged shipped every inserter 180 degrees wrong, and no item moved.
+--
+--Measured on the player's own working factory 2026-09-22, ~/share/RRC/red_science_1s_manual_bp.txt: its belt
+--columns run 186.5 to 205.5 and then jump to an isolated 211.5, so nothing inside the factory can feed
+--211.5.  Ingredients must therefore arrive at the science machines from 205.5, which makes the hand at
+--(206.5, 1076.5) facing WEST the INPUT -- and that is only true when `direction` names the pickup.
+--
+--docs/feature-contracts.md:172-173 said so all along.  The code, the tests and the byte auditor each
+--overrode it, and because all three shared the error nothing could see it.
+local function published_direction(entity, direction, catalog)
+    if direction == nil then return nil end
+    local spec = catalog_entity(catalog, entity)
+    local etype = (spec and spec.etype) or entity.etype or entity.kind
+    local name = tostring(entity.name or entity.prototype or "")
+    if etype ~= "inserter" and not name:find("inserter", 1, true) then return direction end
+    return (direction + 8) % 16
+end
+
 local function serialize_entity(entity, references, catalog)
     local result = {entity_number = entity.entity_number, name = entity.name or entity.prototype}
     result.position = entity_position(entity)
     local direction = entity.direction
     if direction == nil then direction = entity.dir end
+    direction = published_direction(entity, direction, catalog)
     if direction ~= nil then result.direction = direction end
     local quality = quality_name(entity.quality)
     if quality ~= "normal" then result.quality = quality end

@@ -140,3 +140,7 @@
 | `153` | `rrc/agent` | audit: the byte auditor has never seen a splitter, and it covers two tiles | 2026-09-22 |
 | `154` | `rrc/agent` | census: the gate counts discarded alternatives, and success discards fewer | 2026-09-22 |
 | `155` | `rrc/agent` | guard re-cut: a published splitter never turns flow, and the row must tell dir=12 from dir=0 | 2026-09-22 |
+| `156` | `rrc/agent` | audit: a blueprint inserter takes from the tile it faces | 2026-09-22 |
+| `157` | `rrc/agent` | guard: every generated inserter direction, judged against the player's own factory | 2026-09-22 |
+| `158` | `rrc/agent` | waste: no U-turn that buys nothing, no dive that was never needed | 2026-09-22 |
+| `159` | `rrc/agent` | doors: an input enters next to the machines that consume it | 2026-09-22 |
