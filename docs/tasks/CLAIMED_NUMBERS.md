@@ -129,3 +129,5 @@
 | `142` | `rrc/agent` | economy: one hand, two ingredients, one belt, both lanes | 2026-09-22 |
 | `143` | `rrc/agent` | audit: every family reported, delivered bytes judged against the player's 127 | 2026-09-22 |
 | `144` | `rrc/agent` | flag: one switch in one place, so the three-halves flip cannot go half-way | 2026-09-22 |
+| `145` | `rrc/agent` | probe: name the colliding pair in 18 seconds, never 414 | 2026-09-22 |
+| `146` | `rrc/agent` | guard: a routed result never publishes two entities on one tile | 2026-09-22 |

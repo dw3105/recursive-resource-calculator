@@ -1333,7 +1333,13 @@ local function append_normal_path(work, demand, path, amount)
                     end
                     if first_segment == side_segment then first_segment = segment end
                     local side_x, side_y = second_x - cell.x, second_y - cell.y
-                    entity.position = entity_position(cell.x + 0.5 + side_x / 2, cell.y + side_y / 2)
+                    --entity_position adds half a tile to EACH axis already, so the x term took it twice
+                    --and every splitter landed half a tile east of its own footprint.  Measured
+                    --2026-09-22 on legalcopilot-dev, first candidate of the player's real sheet:
+                    --r:825 dir=4 side=(0,1) anchor (12,8) delivered (13,9) against a true (12.5,9.0),
+                    --r:846 dir=0 side=(1,0) anchor (10,41) delivered (11.5,41.5) against (11.0,41.5).
+                    --Three overlapping pairs, and BP_V_COLLISION went 0 to 60 on the census.
+                    entity.position = entity_position(cell.x + side_x / 2, cell.y + side_y / 2)
                     entity.name = work.belt.splitter
                     entity.splitter = true
                     entity.direction = splitter_direction
