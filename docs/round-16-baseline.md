@@ -244,7 +244,37 @@ Retried 2026-09-22T06:20Z to 06:24Z as attempt 2, in the SAME worktrees so nothi
 facts, both measured: `lane launch` refuses a worktree it did not find and never creates one, and a second
 launch of one label is refused with `attempt-already-exists` unless `--attempt-of <run_id>` is passed.
 
-## 9. Red proofs taken at spine
+## 9. The delivery budget, decoded from the player's own bytes
+
+`tools/blueprint_audit.py ~/share/RRC/red_science_1s_manual_bp.txt --json`, run 2026-09-22 on
+`legalcopilot-dev`, agrees with contract 28.6 exactly:
+
+```
+entities 131   invalid_inserters 0   unused_belt_tiles 0   unpairable_underground 0
+redundant_beacons 0   wires 12
+```
+
+Decoding the same string by entity name gives the budget the delivery gate actually needs:
+
+| name | count |
+|---|---:|
+| `transport-belt` | 84 |
+| `inserter` | 22 |
+| `medium-electric-pole` | 10 |
+| `electric-furnace` | 6 |
+| `assembling-machine-3` | 5 |
+| `roboport` | **4** |
+| total | 131 |
+
+**The 131 includes 4 roboports we will never build.** Roboport power is declined on the player's own earlier
+instruction, so our target is the other 127: 84 belts, 22 inserters, 10 poles and 11 machines. Judge a
+delivered blueprint against **127**, and report the roboport line as excluded rather than quietly comparing
+against 131 and looking four entities lean.
+
+Contract 28.6 is left exactly as frozen; this is the reading integration applies when it runs the audit,
+recorded here rather than by amending a contract three lanes are already building against.
+
+## 10. Red proofs taken at spine
 
 | proof | result |
 |---|---|
