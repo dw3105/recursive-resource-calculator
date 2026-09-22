@@ -1,11 +1,11 @@
---The production switch has one source of truth.  Route's source row is intentionally held for integration,
---because that module belongs to another lane and integration wires it at merge.
+--The production switch has one source of truth.  Integration wired route's half on 2026-09-22, so the row
+--that was held for it is now an ordinary assertion like the other two.
 local H = require "tests.harness"
 local Flags = require "logic.bp.flags"
 local Groups = require "logic.bp.groups"
 
 local ROUTE = "logic/bp/route.lua"
-local ROUTE_FAILURE = "logic/bp/route.lua is expected to fail until integration wires it at merge"
+local ROUTE_FAILURE = "logic/bp/route.lua must read the shared flag, wired at integration on 2026-09-22"
 
 local function read_file(path)
     local file = assert(io.open(path, "rb"))
@@ -41,13 +41,19 @@ H.test("FF1 groups.lua and validate.lua read one shared multi_flow_hands flag", 
     assert_flag_source("logic/bp/validate.lua")
 end)
 
-H.test("FF2 logic/bp/route.lua shared flag requirement [SKIP: integration wires it at merge]", function()
-    -- Explicit allowance: route.lua is owned by another lane.  Keep this named row skipped until integration
-    -- replaces its local default with the shared read at merge; assert_flag_source(ROUTE) is the held assertion.
+--Integration wired route at merge on 2026-09-22, so the skipped row becomes the assertion it always named.
+H.test("FF2 logic/bp/route.lua reads the one shared multi_flow_hands flag", function()
+    assert_flag_source(ROUTE)
 end)
 
-H.test("FF3 the production multi_flow_hands default is off", function()
-    H.equal(Flags.multi_flow_hands, false, "the shared production flag stays off by default")
+--FLIPPED 2026-09-22 on legalcopilot-dev, only after 28.1, 28.2, 28.3, 28.4, 28.7 and 28.8 all held with the
+--switch forced on.  While the three halves were being built this row asserted `false`, so no lane could leak
+--the feature into everybody else's base.  That job is finished.  What must hold now is that the value is a
+--BOOLEAN read from ONE place: FF1 and FF2 prove no module keeps a literal of its own, so flipping
+--logic/bp/flags.lua moves all three halves at once and can never move only some.
+H.test("FF3 the production multi_flow_hands value lives in exactly one place", function()
+    H.equal(type(Flags.multi_flow_hands), "boolean", "the shared production flag is a boolean")
+    H.equal(Flags.multi_flow_hands, true, "the shared production flag is on, flipped 2026-09-22")
 end)
 
 local SCIENCE_BELT_TILE = {x = 210.5, y = 1076.5}
