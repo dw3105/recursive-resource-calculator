@@ -109,6 +109,27 @@ for _, shape in ipairs(H.shapes()) do
             end
         end)
     end)
+
+    H.test(shape .. " TH4 one block face carries only one item flow", function()
+        each_block(function(block)
+            local flow_by_face = {}
+            for _, port in ipairs(block.ports or {}) do
+                if port.kind ~= "fluid" then
+                    local face
+                    if port.attach_dx == -1 then face = "left"
+                    elseif port.attach_dx == block.w then face = "right"
+                    elseif port.attach_dy == -1 then face = "top"
+                    elseif port.attach_dy == block.h then face = "bottom" end
+                    if face then
+                        local previous = flow_by_face[face]
+                        H.equal(previous == nil or previous == port.flow_id, true,
+                            "a block face does not mix item flows")
+                        flow_by_face[face] = port.flow_id
+                    end
+                end
+            end
+        end)
+    end)
 end
 
 H.done("test_transport_handshake")

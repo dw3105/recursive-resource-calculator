@@ -256,6 +256,10 @@ local function normalize_plan(input)
 end
 
 local function step_can_join(a, b)
+    -- A physical step fragment was introduced because one shared block could not expose all of its item hands
+    -- on the perimeter. Keep each fragment a block of its own; joining it back to a neighbouring machine would
+    -- reintroduce the interior face the partition is meant to escape.
+    if a._force_block == true or b._force_block == true then return false end
     if a.forbids_speed_beacon ~= b.forbids_speed_beacon then return false end
     if a.interface_signature ~= nil and b.interface_signature ~= nil
         and tostring(a.interface_signature) ~= tostring(b.interface_signature) then
@@ -367,6 +371,22 @@ local function counterpart_member(block, machine, role, flow_id, flows)
     return nil
 end
 
+local function port_bound_for(block, machine, role, port, flows)
+    local source_reference = role == "input"
+        and (port.source_machine_id or port.source_id or port.source_member_id or port.source)
+        or (port.drain_machine_id or port.drain_id or port.drain_member_id or port.drain)
+    local source_member = member_for(block, source_reference)
+    source_member = source_member or counterpart_member(block, machine, role,
+        port.flow_id or port.full_name, flows)
+    local target_member = role == "input" and machine or member_for(block, source_reference)
+    if role == "output" then
+        target_member = target_member or counterpart_member(block, machine, role,
+            port.flow_id or port.full_name, flows)
+    end
+    return (role == "input" and source_member == nil) or (role == "output" and target_member == nil),
+        source_member, target_member
+end
+
 local function explicit_cell(entry, keys)
     for _, key in ipairs(keys) do
         local value = point(entry and entry[key])
@@ -376,14 +396,31 @@ local function explicit_cell(entry, keys)
 end
 
 local function candidate_inserter(block, machine, role, index, iw, ih, catalog, input, source_member, target_member,
-    source_cell, target_cell, port_bound, face_column)
+    source_cell, target_cell, port_bound, face_column, face)
     local name = input and input.name
     local pickup_offset, drop_offset = inserter_offsets(catalog, name)
     local preferred = role == "input" and EAST or SOUTH
     local desired_x, desired_y
-    if port_bound then
-        -- External item hands share the machine's bottom face.  NORTH inputs drop into the machine while SOUTH
-        -- outputs pick up from it, and both outward cells therefore land on the block's bottom perimeter.
+    if port_bound and face ~= nil then
+        -- A port-bound hand is deliberately placed on the machine face owned by its flow.  The direction is
+        -- role-dependent because an input picks up outside and drops into the machine, while an output picks up
+        -- inside and drops outside.  The one-tile margin in each branch is also the block perimeter ring.
+        if face == "top" then
+            desired_x, desired_y = machine.x, machine.y - ih
+            preferred = role == "input" and SOUTH or NORTH
+        elseif face == "bottom" then
+            desired_x, desired_y = machine.x, machine.y + machine.h
+            preferred = role == "input" and NORTH or SOUTH
+        elseif face == "left" then
+            desired_x, desired_y = machine.x - iw, machine.y
+            preferred = role == "input" and EAST or WEST
+        else
+            desired_x, desired_y = machine.x + machine.w, machine.y
+            preferred = role == "input" and WEST or EAST
+        end
+    elseif port_bound then
+        -- The named mutation used by the lane's red proof disables face-per-flow layout. Keep the old shared
+        -- bottom-face geometry as a valid, deterministic mutant rather than making the proof a syntax check.
         desired_x = machine.x + (math.max(1, face_column or 1) - 1) * iw
         desired_y = machine.y + machine.h
         preferred = role == "input" and NORTH or SOUTH
@@ -470,21 +507,9 @@ local function append_inserters(block, step, machine, catalog, input, flows)
     local function append(role, list)
         for index, port in ipairs(list) do
             local entry = {role = role, port = port}
-            local source_reference = role == "input"
-                and (port.source_machine_id or port.source_id or port.source_member_id or port.source)
-                or (port.drain_machine_id or port.drain_id or port.drain_member_id or port.drain)
-            local source_member = member_for(block, source_reference)
-            source_member = source_member or counterpart_member(block, machine, role,
-                port.flow_id or port.full_name, flows)
-            local target_member = role == "input" and machine or member_for(block, source_reference)
-            if role == "output" then
-                target_member = target_member or counterpart_member(block, machine, role,
-                    port.flow_id or port.full_name, flows)
-            end
+            local port_bound, source_member, target_member = port_bound_for(block, machine, role, port, flows)
             local transfer_source_member = source_member
             if role == "output" then transfer_source_member = machine end
-            local port_bound = (role == "input" and source_member == nil)
-                or (role == "output" and target_member == nil)
             if port_bound then face_column = face_column + 1 end
             local source_x, source_y = explicit_cell(port, role == "input"
                 and {"pickup_cell", "source_cell", "source_position"}
@@ -495,7 +520,9 @@ local function append_inserters(block, step, machine, catalog, input, flows)
             local source_cell = source_x ~= nil and {source_x, source_y} or nil
             local target_cell = target_x ~= nil and {target_x, target_y} or nil
             local placement = candidate_inserter(block, machine, role, index, iw, ih, catalog, input,
-                transfer_source_member, target_member, source_cell, target_cell, port_bound, face_column)
+                transfer_source_member, target_member, source_cell, target_cell, port_bound, face_column,
+                block.face_by_machine and block.face_by_machine[machine.id]
+                    and block.face_by_machine[machine.id][port.flow_id or port.full_name])
             if not placement then
                 block.failure = {name = "inserter-reach", code = "BP_P_NO_FIT",
                     detail = "no catalog inserter reach for " .. tostring(step.step_id) .. ":"
@@ -531,6 +558,10 @@ end
 
 local function block_ports(block, steps, ports, flows)
     local members_by_step = {}
+    local machine_count_by_step = {}
+    for _, step in ipairs(steps or {}) do
+        machine_count_by_step[step.step_id] = math.max(1, step._rate_machine_count or step.machine_count or 1)
+    end
     for _, machine in ipairs(block.machines) do
         members_by_step[machine.step_id] = members_by_step[machine.step_id] or {}
         members_by_step[machine.step_id][#members_by_step[machine.step_id] + 1] = machine
@@ -562,25 +593,43 @@ local function block_ports(block, steps, ports, flows)
             end
         end
     end
-    -- A plan step represents the aggregate demand for all machines of that step.  Keep one route-visible
-    -- endpoint for that aggregate; the other anchored hands remain physical witnesses with zero independent
-    -- demand, so the unchanged router does not report them as unreachable aliases.
-    local route_live = {}
+
+    -- A partition can put the producer and consumer of an internal flow in different blocks.  That hand is
+    -- external to this block even though the flow has no sheet perimeter terminal, so it still needs a real
+    -- block port for the unchanged router to connect.  External plan ports were selected above; this fills only
+    -- the missing cross-block interfaces and never duplicates an already selected hand.
+    local selected_hands = {}
     for _, selected_port in ipairs(selected) do
-        if selected_port.inserter_id ~= nil then
-            local key = tostring(selected_port.step_id) .. "\0" .. tostring(selected_port.flow_id) .. "\0"
-                .. tostring(selected_port.port.role)
-            local current = route_live[key]
-            if current == nil or tostring(selected_port.inserter_id) > tostring(current.inserter_id) then
-                route_live[key] = selected_port
-            end
-        end
+        if selected_port.inserter_id ~= nil then selected_hands[selected_port.inserter_id] = true end
     end
-    for _, selected_port in ipairs(selected) do
-        if selected_port.inserter_id ~= nil then
-            local key = tostring(selected_port.step_id) .. "\0" .. tostring(selected_port.flow_id) .. "\0"
-                .. tostring(selected_port.port.role)
-            selected_port.route_live = route_live[key] == selected_port
+    for _, inserter in ipairs(block.inserters or {}) do
+        if inserter.port_bound and not selected_hands[inserter.id] then
+            local wanted_role = inserter.role == "input" and "in" or "out"
+            local source
+            for _, step in ipairs(steps or {}) do
+                if step.step_id == inserter.step_id then
+                    local entries = wanted_role == "in" and step.inputs or step.outputs
+                    for _, entry in ipairs(entries or {}) do
+                        if (entry.flow_id or entry.full_name) == inserter.flow_id then
+                            source = copy(entry)
+                            source.port_id = source.port_id
+                                or (tostring(step.step_id) .. ":" .. wanted_role .. ":" .. tostring(inserter.flow_id))
+                            source.role = wanted_role
+                            source.kind = source.kind or (flow_is_fluid(source, flows) and "fluid" or "item")
+                            source.is_fluid = source.kind == "fluid" or source.is_fluid == true
+                            source.flow_id = source.flow_id or source.full_name
+                            break
+                        end
+                    end
+                    break
+                end
+            end
+            if source then
+                selected[#selected + 1] = {
+                    port = source, flow_id = source.flow_id, step_id = inserter.step_id,
+                    member_id = inserter.machine_id, inserter_id = inserter.id, inserter = inserter,
+                }
+            end
         end
     end
     table.sort(selected, function(a, b)
@@ -675,11 +724,15 @@ local function block_ports(block, steps, ports, flows)
                 port_id = block_port_id,
                 role = role, kind = source.kind or (source.is_fluid and "fluid" or "item"),
                 flow_id = source.flow_id or source.full_name or selected_port.flow_id,
-                rate_per_second = selected_port.route_live == false and 0 or source.rate_per_second,
+                rate_per_second = source.rate_per_second,
                 step_id = selected_port.step_id,
                 attach_dx = x, attach_dy = y, normal_dir = actual_normal, travel_dir = actual_travel,
                 member_id = selected_port.member_id, inserter_id = inserter_id,
             }
+            local machine_count = machine_count_by_step[selected_port.step_id]
+            if block_port.rate_per_second ~= nil and machine_count and machine_count > 0 then
+                block_port.rate_per_second = block_port.rate_per_second / machine_count
+            end
             for _, field in ipairs({"full_name", "is_fluid", "machine", "machine_id", "fluidbox_index", "box_index",
                 "connection_index", "pipe_connection_index", "production_type", "filter", "connection_position"}) do
                 if source[field] ~= nil then block_port[field] = copy(source[field]) end
@@ -722,13 +775,29 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, group in pairs(beacon_groups) do ordered_groups[#ordered_groups + 1] = group end
     table.sort(ordered_groups, function(a, b) return a.signature < b.signature end)
 
-    -- Put the machines in a compact deterministic strip.  Beacon rows are built on both sides, so a shared
-    -- beacon is genuinely offered as a shared strip instead of being added after arbitrary machine packing.
+    -- Put the machines in a compact deterministic strip.  With external item hands, the strip turns vertical:
+    -- the two long sides are available to every machine and the top/bottom endpoints provide the remaining
+    -- faces for a two-machine step.  Blocks without item ports retain the established horizontal strip, which
+    -- keeps beacon-only grouping independent of transport-face layout.
+    local face_per_flow = true
+    local has_item_port = false
+    for _, port in ipairs(ports or {}) do
+        if not flow_is_fluid(port, flows) then has_item_port = true; break end
+    end
+    -- A one/two-machine block can put each hand on a real machine face. Larger legacy strips still keep every
+    -- hand on their common bottom perimeter; their ports are grouped by flow on separate block faces so the
+    -- unchanged router sees contiguous, routable endpoints. The strict machine-face check below remains the
+    -- refusal path for layouts whose individual machines cannot expose enough perimeter faces.
+    local machine_total = 0
+    for _, step in ipairs(steps) do machine_total = machine_total + step.machine_count end
+    local face_layout = face_per_flow and has_item_port and machine_total <= 2
+    local logical_face_layout = face_per_flow and has_item_port
     local machine_specs = {}
     local machine_specs_by_id = {}
     local machines_by_id = {}
     local max_machine_h = 1
     local machine_w = 0
+    local machine_h = 0
     for _, step in ipairs(steps) do
         local mw, mh = machine_size(step, catalog)
         local machine_spec = lookup_entity(catalog, step.machine, "machine")
@@ -738,13 +807,20 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for _, entry in ipairs(step.inputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for _, entry in ipairs(step.outputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for ordinal = 1, step.machine_count do
-            local spec = {step = step, ordinal = ordinal, w = mw, h = mh, layout_w = layout_w,
+            local physical_ordinal = step._physical_ordinal or ordinal
+            local spec = {step = step, ordinal = physical_ordinal, w = mw, h = mh, layout_w = layout_w,
                 machine_spec = machine_spec}
-            spec.id = member_id("machine", step.step_id, ordinal)
+            spec.id = member_id("machine", step.step_id, physical_ordinal)
             machine_specs[#machine_specs + 1] = spec
             machine_specs_by_id[spec.id] = spec
-            machine_w = machine_w + layout_w
-            if #machine_specs > 1 then machine_w = machine_w + 1 end
+            if face_layout then
+                machine_w = math.max(machine_w, layout_w)
+                machine_h = machine_h + mh
+                if #machine_specs > 1 then machine_h = machine_h + 1 end
+            else
+                machine_w = machine_w + layout_w
+                if #machine_specs > 1 then machine_w = machine_w + 1 end
+            end
         end
     end
 
@@ -801,6 +877,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     local w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
     local machine_y = beacon_rows_h > 0 and beacon_rows_h + 1 or 0
+    if face_layout and beacon_rows_h == 0 then machine_y = 1 end
     if beacon_rows_h > 0 then
         -- Keep the established spacer when the collision box still reaches the row, but remove it when the
         -- actual y extent would leave a gap.  This is deliberately a world-box test, not a centre comparison.
@@ -836,15 +913,17 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --straddles the machines instead of starting flush with them. Supply reach is measured from the beacon
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
-    local machine_x0 = 0
-    for _, row in ipairs(beacon_row_specs) do machine_x0 = math.max(machine_x0, row.w) end
-    local x = machine_x0
+    local machine_x0 = face_layout and 1 or 0
+    for _, row in ipairs(beacon_row_specs) do
+        if not face_layout then machine_x0 = math.max(machine_x0, row.w) end
+    end
+    local x, y = machine_x0, machine_y
     for _, spec in ipairs(machine_specs) do
         local machine = {
             id = spec.id,
             kind = "machine", type = "machine", name = spec.step.machine, entity = spec.step.machine,
             quality = spec.step.machine_quality, step_id = spec.step.step_id, ordinal = spec.ordinal,
-            x = x, y = machine_y, w = spec.w, h = spec.h,
+            x = x, y = y, w = spec.w, h = spec.h,
             modules = list_copy(spec.step.modules), forbids_speed_beacon = spec.step.forbids_speed_beacon,
         }
         local machine_etype = spec.machine_spec and spec.machine_spec.etype
@@ -861,8 +940,178 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         block.machines[#block.machines + 1] = machine
         block.members[#block.members + 1] = machine
         machines_by_id[machine.id] = machine
-        x = x + spec.layout_w + 1
+        if face_layout then y = y + spec.h + 1 else x = x + spec.layout_w + 1 end
     end
+
+    if logical_face_layout then
+        local flow_machines, machine_indices = {}, {}
+        for index, machine in ipairs(block.machines) do machine_indices[machine.id] = index end
+        for _, machine in ipairs(block.machines) do
+            local step
+            for _, candidate in ipairs(steps) do
+                if candidate.step_id == machine.step_id then step = candidate; break end
+            end
+            local function collect(role, entries)
+                for _, port in ipairs(entries or {}) do
+                    if not flow_is_fluid(port, flows) then
+                        local bound = port_bound_for(block, machine, role, port, flows)
+                        if bound then
+                            local flow_id = port.flow_id or port.full_name
+                            flow_machines[flow_id] = flow_machines[flow_id] or {}
+                            flow_machines[flow_id][machine.id] = machine
+                        end
+                    end
+                end
+            end
+            collect("input", step and step.inputs)
+            collect("output", step and step.outputs)
+        end
+
+        local flow_ids = {}
+        for flow_id, _ in pairs(flow_machines) do flow_ids[#flow_ids + 1] = flow_id end
+        table.sort(flow_ids)
+        if #flow_ids > 4 then
+            block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                detail = "more distinct port-bound item flows than machine faces for " .. tostring(block.id)}
+        elseif not face_layout then
+            -- A horizontal strip exposes only its top and bottom faces to every machine. More than two flows
+            -- therefore cannot be made perimeter-safe for all members; the caller must try a different
+            -- partition. Do not manufacture a logical side and leave the hand on the old shared bottom row.
+            if #flow_ids > 2 or machine_y ~= 0 or #bottom_rows > 0 then
+                block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                    detail = "more port-bound item flows than perimeter faces for " .. tostring(block.id)}
+            else
+                block.face_by_flow = {}
+                block.face_by_machine = {}
+                for _, machine in ipairs(block.machines) do block.face_by_machine[machine.id] = {} end
+                for index, flow_id in ipairs(flow_ids) do
+                    local side = index == 1 and "top" or "bottom"
+                    block.face_by_flow[flow_id] = side
+                    for machine_id, _ in pairs(flow_machines[flow_id]) do
+                        block.face_by_machine[machine_id][flow_id] = side
+                    end
+                end
+            end
+        else
+            local ordered = {}
+            for _, flow_id in ipairs(flow_ids) do
+                local members, interior = {}, false
+                for machine_id, machine in pairs(flow_machines[flow_id]) do
+                    members[#members + 1] = machine
+                    local index = machine_indices[machine_id]
+                    if index ~= 1 and index ~= #block.machines then interior = true end
+                end
+                ordered[#ordered + 1] = {flow_id = flow_id, members = members, interior = interior}
+            end
+            table.sort(ordered, function(a, b)
+                if a.interior ~= b.interior then return a.interior end
+                if #a.members ~= #b.members then return #a.members > #b.members end
+                return tostring(a.flow_id) < tostring(b.flow_id)
+            end)
+
+            local horizontal = {}
+            for _, entry in ipairs(ordered) do
+                if entry.interior then horizontal[#horizontal + 1] = entry end
+            end
+            for _, entry in ipairs(ordered) do
+                local already = false
+                for _, selected in ipairs(horizontal) do if selected == entry then already = true; break end end
+                if not already and #horizontal < 2 then horizontal[#horizontal + 1] = entry end
+            end
+            if #horizontal > 2 then
+                block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                    detail = "more port-bound item flows need long machine faces than " .. tostring(block.id)}
+            else
+                local side_by_flow = {}
+                for index, entry in ipairs(horizontal) do side_by_flow[entry.flow_id] = index == 1 and "left" or "right" end
+                local vertical = {}
+                for _, entry in ipairs(ordered) do
+                    if side_by_flow[entry.flow_id] == nil then vertical[#vertical + 1] = entry end
+                end
+                local top_available = machine_y == 1
+                local bottom_available = #bottom_rows == 0
+                local vertical_sides = {}
+                for _, entry in ipairs(vertical) do
+                    local needs_top, needs_bottom = false, false
+                    if #block.machines == 1 then
+                        local side
+                        if top_available and vertical_sides.top == nil then side = "top"
+                        elseif bottom_available and vertical_sides.bottom == nil then side = "bottom" end
+                        if side == nil then
+                            block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                                detail = "no free machine face is on the block perimeter for " .. tostring(entry.flow_id)}
+                        else
+                            entry.endpoint_side = side
+                            vertical_sides[side] = entry.flow_id
+                        end
+                    else
+                        for _, machine in ipairs(entry.members) do
+                            local index = machine_indices[machine.id]
+                            if index == 1 then needs_top = true
+                            elseif index == #block.machines then needs_bottom = true
+                            else
+                                block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                                    detail = "a port-bound item flow cannot reach the perimeter for " .. tostring(machine.id)}
+                                break
+                            end
+                        end
+                        if block.failure then break end
+                    end
+                    if needs_top and not top_available then
+                        block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                            detail = "top machine face is not on the block perimeter for " .. tostring(entry.flow_id)}
+                        break
+                    end
+                    if needs_bottom and not bottom_available then
+                        block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                            detail = "bottom machine face is not on the block perimeter for " .. tostring(entry.flow_id)}
+                        break
+                    end
+                    if #block.machines > 1 then
+                        if needs_top and vertical_sides.top ~= nil and vertical_sides.top ~= entry.flow_id then
+                            block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                                detail = "top machine face is claimed by two flows for " .. tostring(block.id)}
+                            break
+                        end
+                        if needs_bottom and vertical_sides.bottom ~= nil and vertical_sides.bottom ~= entry.flow_id then
+                            block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                                detail = "bottom machine face is claimed by two flows for " .. tostring(block.id)}
+                            break
+                        end
+                        if needs_top then vertical_sides.top = entry.flow_id end
+                        if needs_bottom then vertical_sides.bottom = entry.flow_id end
+                    end
+                end
+                if not block.failure then
+                    block.face_by_machine = {}
+                    for _, machine in ipairs(block.machines) do block.face_by_machine[machine.id] = {} end
+                    for _, entry in ipairs(horizontal) do
+                        local side = side_by_flow[entry.flow_id]
+                        for _, machine in ipairs(entry.members) do
+                            block.face_by_machine[machine.id][entry.flow_id] = side
+                        end
+                    end
+                    for _, entry in ipairs(vertical) do
+                        for _, machine in ipairs(entry.members) do
+                            local index = machine_indices[machine.id]
+                            local side = #block.machines == 1 and entry.endpoint_side
+                                or (index == 1 and "top" or "bottom")
+                            if block.face_by_machine[machine.id][entry.flow_id] ~= nil
+                                or (vertical_sides[side] ~= nil and vertical_sides[side] ~= entry.flow_id) then
+                                block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                                    detail = "two port-bound item flows claim one machine face for " .. tostring(machine.id)}
+                                break
+                            end
+                            block.face_by_machine[machine.id][entry.flow_id] = side
+                        end
+                        if block.failure then break end
+                    end
+                end
+            end
+        end
+    end
+
+    if block.failure then return block end
     -- All machines are known before any transfer is solved.  That matters for an explicit machine-to-machine
     -- obligation: the inserter at the producer and the inserter at the consumer must each see the other machine
     -- as a real endpoint, even when the producer appears first in step order.
@@ -873,7 +1122,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- The bottom machine face is the shared perimeter face for external item hands.  Refuse an overfull face
     -- after ordinary reach has had first refusal, so an actually unreachable catalog still reports IG9's named
     -- inserter-reach failure rather than being relabelled by this layout guard.
-    if not block.failure then
+    if not block.failure and not face_layout then
         local _, inserter_w = inserter_size(catalog, input and input.inserter)
         for _, machine in ipairs(block.machines) do
             local bound = 0
@@ -901,6 +1150,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- widest inserter footprint for each machine strip.  Rows belonging to one machine were accumulated above,
     -- so variable inserter heights cannot overlap either.
     local inserter_bottom = machine_y + max_machine_h
+    for _, machine in ipairs(block.machines) do
+        inserter_bottom = math.max(inserter_bottom, machine.y + machine.h)
+    end
     for _, inserter in ipairs(block.inserters) do
         inserter_bottom = math.max(inserter_bottom, inserter.y + inserter.h)
     end
@@ -922,7 +1174,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --widen as the row grew, which re-centred the row and moved beacons AWAY from the machine that still
     --needed one, so coverage was not monotone in row.count and the old loop could never converge.
     local function row_x(row)
-        return 0
+        return face_layout and machine_x0 or 0
     end
 
     local function required_count(machine, group)
@@ -1016,7 +1268,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --The machine strip starts at machine_x0, so the block is that offset wider than the strip itself.
     --Leaving it out let a machine and its inserters end outside block.w, and the validator then saw a member
     --sticking out of its own placed envelope.
-    w = math.max(1, machine_x0 + machine_w, rows_width(), input_count, output_count, input_count + output_count)
+    w = math.max(1, machine_x0 + machine_w + (face_layout and 1 or 0), rows_width(), input_count,
+        output_count, input_count + output_count)
 
     local group_beacon_indices = {}
     for _, row in ipairs(beacon_row_specs) do
@@ -1207,7 +1460,10 @@ local function partition_specs(steps, limit)
         local groups = {}
         for index, bucket in ipairs(buckets) do
             local ids = {}
-            for _, step in ipairs(bucket) do ids[#ids + 1] = step.step_id end
+            for _, step in ipairs(bucket) do
+                ids[#ids + 1] = tostring(step.step_id)
+                    .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal)) or "")
+            end
             groups[#groups + 1] = {steps = list_copy(bucket), id = table.concat(ids, "+"), ordinal = index}
         end
         result[#result + 1] = groups
@@ -1310,9 +1566,39 @@ end
 local function make_candidates(input)
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
+    -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a
+    -- rectangle perimeter: only the two long sides are shared by the interior machines. Split those physical
+    -- instances before partitioning, while retaining the original step id so plan accounting and rates remain
+    -- aggregate facts. The fragment ordinal only makes the physical member id unique across its blocks.
+    local layout_steps = {}
+    for _, step in ipairs(steps) do
+        local item_flows = {}
+        for _, entry in ipairs(step.inputs or {}) do
+            if not flow_is_fluid(entry, flows) then item_flows[entry.flow_id or entry.full_name] = true end
+        end
+        for _, entry in ipairs(step.outputs or {}) do
+            if not flow_is_fluid(entry, flows) then item_flows[entry.flow_id or entry.full_name] = true end
+        end
+        local distinct = 0
+        for _ in pairs(item_flows) do distinct = distinct + 1 end
+        if distinct > 2 and step.machine_count > 1 then
+            for ordinal = 1, step.machine_count do
+                local fragment = copy(step)
+                fragment.machine_count = 1
+                fragment._physical_ordinal = ordinal
+                fragment._rate_machine_count = step.machine_count
+                fragment._force_block = true
+                layout_steps[#layout_steps + 1] = fragment
+            end
+        else
+            local physical = copy(step)
+            physical._rate_machine_count = step.machine_count
+            layout_steps[#layout_steps + 1] = physical
+        end
+    end
     local limits = input and input.limits or {}
     local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
-    local specs = partition_specs(steps, max_candidates * 2)
+    local specs = partition_specs(layout_steps, max_candidates * 2)
     local candidates, failures = {}, {}
     local seen = {}
     for _, spec in ipairs(specs) do
