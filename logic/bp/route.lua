@@ -15,6 +15,21 @@ local Route = {}
 local Grid = require "logic.bp.grid"
 
 local EPSILON = 1e-9
+--The search was Dijkstra: cost only, no estimate of what is left.  One tile of straight belt costs 1, so
+--1 per remaining tile is the ordinary per-tile price and the estimate leads the frontier at the sink.
+--Measured 2026-09-22 on legalcopilot-dev against tests/fixtures/routing/player_chain_first_candidate.lua,
+--with the whole route family green on both interpreters at each step:
+--
+--  no estimate   68672 ops   85 belts,  6 underground, 0 splitter
+--  0.2 per tile  61817 ops   85 belts,  6 underground, 0 splitter
+--  1   per tile  51638 ops   85 belts,  6 underground, 0 splitter   <- taken
+--  2   per tile  43784 ops   79 belts, 12 underground, 1 splitter   <- refused, it buys ops with geometry
+--
+--The remaining cost is NOT here.  35 searches run on this candidate and the expensive ones are the searches
+--that FAIL: a sink fenced in by an earlier demand exhausts its whole reachable set whatever order the
+--frontier is opened in, and no estimate shortens that.  item/cable 10:8 -> 10:5 alone spends about 52800
+--over six of them.
+local HEURISTIC_PER_TILE = 1
 --Contract 28.8.  A trunk tile that is already the sink's own port tile, entered in a heading the port
 --did not ask for, is the LAST answer the search should take: high enough that any real approach wins,
 --finite so a sink with no other approach is still served.
@@ -1482,7 +1497,16 @@ local function state_key(x, y, arrival_direction, kind, underground_mode)
         .. ":k=" .. tostring(kind or "") .. ":u=" .. tostring(underground_mode or 0)
 end
 
+local function heuristic(search, x, y)
+    local sink = search.demand and search.demand.sink
+    if not sink or sink.x == nil or sink.y == nil then return 0 end
+    return HEURISTIC_PER_TILE * (math.abs(x - sink.x) + math.abs(y - sink.y))
+end
+
 local function heap_before(left, right)
+    local left_priority = left.priority or left.cost
+    local right_priority = right.priority or right.cost
+    if left_priority ~= right_priority then return left_priority < right_priority end
     if left.cost ~= right.cost then return left.cost < right.cost end
     return left.serial < right.serial
 end
@@ -1530,7 +1554,8 @@ local function enqueue_state(search, x, y, arrival_direction, mode, parent_key, 
     search.best[key] = cost
     search.parent[key] = parent_key
     search.points[key] = {x = x, y = y}
-    heap_push(search, {key = key, x = x, y = y, direction = arrival_direction, mode = mode, cost = cost})
+    heap_push(search, {key = key, x = x, y = y, direction = arrival_direction, mode = mode, cost = cost,
+        priority = cost + heuristic(search, x, y)})
     return true
 end
 
@@ -1544,7 +1569,8 @@ local function begin_search(work, demand, amount, order_index)
     search.best[search.source_key] = 0
     search.parent[search.source_key] = nil
     heap_push(search, {key = search.source_key, x = demand.source.x, y = demand.source.y,
-        direction = demand.source.travel_dir or 0, mode = 0, cost = 0})
+        direction = demand.source.travel_dir or 0, mode = 0, cost = 0,
+        priority = heuristic(search, demand.source.x, demand.source.y)})
     local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
     if source_segment then
         local allowed, reason = segment_allows(source_segment, demand, amount)
