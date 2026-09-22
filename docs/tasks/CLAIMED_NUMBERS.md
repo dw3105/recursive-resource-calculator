@@ -127,3 +127,5 @@
 | `140` | `rrc/agent` | route: every laid run reaches its own sink, refused splitter is refused route | 2026-09-22 |
 | `141` | `rrc/agent` | witness: locate the orphaned belt, name the short sink, witness a hand per flow | 2026-09-22 |
 | `142` | `rrc/agent` | economy: one hand, two ingredients, one belt, both lanes | 2026-09-22 |
+| `143` | `rrc/agent` | audit: every family reported, delivered bytes judged against the player's 127 | 2026-09-22 |
+| `144` | `rrc/agent` | flag: one switch in one place, so the three-halves flip cannot go half-way | 2026-09-22 |
