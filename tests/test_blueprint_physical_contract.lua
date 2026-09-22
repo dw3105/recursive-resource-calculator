@@ -112,11 +112,20 @@ local function candidate()
             --The cells are PUBLISHED, not inferred.  validate.lua:1089 reads them; without them it falls back
             --to guessing centre plus or minus the direction vector, which is the defect groups.lua leaves it
             --with today because groups.lua emits no position at all.
+            --Both hands DECLARE the flow they carry.  Contract 28.4 witnesses a hand per (hand, flow), and
+            --an undeclared hand fails CLOSED on purpose -- WI6 in tests/test_physical_witness.lua is the row
+            --that holds that rule, so the validator is never loosened to accept one.  groups.lua:652-672
+            --stamps this same field on every hand it generates, and the fluid control below already carries
+            --it.  Without it, measured 2026-09-22 on legalcopilot-dev with the switch on, neither hand
+            --matched its obligation and the control reported BP_V_TRANSFER_BROKEN x2 followed by
+            --BP_V_TRANSPORT_UNUSED x9 -- seven belts plus two hands, the whole factory judged as waste.
             ent{id = "in-ins", name = "inserter", kind = "inserter", type = "inserter", x = 2, y = 4, dir = 4,
-                rate_per_second = 2, pickup_target = "in-belt2", drop_target = "m1",
+                rate_per_second = 2, flow_id = "item/iron-plate",
+                pickup_target = "in-belt2", drop_target = "m1",
                 pickup_position = {x = 1.5, y = 4.5}, drop_position = {x = 3.5, y = 4.5}},
             ent{id = "out-ins", name = "inserter", kind = "inserter", type = "inserter", x = 6, y = 4, dir = 4,
-                rate_per_second = 1, pickup_target = "m1", drop_target = "out-belt",
+                rate_per_second = 1, flow_id = "item/iron-gear-wheel",
+                pickup_target = "m1", drop_target = "out-belt",
                 pickup_position = {x = 5.5, y = 4.5}, drop_position = {x = 7.5, y = 4.5}},
             ent{id = "out-belt", name = "transport-belt", kind = "belt", type = "belt", x = 7, y = 4, dir = 4},
             ent{id = "out-belt2", name = "transport-belt", kind = "belt", type = "belt", x = 8, y = 4, dir = 4},

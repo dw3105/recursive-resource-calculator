@@ -1820,9 +1820,15 @@ local function step_ports(steps, catalog, flows)
 end
 
 local function make_candidates(input)
+    --TRI-STATE, and that is load-bearing: `nil` means "use the production switch", `true` forces the feature
+    --on, `false` forces it OFF.  The `and ... or previous` form below could only ever force it ON, so once
+    --the production flag was on, HE1 in tests/test_hand_economy.lua asked for "switch off", read the global
+    --instead, and compared the paired twenty-two against the unpaired twenty-six.  Measured 2026-09-22 on
+    --legalcopilot-dev.  `forced_multi_flow_hands` stays in the call so tools/lane_mutate.sh:175 can still
+    --mutate it for the `shared-hand-off` mutant.
     local previous_multi_flow_hands = multi_flow_hands
-    multi_flow_hands = input and input._force_multi_flow_hands == true
-        and forced_multi_flow_hands(input) or previous_multi_flow_hands
+    local forced = input and input._force_multi_flow_hands
+    if forced ~= nil then multi_flow_hands = forced == true and forced_multi_flow_hands(input) end
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
     -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a

@@ -468,11 +468,19 @@ local function is_inserter(info) return info.kind == "inserter" end
 --passing at default configuration while the halves are being built.
 local multi_flow_hands = Flags.multi_flow_hands
 
---The production switch remains off until grouping, routing and validation are integrated together.  The
---underscored input is a test-only seam: lane tests can exercise this half without changing the default or the
---frozen generator path.
+--The underscored input is a test-only seam: lane tests exercise this half without changing the default or
+--the frozen generator path.  It is TRI-STATE, and that is load-bearing.  `nil` means "use the production
+--switch", `true` forces the feature on, `false` forces it OFF.
+--Written as `multi_flow_hands or forced`, this could only ever force the switch ON: once the production flag
+--was on, a row asking for "switch off" silently read the global instead.  Measured 2026-09-22 on
+--legalcopilot-dev with the flag forced on, that cost WI5 in tests/test_physical_witness.lua, which demands
+--`off.ok == false` and got `true`, plus HE1 in tests/test_hand_economy.lua through the same defect in
+--groups.lua.  A seam that answers only one of its two questions is worse than no seam, because the rows that
+--use it keep passing while proving nothing.
 local function multi_flow_hands_enabled(work)
-    return multi_flow_hands or (work and work.input and work.input._force_multi_flow_hands == true)
+    local forced = work and work.input and work.input._force_multi_flow_hands
+    if forced ~= nil then return forced == true end
+    return multi_flow_hands
 end
 
 local function transport_kind(info)

@@ -113,7 +113,10 @@ end
 
 local function run(input, requested_plan, force_multi_flow_hands)
     local request = {candidate = input, plan = requested_plan or plan(), catalog = catalog()}
-    if force_multi_flow_hands then request._force_multi_flow_hands = true end
+    --Pass the value THROUGH, never only the true half.  Writing the key only when `force` was true meant
+    --"switch off" never reached the seam at all, so WI5 read the production flag and its own control
+    --assertion `off.ok == false` became unprovable once that flag went on.
+    if force_multi_flow_hands ~= nil then request._force_multi_flow_hands = force_multi_flow_hands == true end
     local state = Validate.begin(request)
     while not state.done do Validate.step(state, {ops = 100000}) end
     return state
