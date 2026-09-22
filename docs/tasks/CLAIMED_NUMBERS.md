@@ -133,3 +133,5 @@
 | `146` | `rrc/agent` | guard: a routed result never publishes two entities on one tile | 2026-09-22 |
 | `147` | `rrc/agent` | route: one belt carries two flows, and 28.8 still lays a continuation, never a fork | 2026-09-22 |
 | `148` | `rrc/agent` | deliver: one command from the player's sheet to judged bytes | 2026-09-22 |
+| `149` | `rrc/agent` | shortfall: the finished science pack must reach the factory edge | 2026-09-22 |
+| `150` | `rrc/agent` | guard: the validator has never been tested against a splitter | 2026-09-22 |
