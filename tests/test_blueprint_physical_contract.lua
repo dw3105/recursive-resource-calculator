@@ -533,18 +533,31 @@ for _, shape in ipairs(H.shapes()) do
         rejects(state, "BP_V_METRIC_MISSING", "segment length absent")
     end)
 
+    --Amended 2026-09-22 on the player's instruction, after they placed the round 18 delivery.  The old order
+    --ranked production_area before transport_cost and this row asserted it.  Measured on legalcopilot-dev:
+    --the search shipped production_area 1100 / transport_cost 301 / 297 entities over a candidate scoring
+    --1200 / 258 / 254, paying 43 extra transport entities to save 100 tiles squared of bounding box.  The
+    --player's own factory is 25x17 with 84 belts against our 21x49 with 274, so transport is judged first.
+    --cell_envelope_area now ranks too, LAST, so a smaller roboport cell wins a tie it used to lose to
+    --coord_key: 6 roboports over two cells became 4 over one, and cell_envelope_area 5616 became 2916.
     H.test(shape .. " MT3 the comparator ranks by the published order", function()
-        local cheap = {beacon_count = 1, production_area = 100, transport_cost = 50, pole_count = 1,
-            transport_entities = 10, coord_key = "a"}
         local roomy = {beacon_count = 1, production_area = 400, transport_cost = 10, pole_count = 1,
             transport_entities = 10, coord_key = "a"}
-        H.equal(Validate.compare(cheap, roomy), -1,
-            "production_area outranks transport_cost, so the smaller factory wins")
+        local cheap = {beacon_count = 1, production_area = 100, transport_cost = 50, pole_count = 1,
+            transport_entities = 10, coord_key = "a"}
+        H.equal(Validate.compare(roomy, cheap), -1,
+            "transport_cost outranks production_area, so the shorter belt run wins")
         local fewer = {beacon_count = 1, production_area = 400, transport_cost = 99, pole_count = 9,
             transport_entities = 99, coord_key = "z"}
         local more = {beacon_count = 2, production_area = 10, transport_cost = 1, pole_count = 1,
             transport_entities = 1, coord_key = "a"}
         H.equal(Validate.compare(fewer, more), -1, "beacon_count still ranks first")
+        local one_cell = {beacon_count = 1, production_area = 100, transport_cost = 10, pole_count = 1,
+            transport_entities = 10, cell_envelope_area = 2916, coord_key = "z"}
+        local two_cells = {beacon_count = 1, production_area = 100, transport_cost = 10, pole_count = 1,
+            transport_entities = 10, cell_envelope_area = 5616, coord_key = "a"}
+        H.equal(Validate.compare(one_cell, two_cells), -1,
+            "the smaller roboport cell breaks a tie that coord_key used to decide")
     end)
 
     -- -----------------------------------------------------------------------------------------------------

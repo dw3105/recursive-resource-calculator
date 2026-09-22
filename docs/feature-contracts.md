@@ -826,7 +826,7 @@ Two measurements, never summed into one number.
 | key | unit | includes | excludes |
 |---|---|---|---|
 | `production_area` | tiles squared | bounding area of machines, beacons, inserters, poles, belts, pipes | the roboport corner envelope |
-| `cell_envelope_area` | tiles squared | the requested roboport cell | reported only, never optimized against |
+| `cell_envelope_area` | tiles squared | the requested roboport cell | ranks LAST, only to break a tie |
 | `transport_cost` | tiles | belt tiles, underground belt span, pipe tiles, underground pipe span, each physical segment counted once, fluid detours included | — |
 | `transport_entities` | count | belt, underground, splitter, pipe, pipe-to-ground | — |
 | `beacon_count` | count | physical beacons | — |
@@ -836,8 +836,25 @@ Two measurements, never summed into one number.
 **A metric that cannot be measured is a reported missing fact, and it rejects.** It is never defaulted to zero.
 That default is how `route_length` read 0 while 270 transport entities stood on the grid.
 
-Comparator, first difference wins: `beacon_count`, then `production_area`, then `transport_cost`, then
-`pole_count`, then `transport_entities`, then `coord_key`. `cell_envelope_area` never ranks.
+Comparator, first difference wins: `beacon_count`, then `transport_cost`, then `transport_entities`, then
+`production_area`, then `pole_count`, then `cell_envelope_area`, then `coord_key`.
+
+**Amended 2026-09-22 on the player's instruction, after they placed the round 18 delivery.** Two changes,
+both measured on `legalcopilot-dev`:
+
+**Transport is judged before area.** The old order put `production_area` first, and the search shipped
+`production_area 1100 / transport_cost 301 / 297 entities` over a candidate scoring `1200 / 258 / 254` --
+**43 extra transport entities bought 100 tiles squared of bounding box.** The player's own factory is
+`25 x 17` with 84 belts against ours at `21 x 49` with 274, so the belt run is what the score must chase.
+
+**`cell_envelope_area` now ranks, last.** While it never ranked, nothing preferred a smaller roboport cell:
+three candidates with identical scores stood at envelopes 2916, 5616 and 8316 and the tiebreak fell to
+`coord_key`, which is arbitrary. We shipped `cols=3, rows=2` -- **6 roboports bounding TWO cells at
+104x54** -- for a factory that fits `22 x 50`. The player builds **ONE cell: 4 roboports, `cols=2, rows=2`,
+54x54.** Terminology, because it has confused a round already: **the player counts CELLS and the code counts
+ROBOPORTS**, so a 1x1 cell is a 2x2 lattice of ports (`tests/test_search.lua:747`). Ranking it last means it
+can only break a tie, never buy a worse factory. Measured after the amendment: roboports 6 to **4**,
+`cell_envelope_area` 5616 to **2916**, entities 352 to **350**.
 
 **Frozen reference ceilings are filters, not score components.** A candidate over a ceiling is unacceptable
 however well it ranks on an earlier component. Score chooses among candidates that already pass.

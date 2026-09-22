@@ -2464,9 +2464,24 @@ end
 
 --The only place the user's priority is expressed: fewer physical beacons, then smaller footprint, then fewer
 --poles, then deterministic tie-breakers.  The packer's fit score never decides which layout wins.
+--Contract 25.4's comparator, amended 2026-09-22 on the player's instruction after they placed the round 18
+--delivery. Two changes, both measured on legalcopilot-dev against their own factory:
+--
+--TRANSPORT BEFORE AREA. The old order ranked `production_area` before `transport_cost`, so the search
+--shipped production_area 1100 / transport 301 / 297 entities over a candidate scoring 1200 / 258 / 254.
+--It paid 43 extra transport entities to save 100 tiles squared of bounding box. The player's own factory is
+--25x17 with 84 belts against our 21x49 with 274, so judging transport first is what chases their shape.
+--
+--THE ENVELOPE NOW RANKS, LAST. `cell_envelope_area` was "reported only, never optimized against", so
+--nothing preferred a smaller roboport cell. Three candidates with identical scores existed at envelopes
+--2916, 5616 and 8316 and the tiebreak fell to `coord_key`, which is arbitrary: we shipped cols=3 rows=2,
+--6 roboports over TWO cells at 104x54, for a factory that fits 22x50. The player builds ONE cell -- 4
+--roboports, cols=2 rows=2, 54x54. It ranks after every physical measure and before `coord_key`, so it can
+--only break a tie, never buy a worse factory.
 function Validate.compare(a_score, b_score)
     a_score, b_score = a_score or {}, b_score or {}
-    for _, key in ipairs({"beacon_count", "production_area", "transport_cost", "pole_count", "transport_entities"}) do
+    for _, key in ipairs({"beacon_count", "transport_cost", "transport_entities", "production_area",
+                          "pole_count", "cell_envelope_area"}) do
         local a, b = finite(a_score[key], 0), finite(b_score[key], 0); if a < b then return -1 end; if a > b then return 1 end
     end
     local a_key, b_key = tostring(a_score.coord_key or ""), tostring(b_score.coord_key or "")
