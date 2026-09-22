@@ -125,15 +125,22 @@ still wins.
 
 **The 127-entity target.** Delivered 346 entities excluding roboports against the player's 127.
 
-| family | player | delivered |
-|---|---|---|
-| entities excluding roboports | 127 | 346 |
-| `transport-belt` | 84 | 274 |
-| `splitter` | 0 | 9 |
-| underground endpoints | 0 | 14 |
-| `inserter` | 22 | 26 |
-| machines | 11 | 11 |
-| poles | 10 | 12 |
+Both blueprints decoded from their own bytes, 2026-09-22:
+
+| family | player | delivered | gap |
+|---|---|---|---|
+| `transport-belt` | 84 | 274 | **+190** |
+| `underground-belt` | 0 | 14 | +14 |
+| `splitter` | 0 | 9 | +9 |
+| `inserter` | 22 | 26 | +4 |
+| `medium-electric-pole` | 10 | 12 | +2 |
+| `roboport` | 4 | 6 | +2 |
+| `assembling-machine-3` | 5 | 5 | **0** |
+| `electric-furnace` | 6 | 6 | **0** |
+| total entities | 131 | 352 | +221 |
+
+**Machine counts match exactly.** Belts are **3.26x**, and 190 of the 221 extra entities are belts, so the
+whole gap is transport, never the factory.
 
 Belts per flow, delivered candidate, measured 2026-09-22:
 
