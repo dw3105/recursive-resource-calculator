@@ -339,3 +339,105 @@ Fast tier: records 919 to **801**, `BP_V_TRANSPORT_UNUSED` 853 to **706**,
 - `test_route_budget` RB1: 51638 ops against a 20000 bound written when the base spent 11499 and produced
   broken chains. Red, at its frozen count.
 - One candidate's route takes about 5 s on this host, against the 5-second whole-calculation ceiling.
+
+## Wave 4 — the switch, measured row by row
+
+Host `legalcopilot-dev`, 2026-09-22. Base `round-16-wave4` at `c044b25`, spine `feat/round-8-blueprints`.
+
+Wave 3 refused the `multi_flow_hands` flip and named **two** faults. Wave 4 measured every broken row and
+found **sixteen rows, three causes**.
+
+### The instrument that made it cheap
+
+The flipped world reproduces with **no edit, no worktree and no patch**, by injecting the flag into
+`package.loaded` before the test requires it:
+
+```sh
+LUA_INIT='package.loaded["logic.bp.flags"]={multi_flow_hands=true}' lua5.2 tests/test_blueprint_physical_contract.lua
+```
+
+Measured `88 cases, 76 passed, 12 failed` — byte for byte what the real flip produced in wave 3. Works on
+`lua5.4` (`LUA_INIT_5_4` is unset here). The oracle costs **1.35 s**, so the whole diagnosis loop is under two
+seconds and the tree stays green throughout. `logic/bp/route.lua` is the exception: it requires no flags at
+all, so injection does not reach it, and that absence is itself cause B below.
+
+### The sixteen rows, and where each one came from
+
+```
+oracle       PC1  TR5  TR6  TR9  BE1  MT1     x2 shapes = 12 rows -> cause A
+census       CL0                              x1        =  1 row  -> cause A
+hand economy HE1                              x2 shapes =  2 rows -> cause C
+witness      WI5                              x2 shapes =  2 rows -> cause C
+```
+
+### Cause A — the control fixtures never declared their hands' flows
+
+`tests/test_blueprint_physical_contract.lua` and `tests/test_census_codes_live.lua` carry **duplicate
+literals** of one hand-built factory. Its two inserters declared no `flow_id`, no `full_name`, no `flows`.
+
+Contract 28.4 witnesses a hand per `(hand, flow)`, and `declares_flow` (`logic/bp/validate.lua:303-309`)
+fails **closed** on an undeclared hand. Its neighbours fail open — `flow_compatible` for ports,
+`transport_accepts_flow` for belts — but hands are exact **on purpose**, and
+`tests/test_physical_witness.lua:204-216` **WI6** is the row that holds that rule.
+
+So the fixture was under-specified, never the validator too strict. Two further proofs: the oracle's own
+**fluid** control already declares its hand (`flow_id = "item/concrete"`), and `logic/bp/groups.lua:652-672`
+stamps the field on every hand the generator produces.
+
+The failure arithmetic matched the fixture exactly — 7 belts plus 2 hands = `BP_V_TRANSPORT_UNUSED` **x9**,
+2 hands = `BP_V_TRANSFER_BROKEN` **x2**. Nothing unexplained. `PC1` is the control; `TR5`, `TR6`, `TR9`,
+`BE1`, `MT1` and `CL0` all mutate it and read its verdict, so they were its shadow, never six faults.
+
+Fix: four fields, two files. **The ruler did not move** — flag off, the oracle stayed `88 passed, 0 failed`
+and the census `7 passed, 0 failed` on both interpreters.
+
+### Cause C — the force seam could force ON and never OFF
+
+Three sites carried the same defect in three spellings:
+
+| site | wrong form | what it cost |
+|---|---|---|
+| `logic/bp/validate.lua:474-476` | `return multi_flow_hands or forced` | `WI5` demands `off.ok == false`, got `true` |
+| `logic/bp/groups.lua:1823-1825` | `forced == true and forced_multi_flow_hands(input) or previous` | `HE1` demands 26 hands, got 22 |
+| `tests/test_physical_witness.lua:114-116` | wrote the key **only** when `force` was true | the seam was never even asked |
+
+Every row asking for "switch off" silently read the production flag. All three are now **tri-state**: `nil`
+uses the production switch, `true` forces on, `false` forces off.
+
+**This is why the wave 3 flip attempt rewrote FF4 from 26 to 22.** That moved a frozen number to match a
+broken seam. With the seam fixed, `FF4` keeps **26** on the forced-off path and `HE2` keeps **22** on the
+forced-on path, and both hold whichever way the production flag points. The wave 3 patch's FF4 hunk is
+therefore refuted and must never be applied.
+
+### Measured after causes A and C, both interpreters
+
+| file | flag off | flag forced on |
+|---|---|---|
+| `test_blueprint_physical_contract` | 88 / 0 | **88 / 0** |
+| `test_census_codes_live` | 7 / 0 | **7 / 0** |
+| `test_hand_economy` | 6 / 0 | **6 / 0** |
+| `test_physical_witness` | 12 / 0 | **12 / 0** |
+| `test_feature_flags` | 5 / 0 | 4 / 1, `FF3` only |
+| `test_groups` | 32 / 0 | 32 / 0 |
+| `test_validate` | 44 / 0 | 44 / 0 |
+| `test_inserter_geometry` | 26 / 0 | 26 / 0 |
+
+`FF3` asserts the production default is off. It **is** the flip's own row and changes when the flag flips,
+nowhere else. `test_search` reads 48 of 54 on both interpreters, which is its frozen count at
+`docs/round-16-red-list.txt:194-195`, unchanged.
+
+### Cause B — route never read the switch
+
+`logic/bp/route.lua:652` was a literal `local multi_flow_hands = false` and the file required no flags at
+all. Measured: with the flag injected, `tests/test_route_chain.lua` still read `4 passed, 0 failed`, because
+route never saw the switch. **Route's half was completely untested.** Lane 147 owns it.
+
+### Named, never fixed here
+
+- `transport_demand_by_entity_id` (`logic/bp/validate.lua:1677`, `:1755`) is **written twice and read nowhere
+  in the whole repo**, and is last-write-wins per hand. Wrong 28.4 bookkeeping with no consumer, so fixing it
+  changes nothing measurable. An edit that changes nothing measurable is complexity shipped on a guess.
+- `logic/bp/groups.lua:1901` restores the module-local flag only on the normal return; an error inside
+  `make_candidates` leaves it stuck on.
+- `tests/test_feature_flags.lua:29-37` matches **whole source lines**, so it reddens on a re-indent. It
+  tolerates `groups.lua:507`'s `local multi_flow_hands = true` only because that line is indented.
