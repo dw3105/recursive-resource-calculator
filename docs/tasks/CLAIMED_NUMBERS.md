@@ -144,3 +144,4 @@
 | `157` | `rrc/agent` | guard: every generated inserter direction, judged against the player's own factory | 2026-09-22 |
 | `158` | `rrc/agent` | waste: no U-turn that buys nothing, no dive that was never needed | 2026-09-22 |
 | `159` | `rrc/agent` | doors: an input enters next to the machines that consume it | 2026-09-22 |
+| `160` | `rrc/agent` | doors re-cut: an input enters next to its machines, and the blueprint still ships | 2026-09-22 |
