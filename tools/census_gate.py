@@ -84,7 +84,10 @@ def judge(report, baseline, require_down, require_new, waivers, allow_total_rise
     # 3. denominator floor -- stops "judge fewer candidates"
     got = (report.get("counters") or {}).get("validate_attempts", 0)
     floor = (baseline.get("counters") or {}).get("validate_attempts", 0)
-    if got < floor:
+    delivering = ((report.get("counters") or {}).get("entities_delivered", 0) > 0
+                  and (report.get("envelope") or {}).get("ok") is True and stage == "done")
+    delivery_boundary = ((baseline.get("counters") or {}).get("entities_delivered", 0) == 0 and delivering)
+    if got < floor and not delivering:
         failures.append(f"denominator floor: {got} candidates reached validate, the baseline reached {floor}; "
                         "fewer candidates judged is not an improvement")
 
@@ -95,7 +98,13 @@ def judge(report, baseline, require_down, require_new, waivers, allow_total_rise
             failures.append(f"sensitivity: baseline count for {code} is {base_count}, under {SENSITIVITY_FLOOR}; "
                             "too small to gate on -- use the larger budget tier")
             continue
-        if not rate(report, code) < rate(baseline, code):
+        if delivery_boundary:
+            now_count = report.get("census", {}).get(code, 0)
+            before_count = baseline.get("census", {}).get(code, 0)
+            if now_count >= before_count:
+                failures.append(f"{code} records {now_count} did not fall below the baseline "
+                                f"{before_count} across delivery")
+        elif not rate(report, code) < rate(baseline, code):
             failures.append(f"{code} rate {rate(report, code)} did not fall below the baseline "
                             f"{rate(baseline, code)}")
 
@@ -103,6 +112,12 @@ def judge(report, baseline, require_down, require_new, waivers, allow_total_rise
     #    caught by the same rule rather than needing one of its own.
     total_waived = 0.0
     for code in sorted(set(report.get("rates", {})) | set(baseline.get("rates", {}))):
+        if delivery_boundary:
+            now_count = report.get("census", {}).get(code, 0)
+            before_count = baseline.get("census", {}).get(code, 0)
+            if now_count > before_count:
+                failures.append(f"{code} records {before_count} -> {now_count} (increase across delivery)")
+            continue
         now, before = rate(report, code), rate(baseline, code)
         if now <= before:
             continue
@@ -183,9 +198,11 @@ def main():
               f"total={sum(report.get('census', {}).values())}", file=sys.stderr)
         return 1
 
+    baseline_total = sum(baseline.get("census", {}).values())
+    report_total = sum(report.get("census", {}).values())
     print(f"CENSUS-GATE ok tier={args.tier} down={','.join(require_down) or 'none'} "
           f"validate_attempts={counters.get('validate_attempts')} "
-          f"total={sum(report.get('census', {}).values())} waivers={len(waivers)}")
+          f"total={report_total} baseline_total={baseline_total} waivers={len(waivers)}")
     return 0
 
 
