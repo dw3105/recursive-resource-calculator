@@ -616,6 +616,11 @@ end
 --passing at default configuration while the halves are being built.
 local multi_flow_hands = false
 
+--A route may reuse an existing belt only when the existing run can become a real splitter at the
+--mismatch.  Keep this switch separate from the multi-flow hand work: same-flow trunk sharing is
+--the default route behaviour and is the geometry rule this lane closes.
+local share_trunk = true
+
 local per_port_demands = true
 
 local function append_port_demands(work, demands, flow_id, role, entry, share, label)
@@ -784,10 +789,34 @@ local function segment_total(segment)
     return total
 end
 
+local function segment_flow_count(segment)
+    local count = 0
+    for _, present in pairs(segment.flow_ids or {}) do
+        if present then count = count + 1 end
+    end
+    if count == 0 and segment.flow_id ~= nil then return 1 end
+    return count
+end
+
+local function segment_has_flow(segment, flow_id)
+    return segment.flow_id == flow_id or (segment.flow_ids and segment.flow_ids[flow_id] == true)
+end
+
+local function register_segment_flow(segment, flow_id)
+    segment.flow_ids = segment.flow_ids or {}
+    segment.flow_ids[flow_id] = true
+end
+
 local function segment_allows(segment, demand, amount)
     if not segment then return true end
-    if segment.flow_id ~= demand.flow_id then return false, segment.kind == "pipe" and "fluid_mix" or "occupied" end
     if segment.kind ~= demand.kind then return false, "occupied" end
+    local same_flow = segment_has_flow(segment, demand.flow_id)
+    if not same_flow then
+        if segment.kind == "pipe" then return false, "fluid_mix" end
+        if not multi_flow_hands or segment_flow_count(segment) >= 2 then return false, "occupied" end
+    elseif not share_trunk then
+        return false, "occupied"
+    end
     if segment_total(segment) + amount > segment.capacity_per_second + tolerance(segment.capacity_per_second) then return false, "capacity" end
     return true
 end
@@ -822,8 +851,6 @@ end
 --the splitter carries transport, not one step in a fixed north/east/west order.  Keep the footprint in the same
 --cell index used by path search so a later branch sees the second tile as occupied before it mutates any entity.
 local function splitter_second_cell(x, y, direction)
-    --The splitter is two tiles across its belt travel, not two tiles along it.  Rotate the east-side offset with
-    --the travel direction: north -> east, east -> south, south -> west, west -> north.
     local side = Grid.rotate_dir(Grid.EAST, direction)
     local dx, dy = Grid.dir_vector(side)
     if dx == nil or dy == nil then return nil, nil end
@@ -834,27 +861,63 @@ local function splitter_can_absorb(segment)
     return segment ~= nil and segment.kind == "belt" and not segment.underground and not segment.splitter
 end
 
+local function merged_segment_total(left, right)
+    local rates = {}
+    for _, allocation in ipairs(left and left.allocations or {}) do
+        local key = tostring(allocation.flow_id) .. "\0" .. tostring(allocation.sink)
+        rates[key] = math.max(rates[key] or 0, allocation.rate_per_second)
+    end
+    for _, allocation in ipairs(right and right.allocations or {}) do
+        local key = tostring(allocation.flow_id) .. "\0" .. tostring(allocation.sink)
+        rates[key] = math.max(rates[key] or 0, allocation.rate_per_second)
+    end
+    local total = 0
+    for _, rate in pairs(rates) do total = total + rate end
+    return total
+end
+
 local function splitter_cell_allowed(work, demand, x, y, segment, search)
-    local function blocked()
+    local function blocked(reason)
         if search then search.saw_blocked = true end
+        work.last_route_rejection = work.last_route_rejection or {}
         return false
     end
-    if not inside_grid(work, x, y) then return blocked() end
+    if not inside_grid(work, x, y) then return blocked("outside") end
     local owner = static_owner(work, x, y)
-    if owner ~= nil and not is_allowed_owner(owner) then return blocked() end
+    if owner ~= nil and not is_allowed_owner(owner) then return blocked("owner") end
     local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
     if reserved ~= nil then
         local source_id = demand.source and demand.source.port_id
         local sink_id = demand.sink and demand.sink.port_id
         if not (reserved[source_id] or reserved[sink_id] or reserved["flow:" .. tostring(demand.flow_id)]) then
-            return blocked()
+            return blocked("reserved")
         end
     end
-    if work.splitter_blocked_cells[coordinate_key(x, y)] then return blocked() end
+    if work.splitter_blocked_cells[coordinate_key(x, y)] then return blocked("underground") end
+    --The published splitter box is wider than its anchor/side index.  Check the adjacent cells that the
+    --materialized footprint covers as well, so a reserved underground endpoint cannot be hidden just outside
+    --the logical second tile.
+    for _, offset in ipairs({{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {-1, 1}, {1, -1}, {1, 1}}) do
+        if work.splitter_blocked_cells[coordinate_key(x + offset[1], y + offset[2])] then
+            return blocked("underground")
+        end
+    end
     local occupant = work.segments_by_cell[coordinate_key(x, y)]
-    if occupant ~= nil and occupant ~= segment then return blocked() end
+    if occupant ~= nil and occupant ~= segment then
+        local same_flow = segment_has_flow(occupant, demand.flow_id)
+        local compatible_flow = same_flow or (multi_flow_hands and occupant.kind == "belt"
+            and segment_flow_count(occupant) < 2)
+        local combined_capacity = merged_segment_total(segment, occupant)
+        if occupant.kind ~= "belt" or occupant.underground or occupant.splitter
+            or not compatible_flow
+            or combined_capacity > segment.capacity_per_second + tolerance(segment.capacity_per_second) then
+            return blocked("occupant")
+        end
+    end
     return true
 end
+
+local add_allocation
 
 local function splitter_branch_allowed(work, demand, x, y, direction, segment, search)
     if segment and segment.splitter then
@@ -872,6 +935,55 @@ local function splitter_branch_allowed(work, demand, x, y, direction, segment, s
         return false
     end
     return splitter_cell_allowed(work, demand, second_x, second_y, segment, search)
+end
+
+local function terminal_splitter_refused(work, x, y, segment)
+    if not splitter_can_absorb(segment) then return false end
+    local second_x, second_y = splitter_second_cell(x, y, segment.direction)
+    return second_x ~= nil and work.splitter_blocked_cells[coordinate_key(second_x, second_y)] == true
+end
+
+--A splitter replaces the two one-tile belts in its footprint.  When the side tile is already part of the
+--same-flow trunk, fold that segment into the anchor before publishing the splitter; leaving the old segment
+--in the graph would make the physical footprint overlap and would give the old binding a stale segment id.
+local function merge_splitter_footprint(work, segment, second_key, demand)
+    local occupant = work.segments_by_cell[second_key]
+    if occupant == nil or occupant == segment then return segment end
+    if occupant.kind ~= "belt" or occupant.underground or occupant.splitter then return nil end
+    local same_flow = segment_has_flow(occupant, demand.flow_id)
+    local compatible_flow = same_flow or (multi_flow_hands and segment_flow_count(occupant) < 2)
+    if not compatible_flow or merged_segment_total(segment, occupant)
+        > segment.capacity_per_second + tolerance(segment.capacity_per_second) then return nil end
+
+    for flow_id, present in pairs(occupant.flow_ids or {}) do
+        if present then register_segment_flow(segment, flow_id) end
+    end
+    if occupant.flow_id ~= nil then register_segment_flow(segment, occupant.flow_id) end
+    for _, allocation in ipairs(occupant.allocations or {}) do
+        local existing
+        for _, current in ipairs(segment.allocations or {}) do
+            if current.flow_id == allocation.flow_id and current.sink == allocation.sink then existing = current; break end
+        end
+        if existing then existing.rate_per_second = math.max(existing.rate_per_second, allocation.rate_per_second)
+        else add_allocation(segment, allocation.flow_id, allocation.sink, allocation.rate_per_second) end
+    end
+    for key, mapped in pairs(work.segments_by_cell) do
+        if mapped == occupant then work.segments_by_cell[key] = segment end
+    end
+    for _, binding in ipairs(work.bindings or {}) do
+        if binding.segment_id == occupant.segment_id then binding.segment_id = segment.segment_id end
+    end
+    local old_entity = work.entity_by_segment[occupant.segment_id]
+    work.entity_by_segment[occupant.segment_id] = nil
+    if old_entity then
+        for index = #work.entities, 1, -1 do
+            if work.entities[index] == old_entity then table.remove(work.entities, index); break end
+        end
+    end
+    for index = #work.segments, 1, -1 do
+        if work.segments[index] == occupant then table.remove(work.segments, index); break end
+    end
+    return segment
 end
 
 local function blocked_port_detail(work, source, sink)
@@ -919,7 +1031,7 @@ local function underground_candidate(demand, kind, work)
     return {source = source, sink = sink, direction = travel, distance = distance, kind = kind}, nil
 end
 
-local function add_allocation(segment, flow_id, sink, amount)
+add_allocation = function(segment, flow_id, sink, amount)
     for _, allocation in ipairs(segment.allocations) do
         if allocation.flow_id == flow_id and allocation.sink == sink then
             allocation.rate_per_second = allocation.rate_per_second + amount
@@ -943,7 +1055,10 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     local name = (family and family.underground) or infrastructure(work, kind)
     local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
         capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
-        underground = true, length = underground_distance(entry, exit_cell)}
+        underground = true, length = underground_distance(entry, exit_cell),
+        underground_entry_key = coordinate_key(entry.x, entry.y), underground_exit_key = coordinate_key(exit_cell.x, exit_cell.y),
+        underground_entry_x = entry.x, underground_entry_y = entry.y,
+        underground_exit_x = exit_cell.x, underground_exit_y = exit_cell.y}
     local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
     local paired_exit_direction = kind == "pipe" and Grid.dir_opposite(direction) or direction
     local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
@@ -962,6 +1077,7 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     work.segments_by_cell[coordinate_key(exit_cell.x, exit_cell.y)] = segment
     work.underground_cells[coordinate_key(entry.x, entry.y)] = true
     work.underground_cells[coordinate_key(exit_cell.x, exit_cell.y)] = true
+    register_segment_flow(segment, demand.flow_id)
     add_allocation(segment, demand.flow_id, sink_key(demand.sink), amount)
     return true, nil, segment
 end
@@ -1021,9 +1137,68 @@ local function restore_route_snapshot(work, snapshot)
     work.splitter_blocked_cells = snapshot.splitter_blocked_cells
 end
 
+local function route_chain_reaches_tiles(work, source, sink, flow_id)
+    if not source or not sink then return false end
+    local start_key, target_key = coordinate_key(source.x, source.y), coordinate_key(sink.x, sink.y)
+    if work.segments_by_cell[target_key] == nil then return false end
+    local queue, head, seen = {start_key}, 1, {[start_key] = true}
+    local function enqueue(key)
+        if key ~= nil and not seen[key] then seen[key] = true; queue[#queue + 1] = key end
+    end
+    while queue[head] do
+        local key = queue[head]
+        head = head + 1
+        local segment = work.segments_by_cell[key]
+        if segment and segment_has_flow(segment, flow_id) then
+            if key == target_key then return true end
+            if segment.underground then
+                if key == segment.underground_entry_key then enqueue(segment.underground_exit_key) end
+                if key == segment.underground_exit_key then
+                    local x, y = segment.underground_exit_x, segment.underground_exit_y
+                    local dx, dy = Grid.dir_vector(segment.direction)
+                    if dx ~= nil then enqueue(coordinate_key(x + dx, y + dy)) end
+                end
+            elseif segment.splitter then
+                local x, y = segment.splitter_anchor_x, segment.splitter_anchor_y
+                local dx, dy = Grid.dir_vector(segment.splitter_direction)
+                if dx ~= nil then enqueue(coordinate_key(x + dx, y + dy)) end
+                enqueue(segment.splitter_second_key)
+            else
+                local x, y = string.match(key, "^([^:]+):([^:]+)$")
+                local dx, dy = Grid.dir_vector(segment.direction)
+                if dx ~= nil then enqueue(coordinate_key(tonumber(x) + dx, tonumber(y) + dy)) end
+            end
+        end
+    end
+    return false
+end
+
+--The search path is also the router's own directed witness.  A path that merely visited the sink is not a
+--route to it, and a newly added branch must not break an earlier binding that shared its trunk.
+local function route_chain_reaches_sink(work, demand, path)
+    if type(path) ~= "table" or #path == 0 or not demand.sink then return false end
+    local last = path[#path]
+    if last.x ~= demand.sink.x or last.y ~= demand.sink.y then return false end
+    return route_chain_reaches_tiles(work, demand.source, demand.sink, demand.flow_id)
+end
+
+local function all_bindings_reach_sinks(work)
+    for _, binding in ipairs(work.bindings or {}) do
+        local source = work.endpoint_by_id and work.endpoint_by_id[binding.source_port_id]
+        local sink = work.endpoint_by_id and work.endpoint_by_id[binding.sink_port_id]
+        if not route_chain_reaches_tiles(work, source, sink, binding.flow_id) then return false end
+    end
+    return true
+end
+
 local function append_normal_path(work, demand, path, amount)
     local snapshot = route_snapshot(work)
     local function reject(reason)
+        work.last_route_rejection = work.last_route_rejection or {}
+        work.last_route_rejection.reason = reason
+        work.last_route_rejection.source = demand.source and demand.source.port_id
+        work.last_route_rejection.sink = demand.sink and demand.sink.port_id
+        work.last_route_rejection.flow_id = demand.flow_id
         restore_route_snapshot(work, snapshot)
         return false, reason
     end
@@ -1049,35 +1224,54 @@ local function append_normal_path(work, demand, path, amount)
             local splitter_continuation = segment.splitter and key == segment.splitter_second_key
                 and direction == segment.splitter_direction
             if not allocated_segments[segment.segment_id] then
-                local allowed = segment_allows(segment, demand, amount)
-                if not allowed then return reject("capacity") end
+                local allowed, reason = segment_allows(segment, demand, amount)
+                if not allowed then return reject(reason or "occupied") end
             end
             if segment.splitter and key == segment.splitter_second_key and not splitter_continuation then return reject("occupied") end
-            if segment.direction ~= direction and not splitter_continuation then
+            --A sink is reached by entering its port tile.  Its existing belt need not point out of that tile,
+            --but only when the otherwise required splitter footprint is reserved by an underground endpoint.
+            if segment.direction ~= direction and not splitter_continuation
+                and not (index == #path and terminal_splitter_refused(work, cell.x, cell.y, segment)) then
                 --An underground segment owns two coupled endpoints.  It cannot become a splitter: changing
                 --the mapped first entity here would leave its partner carrying a different direction.  The
                 --allocation may still share the segment, but its published pair keeps the direction it was built
                 --for.  Surface belts retain their existing splitter behaviour.
-                    if not segment.underground then
-                        if segment.kind ~= "belt" or not (work.belt and work.belt.splitter) then return reject("occupied") end
-                        if splitter_branch_allowed(work, demand, cell.x, cell.y, direction, segment) then
-                            local entity = work.entity_by_segment[segment.segment_id]
-                            local second_x, second_y = splitter_second_cell(cell.x, cell.y, direction)
-                            local second_key = coordinate_key(second_x, second_y)
-                            local side_x, side_y = second_x - cell.x, second_y - cell.y
-                            entity.position = entity_position(cell.x + side_x / 2, cell.y + side_y / 2)
-                            entity.name = work.belt.splitter
-                            entity.splitter = true
-                            entity.direction = direction
-                            entity.dir = direction
-                            segment.splitter = true
-                            segment.splitter_direction = direction
-                            segment.splitter_anchor_key = key
-                            segment.splitter_second_key = second_key
-                            work.segments_by_cell[segment.splitter_second_key] = segment
-                        end
+                    if not splitter_can_absorb(segment)
+                        or not splitter_branch_allowed(work, demand, cell.x, cell.y, direction, segment) then
+                        work.last_route_rejection = work.last_route_rejection or {}
+                        work.last_route_rejection.x, work.last_route_rejection.y = cell.x, cell.y
+                        work.last_route_rejection.direction = direction
+                        work.last_route_rejection.segment = segment.segment_id
+                        work.last_route_rejection.splitter = segment.splitter
+                        work.last_route_rejection.segment_direction = segment.direction
+                        local second_x, second_y = splitter_second_cell(cell.x, cell.y, direction)
+                        work.last_route_rejection.second = second_x and (tostring(second_x) .. ":" .. tostring(second_y))
+                        work.last_route_rejection.second_segment = second_x and work.segments_by_cell[coordinate_key(second_x, second_y)]
+                            and work.segments_by_cell[coordinate_key(second_x, second_y)].segment_id
+                        return reject("splitter-footprint")
                     end
-            end
+                    local entity = work.entity_by_segment[segment.segment_id]
+                    local splitter_direction = direction
+                    local second_x, second_y = splitter_second_cell(cell.x, cell.y, splitter_direction)
+                    local second_key = coordinate_key(second_x, second_y)
+                    local side_segment = work.segments_by_cell[second_key]
+                    if not merge_splitter_footprint(work, segment, second_key, demand) then
+                        return reject("splitter-footprint")
+                    end
+                    if first_segment == side_segment then first_segment = segment end
+                    local side_x, side_y = second_x - cell.x, second_y - cell.y
+                    entity.position = entity_position(cell.x + 0.5 + side_x / 2, cell.y + side_y / 2)
+                    entity.name = work.belt.splitter
+                    entity.splitter = true
+                    entity.direction = splitter_direction
+                    entity.dir = splitter_direction
+                    segment.splitter = true
+                    segment.splitter_direction = splitter_direction
+                    segment.splitter_anchor_key = key
+                    segment.splitter_second_key = second_key
+                    segment.splitter_anchor_x, segment.splitter_anchor_y = cell.x, cell.y
+                    work.segments_by_cell[segment.splitter_second_key] = segment
+                    end
         else
             local capacity, kind = capacity_for(work, demand.flow)
             segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
@@ -1092,16 +1286,20 @@ local function append_normal_path(work, demand, path, amount)
             work.entity_by_segment[segment.segment_id] = entity
         end
         if not allocated_segments[segment.segment_id] then
+            register_segment_flow(segment, demand.flow_id)
             add_allocation(segment, demand.flow_id, sink, amount)
             allocated_segments[segment.segment_id] = true
         end
         first_segment = first_segment or segment
         end
     end
+    local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
+    if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
         work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
             sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id, rate_per_second = amount}
     end
+    --debug-disabled
     return true
 end
 
@@ -1110,9 +1308,20 @@ end
 local function append_underground(work, demand, candidate, amount)
     local capacity, kind = capacity_for(work, demand.flow)
     if amount > capacity + tolerance(capacity) then return false, "capacity" end
+    --An explicit underground endpoint owns its tile for the whole candidate.  If an earlier surface
+    --demand already turned that tile into a splitter footprint, reject this route so the normal priority
+    --restart can place the underground pair first instead of committing an overlapping pair.
+    for _, endpoint in ipairs({candidate.source, candidate.sink}) do
+        local occupied = work.segments_by_cell[coordinate_key(endpoint.x, endpoint.y)]
+        if occupied and occupied.splitter then return false, "splitter-footprint" end
+    end
     local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
         capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = candidate.direction,
-        underground = true, length = candidate.distance}
+        underground = true, length = candidate.distance,
+        underground_entry_key = coordinate_key(candidate.source.x, candidate.source.y),
+        underground_exit_key = coordinate_key(candidate.sink.x, candidate.sink.y),
+        underground_entry_x = candidate.source.x, underground_entry_y = candidate.source.y,
+        underground_exit_x = candidate.sink.x, underground_exit_y = candidate.sink.y}
     local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
     local name = infrastructure(work, kind)
     if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
@@ -1164,14 +1373,19 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             --Only a foreign pipe that actually DENIED the step is fluid mixing. Setting the flag on every
             --pipe cell the search merely looked at made an item flow report BP_R_FLUID_MIX, so the belt's
             --real blocker was hidden behind somebody else's pipe.
-            if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
+        if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
             return false
         end
-        if move_direction ~= nil and segment.direction ~= move_direction then
-            if not splitter_continuation and (segment.kind ~= "belt" or not (work.belt and work.belt.splitter)) then
-                search.saw_blocked = true; return false
+        local terminal_refused = is_target and terminal_splitter_refused(work, x, y, segment)
+        if move_direction ~= nil and segment.direction ~= move_direction and not terminal_refused then
+            if not splitter_continuation then
+                if not splitter_can_absorb(segment)
+                    or not splitter_branch_allowed(work, demand, x, y, move_direction, segment, search) then
+                    search.saw_blocked = true
+                    return false
+                end
+                search.saw_branch = true
             end
-            search.saw_branch = true
         end
     end
     return true
@@ -1329,7 +1543,7 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
     end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     local cost = 1
-    if segment and segment.flow_id == demand.flow_id
+    if segment and segment_has_flow(segment, demand.flow_id)
         and segment.kind == demand.kind
         and segment_total(segment) + amount <= segment.capacity_per_second + tolerance(segment.capacity_per_second) then
         cost = 0.2
@@ -1495,7 +1709,7 @@ local function normalize_input(input)
         input_belt_name = input.belt_name, input_pipe_name = input.pipe_name,
         belt = input.belt or (input.catalog and input.catalog.belt) or {},
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
-        grid = copy_grid(input), obstacles = {}, endpoint_index = {}, perimeter = {},
+        grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         underground_cells = {}, splitter_blocked_cells = {}, counters = new_counters(), attempt_generation = 0,
         --The allowance is filled after demands are built. One routing run has one cumulative budget, so every
@@ -1511,6 +1725,7 @@ local function normalize_input(input)
         for _, port in ipairs(block.ports or block.block_ports or {}) do
             local endpoint = normalize_endpoint(block, placement, port, input.catalog or {}, work)
             if endpoint and endpoint.flow_id then
+                work.endpoint_by_id[endpoint.port_id] = endpoint
                 work.endpoint_index[endpoint.flow_id] = work.endpoint_index[endpoint.flow_id] or {["in"] = {}, ["out"] = {}}
                 work.endpoint_index[endpoint.flow_id][endpoint.role][#work.endpoint_index[endpoint.flow_id][endpoint.role] + 1] = endpoint
             end
@@ -1519,7 +1734,18 @@ local function normalize_input(input)
     add_input_obstacles(work, input, blocks)
     for _, port in ipairs(perimeter_entries(input)) do
         local endpoint = normalize_perimeter(port)
-        if endpoint and endpoint.flow_id then work.perimeter[#work.perimeter + 1] = endpoint end
+        if endpoint and endpoint.flow_id then
+            work.endpoint_by_id[endpoint.port_id] = endpoint
+            work.perimeter[#work.perimeter + 1] = endpoint
+        end
+    end
+    --Explicit underground ports reserve their endpoint tiles before the first demand is searched.  A surface
+    --demand must therefore refuse a splitter footprint that would consume a future underground end; otherwise
+    --the later pair would have to undo an already published surface route.
+    for _, endpoint in pairs(work.endpoint_by_id) do
+        if endpoint.connection and endpoint.connection.connection_type == "underground" then
+            work.splitter_blocked_cells[coordinate_key(endpoint.x, endpoint.y)] = true
+        end
     end
     work.flows = flow_list(input)
     work.demands = build_demands(work, work.flows)
