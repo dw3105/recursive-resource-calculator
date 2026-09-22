@@ -99,6 +99,47 @@ local function robo_entities(positions, translate, right_column_x)
     return result
 end
 
+H.test("S1 transport waste names the inserter outward cell and the orphan belt", function()
+    local test_catalog = catalog()
+    test_catalog.inserter = {items_per_second = 5, pickup_offset = {x = 0, y = 1}, drop_offset = {x = 0, y = -1}}
+    test_catalog.entity.inserter = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1,
+        collision_box = box(0.4), collision_mask = {"object-layer"}, needs_power = false, items_per_second = 5}
+    local state = finish({grid = {w = 8, h = 8}, catalog = test_catalog,
+        plan = {steps = {{step_id = "step", machine = "assembler", machine_count = 1}}}, entities = {
+        entity("machine", "assembler", 3, {step_id = "step", y = 2}),
+        {id = "support-belt", kind = "belt", name = "ug", x = 1, y = 2, w = 1, h = 1, dir = 4,
+            flow_id = "item/in"},
+        {id = "orphan-inserter", kind = "inserter", name = "inserter", x = 2, y = 2, w = 1, h = 1, dir = 4,
+            flow_id = "item/in", role = "input", machine_id = "machine", pickup_target = "support-belt",
+            drop_target = "machine", pickup_position = {x = 1.5, y = 2.5}, drop_position = {x = 3.5, y = 2.5}},
+        {id = "orphan-belt", kind = "belt", name = "ug", x = 6, y = 6, w = 1, h = 1, dir = 12,
+            flow_id = "item/orphan"},
+    }})
+    local inserter_record, belt_record
+    for _, record in ipairs(state.errors or {}) do
+        if record.code == "BP_V_TRANSPORT_UNUSED" and record.ids[1] == "orphan-inserter" then inserter_record = record end
+        if record.code == "BP_V_TRANSPORT_UNUSED" and record.ids[1] == "orphan-belt" then belt_record = record end
+    end
+    H.equal(inserter_record ~= nil, true, "the unused inserter is named")
+    H.deep_equal(inserter_record and inserter_record.detail, {reason = "inserter serves no required transfer",
+        x = 1, y = 2, flow_id = "item/in", facing = 4}, "the inserter record names its pickup cell and facing")
+    H.equal(belt_record ~= nil, true, "the orphan belt is named")
+    H.deep_equal(belt_record and belt_record.detail, {reason = "transport entity serves no required transfer",
+        x = 6, y = 6, flow_id = "item/orphan", facing = 12}, "the belt record names its tile, flow and facing")
+end)
+
+H.test("S2 target shortfall names the consumer sink and both rates", function()
+    local state = finish({catalog = catalog(), flows = {{flow_id = "item/plate",
+        producers = {{step_id = "source", share_per_second = 4}},
+        consumers = {{step_id = "consumer", share_per_second = 4}}}},
+        segments = {{segment_id = "short-belt", kind = "belt", capacity_per_second = 10,
+            allocations = {{flow_id = "item/plate", sink = "step:consumer", rate_per_second = 1}}}}})
+    local record = error_with_code(state, "BP_V_TARGET_SHORTFALL")
+    H.equal(record ~= nil, true, "the underfilled consumer emits a target shortfall")
+    H.deep_equal(record and record.detail, {required = 4, reached = 1, sink = "step:consumer", step_id = "consumer"},
+        "the shortfall says which sink is short and by how much")
+end)
+
 local function ids_contain(ids, wanted)
     for _, id in ipairs(ids or {}) do if id == wanted then return true end end
     return false
