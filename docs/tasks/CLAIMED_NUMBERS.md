@@ -131,3 +131,5 @@
 | `144` | `rrc/agent` | flag: one switch in one place, so the three-halves flip cannot go half-way | 2026-09-22 |
 | `145` | `rrc/agent` | probe: name the colliding pair in 18 seconds, never 414 | 2026-09-22 |
 | `146` | `rrc/agent` | guard: a routed result never publishes two entities on one tile | 2026-09-22 |
+| `147` | `rrc/agent` | route: one belt carries two flows, and 28.8 still lays a continuation, never a fork | 2026-09-22 |
+| `148` | `rrc/agent` | deliver: one command from the player's sheet to judged bytes | 2026-09-22 |
