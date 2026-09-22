@@ -520,8 +520,19 @@ local function infrastructure(work, kind)
     return (work.belt and (work.belt.belt or work.belt.name)) or work.input_belt_name or "transport-belt"
 end
 
-local function sink_key(endpoint)
-    if endpoint.perimeter then return "port:" .. tostring(endpoint.port_id) end
+--Validation keys an implicit external output by the first placed machine output port, while an explicitly named
+--perimeter port is keyed by that port. Keep the route's physical endpoint separate from the allocation witness:
+--the former is still where the belt ends, the latter is what the validator uses to account for the external sink.
+local function sink_key(endpoint, work, explicit_port_id)
+    if endpoint.perimeter then
+        if endpoint.role == "out" and explicit_port_id == nil then
+            local by_flow = work and work.endpoint_index and work.endpoint_index[endpoint.flow_id]
+            local outputs = by_flow and by_flow.out
+            local canonical = outputs and outputs[1]
+            if canonical then return "port:" .. tostring(canonical.port_id) end
+        end
+        return "port:" .. tostring(endpoint.port_id)
+    end
     return "step:" .. tostring(endpoint.step_id)
 end
 
@@ -698,7 +709,8 @@ local function append_port_demands(work, demands, flow_id, role, entry, share, l
                 detail = label .. " port has no demand: " .. tostring(endpoint.port_id)}
             return
         end
-        demands[#demands + 1] = {endpoint = endpoint, candidates = {endpoint}, remaining = amount}
+        demands[#demands + 1] = {endpoint = endpoint, candidates = {endpoint}, remaining = amount,
+            explicit_port_id = entry and (entry.port_id or entry.port)}
     end
 end
 
@@ -722,13 +734,13 @@ local function build_demands(work, flows)
                     local role = step_id_of(entry) == "$external" and "in" or "out"
                     local candidates = demand_endpoint_candidates(work, id, role, entry)
                     producers[#producers + 1] = {endpoint = candidates[1], candidates = candidates,
-                        remaining = share_of(entry)}
+                        remaining = share_of(entry), explicit_port_id = entry and (entry.port_id or entry.port)}
                 end
                 for _, entry in ipairs(flow.consumers or {}) do
                     local role = step_id_of(entry) == "$external" and "out" or "in"
                     local candidates = demand_endpoint_candidates(work, id, role, entry)
                     consumers[#consumers + 1] = {endpoint = candidates[1], candidates = candidates,
-                        remaining = share_of(entry)}
+                        remaining = share_of(entry), explicit_port_id = entry and (entry.port_id or entry.port)}
                 end
             end
             if #producers == 0 and #consumers == 0 then
@@ -782,7 +794,7 @@ local function build_demands(work, flows)
                 demands[#demands + 1] = {flow = flow, flow_id = id, source = best.source, sink = best.sink,
                     source_candidates = source_candidates, sink_candidates = sink_candidates,
                     source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
-                    pairing_cost = best.route_cost}
+                    pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id}
                 best.producer.remaining = best.producer.remaining - best.amount
                 best.consumer.remaining = best.consumer.remaining - best.amount
             end
@@ -1121,7 +1133,7 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     work.underground_cells[coordinate_key(entry.x, entry.y)] = true
     work.underground_cells[coordinate_key(exit_cell.x, exit_cell.y)] = true
     register_segment_flow(segment, demand.flow_id)
-    add_allocation(segment, demand.flow_id, sink_key(demand.sink), amount)
+    add_allocation(segment, demand.flow_id, sink_key(demand.sink, work, demand.sink_port_id), amount)
     return true, nil, segment
 end
 
@@ -1277,7 +1289,7 @@ local function append_normal_path(work, demand, path, amount)
         restore_route_snapshot(work, snapshot)
         return false, reason
     end
-    local sink = sink_key(demand.sink)
+    local sink = sink_key(demand.sink, work, demand.sink_port_id)
     local first_segment
     local allocated_segments = {}
     local index = 0
@@ -1431,9 +1443,10 @@ local function append_underground(work, demand, candidate, amount)
     work.entity_by_segment[segment.segment_id] = first
     work.splitter_blocked_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
     work.splitter_blocked_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
-    add_allocation(segment, demand.flow_id, sink_key(demand.sink), amount)
+    local sink = sink_key(demand.sink, work, demand.sink_port_id)
+    add_allocation(segment, demand.flow_id, sink, amount)
     work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
-        sink = sink_key(demand.sink), flow_id = demand.flow_id, segment_id = segment.segment_id, rate_per_second = amount}
+        sink = sink, flow_id = demand.flow_id, segment_id = segment.segment_id, rate_per_second = amount}
     return true
 end
 
