@@ -210,10 +210,10 @@ def audit_inserters(entities, cells) -> List[str]:
         if direction not in VEC:
             failures.append(f"inserter at ({px},{py}) faces direction {direction}, which is not cardinal")
             continue
-        #Base inserter geometry: it reaches BEHIND itself to pick up and drops in the direction it faces.
+        # In a blueprint, direction points to the pickup tile; the inserter drops behind itself.
         vx, vy = VEC[direction]
-        pickup = endpoint_kind(cells.get((px - vx, py - vy)))
-        drop = endpoint_kind(cells.get((px + vx, py + vy)))
+        pickup = endpoint_kind(cells.get((px + vx, py + vy)))
+        drop = endpoint_kind(cells.get((px - vx, py - vy)))
         bad_pickup = pickup not in ("belt", "machine")
         bad_drop = drop not in ("belt", "machine")
         if bad_pickup or bad_drop:
@@ -319,10 +319,10 @@ def audit_orphans(entities, cells, pairs) -> Tuple[List[str], int, int]:
             continue
         vx, vy = VEC[direction]
         px, py = entity["position"]["x"], entity["position"]["y"]
-        if (px + vx, py + vy) in transport:
-            drops.add((px + vx, py + vy))
         if (px - vx, py - vy) in transport:
-            pickups.add((px - vx, py - vy))
+            drops.add((px - vx, py - vy))
+        if (px + vx, py + vy) in transport:
+            pickups.add((px + vx, py + vy))
 
     def successor(cell):
         entity = transport[cell]

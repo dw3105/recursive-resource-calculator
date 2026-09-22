@@ -47,9 +47,9 @@ def control():
     """Belt in, inserter, machine, inserter, belt, tunnel, belt out.  Every entity serves the one obligation."""
     return [
         belt(0.5, 0.5), belt(1.5, 0.5),
-        inserter(2.5, 0.5),
+        inserter(2.5, 0.5, 12),
         {"name": "assembling-machine-3", "position": {"x": 4.5, "y": 0.5}, "recipe": "iron-gear-wheel"},
-        inserter(6.5, 0.5),
+        inserter(6.5, 0.5, 12),
         belt(7.5, 0.5),
         underground(8.5, 0.5, "input"), underground(12.5, 0.5, "output"),
         belt(13.5, 0.5),
@@ -79,6 +79,21 @@ def audit(entities, *extra):
 
 
 class BlueprintAuditTest(unittest.TestCase):
+
+    def test_ACC18_direction_points_to_pickup_and_drop_is_behind(self):
+        entities = [
+            {"name": "assembling-machine-1", "position": {"x": -0.5, "y": 0.5}},
+            inserter(0.5, 0.5, 4),
+            belt(1.5, 0.5),
+        ]
+        _, counts = audit(entities)
+        self.assertEqual(counts["invalid_inserters"], 0, counts)
+        # Endpoint validity alone is symmetric; pin the directional convention in the byte oracle itself.
+        source = AUDIT.read_text()
+        self.assertIn("pickup = endpoint_kind(cells.get((px + vx, py + vy)))", source)
+        self.assertIn("drop = endpoint_kind(cells.get((px - vx, py - vy)))", source)
+        self.assertIn("drops.add((px - vx, py - vy))", source)
+        self.assertIn("pickups.add((px + vx, py + vy))", source)
 
     def test_splitter_east_west_anchor_tile_output(self):
         entities = [belt(2.5, 4.5), belt(3.5, 4.5), belt(2.5, 5.5), belt(3.5, 5.5),
@@ -145,7 +160,7 @@ class BlueprintAuditTest(unittest.TestCase):
         and reported every belt of a working factory as unused.
         """
         entities = control()
-        entities[4]["direction"] = 12
+        entities[4]["direction"] = 4
         _, counts = audit(entities)
         self.assertEqual(counts["unused_belt_tiles"], 0)
         self.assertEqual(counts["invalid_inserters"], 0)
@@ -277,6 +292,31 @@ class HandBuiltReferenceTest(unittest.TestCase):
             "entities_excluding_roboports": 127,
         })
         self.assertEqual(done.returncode, 0, "the reference must pass outright")
+
+    def test_ACC17_measured_west_facing_hands_use_the_tile_they_face(self):
+        reference = pathlib.Path.home() / "share" / "RRC" / "red_science_1s_manual_bp.txt"
+        if not reference.exists():
+            self.skipTest("the hand-built reference is not present on this host")
+        encoded = reference.read_text().strip()
+        payload = json.loads(zlib.decompress(base64.b64decode(encoded[1:])))
+        entities = payload["blueprint"]["entities"]
+        by_position = {(e["position"]["x"], e["position"]["y"]): e for e in entities}
+        belts = {(e["position"]["x"], e["position"]["y"])
+                 for e in entities if e["name"] == "transport-belt"}
+        for hand_x, pickup_x, drop_x in ((206.5, 205.5, 207.5), (210.5, 209.5, 211.5)):
+            hand = by_position[(hand_x, 1076.5)]
+            self.assertEqual(hand["direction"], 12)
+            if hand_x == 206.5:
+                self.assertIn((pickup_x, 1076.5), belts)
+                self.assertEqual(by_position[(208.5, 1076.5)]["name"], "assembling-machine-3")
+                self.assertEqual(drop_x, 207.5)  # left tile of the 3 by 3 machine footprint
+            else:
+                self.assertEqual(by_position[(208.5, 1076.5)]["name"], "assembling-machine-3")
+                self.assertEqual(pickup_x, 209.5)  # right tile of the 3 by 3 machine footprint
+                self.assertIn((drop_x, 1076.5), belts)
+        done = subprocess.run([sys.executable, str(AUDIT), str(reference), "--json"],
+                              capture_output=True, text=True)
+        self.assertEqual(json.loads(done.stdout)["invalid_inserters"], 0)
 
     def test_ACC15_family_census_keeps_zero_families_and_unknowns(self):
         entities = control()
