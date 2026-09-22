@@ -283,3 +283,59 @@ recorded here rather than by amending a contract three lanes are already buildin
 | unchanged tree, `--require-down BP_V_TRANSPORT_UNUSED,BP_V_ROUTE_DISCONTINUOUS` | exit 1 naming both: `rate 284.3333 did not fall below the baseline 284.3333` and `rate 21.0 did not fall below the baseline 21.0` (`tools/census_gate.py:181-184`) |
 | `tools/red_list.sh` on a worse file, and on a new red file | exit 1 both, naming the file |
 | `tools/ceiling.sh` on a search that does not accept | exit 1 in 120 s naming `killed-at-hard-limit`, where it used to hang past 900 s |
+
+## Wave 3, 2026-09-22 on `legalcopilot-dev`: the census is re-frozen at `round-16-wave3`
+
+Three faults closed in one day, one **not**. Full tier, 11 validate attempts either side, terminal
+`BP_FAIL_GRID_LIMIT` either side.
+
+| code | `round-16-base` | `round-16-wave3` |
+|---|---|---|
+| `BP_V_COLLISION` | 0 | **0** (was 60 between the two, fixed) |
+| `BP_V_TRANSPORT_UNUSED` | 3148 | **2626** |
+| `BP_V_ROUTE_DISCONTINUOUS` | 230 | **210** |
+| `BP_PW_DISCONNECTED` | 1 | 1 |
+| `BP_V_PORT_UNREACHABLE` | 0 | 45 |
+| `BP_V_INSERTER_GEOMETRY` | 0 | 40 |
+| `BP_V_TRANSFER_BROKEN` | 0 | 40 |
+| `BP_V_TARGET_SHORTFALL` | 11 | 15 |
+| `BP_V_ROUTE_MISSING` | 0 | 8 |
+| `BP_V_UNDERGROUND_UNPAIRED` | 0 | **1, unfixed** |
+| records | 3390 | **2986** |
+| wall seconds | 1050.87 | 837.87 |
+
+Fast tier: records 919 to **801**, `BP_V_TRANSPORT_UNUSED` 853 to **706**,
+`BP_V_ROUTE_DISCONTINUOUS` 63 to **58**, `validate_attempts` 3 either side.
+
+### What moved, and why
+
+1. **28.8's branch.** `begin_search` seeded only `demand.source`, so a second demand of one flow re-walked
+   the whole distance from its own source port and collided with the trunk its predecessor laid. It now
+   seeds from every tile its own source already reaches over that flow. Frozen candidate: `ok=false` and 4
+   of 7 demands served, to `ok=true` and 7 of 7 with **0** broken chains.
+2. **28.7 refuses the DEMAND, never the candidate.** Refusing the candidate left **0 of 11** candidates
+   reaching the validator and the search died `BP_FAIL_GRID_LIMIT` with 12 `BP_R_NO_PATH` records and
+   nothing judged. An unroutable demand is a shortfall. Only `BP_R_NO_PATH` becomes one:
+   `BP_R_FLUID_MIX`, `BP_R_CAPACITY`, `BP_R_PORT_BLOCKED` and `BP_R_EXPANSIONS` stay fatal, because each
+   says the plan itself is wrong. `tests/test_route.lua` R5 and R6 caught the first, wider cut.
+3. **Every splitter stood half a tile east of its own footprint.** `entity_position` adds half a tile per
+   axis and the conversion passed `cell.x + 0.5 + side_x / 2`, so `x` took it twice. `r:825` delivered
+   `(13,9)` against a true `(12.5,9.0)`; `r:846` delivered `(11.5,41.5)` against `(11.0,41.5)`. Three
+   overlapping pairs in one candidate, 60 across the census, **0** after.
+
+### Two facts that outlive this round
+
+- `tools/route_chain_probe.sh` costs **17.6 s** and reaches a real candidate; the full census costs
+  **414 s**. Read the fault from the probe. Lanes 145 and 146 make that permanent.
+- Four refusals were ablated one at a time against the real sheet. Only 28.7 moved the candidate count —
+  the underground rule, the reversal rule and the trunk seeding each changed **nothing** there. Ablate
+  before blaming.
+
+### Carried to round 17, by name
+
+- `BP_V_UNDERGROUND_UNPAIRED` **1**. Same class as a collision: a blueprint the game refuses to place. The
+  first candidate is clean, 20 endpoints and 0 unpaired, so the record sits in one of the other ten and
+  each look costs 414 s. **Unfixed. The re-frozen baseline blesses nothing about it.**
+- `test_route_budget` RB1: 51638 ops against a 20000 bound written when the base spent 11499 and produced
+  broken chains. Red, at its frozen count.
+- One candidate's route takes about 5 s on this host, against the 5-second whole-calculation ceiling.
