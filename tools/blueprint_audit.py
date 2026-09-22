@@ -34,7 +34,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 #Tile footprints.  A blueprint carries no size, so the auditor needs the prototype fact to know which cells an
-#entity occupies.  Anything absent here is one tile, which is correct for every transport entity and inserter.
+#entity occupies.  Splitters have a direction-dependent rectangular footprint (handled below).
 SIZE = {
     "assembling-machine-1": 3, "assembling-machine-2": 3, "assembling-machine-3": 3,
     "electromagnetic-plant": 3, "electric-furnace": 3, "steel-furnace": 2, "stone-furnace": 2,
@@ -66,6 +66,22 @@ BEACON_SUPPLY_DISTANCE = 3.0   #vanilla beacon supply_area_distance; 3x3 entity 
 VEC = {0: (0.0, -1.0), 4: (1.0, 0.0), 8: (0.0, 1.0), 12: (-1.0, 0.0)}
 OPPOSITE = {0: 8, 4: 12, 8: 0, 12: 4}
 NAME = {0: "north", 4: "east", 8: "south", 12: "west"}
+
+
+def occupied_tiles(entity):
+    """Return tile-centre coordinates covered by an entity, including oriented splitter footprints."""
+    name = entity.get("name")
+    px, py = entity["position"]["x"], entity["position"]["y"]
+    if name in SPLITTERS:
+        direction = entity.get("direction", 0)
+        if direction not in VEC:
+            return [(px, py)]
+        vx, vy = VEC[direction]
+        # Across the splitter is perpendicular to its flow.  Its anchor lies midway between these tiles.
+        return [(px - vy * 0.5, py + vx * 0.5), (px + vy * 0.5, py - vx * 0.5)]
+    size = SIZE.get(name, 1)
+    half = (size - 1) / 2.0
+    return [(px - half + dx, py - half + dy) for dx in range(size) for dy in range(size)]
 
 
 def load_entities(path: Path) -> Tuple[List[Dict[str, Any]], List[Any], str]:
@@ -166,12 +182,8 @@ def target_mismatches(counts: Dict[str, int], path: Path) -> List[str]:
 def occupancy(entities: List[Dict[str, Any]]) -> Dict[Tuple[float, float], Dict[str, Any]]:
     cells: Dict[Tuple[float, float], Dict[str, Any]] = {}
     for entity in entities:
-        size = SIZE.get(entity.get("name"), 1)
-        half = (size - 1) / 2.0
-        px, py = entity["position"]["x"], entity["position"]["y"]
-        for dx in range(size):
-            for dy in range(size):
-                cells[(px - half + dx, py - half + dy)] = entity
+        for tile in occupied_tiles(entity):
+            cells[tile] = entity
     return cells
 
 
@@ -290,8 +302,8 @@ def audit_orphans(entities, cells, pairs) -> Tuple[List[str], int, int]:
     Pipes carry no direction, so a pipe network is used when it touches a machine fluid box; an unpaired
     pipe-to-ground is already reported by contract 26.5.
     """
-    transport = {(e["position"]["x"], e["position"]["y"]): e
-                 for e in entities if e.get("name") in BELTS | UG_BELTS | SPLITTERS}
+    transport = {tile: e for e in entities if e.get("name") in BELTS | UG_BELTS | SPLITTERS
+                 for tile in occupied_tiles(e)}
     partner = {}
     for first, second in pairs:
         if first in transport and second in transport:
@@ -316,19 +328,37 @@ def audit_orphans(entities, cells, pairs) -> Tuple[List[str], int, int]:
         entity = transport[cell]
         #A belt entrance hands product to its exit; everything else hands it to the tile it faces.
         if entity.get("name") in UG_BELTS and entity.get("type") == "input":
-            return partner.get(cell)
+            return partner.get((entity["position"]["x"], entity["position"]["y"]))
         direction = entity.get("direction", 0)
         if direction not in VEC:
             return None
         vx, vy = VEC[direction]
+        if entity.get("name") in SPLITTERS:
+            # Both lanes enter at the back and may leave through either front lane.  There are no side exits.
+            return [nxt for lane in occupied_tiles(entity)
+                    if (nxt := (lane[0] + vx, lane[1] + vy)) in transport]
         nxt = (cell[0] + vx, cell[1] + vy)
         return nxt if nxt in transport else None
 
     forward = {cell: successor(cell) for cell in transport}
+    # The two incoming lanes can be routed to either of the splitter's two outputs.
+    for entity in entities:
+        if entity.get("name") not in SPLITTERS:
+            continue
+        direction = entity.get("direction", 0)
+        if direction not in VEC:
+            continue
+        vx, vy = VEC[direction]
+        lanes = occupied_tiles(entity)
+        back_sources = [(lane[0] - vx, lane[1] - vy) for lane in lanes]
+        for source in back_sources:
+            if source in transport and transport[source].get("name") not in SPLITTERS:
+                forward[source] = [*([forward[source]] if forward.get(source) and not isinstance(forward[source], list)
+                                      else forward.get(source) or []), *lanes]
     backward: Dict[Tuple[float, float], List[Tuple[float, float]]] = {}
     for cell, nxt in forward.items():
-        if nxt is not None:
-            backward.setdefault(nxt, []).append(cell)
+        for destination in (nxt if isinstance(nxt, list) else [nxt] if nxt is not None else []):
+            backward.setdefault(destination, []).append(cell)
 
     #A belt run that begins nowhere is where the player feeds it; one that ends nowhere is where it leaves.
     #That is the physical reading, and it needs no bounding box at all.
