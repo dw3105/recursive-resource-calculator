@@ -441,3 +441,68 @@ route never saw the switch. **Route's half was completely untested.** Lane 147 o
   `make_candidates` leaves it stuck on.
 - `tests/test_feature_flags.lua:29-37` matches **whole source lines**, so it reddens on a re-indent. It
   tolerates `groups.lua:507`'s `local multi_flow_hands = true` only because that line is indented.
+
+### The flip landed, and what it cost
+
+`logic/bp/flags.lua` reads `return {multi_flow_hands = true}` from `1199e1a`. Every test file passes on both
+interpreters, including the frozen oracle at 88 of 88.
+
+`FF4` stays at **26**. It forces the switch off, and cause C is what made that honest again. The wave 3 flip
+patch rewrote it to 22 to match the broken seam; **that hunk is refuted and must never be applied.** `HE2`
+keeps **22** on the forced-on path, which is the player's own inserter count.
+
+Attribution, same probe, same 8 candidates of the player's sheet, `legalcopilot-dev` 2026-09-22:
+
+| code | switch OFF | switch ON |
+|---|---|---|
+| `BP_V_INSERTER_GEOMETRY` | 29 | **4** |
+| `BP_V_PORT_UNREACHABLE` | 33 | **4** |
+| `BP_V_TRANSFER_BROKEN` | 29 | **4** |
+| `BP_V_ROUTE_MISSING` | 6 | **0** |
+| `BP_V_TARGET_SHORTFALL` | 11 | **8** |
+| `BP_V_TRANSPORT_UNUSED` | 1911 | **1895** |
+| `BP_V_ROUTE_DISCONTINUOUS` | 153 | 160 |
+| `BP_V_UNDERGROUND_UNPAIRED` | 1 | 7 |
+
+Four families collapse, one to zero. Two rise. **Reverting the flip is refused on this evidence.**
+
+### The probe that made a two-round debt cheap
+
+Wave 3 carried `BP_V_UNDERGROUND_UNPAIRED` as unfixed debt and wrote that each look costs **414 s**. A probe
+that walks the search and validates **every** candidate, not only the first, costs about **25 s per
+candidate** and **under 7 minutes** for the whole sheet. It named all seven records and their reason in one
+run. Any code whose records hide in candidates 2 through 11 is now cheap to chase.
+
+### A right-angle crossing is what an underground is FOR
+
+All seven records carried one reason: `middle tile carries the underground flow`,
+`logic/bp/validate.lua:1205`.
+
+**A first fix was a no-op and was reverted.** `underground_candidate` was made to refuse a span whose middle
+already carried its own flow. Re-measuring gave **identical ids and identical counts**. These undergrounds
+never come from that creator; they come from `append_crossing`, chosen by `crossing_target`
+(`logic/bp/route.lua:1662-1686`), which dives only under tiles the search **cannot walk** — and a same-flow
+belt running crosswise is exactly that.
+
+Measured geometry of the first record: pair `r:1481` to `r:1482` ran `(11,26)` to `(8,26)` facing **WEST**;
+the flagged middle `r:1372` at `(10,26)` faced **NORTH**, same `item/iron-gear-wheel`. A right-angle
+crossing. The game places it.
+
+Contract **26.5** names the hazard as "an intervening **endpoint** that steals the pairing" — an endpoint,
+because the engine pairs underground to underground — and `logic/bp/route.lua:1672` already refuses an
+intervening endpoint. `middle_segment` compared flow and **never direction**, so it over-implemented its own
+clause. It now flags only a run **parallel** to the span. A direction it cannot read stays flagged.
+
+`BP_V_UNDERGROUND_UNPAIRED` **7 to 3** on the sheet. `tests/test_route_layout_contract.lua` L1 and L3 guard
+this rule and are unchanged: L1's parallel middle of a **different** flow stays accepted, L3's parallel
+middle of the **same** flow stays rejected.
+
+### Delivery refused, and the flip is NOT the cause
+
+`sh tools/deliver.sh player-red-science-1s` read `generation_s=553.919`, `verdict=refused`,
+`reason=encoding_refused`, `blueprint_string.py: the generator did not deliver: ok=False`. The tool named the
+refusal and wrote **no** bytes, which is what it was built for.
+
+`ok=false` holds with the switch **off** as well, on the same first candidate, with **more** code families —
+six against three. Delivery never worked. The blocker is `BP_V_ROUTE_DISCONTINUOUS` 160 and
+`BP_V_TRANSPORT_UNUSED` 1895 across 8 candidates, both largely pre-existing, and both bigger than this round.
