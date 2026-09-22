@@ -15,6 +15,10 @@ local Route = {}
 local Grid = require "logic.bp.grid"
 
 local EPSILON = 1e-9
+--Contract 28.8.  A trunk tile that is already the sink's own port tile, entered in a heading the port
+--did not ask for, is the LAST answer the search should take: high enough that any real approach wins,
+--finite so a sink with no other approach is still served.
+local SEEDED_SINK_LAST = 0
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 local DIRECTION_ORDERS = {
     DIRECTIONS,
@@ -112,6 +116,22 @@ end
 
 local function coordinate_key(x, y)
     return tostring(x) .. ":" .. tostring(y)
+end
+
+local function next_entity_id(work)
+    work.entity_serial = (work.entity_serial or #work.entities) + 1
+    return "r:" .. tostring(work.entity_serial)
+end
+
+local function next_segment_id(work)
+    work.segment_serial = (work.segment_serial or #work.segments) + 1
+    return "r:s:" .. tostring(work.segment_serial)
+end
+
+local function coordinate_from_key(key)
+    local x, y = string.match(key, "^([^:]+):([^:]+)$")
+    if x == nil then return nil end
+    return tonumber(x), tonumber(y)
 end
 
 local function direction_from_step(x1, y1, x2, y2)
@@ -1053,13 +1073,13 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     local direction = direction_from_step(entry.x, entry.y, exit_cell.x, exit_cell.y)
     local family = kind == "pipe" and work.pipe or work.belt
     local name = (family and family.underground) or infrastructure(work, kind)
-    local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
+    local segment = {segment_id = next_segment_id(work), kind = kind,
         capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
         underground = true, length = underground_distance(entry, exit_cell),
         underground_entry_key = coordinate_key(entry.x, entry.y), underground_exit_key = coordinate_key(exit_cell.x, exit_cell.y),
         underground_entry_x = entry.x, underground_entry_y = entry.y,
         underground_exit_x = exit_cell.x, underground_exit_y = exit_cell.y}
-    local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
+    local first_id, second_id = next_entity_id(work), next_entity_id(work)
     local paired_exit_direction = kind == "pipe" and Grid.dir_opposite(direction) or direction
     local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
         direction = direction, dir = direction, flow_id = demand.flow_id,
@@ -1086,6 +1106,7 @@ end
 --defensive validation failure (capacity, a splitter footprint, or a late crossing conflict) cannot leave a
 --successful prefix in the working graph.
 local function route_snapshot(work)
+    local entity_serial, segment_serial = work.entity_serial, work.segment_serial
     local entities, entity_by_id = {}, {}
     for index, entity in ipairs(work.entities) do
         local copy = {}
@@ -1122,11 +1143,13 @@ local function route_snapshot(work)
     return {entities = entities, segments = segments, bindings = bindings,
         segments_by_cell = copy_map(work.segments_by_cell), entity_by_segment = copy_map(work.entity_by_segment),
         underground_cells = copy_map(work.underground_cells), splitter_blocked_cells = copy_map(work.splitter_blocked_cells),
-        segment_by_id = segment_by_id, entity_by_id = entity_by_id}
+        segment_by_id = segment_by_id, entity_by_id = entity_by_id,
+        entity_serial = entity_serial, segment_serial = segment_serial}
 end
 
 local function restore_route_snapshot(work, snapshot)
     work.entities, work.segments, work.bindings = snapshot.entities, snapshot.segments, snapshot.bindings
+    work.entity_serial, work.segment_serial = snapshot.entity_serial, snapshot.segment_serial
     local segments_by_cell = {}
     for key, segment in pairs(snapshot.segments_by_cell) do segments_by_cell[key] = snapshot.segment_by_id[segment.segment_id] end
     work.segments_by_cell = segments_by_cell
@@ -1137,10 +1160,16 @@ local function restore_route_snapshot(work, snapshot)
     work.splitter_blocked_cells = snapshot.splitter_blocked_cells
 end
 
-local function route_chain_reaches_tiles(work, source, sink, flow_id)
-    if not source or not sink then return false end
-    local start_key, target_key = coordinate_key(source.x, source.y), coordinate_key(sink.x, sink.y)
-    if work.segments_by_cell[target_key] == nil then return false end
+--One walk, two questions.  28.7 asks whether the directed same-flow chain from `source` reaches a named
+--tile; 28.8 asks WHICH tiles that chain covers, because a second demand of one flow must start its own
+--branch from the trunk its flow already laid.  A copied walk is a walk that drifts, so both callers share
+--this body.  With `sink` nil the walk visits the whole run and reports every tile it reached.
+local function route_chain_walk(work, source, sink, flow_id)
+    local tiles = {}
+    if not source then return false, tiles end
+    local start_key = coordinate_key(source.x, source.y)
+    local target_key = sink and coordinate_key(sink.x, sink.y) or nil
+    if target_key ~= nil and work.segments_by_cell[target_key] == nil then return false, tiles end
     local queue, head, seen = {start_key}, 1, {[start_key] = true}
     local function enqueue(key)
         if key ~= nil and not seen[key] then seen[key] = true; queue[#queue + 1] = key end
@@ -1150,7 +1179,8 @@ local function route_chain_reaches_tiles(work, source, sink, flow_id)
         head = head + 1
         local segment = work.segments_by_cell[key]
         if segment and segment_has_flow(segment, flow_id) then
-            if key == target_key then return true end
+            tiles[#tiles + 1] = key
+            if key == target_key then return true, tiles end
             if segment.underground then
                 if key == segment.underground_entry_key then enqueue(segment.underground_exit_key) end
                 if key == segment.underground_exit_key then
@@ -1163,6 +1193,14 @@ local function route_chain_reaches_tiles(work, source, sink, flow_id)
                 local dx, dy = Grid.dir_vector(segment.splitter_direction)
                 if dx ~= nil then enqueue(coordinate_key(x + dx, y + dy)) end
                 enqueue(segment.splitter_second_key)
+                --A splitter has TWO output tiles, one in front of each of the tiles it covers.  The walk only
+                --ever left by the anchor's, so a run that legally continued out of the second tile read as a
+                --broken chain: measured 2026-09-22 on the frozen candidate, item/plate 0:16 -> 12:2 leaving
+                --the splitter anchored at 10:7 through its second tile 10:6 into 9:6.
+                if dx ~= nil and segment.splitter_second_key ~= nil then
+                    local sx, sy = coordinate_from_key(segment.splitter_second_key)
+                    if sx ~= nil then enqueue(coordinate_key(sx + dx, sy + dy)) end
+                end
             else
                 local x, y = string.match(key, "^([^:]+):([^:]+)$")
                 local dx, dy = Grid.dir_vector(segment.direction)
@@ -1170,7 +1208,21 @@ local function route_chain_reaches_tiles(work, source, sink, flow_id)
             end
         end
     end
-    return false
+    return false, tiles
+end
+
+local function route_chain_reaches_tiles(work, source, sink, flow_id)
+    if not source or not sink then return false end
+    local reached = route_chain_walk(work, source, sink, flow_id)
+    return reached
+end
+
+--Contract 28.8: the tiles this demand's own source already reaches over this flow.  Every tile is by
+--construction downstream of THIS demand's source port, so a trunk fed by a different producer is never
+--offered as a branch point.
+local function route_chain_tiles(work, source, flow_id)
+    local _, tiles = route_chain_walk(work, source, nil, flow_id)
+    return tiles
 end
 
 --The search path is also the router's own directed witness.  A path that merely visited the sink is not a
@@ -1220,6 +1272,12 @@ local function append_normal_path(work, demand, path, amount)
         if index == #path and #path > 1 then direction = direction_from_step(path[index - 1].x, path[index - 1].y, cell.x, cell.y) end
         local key = coordinate_key(cell.x, cell.y)
         local segment = work.segments_by_cell[key]
+        if segment and direction == nil and segment_has_flow(segment, demand.flow_id) then
+            --Contract 28.8: the trunk already runs through this sink's own port tile, so the branch is one
+            --cell long and lays nothing.  The sink takes its allocation on the belt that is already there,
+            --and its binding is honest.  Never re-derive a direction from a step of length zero.
+            direction = segment.direction
+        end
         if segment then
             local splitter_continuation = segment.splitter and key == segment.splitter_second_key
                 and direction == segment.splitter_direction
@@ -1274,10 +1332,10 @@ local function append_normal_path(work, demand, path, amount)
                     end
         else
             local capacity, kind = capacity_for(work, demand.flow)
-            segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
+            segment = {segment_id = next_segment_id(work), kind = kind,
                 capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = direction,
                 length = 1}
-            local entity = {id = "r:" .. tostring(#work.entities + 1), name = infrastructure(work, kind),
+            local entity = {id = next_entity_id(work), name = infrastructure(work, kind),
                 position = entity_position(cell.x, cell.y), direction = direction, dir = direction,
                 flow_id = demand.flow_id, segment_id = segment.segment_id}
             work.entities[#work.entities + 1] = entity
@@ -1294,7 +1352,25 @@ local function append_normal_path(work, demand, path, amount)
         end
     end
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
-    if not chain_reaches_sink then return reject("route-discontinuous") end
+    if not chain_reaches_sink then
+        if os.getenv("RRC_DEBUG_CHAIN") then
+            io.stderr:write("DISCONT flow=" .. tostring(demand.flow_id) .. " src=" .. coordinate_key(demand.source.x, demand.source.y)
+                .. " sink=" .. coordinate_key(demand.sink.x, demand.sink.y) .. " path=")
+            for _, c in ipairs(path) do io.stderr:write(coordinate_key(c.x, c.y) .. " ") end
+            io.stderr:write("\n  cells:")
+            for _, c in ipairs(path) do
+                local s = work.segments_by_cell[coordinate_key(c.x, c.y)]
+                io.stderr:write(" " .. coordinate_key(c.x, c.y) .. "=" .. (s and (tostring(s.segment_id) .. "/d" .. tostring(s.direction)
+                    .. (s.splitter and ("/SPL" .. tostring(s.splitter_direction) .. "@" .. tostring(s.splitter_anchor_key) .. "+" .. tostring(s.splitter_second_key)) or "")
+                    .. (s.underground and "/UG" or "")) or "nil"))
+            end
+            io.stderr:write("\n  walk:")
+            local _, tiles = route_chain_walk(work, demand.source, nil, demand.flow_id)
+            for _, k in ipairs(tiles) do io.stderr:write(" " .. k) end
+            io.stderr:write("\n")
+        end
+        return reject("route-discontinuous")
+    end
     if first_segment then
         work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
             sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id, rate_per_second = amount}
@@ -1315,14 +1391,14 @@ local function append_underground(work, demand, candidate, amount)
         local occupied = work.segments_by_cell[coordinate_key(endpoint.x, endpoint.y)]
         if occupied and occupied.splitter then return false, "splitter-footprint" end
     end
-    local segment = {segment_id = "r:s:" .. tostring(#work.segments + 1), kind = kind,
+    local segment = {segment_id = next_segment_id(work), kind = kind,
         capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = candidate.direction,
         underground = true, length = candidate.distance,
         underground_entry_key = coordinate_key(candidate.source.x, candidate.source.y),
         underground_exit_key = coordinate_key(candidate.sink.x, candidate.sink.y),
         underground_entry_x = candidate.source.x, underground_entry_y = candidate.source.y,
         underground_exit_x = candidate.sink.x, underground_exit_y = candidate.sink.y}
-    local first_id, second_id = "r:" .. tostring(#work.entities + 1), "r:" .. tostring(#work.entities + 2)
+    local first_id, second_id = next_entity_id(work), next_entity_id(work)
     local name = infrastructure(work, kind)
     if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
     else name = (work.belt and (work.belt.underground or work.belt.belt)) or name end
@@ -1494,6 +1570,37 @@ local function begin_search(work, demand, amount, order_index)
             search.saw_capacity, search.saw_fluid_mix, search.heap = reason == "capacity", reason == "fluid_mix", {}
         end
     end
+    --Contract 28.8.  Two demands of one flow share one trunk, and sharing the trunk does not discharge the
+    --branch: this sink still needs its own belt from that trunk to its own port tile.  Until this seeding
+    --existed, every demand re-walked the whole distance from its own source port, collided with the trunk
+    --its predecessor laid, and died -- measured on the player's frozen candidate 2026-09-22 as
+    --BP_R_NO_PATH for item/plate (0,16) -> (10,7) while (10,6) was already served.
+    --
+    --Seeding is additive: the real source seed above is unconditional, so a flow with no laid run searches
+    --exactly as before.  A seed's parent stays nil, which is what `reconstruct` stops on.
+    local source_key = coordinate_key(demand.source.x, demand.source.y)
+    for _, key in ipairs(route_chain_tiles(work, demand.source, demand.flow_id)) do
+        if key ~= source_key then
+            local segment = work.segments_by_cell[key]
+            local x, y = coordinate_from_key(key)
+            --A refused seed is skipped, never fatal: the run may be full at one tile and free at the next.
+            if x ~= nil and segment and segment_allows(segment, demand, amount) then
+                local heading = segment.splitter and segment.splitter_direction or segment.direction
+                local seed_cost = 0
+                if x == demand.sink.x and y == demand.sink.y
+                    and demand.sink.travel_dir ~= nil and heading ~= demand.sink.travel_dir then
+                    --The trunk already crosses this sink's own port tile, but in the wrong heading.  That
+                    --still feeds the sink, and it is still worse geometry than approaching the port tile the
+                    --way the port asks.  So it is priced LAST, never forbidden and never free.  Measured
+                    --2026-09-22 on legalcopilot-dev: forbidding it loses the player's frozen candidate
+                    --entirely (ok=false), and offering it at cost 0 loses the splitter that
+                    --tests/test_route_footprints.lua RF1 requires at the turn.
+                    seed_cost = SEEDED_SINK_LAST
+                end
+                enqueue_state(search, x, y, heading, 0, nil, seed_cost)
+            end
+        end
+    end
     return search
 end
 
@@ -1580,7 +1687,18 @@ local function search_step(work, search)
         local nx, ny = current.x + dx, current.y + dy
         local target = nx == search.demand.sink.x and ny == search.demand.sink.y
         local first = current.x == search.demand.source.x and current.y == search.demand.source.y
-        if (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction)
+        --An underground exit IS the underground entity, and it delivers onto the one tile it faces.  A search
+        --that turns the moment it surfaces plans a belt no chain can walk: measured 2026-09-22 on the frozen
+        --candidate as item/cable 10:8 -> 10:5 surfacing north at 11:5 and stepping west to 10:5, which
+        --contract 28.7 then correctly refuses as route-discontinuous.  A crossing is committed to its own
+        --heading for exactly one more tile.
+        local surfaced = current.mode == 1 and current.direction ~= nil and current.direction ~= direction
+        --A belt cannot carry items back the way they came.  Materialising a reversal writes two belts facing
+        --each other, and contract 28.7's walk then loops instead of reaching the sink: measured 2026-09-22 on
+        --the frozen candidate as item/plate 0:16 -> 12:2 stepping 10:6 west to 9:6 and diving east again.
+        local reversed = current.direction ~= nil and direction == Grid.dir_opposite(current.direction)
+        if not surfaced and not reversed
+            and (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction)
             and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction) then
             local free = path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search)
             if free then
@@ -1724,6 +1842,11 @@ local function normalize_input(input)
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
+        --Ids were derived from the arrays' LENGTH.  merge_splitter_footprint folds a side segment out
+        --of both arrays, so the next id repeated one already in the result: measured 2026-09-22 as
+        --tests/test_underground_pairs.lua 'route entity ids are unique' the moment a splitter merged.
+        --A serial only ever moves forward, and a snapshot restores the serial it was taken with.
+        entity_serial = 0, segment_serial = 0,
         underground_cells = {}, splitter_blocked_cells = {}, counters = new_counters(), attempt_generation = 0,
         --The allowance is filled after demands are built. One routing run has one cumulative budget, so every
         --demand gets the same cell/direction-order sweep that a single-demand run would have had. This keeps
@@ -1840,6 +1963,13 @@ local function next_endpoint_candidate(demand)
 end
 
 local function fail_demand(state, work, demand, code, detail)
+    if os.getenv("RRC_DEBUG_CHAIN") then
+        io.stderr:write("FAILDEMAND code=" .. tostring(code) .. " flow=" .. tostring(demand and demand.flow_id)
+            .. " src=" .. tostring(demand and demand.source and coordinate_key(demand.source.x, demand.source.y))
+            .. " sink=" .. tostring(demand and demand.sink and coordinate_key(demand.sink.x, demand.sink.y))
+            .. " expansions=" .. tostring(work and work.expansions)
+            .. " lastreason=" .. tostring(work and work.last_route_rejection and work.last_route_rejection.reason) .. "\n")
+    end
     if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
     local record = {code = code, flow_id = demand and demand.flow_id}
     if detail ~= nil then record.detail = detail end
@@ -1977,6 +2107,7 @@ function Route.step(state, budget)
                         or (search.saw_capacity and "capacity" or (search.saw_blocked and "blocked" or "no_path"))
                     abandon_search(work, reason)
                     if search.saw_blocked and not search.saw_capacity and not search.saw_fluid_mix
+                        and not os.getenv("RRC_NO_ORDER_RETRY")
                         and search.order_index < #DIRECTION_ORDERS then
                         work.current = begin_search(work, demand, amount, search.order_index + 1)
                     elseif next_endpoint_candidate(demand) then
