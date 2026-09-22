@@ -97,7 +97,7 @@ def _run_census_cli(case_kind):
 
 
 def report(rates, attempts=10, stage="failed", case="player-red-science-1s", ops=5000000,
-           digest="abc", counts=None):
+           digest="abc", counts=None, delivered=0, ok=False):
     counts = counts or {code: int(rate * attempts) for code, rate in rates.items()}
     return {
         "schema_version": 1,
@@ -105,8 +105,8 @@ def report(rates, attempts=10, stage="failed", case="player-red-science-1s", ops
         "prepared_input_sha256": digest,
         "ops_budget": ops,
         "interpreter": "lua5.2",
-        "envelope": {"ok": False, "stage": stage, "terminal_code": "BP_FAIL_SEARCH_BUDGET"},
-        "counters": {"validate_attempts": attempts},
+        "envelope": {"ok": ok, "stage": stage, "terminal_code": None if ok else "BP_FAIL_SEARCH_BUDGET"},
+        "counters": {"validate_attempts": attempts, "entities_delivered": delivered},
         "census": counts,
         "rates": dict(rates),
     }
@@ -232,6 +232,43 @@ class GateRules(unittest.TestCase):
         now = report({"BP_V_TRANSPORT_UNUSED": 50.0, "BP_V_TRANSFER_BROKEN": 10.0}, attempts=4)
         failures = self.judge(now, require_down=["BP_V_TRANSPORT_UNUSED"])
         self.assertTrue(any("denominator floor" in line for line in failures), failures)
+
+    def _delivery_baseline(self):
+        # The frozen round baseline has 2,862 records spread over eleven rejected candidates.
+        return report({"BP_A": 200.0, "BP_B": 60.0}, attempts=11,
+                      counts={"BP_A": 2200, "BP_B": 662})
+
+    def _delivered(self, counts):
+        attempts = 1
+        rates = {code: value / attempts for code, value in counts.items()}
+        return report(rates, attempts=attempts, stage="done", counts=counts, delivered=1, ok=True)
+
+    def test_delivery_with_fewer_discarded_alternatives_and_records_passes(self):
+        baseline = self._delivery_baseline()
+        now = self._delivered({"BP_A": 90, "BP_B": 31})
+        self.assertEqual(gate.judge(now, baseline, [], [], {}, False), [])
+
+    def test_no_delivery_with_fewer_judged_candidates_still_fails_denominator(self):
+        baseline = self._delivery_baseline()
+        now = report({"BP_A": 90.0, "BP_B": 31.0}, attempts=1,
+                     counts={"BP_A": 90, "BP_B": 31})
+        failures = gate.judge(now, baseline, [], [], {}, False)
+        self.assertTrue(any("denominator floor: 1 candidates reached validate, the baseline reached 11" in line
+                            for line in failures), failures)
+
+    def test_delivery_with_an_absolute_record_rise_fails(self):
+        baseline = self._delivery_baseline()
+        now = self._delivered({"BP_A": 2400, "BP_B": 601})
+        failures = gate.judge(now, baseline, [], [], {}, False)
+        self.assertTrue(any("records 2200 -> 2400 (increase across delivery)" in line
+                            for line in failures), failures)
+
+    def test_delivery_named_require_down_code_must_fall_in_absolute_records(self):
+        baseline = self._delivery_baseline()
+        now = self._delivered({"BP_A": 2200, "BP_B": 31})
+        failures = gate.judge(now, baseline, ["BP_A"], [], {}, False)
+        self.assertTrue(any("BP_A records 2200 did not fall below the baseline 2200 across delivery" in line
+                            for line in failures), failures)
 
     def test_stopping_before_the_search_is_not_an_improvement(self):
         now = report({}, attempts=10, stage="preflight")
