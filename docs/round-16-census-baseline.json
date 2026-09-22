@@ -1,110 +1,106 @@
 {
- "frozen_at": "round-16-wave3",
- "frozen_on": "2026-09-22",
- "host": "legalcopilot-dev",
- "note": "What the player's captured red-science sheet does at round-16-wave3, tag f804dca. Re-frozen on the player's own instruction of 2026-09-22, after three faults were closed in one day and one was NOT. WHICH NUMBERS MOVED AND WHY, full tier, 11 validate attempts either side, terminal BP_FAIL_GRID_LIMIT either side: BP_V_COLLISION 60 to 0, because logic/bp/route.lua's splitter conversion passed cell.x + 0.5 + side_x / 2 to entity_position, which already adds half a tile per axis, so every splitter stood half a tile east of its own footprint -- r:825 delivered (13,9) against a true (12.5,9.0). BP_V_TRANSPORT_UNUSED 3148 to 2626 and BP_V_ROUTE_DISCONTINUOUS 230 to 210, because contract 28.8's branch now starts a second demand of one flow from the trunk its flow already laid, instead of re-walking from its own source port and colliding with that trunk. BP_V_PORT_UNREACHABLE 0 to 45, BP_V_INSERTER_GEOMETRY 0 to 40, BP_V_TRANSFER_BROKEN 0 to 40, BP_V_ROUTE_MISSING 0 to 8 and BP_V_TARGET_SHORTFALL 11 to 15, because contract 28.7 refuses the DEMAND by name instead of the whole candidate: an unroutable demand is now a shortfall, the candidate reaches the validator, and the validator names the honest consequences of a machine left unfed. Those five were zero before only because no candidate had ever admitted leaving a machine unfed; refusing the candidate instead left 0 of 11 candidates judged. BP_V_UNDERGROUND_UNPAIRED 0 to 1 IS NOT FIXED AND IS NOT HONEST DAMAGE. A half-buried belt is a blueprint the game refuses to place, the same class as BP_V_COLLISION. The first candidate is clean -- 20 underground endpoints, 0 unpaired, measured 2026-09-22 on legalcopilot-dev -- so the single record sits in one of the other ten candidates, and each look costs 414 s. It is carried as round-17 debt, by name, and this baseline blesses nothing about it. Total records 3390 to 2986 full, 919 to 801 fast. Not a target: a number here may only be corrected by a measurement that says WHICH number moved and why. Wall seconds are advisory only; the gate never judges on time, because the run is bounded by ops so its counts are reproducible on a busy host.",
- "policy": {
-  "denominator_floor": "validate_attempts may never fall below the baseline",
-  "monotone": "no code rate may rise; a code absent from the baseline has baseline 0, so a renamed or brand new code is caught by the same rule",
-  "ops_is_an_instrument": "search_budget is injected into a private copy at measurement time and is NEVER written into the committed prepared_input.json; tests/golden/lib/runner.py refuses a case carrying a generation option.",
-  "rate": "a code's count divided by the candidates that reached validate; a raw total falls when fewer candidates are judged, which is not an improvement",
-  "sensitivity_floor": 50,
-  "stage_floor": "the run must still reach search or done; breaking preflight zeroes every BP_V_ code and would read as a triumph",
-  "suppression_guard": "tests/test_census_codes_live.lua proves each counted code can still be provoked; deleting an emitter zeroes its census and turns that test red in the same run.",
-  "waiver_budget_rate": 0.15
- },
- "schema_version": 1,
- "tiers": {
-  "fast": {
-   "case": "player-red-science-1s",
-   "census": {
-    "BP_V_INSERTER_GEOMETRY": 10,
-    "BP_V_PORT_UNREACHABLE": 11,
-    "BP_V_ROUTE_DISCONTINUOUS": 58,
-    "BP_V_ROUTE_MISSING": 2,
-    "BP_V_TARGET_SHORTFALL": 4,
-    "BP_V_TRANSFER_BROKEN": 10,
-    "BP_V_TRANSPORT_UNUSED": 706
-   },
-   "certifiable": false,
-   "counters": {
-    "attempts_by_stage": {
-     "validate": 3
-    },
-    "entities_delivered": 0,
-    "records": 801,
-    "validate_attempts": 3
-   },
-   "envelope": {
-    "ok": false,
-    "stage": "failed",
-    "terminal_code": "BP_FAIL_SEARCH_BUDGET"
-   },
-   "interpreter": "lua5.2",
-   "ops_budget": 5000000,
-   "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
-   "rates": {
-    "BP_V_INSERTER_GEOMETRY": 3.3333,
-    "BP_V_PORT_UNREACHABLE": 3.6667,
-    "BP_V_ROUTE_DISCONTINUOUS": 19.3333,
-    "BP_V_ROUTE_MISSING": 0.6667,
-    "BP_V_TARGET_SHORTFALL": 1.3333,
-    "BP_V_TRANSFER_BROKEN": 3.3333,
-    "BP_V_TRANSPORT_UNUSED": 235.3333
-   },
-   "schema_version": 1,
-   "timings": {
-    "wall_seconds": 150.45
-   },
-   "tool": "real_sheet_census"
+  "frozen_at": "round-16-wave4",
+  "frozen_on": "2026-09-22",
+  "host": "legalcopilot-dev",
+  "note": "What the player's captured red-science sheet does at round-16-wave4, with multi_flow_hands TRUE. Re-frozen 2026-09-22 on the player's own instruction, after the flip landed green on both interpreters and both faults that wave 3 named were closed along with two more. WHAT MOVED DOWN, full tier, 11 validate attempts either side: BP_V_INSERTER_GEOMETRY 40 to 5, BP_V_PORT_UNREACHABLE 45 to 5, BP_V_TRANSFER_BROKEN 40 to 5, BP_V_ROUTE_MISSING 8 to 0, BP_V_TARGET_SHORTFALL 15 to 11, BP_V_TRANSPORT_UNUSED 2626 to 2611, records 2986 to 2862, wall seconds 837.87 to 478.41. WHAT MOVED UP, AND IS NOT FIXED AND IS NOT BLESSED BY ANYBODY: BP_V_ROUTE_DISCONTINUOUS 210 to 221, and BP_V_UNDERGROUND_UNPAIRED 1 to 3. BP_V_UNDERGROUND_UNPAIRED is a blueprint the game refuses to place, the same class as a collision. It was measured at 7 immediately after the flip; four of those were the validator flagging RIGHT-ANGLE crossings, which contract 26.5 never asked for, and logic/bp/validate.lua's middle_segment now flags only a run PARALLEL to the span. The 3 that remain are parallel by construction and are a real router fault: crossing_target at logic/bp/route.lua:1662-1686 dives under any tile the search cannot walk, and a same-flow belt running the opposite way is exactly that. Carried to round 17 BY NAME. THIS BASELINE BLESSES NEITHER RISE. It records where the sheet stands so the monotone rule keeps working; it is not a statement that either number is acceptable. Reverting the flip is refused on measurement: over 8 candidates the switch removes four whole code families, one of them to zero, against these two rises. NO BLUEPRINT IS DELIVERED at this tag. tools/deliver.sh reports ok=False, and it reports ok=False with the switch OFF as well, carrying MORE code families, so delivery never worked and the flip is not why.",
+  "policy": {
+    "denominator_floor": "validate_attempts may never fall below the baseline",
+    "monotone": "no code rate may rise; a code absent from the baseline has baseline 0, so a renamed or brand new code is caught by the same rule",
+    "ops_is_an_instrument": "search_budget is injected into a private copy at measurement time and is NEVER written into the committed prepared_input.json; tests/golden/lib/runner.py refuses a case carrying a generation option.",
+    "rate": "a code's count divided by the candidates that reached validate; a raw total falls when fewer candidates are judged, which is not an improvement",
+    "sensitivity_floor": 50,
+    "stage_floor": "the run must still reach search or done; breaking preflight zeroes every BP_V_ code and would read as a triumph",
+    "suppression_guard": "tests/test_census_codes_live.lua proves each counted code can still be provoked; deleting an emitter zeroes its census and turns that test red in the same run.",
+    "waiver_budget_rate": 0.15
   },
-  "full": {
-   "case": "player-red-science-1s",
-   "census": {
-    "BP_PW_DISCONNECTED": 1,
-    "BP_V_INSERTER_GEOMETRY": 40,
-    "BP_V_PORT_UNREACHABLE": 45,
-    "BP_V_ROUTE_DISCONTINUOUS": 210,
-    "BP_V_ROUTE_MISSING": 8,
-    "BP_V_TARGET_SHORTFALL": 15,
-    "BP_V_TRANSFER_BROKEN": 40,
-    "BP_V_TRANSPORT_UNUSED": 2626,
-    "BP_V_UNDERGROUND_UNPAIRED": 1
-   },
-   "certifiable": false,
-   "counters": {
-    "attempts_by_stage": {
-     "power": 1,
-     "validate": 11
+  "schema_version": 1,
+  "tiers": {
+    "fast": {
+      "case": "player-red-science-1s",
+      "census": {
+        "BP_V_INSERTER_GEOMETRY": 3,
+        "BP_V_PORT_UNREACHABLE": 3,
+        "BP_V_ROUTE_DISCONTINUOUS": 59,
+        "BP_V_TARGET_SHORTFALL": 3,
+        "BP_V_TRANSFER_BROKEN": 3,
+        "BP_V_TRANSPORT_UNUSED": 727
+      },
+      "certifiable": false,
+      "counters": {
+        "attempts_by_stage": {
+          "validate": 3
+        },
+        "entities_delivered": 0,
+        "records": 798,
+        "validate_attempts": 3
+      },
+      "envelope": {
+        "ok": false,
+        "stage": "failed",
+        "terminal_code": "BP_FAIL_SEARCH_BUDGET"
+      },
+      "interpreter": "lua5.2",
+      "ops_budget": 5000000,
+      "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
+      "rates": {
+        "BP_V_INSERTER_GEOMETRY": 1.0,
+        "BP_V_PORT_UNREACHABLE": 1.0,
+        "BP_V_ROUTE_DISCONTINUOUS": 19.6667,
+        "BP_V_TARGET_SHORTFALL": 1.0,
+        "BP_V_TRANSFER_BROKEN": 1.0,
+        "BP_V_TRANSPORT_UNUSED": 242.3333
+      },
+      "schema_version": 1,
+      "timings": {
+        "wall_seconds": 71.55
+      },
+      "tool": "real_sheet_census"
     },
-    "entities_delivered": 0,
-    "records": 2986,
-    "validate_attempts": 11
-   },
-   "envelope": {
-    "ok": false,
-    "stage": "failed",
-    "terminal_code": "BP_FAIL_GRID_LIMIT"
-   },
-   "interpreter": "lua5.2",
-   "ops_budget": 40000000,
-   "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
-   "rates": {
-    "BP_PW_DISCONNECTED": 0.0909,
-    "BP_V_INSERTER_GEOMETRY": 3.6364,
-    "BP_V_PORT_UNREACHABLE": 4.0909,
-    "BP_V_ROUTE_DISCONTINUOUS": 19.0909,
-    "BP_V_ROUTE_MISSING": 0.7273,
-    "BP_V_TARGET_SHORTFALL": 1.3636,
-    "BP_V_TRANSFER_BROKEN": 3.6364,
-    "BP_V_TRANSPORT_UNUSED": 238.7273,
-    "BP_V_UNDERGROUND_UNPAIRED": 0.0909
-   },
-   "schema_version": 1,
-   "timings": {
-    "wall_seconds": 837.87
-   },
-   "tool": "real_sheet_census"
+    "full": {
+      "case": "player-red-science-1s",
+      "census": {
+        "BP_PW_DISCONNECTED": 1,
+        "BP_V_INSERTER_GEOMETRY": 5,
+        "BP_V_PORT_UNREACHABLE": 5,
+        "BP_V_ROUTE_DISCONTINUOUS": 221,
+        "BP_V_TARGET_SHORTFALL": 11,
+        "BP_V_TRANSFER_BROKEN": 5,
+        "BP_V_TRANSPORT_UNUSED": 2611,
+        "BP_V_UNDERGROUND_UNPAIRED": 3
+      },
+      "certifiable": false,
+      "counters": {
+        "attempts_by_stage": {
+          "power": 1,
+          "validate": 11
+        },
+        "entities_delivered": 0,
+        "records": 2862,
+        "validate_attempts": 11
+      },
+      "envelope": {
+        "ok": false,
+        "stage": "failed",
+        "terminal_code": "BP_FAIL_GRID_LIMIT"
+      },
+      "interpreter": "lua5.2",
+      "ops_budget": 40000000,
+      "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
+      "rates": {
+        "BP_PW_DISCONNECTED": 0.0909,
+        "BP_V_INSERTER_GEOMETRY": 0.4545,
+        "BP_V_PORT_UNREACHABLE": 0.4545,
+        "BP_V_ROUTE_DISCONTINUOUS": 20.0909,
+        "BP_V_TARGET_SHORTFALL": 1.0,
+        "BP_V_TRANSFER_BROKEN": 0.4545,
+        "BP_V_TRANSPORT_UNUSED": 237.3636,
+        "BP_V_UNDERGROUND_UNPAIRED": 0.2727
+      },
+      "schema_version": 1,
+      "timings": {
+        "wall_seconds": 478.41
+      },
+      "tool": "real_sheet_census"
+    }
   }
- }
 }
