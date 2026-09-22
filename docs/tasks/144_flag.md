@@ -103,3 +103,10 @@ still written down. Never delete the row.
 ```
 
 # bound: 4000s
+
+## Lane result
+
+`logic/bp/route.lua` is the known red row: it still carries its local default in this lane because another
+lane owns it, and integration wires it to `logic/bp/flags.lua` at merge. The source guard keeps that requirement
+as the explicitly named skipped row `FF2 logic/bp/route.lua shared flag requirement [SKIP: integration wires it
+at merge]`.
