@@ -1783,7 +1783,8 @@ end
 
 local function result_for(work)
     audit_route_work(work)
-    local result = {entities = {}, segments = {}, port_bindings = work.bindings, bindings = work.bindings}
+    local result = {entities = {}, segments = {}, port_bindings = work.bindings, bindings = work.bindings,
+        shortfalls = work.shortfalls or {}}
     for _, entity in ipairs(work.entities) do
         if not entity._route_removed then result.entities[#result.entities + 1] = entity end
     end
@@ -1970,8 +1971,44 @@ local function next_endpoint_candidate(demand)
     return false
 end
 
+--Contract 28.7 says "the demand is refused by name".  It says nothing about refusing the candidate, and the
+--difference is the whole product.  Measured 2026-09-22 on legalcopilot-dev against the player's real sheet:
+--refusing the candidate left 0 of 11 candidates reaching the validator and the search died BP_FAIL_GRID_LIMIT
+--with 12 BP_R_NO_PATH records and nothing judged; refusing only the demand restores the flow and drops the
+--dominant code, 853 BP_V_TRANSPORT_UNUSED to 706 and 63 BP_V_ROUTE_DISCONTINUOUS to 58, 919 records to 818.
+--
+--An unserved demand is a SHORTFALL, and the validator already names it: BP_V_TARGET_SHORTFALL, plus the
+--honest consequences of an unfed machine -- BP_V_PORT_UNREACHABLE, BP_V_TRANSFER_BROKEN.  Those codes were
+--zero before only because no candidate had ever admitted leaving a machine unfed.
+--
+--Only BP_R_NO_PATH becomes a shortfall, and that is the point: it is the one refusal that says "this
+--geometry has no room", which is exactly what 28.7 and 28.8 refuse by name.  Every other refusal stays
+--FATAL, because each says the plan itself is wrong and a shortfall would bury that:
+--  BP_R_FLUID_MIX   two fluids on one pipe -- tests/test_route.lua R5
+--  BP_R_CAPACITY    two 6/s demands on one 10/s belt -- tests/test_route.lua R6
+--  BP_R_PORT_BLOCKED  a port nothing can attach to
+--  BP_R_EXPANSIONS  a budget stop, never a geometry fact -- tests/test_route_budget.lua RB3
+--And a route that serves NO demand at all is not a shortfall, it is a failure, so its code is reported.
+local function shortfall_allowed(work, demand, code)
+    if code ~= "BP_R_NO_PATH" or demand == nil then return false end
+    for _, entry in ipairs(work.demands or {}) do
+        if entry ~= demand and entry.unroutable == nil then return true end
+    end
+    return #(work.bindings or {}) > 0
+end
+
 local function fail_demand(state, work, demand, code, detail)
     if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
+    if shortfall_allowed(work, demand, code) then
+        demand.unroutable = code
+        demand.remaining = 0
+        work.shortfalls = work.shortfalls or {}
+        work.shortfalls[#work.shortfalls + 1] = {code = code, flow_id = demand.flow_id,
+            source_port_id = demand.source and demand.source.port_id,
+            sink_port_id = demand.sink and demand.sink.port_id,
+            rate_per_second = demand.amount, detail = detail}
+        return false
+    end
     local record = {code = code, flow_id = demand and demand.flow_id}
     if detail ~= nil then record.detail = detail end
     --A bare BP_R_NO_PATH names the flow and nothing else, so every diagnosis of it starts by rebuilding the
