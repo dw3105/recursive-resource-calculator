@@ -1,0 +1,103 @@
+{
+  "frozen_at": "3db87552f42d6d9fb8737c4fec126c1ad207813a",
+  "frozen_on": "2026-09-22",
+  "host": "legalcopilot-dev",
+  "note": "What the player's captured red-science sheet does at round-18, with multi_flow_hands TRUE. Re-frozen 2026-09-22 on legalcopilot-dev, the round in which the generator DELIVERED ITS FIRST BLUEPRINT. THE DELIVERY: ~/share/RRC/player-red-science-1s-20260922.txt, 3314 bytes, 352 entities, ok=true, and tools/blueprint_audit.py --no-target reports verdict=accepted reason=none with invalid_inserters 0, unpairable_underground 0, unpairable_underground_belt 0, unpairable_pipe_to_ground 0, unused_belt_tiles 0, unused_pipe_tiles 0, redundant_beacons 0. WHAT MOVED DOWN, full tier: BP_V_ROUTE_DISCONTINUOUS 221 to 0, BP_V_TRANSPORT_UNUSED 2611 to 26, BP_V_UNDERGROUND_UNPAIRED 3 to 0 which closes a fault carried since round 16, BP_V_TARGET_SHORTFALL 11 to 8, records 2862 to 121, wall seconds 478.41 to 312.25. Fast tier: records 798 to 36, entities_delivered 0 to 350. WHAT MOVED UP, AND IS NOT FIXED AND IS NOT BLESSED BY ANYBODY: BP_V_INSERTER_GEOMETRY 5 to 26, BP_V_PORT_UNREACHABLE 5 to 30, BP_V_TRANSFER_BROKEN 5 to 26, BP_V_ROUTE_MISSING 0 to 4. READ THOSE FOUR WITH THIS FACT: the candidate that SHIPPED carries ZERO records. tools/real_sheet_census.py:records_of reads result.discarded_alternatives on a succeeding run, so every record here belongs to a layout nobody ships. Measured on this delivery: 12 discarded alternatives carrying only 2 distinct candidate_id, the same two losing layouts re-scored at grids 54x54, 54x104, 104x54 and 54x154 and counted again each time, and 9 of the 12 were discarded for lower_score or outscored -- for being WORSE, never for being invalid. SO validate_attempts IS NOT A COUNT OF CANDIDATES: census_of counts distinct attempt values and records_of sets attempt = alternative.candidate_id, so twelve alternatives collapse to one. That is a real defect in the measurement tool, it is carried to round 19 BY NAME, and this baseline records the number it produces rather than pretending the number means what it says. tools/census_gate.py learned in lane 154 that a run which DELIVERS is not a run that judged fewer candidates: it keys on counters.entities_delivered > 0 with envelope.ok true and stage done, and across that boundary it compares ABSOLUTE record counts, so a rise still fails. THIS BASELINE BLESSES NEITHER THE FOUR RISES NOR THE BROKEN DENOMINATOR. It records where the sheet stands so the monotone rule keeps working. CARRIED, NAMED: the delivery is 352 entities against the player's own 131, with 274 transport-belt against 84, 9 splitter against 0 and 14 underground-belt against 0, while machine counts match exactly at 5 assembling-machine-3 and 6 electric-furnace. The whole gap is transport, never the factory.",
+  "policy": {
+    "denominator_floor": "validate_attempts may never fall below the baseline",
+    "monotone": "no code rate may rise; a code absent from the baseline has baseline 0, so a renamed or brand new code is caught by the same rule",
+    "ops_is_an_instrument": "search_budget is injected into a private copy at measurement time and is NEVER written into the committed prepared_input.json; tests/golden/lib/runner.py refuses a case carrying a generation option.",
+    "rate": "a code's count divided by the candidates that reached validate; a raw total falls when fewer candidates are judged, which is not an improvement",
+    "sensitivity_floor": 50,
+    "stage_floor": "the run must still reach search or done; breaking preflight zeroes every BP_V_ code and would read as a triumph",
+    "suppression_guard": "tests/test_census_codes_live.lua proves each counted code can still be provoked; deleting an emitter zeroes its census and turns that test red in the same run.",
+    "waiver_budget_rate": 0.15
+  },
+  "schema_version": 1,
+  "tiers": {
+    "fast": {
+      "case": "player-red-science-1s",
+      "census": {
+        "BP_V_INSERTER_GEOMETRY": 8,
+        "BP_V_PORT_UNREACHABLE": 9,
+        "BP_V_ROUTE_MISSING": 1,
+        "BP_V_TARGET_SHORTFALL": 2,
+        "BP_V_TRANSFER_BROKEN": 8,
+        "BP_V_TRANSPORT_UNUSED": 8
+      },
+      "certifiable": false,
+      "counters": {
+        "attempts_by_stage": {
+          "validate": 1
+        },
+        "entities_delivered": 350,
+        "records": 36,
+        "validate_attempts": 1
+      },
+      "envelope": {
+        "ok": true,
+        "stage": "done",
+        "terminal_code": null
+      },
+      "interpreter": "lua5.2",
+      "ops_budget": 5000000,
+      "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
+      "rates": {
+        "BP_V_INSERTER_GEOMETRY": 8.0,
+        "BP_V_PORT_UNREACHABLE": 9.0,
+        "BP_V_ROUTE_MISSING": 1.0,
+        "BP_V_TARGET_SHORTFALL": 2.0,
+        "BP_V_TRANSFER_BROKEN": 8.0,
+        "BP_V_TRANSPORT_UNUSED": 8.0
+      },
+      "schema_version": 1,
+      "timings": {
+        "wall_seconds": 47.54
+      },
+      "tool": "real_sheet_census"
+    },
+    "full": {
+      "case": "player-red-science-1s",
+      "census": {
+        "BP_PW_DISCONNECTED": 1,
+        "BP_V_INSERTER_GEOMETRY": 26,
+        "BP_V_PORT_UNREACHABLE": 30,
+        "BP_V_ROUTE_MISSING": 4,
+        "BP_V_TARGET_SHORTFALL": 8,
+        "BP_V_TRANSFER_BROKEN": 26,
+        "BP_V_TRANSPORT_UNUSED": 26
+      },
+      "certifiable": false,
+      "counters": {
+        "attempts_by_stage": {
+          "validate": 1
+        },
+        "entities_delivered": 352,
+        "records": 121,
+        "validate_attempts": 1
+      },
+      "envelope": {
+        "ok": true,
+        "stage": "done",
+        "terminal_code": null
+      },
+      "interpreter": "lua5.2",
+      "ops_budget": 40000000,
+      "prepared_input_sha256": "9338c26af38da3a7684e95145647001e135ec0a7eb35ec97a4cb1c352face3ad",
+      "rates": {
+        "BP_PW_DISCONNECTED": 1.0,
+        "BP_V_INSERTER_GEOMETRY": 26.0,
+        "BP_V_PORT_UNREACHABLE": 30.0,
+        "BP_V_ROUTE_MISSING": 4.0,
+        "BP_V_TARGET_SHORTFALL": 8.0,
+        "BP_V_TRANSFER_BROKEN": 26.0,
+        "BP_V_TRANSPORT_UNUSED": 26.0
+      },
+      "schema_version": 1,
+      "timings": {
+        "wall_seconds": 312.25
+      },
+      "tool": "real_sheet_census"
+    }
+  }
+}
