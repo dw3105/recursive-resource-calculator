@@ -1,6 +1,7 @@
 #Frozen failing counts per test file per interpreter, at tag round-16-base.
 #Regenerate with tools/red_list.sh docs/round-16-red-list.txt --write, and only at a tag.
 #file<TAB>interpreter<TAB>failing
+#Re-frozen after merging lanes 141 and 142: test_hand_economy is new and green, measured 2026-09-22.
 census_codes_live	lua5.2	0
 census_codes_live	lua5.4	0
 python_tools	python	0
@@ -86,6 +87,8 @@ test_guards	lua5.2	0
 test_guards	lua5.4	0
 test_guards_userdata	lua5.2	0
 test_guards_userdata	lua5.4	0
+test_hand_economy	lua5.2	0
+test_hand_economy	lua5.4	0
 test_harness	lua5.2	0
 test_harness	lua5.4	0
 test_harness_api	lua5.2	0
