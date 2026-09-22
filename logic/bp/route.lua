@@ -13,6 +13,7 @@
 local Route = {}
 
 local Grid = require "logic.bp.grid"
+local Flags = require "logic.bp.flags"
 
 local EPSILON = 1e-9
 --The search was Dijkstra: cost only, no estimate of what is left.  One tile of straight belt costs 1, so
@@ -648,8 +649,15 @@ end
 --is how the player's own factory gets 22 inserters where ours plans 26.  The switch is OFF here and stays off
 --for every lane: three lanes build three halves of one feature behind it -- groups pairs the hands, route shares the belt, validate witnesses per flow -- and integration
 --flips all three together, because that is the only point where the halves meet.  Golden tests therefore keep
---passing at default configuration while the halves are being built.
-local multi_flow_hands = false
+--passing at default configuration while the halves are being built.  Integration wired this route half on
+--2026-09-22; the shared default remains the authority.
+local multi_flow_hands = Flags.multi_flow_hands
+
+local function multi_flow_hands_enabled(input)
+    local forced = input and input._force_multi_flow_hands
+    if forced ~= nil then return forced == true end
+    return multi_flow_hands
+end
 
 --A route may reuse an existing belt only when the existing run can become a real splitter at the
 --mismatch.  Keep this switch separate from the multi-flow hand work: same-flow trunk sharing is
@@ -842,13 +850,13 @@ local function register_segment_flow(segment, flow_id)
     segment.flow_ids[flow_id] = true
 end
 
-local function segment_allows(segment, demand, amount)
+local function segment_allows(work, segment, demand, amount)
     if not segment then return true end
     if segment.kind ~= demand.kind then return false, "occupied" end
     local same_flow = segment_has_flow(segment, demand.flow_id)
     if not same_flow then
         if segment.kind == "pipe" then return false, "fluid_mix" end
-        if not multi_flow_hands or segment_flow_count(segment) >= 2 then return false, "occupied" end
+        if not work.multi_flow_hands or segment_flow_count(segment) >= 2 then return false, "occupied" end
     elseif not share_trunk then
         return false, "occupied"
     end
@@ -940,7 +948,7 @@ local function splitter_cell_allowed(work, demand, x, y, segment, search)
     local occupant = work.segments_by_cell[coordinate_key(x, y)]
     if occupant ~= nil and occupant ~= segment then
         local same_flow = segment_has_flow(occupant, demand.flow_id)
-        local compatible_flow = same_flow or (multi_flow_hands and occupant.kind == "belt"
+        local compatible_flow = same_flow or (work.multi_flow_hands and occupant.kind == "belt"
             and segment_flow_count(occupant) < 2)
         local combined_capacity = merged_segment_total(segment, occupant)
         if occupant.kind ~= "belt" or occupant.underground or occupant.splitter
@@ -986,7 +994,7 @@ local function merge_splitter_footprint(work, segment, second_key, demand)
     if occupant == nil or occupant == segment then return segment end
     if occupant.kind ~= "belt" or occupant.underground or occupant.splitter then return nil end
     local same_flow = segment_has_flow(occupant, demand.flow_id)
-    local compatible_flow = same_flow or (multi_flow_hands and segment_flow_count(occupant) < 2)
+    local compatible_flow = same_flow or (work.multi_flow_hands and segment_flow_count(occupant) < 2)
     if not compatible_flow or merged_segment_total(segment, occupant)
         > segment.capacity_per_second + tolerance(segment.capacity_per_second) then return nil end
 
@@ -1297,7 +1305,7 @@ local function append_normal_path(work, demand, path, amount)
             local splitter_continuation = segment.splitter and key == segment.splitter_second_key
                 and direction == segment.splitter_direction
             if not allocated_segments[segment.segment_id] then
-                local allowed, reason = segment_allows(segment, demand, amount)
+                local allowed, reason = segment_allows(work, segment, demand, amount)
                 if not allowed then return reject(reason or "occupied") end
             end
             if segment.splitter and key == segment.splitter_second_key and not splitter_continuation then return reject("occupied") end
@@ -1305,6 +1313,9 @@ local function append_normal_path(work, demand, path, amount)
             --but only when the otherwise required splitter footprint is reserved by an underground endpoint.
             if segment.direction ~= direction and not splitter_continuation
                 and not (index == #path and terminal_splitter_refused(work, cell.x, cell.y, segment)) then
+                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) then
+                    return reject("splitter-footprint")
+                end
                 --An underground segment owns two coupled endpoints.  It cannot become a splitter: changing
                 --the mapped first entity here would leave its partner carrying a different direction.  The
                 --allocation may still share the segment, but its published pair keeps the direction it was built
@@ -1401,6 +1412,7 @@ local function append_underground(work, demand, candidate, amount)
         underground_exit_key = coordinate_key(candidate.sink.x, candidate.sink.y),
         underground_entry_x = candidate.source.x, underground_entry_y = candidate.source.y,
         underground_exit_x = candidate.sink.x, underground_exit_y = candidate.sink.y}
+    register_segment_flow(segment, demand.flow_id)
     local first_id, second_id = next_entity_id(work), next_entity_id(work)
     local name = infrastructure(work, kind)
     if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
@@ -1445,19 +1457,23 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             search.saw_blocked = true
             return false
         end
-        local allowed, reason = segment_allows(segment, demand, amount)
+        local allowed, reason = segment_allows(work, segment, demand, amount)
         if not allowed then
             if reason == "capacity" then search.saw_capacity = true end
             if reason == "occupied" then search.saw_blocked = true end
             --Only a foreign pipe that actually DENIED the step is fluid mixing. Setting the flag on every
             --pipe cell the search merely looked at made an item flow report BP_R_FLUID_MIX, so the belt's
             --real blocker was hidden behind somebody else's pipe.
-        if segment.flow_id ~= demand.flow_id and segment.kind == "pipe" then search.saw_fluid_mix = true end
+            if not segment_has_flow(segment, demand.flow_id) and segment.kind == "pipe" then search.saw_fluid_mix = true end
             return false
         end
         local terminal_refused = is_target and terminal_splitter_refused(work, x, y, segment)
         if move_direction ~= nil and segment.direction ~= move_direction and not terminal_refused then
             if not splitter_continuation then
+                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) then
+                    search.saw_blocked = true
+                    return false
+                end
                 --A crossing the MATERIALIZER already refused is refused here too, for this demand, for the
                 --rest of its routing.  Contract 28.5 says search and materializer ask the same question, and
                 --calling the same predicate is not enough to make that true: the search plans a whole path
@@ -1579,7 +1595,7 @@ local function begin_search(work, demand, amount, order_index)
         priority = heuristic(search, demand.source.x, demand.source.y)})
     local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
     if source_segment then
-        local allowed, reason = segment_allows(source_segment, demand, amount)
+        local allowed, reason = segment_allows(work, source_segment, demand, amount)
         if not allowed then
             search.saw_capacity, search.saw_fluid_mix, search.heap = reason == "capacity", reason == "fluid_mix", {}
         end
@@ -1598,7 +1614,7 @@ local function begin_search(work, demand, amount, order_index)
             local segment = work.segments_by_cell[key]
             local x, y = coordinate_from_key(key)
             --A refused seed is skipped, never fatal: the run may be full at one tile and free at the next.
-            if x ~= nil and segment and segment_allows(segment, demand, amount) then
+            if x ~= nil and segment and segment_allows(work, segment, demand, amount) then
                 local heading = segment.splitter and segment.splitter_direction or segment.direction
                 local seed_cost = 0
                 if x == demand.sink.x and y == demand.sink.y
@@ -1681,6 +1697,11 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
         and segment.kind == demand.kind
         and segment_total(segment) + amount <= segment.capacity_per_second + tolerance(segment.capacity_per_second) then
         cost = 0.2
+    elseif segment and segment.kind == demand.kind and work.multi_flow_hands then
+        --A foreign belt is a valid two-lane continuation only when it is the available route.  Price it above
+        --a free tile so a same-flow seeded trunk wins when both are possible; otherwise multi-flow admission
+        --would turn a straight branch into a cheaper foreign-flow fork.
+        cost = 2
     end
     if previous_direction ~= nil and previous_direction ~= 0 and previous_direction ~= direction then cost = cost + 1 end
     if segment and segment.direction ~= direction then cost = cost + 2 end
@@ -1789,6 +1810,28 @@ end
 
 local function result_for(work)
     audit_route_work(work)
+    --A belt that serves two flows keeps its legacy scalar flow for consumers that only know the old shape, and
+    --also publishes the complete set for the validator and physical witness.  Build this at publication time so
+    --the route snapshots stay small while a search is still being retried.
+    local flows_by_segment = {}
+    for _, segment in ipairs(work.segments or {}) do
+        local ids = {}
+        if segment.flow_id ~= nil then ids[segment.flow_id] = true end
+        for flow_id, present in pairs(segment.flow_ids or {}) do
+            if present then ids[flow_id] = true end
+        end
+        for _, allocation in ipairs(segment.allocations or {}) do
+            if allocation.flow_id ~= nil then ids[allocation.flow_id] = true end
+        end
+        local flow_ids = {}
+        for flow_id, _ in pairs(ids) do flow_ids[#flow_ids + 1] = flow_id end
+        table.sort(flow_ids)
+        flows_by_segment[segment.segment_id] = flow_ids
+    end
+    for _, entity in ipairs(work.entities or {}) do
+        local flow_ids = flows_by_segment[entity.segment_id]
+        if flow_ids and #flow_ids > 1 then entity.flow_ids = flow_ids end
+    end
     local result = {entities = {}, segments = {}, port_bindings = work.bindings, bindings = work.bindings,
         shortfalls = work.shortfalls or {}}
     for _, entity in ipairs(work.entities) do
@@ -1853,6 +1896,7 @@ local function normalize_input(input)
     local work = {
         input_belt_capacity = finite(input.belt_capacity), input_pipe_capacity = finite(input.pipe_capacity),
         input_belt_name = input.belt_name, input_pipe_name = input.pipe_name,
+        multi_flow_hands = multi_flow_hands_enabled(input),
         belt = input.belt or (input.catalog and input.catalog.belt) or {},
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
