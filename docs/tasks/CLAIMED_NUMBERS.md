@@ -139,3 +139,4 @@
 | `152` | `rrc/agent` | physics: a published splitter never turns flow | 2026-09-22 |
 | `153` | `rrc/agent` | audit: the byte auditor has never seen a splitter, and it covers two tiles | 2026-09-22 |
 | `154` | `rrc/agent` | census: the gate counts discarded alternatives, and success discards fewer | 2026-09-22 |
+| `155` | `rrc/agent` | guard re-cut: a published splitter never turns flow, and the row must tell dir=12 from dir=0 | 2026-09-22 |
