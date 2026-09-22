@@ -877,7 +877,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     local w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
     local machine_y = beacon_rows_h > 0 and beacon_rows_h + 1 or 0
-    if face_layout and beacon_rows_h == 0 then machine_y = 1 end
+    --Insetting the machine row by one is what MAKES the top face a perimeter face. Without it the row
+    --starts at y=0, a hand above it occupies y=-1 and its outward cell lands at y=-2, which is two tiles
+    --outside a block whose own top edge is -1. Measured on the player's sheet: block:iron-plate published
+    --its iron-ore ports at attach_dy=-2, pack.lua's bounded_slot refused every one of them, and packing
+    --could place that block on no grid at all -- BP_FAIL_GRID_LIMIT with twelve BP_P_NO_FIT and zero
+    --candidates reaching validate. The inset is owed to every block that puts a hand on a face, not only
+    --to the one and two machine cases that face_layout covers.
+    if (face_layout or logical_face_layout) and beacon_rows_h == 0 then machine_y = 1 end
     if beacon_rows_h > 0 then
         -- Keep the established spacer when the collision box still reaches the row, but remove it when the
         -- actual y extent would leave a gap.  This is deliberately a world-box test, not a centre comparison.
@@ -977,7 +984,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             -- A horizontal strip exposes only its top and bottom faces to every machine. More than two flows
             -- therefore cannot be made perimeter-safe for all members; the caller must try a different
             -- partition. Do not manufacture a logical side and leave the hand on the old shared bottom row.
-            if #flow_ids > 2 or machine_y ~= 0 or #bottom_rows > 0 then
+            --machine_y is no longer required to be 0 here: it is exactly 1 whenever a hand will use the
+            --top face, which is the condition that makes that face usable. Demanding 0 and insetting the
+            --row are contradictory, and holding both refused every strip that needed a top face.
+            if #flow_ids > 2 or #bottom_rows > 0 then
                 block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
                     detail = "more port-bound item flows than perimeter faces for " .. tostring(block.id)}
             else
