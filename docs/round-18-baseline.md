@@ -142,6 +142,20 @@ Both blueprints decoded from their own bytes, 2026-09-22:
 **Machine counts match exactly.** Belts are **3.26x**, and 190 of the 221 extra entities are belts, so the
 whole gap is transport, never the factory.
 
+Measured the same way on both blueprints' bytes, with a splitter's two tiles read from its direction:
+
+```
+OURS  : machines=11 no_recipe=6 no_input_inserter=0 no_output_inserter=0
+        recipes {automation-science-pack: 4, None: 6, iron-gear-wheel: 1}
+PLAYER: machines=11 no_recipe=6 no_input_inserter=0 no_output_inserter=0
+        recipes {automation-science-pack: 4, None: 6, iron-gear-wheel: 1}
+```
+
+**Identical.** Every machine has an inserter feeding it from real transport and an inserter taking product
+away to real transport, in both. The six with no recipe are the six `electric-furnace`, which is what the
+player's own working factory carries too. So the shape of the factory is right and the transport around it
+is three times too long.
+
 Belts per flow, delivered candidate, measured 2026-09-22:
 
 ```
