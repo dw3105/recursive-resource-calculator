@@ -1,4 +1,4 @@
---Every code the round 15 census counts must still be reachable.  Spine owns this file; no lane may edit it.
+--Every code the census counts must still be reachable.  Spine owns this file; no lane may edit it.
 --
 --Why it exists.  The lane gate is monotone: a lane must drive its named codes DOWN and raise none.  That
 --contract has exactly one cheap way to satisfy it dishonestly -- delete the check that emits the code.  The
@@ -13,7 +13,7 @@
 --same lane that owned logic/bp/validate.lua, so a lane could weaken the test that guards it.  This file is
 --PRESERVE-listed in every round 15 task and appears in no lane manifest.
 --
---CL0 runs first and must PASS.  A control that rejects everything would make all four mutations pass for the
+--CL0 runs first and must PASS.  A control that rejects everything would make every mutation below pass for the
 --wrong reason, which is exactly the trap tests/test_blueprint_physical_contract.lua documents at its head.
 local H = require "tests.harness"
 local Validate = require "logic.bp.validate"
@@ -200,6 +200,41 @@ H.test("CL4 BP_V_ROUTE_DISCONTINUOUS is still emitted when no transport exists a
     end))
     H.equal(has_code(state, "BP_V_ROUTE_DISCONTINUOUS") or has_code(state, "BP_V_TRANSFER_BROKEN"), true,
         "a factory with no transport must still reject: " .. all_codes(state))
+end)
+
+--CL5 is the round 16 addition.  BP_V_TARGET_SHORTFALL counts 3 on the player's sheet, one per candidate, far
+--under the census sensitivity floor of 50, so the rate gate cannot judge it and only a direct test can.  It
+--carries its OWN control, because the code needs a flow that declares producers and consumers and the shared
+--control candidate declares neither: without the first half, the second half could pass because the flow was
+--given consumers rather than because the allocation fell short.
+local function with_declared_flow(reached)
+    return mutate(function(built)
+        for _, flow in ipairs(built.flows) do
+            if flow.flow_id == "item/iron-gear-wheel" then
+                --Produced must equal consumed or BP_V_FLOW_IMBALANCE fires first and CL5 proves nothing.
+                flow.producers = {{step_id = "gear", share_per_second = 1}}
+                flow.consumers = {{step_id = "$external", share_per_second = 1}}
+            end
+        end
+        for _, segment in ipairs(built.segments) do
+            if segment.segment_id == "s-out" then
+                for _, allocation in ipairs(segment.allocations) do allocation.rate_per_second = reached end
+            end
+        end
+    end)
+end
+
+H.test("CL5a the declared-flow control reaches its sink, so the shortfall below means something", function()
+    local state = validate(with_declared_flow(1))
+    H.equal(has_code(state, "BP_V_TARGET_SHORTFALL"), false,
+        "a sink that receives its whole share must not report a shortfall: " .. all_codes(state))
+end)
+
+H.test("CL5b BP_V_TARGET_SHORTFALL is still emitted when a sink receives less than it requires", function()
+    --One quarter of the required rate arrives at the external sink, logic/bp/validate.lua:996-999.
+    local state = validate(with_declared_flow(0.25))
+    H.equal(has_code(state, "BP_V_TARGET_SHORTFALL"), true,
+        "a sink short of its required share must still reject: " .. all_codes(state))
 end)
 
 H.done("census_codes_live")

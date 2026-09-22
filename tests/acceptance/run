@@ -1,8 +1,22 @@
 #!/bin/sh
 #Delivery gate. Every case must reach a successful validated blueprint. Red here blocks a hand-over zip.
+#
+#Each case is bounded twice, and both bounds exist because this gate stopped being readable.  Measured
+#2026-09-22 on legalcopilot-dev: the red-science case carried no search bound, so the whole run passed 900 s
+#and was killed with exit 143 having printed nothing.  The case now supplies its own `search_budget`, and the
+#timeout below is the backstop for any case that forgets.  A case killed by the backstop is a FAILURE that
+#says so, never a silent hang.
 status=0
+limit=${ACCEPTANCE_TIMEOUT_S:-600}
 for case in "$(dirname "$0")"/*_case.lua; do
     [ -f "$case" ] || continue
-    lua5.2 "$case" || status=1
+    timeout "$limit" lua5.2 "$case"
+    case_status=$?
+    if [ "$case_status" = 124 ] || [ "$case_status" = 137 ]; then
+        echo "acceptance: $case did not finish inside ${limit}s and was killed; it needs a search bound" >&2
+        status=1
+    elif [ "$case_status" != 0 ]; then
+        status=1
+    fi
 done
 exit $status

@@ -395,6 +395,13 @@ local function is_inserter(info) return info.kind == "inserter" end
 
 --Routing entities are deliberately identified from the candidate itself, not from Route's occupancy tables.  The
 --validator is a second opinion at the boundary, so a fixture may carry only a prototype name and a flow id.
+--Contract 28.1 and 28.3: one hand may serve two item flows that ride one belt, using both belt lanes, which
+--is how the player's own factory gets 22 inserters where ours plans 26.  The switch is OFF here and stays off
+--for every lane: three lanes build three halves of one feature behind it -- groups pairs the hands, route shares the belt, validate witnesses per flow -- and integration
+--flips all three together, because that is the only point where the halves meet.  Golden tests therefore keep
+--passing at default configuration while the halves are being built.
+local multi_flow_hands = false
+
 local function transport_kind(info)
     if not info then return nil end
     if info.kind == "belt" then return "belt" end

@@ -609,6 +609,13 @@ local function target_endpoint(work, flow_id, entry)
     return demand_endpoint_candidates(work, flow_id, role, entry)[1]
 end
 
+--Contract 28.1 and 28.3: one hand may serve two item flows that ride one belt, using both belt lanes, which
+--is how the player's own factory gets 22 inserters where ours plans 26.  The switch is OFF here and stays off
+--for every lane: three lanes build three halves of one feature behind it -- groups pairs the hands, route shares the belt, validate witnesses per flow -- and integration
+--flips all three together, because that is the only point where the halves meet.  Golden tests therefore keep
+--passing at default configuration while the halves are being built.
+local multi_flow_hands = false
+
 local per_port_demands = true
 
 local function append_port_demands(work, demands, flow_id, role, entry, share, label)
@@ -749,6 +756,20 @@ local function build_demands(work, flows)
     --pairs are materialized, route the expensive spans first: a short branch laid across a long cross-block
     --trunk can fence that trunk in, while the reverse order lets the unchanged splitter/underground search
     --share the trunk and attach its local branches.  The original append order is the deterministic tie-break.
+    --
+    --This sort is measured, in both directions, on legalcopilot-dev 2026-09-22, on the player's real captured
+    --sheet at 5,000,000 ops with 3 candidates reaching `validate` either way:
+    --
+    --  with the sort     853 BP_V_TRANSPORT_UNUSED   63 BP_V_ROUTE_DISCONTINUOUS
+    --  without it        949                         67
+    --
+    --So removing it makes the product WORSE, and it is kept for that reason and no other.  It also costs real
+    --geometry: with it, tests/test_route_footprints.lua is 0 of 6 and tests/test_route_budget.lua is 6 of 8,
+    --and with it removed both are whole while tests/test_bindings_per_hand.lua stays 8 of 8 either way.
+    --Do not delete these lines to turn those two files green: that trade was measured and refused.  Order is
+    --load-bearing here only because a refused splitter footprint is still committed (route.lua:1042 has no
+    --`else`) and because two demands of one flow lay two runs instead of sharing a trunk.  Contract 28.5,
+    --28.7 and 28.8 remove the dependence on order; until they land, the sort stays.
     for index, demand in ipairs(demands) do demand._build_order = index end
     table.sort(demands, function(left, right)
         if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end

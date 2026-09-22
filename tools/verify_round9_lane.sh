@@ -149,6 +149,27 @@ case "$tag" in
         runner=python
         tests="tests.tools.test_golden_tools tests.tools.test_real_sheet_census tests.tools.test_capture_workflow"
         ;;
+    #Round 16.  Every arm below names EVERY test file that requires the module its lane owns, because round
+    #15's `131_bindings` arm omitted tests/test_route_footprints.lua and tests/test_route_budget.lua, the lane
+    #broke both, and its gate reported PASS: a lane gate sees only what its tag names.  tools/red_list.sh is
+    #the belt to this arm's braces -- it names no file at all and refuses any file that got worse -- and every
+    #round 16 task carries it, so an omission here can no longer hide a regression.
+    140_route)
+        tests="tests/test_route.lua tests/test_route_network.lua tests/test_route_footprints.lua \
+tests/test_route_budget.lua tests/test_route_layout_contract.lua tests/test_underground_pairs.lua \
+tests/test_port_tile_flow.lua tests/test_port_not_self_blocked.lua tests/test_demand_terminals.lua \
+tests/test_bindings_per_hand.lua tests/test_route_chain.lua tests/test_external_ports.lua"
+        ;;
+    141_witness)
+        tests="tests/test_validate.lua tests/test_physical_witness.lua tests/test_validated_candidate.lua \
+tests/test_external_ports.lua tests/test_placed_port_geometry.lua tests/test_census_codes_live.lua \
+tests/test_power_wires.lua tests/test_route_layout_contract.lua tests/test_demand_terminals.lua"
+        ;;
+    142_economy)
+        tests="tests/test_groups.lua tests/test_pack.lua tests/test_inserter_geometry.lua \
+tests/test_port_edges.lua tests/test_placed_port_geometry.lua tests/test_port_not_self_blocked.lua \
+tests/test_transport_handshake.lua tests/test_hand_economy.lua tests/test_beacon_coverage.lua"
+        ;;
     #An unknown tag FAILS. The old arm here set runner=suite, so a typo, a renamed lane, or a tag nobody had
     #mapped yet quietly ran the whole suite and reported the result as that lane's focused gate. A lane that
     #genuinely wants the suite says so with its own entry.

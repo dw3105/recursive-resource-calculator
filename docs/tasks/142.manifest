@@ -1,0 +1,8 @@
+!logic/bp/groups.lua
+!tests/test_hand_economy.lua
+tests/test_groups.lua
+tests/test_pack.lua
+tests/test_inserter_geometry.lua
+tests/test_port_edges.lua
+tests/test_transport_handshake.lua
+docs/tasks/142.census-waiver.json

@@ -1,0 +1,7 @@
+!logic/bp/validate.lua
+!tests/test_validate.lua
+tests/test_physical_witness.lua
+tests/test_validated_candidate.lua
+tests/test_external_ports.lua
+tests/test_placed_port_geometry.lua
+docs/tasks/141.census-waiver.json

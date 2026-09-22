@@ -145,6 +145,34 @@ case "$mutation" in
     #132: the copper connector id goes back to the guess, so every delivered wire reads as non-copper.
     connector-zero)
         apply logic/bp/validate.lua '(pole_copper *= *)5' '\g<1>0' ;;
+    #Round 16, contract section 28.  Each mutation binds to code the task MANDATES, so a red proof cannot bind
+    #to nothing.
+    #
+    #140: the refused splitter footprint is committed again.  logic/bp/route.lua:1042 has no `else`, so when
+    #splitter_branch_allowed says no the direction-mismatched crossing is written anyway -- measured
+    #2026-09-22, an east belt at (5,3) feeding a north belt at (5,2) with no splitter and no junction, which
+    #Factorio cannot build.  Restoring the fall-through must turn the named refusal red.
+    splitter-footprint-silent)
+        apply logic/bp/route.lua '(return reject\("splitter-footprint[^"]*"\))' 'nil' ;;
+    #140: a binding may claim a sink it laid no belt to.  Measured 2026-09-22 on the player's sheet, 9 of 22
+    #bindings never reach their sink port: 7 end with nothing ahead, 4 to 24 tiles short.
+    binding-without-run)
+        apply logic/bp/route.lua '(chain_reaches_sink *= *)[^,;}\n]+' '\1true' ;;
+    #140: two demands of one flow lay two parallel runs again.  Measured 2026-09-22, one candidate carries 382
+    #belts and 44 undergrounds where the player's own factory does the same job in 84 belts and zero.
+    trunk-sharing-off)
+        apply logic/bp/route.lua '(share_trunk *= *)[^,;}\n]+' '\1false' ;;
+    #141: the waste record goes back to carrying no geometry, so a census can count it and never locate it.
+    #Contract 28 task 141 mandates the detail keys x, y, flow_id and facing, so this binds to `facing`.
+    unused-detail-bare)
+        apply logic/bp/validate.lua '(facing *= *)[^,;}\n]+' '\1nil' ;;
+    #141: the target shortfall rejection still fires, under a code nobody expects, which is exactly the
+    #suppression tests/test_census_codes_live.lua CL5 guards.
+    census-code-shortfall)
+        apply logic/bp/validate.lua 'BP_V_TARGET_SHORTFALL' 'BP_V_MUTANT_CODE' ;;
+    #142: one hand per ingredient again, so the sheet plans 26 hands where the player builds 22.
+    shared-hand-off)
+        apply logic/bp/groups.lua '(multi_flow_hands *= *)[^,;}\n]+' '\1false' ;;
     #124: the wrapper reports reconciliation as validation again, which is the defect at generate.lua:414.
     validation-reconciliation)
         apply tests/golden/generate.lua '(local physical *= *)[^\n]+' '\1{ok = true}' ;;

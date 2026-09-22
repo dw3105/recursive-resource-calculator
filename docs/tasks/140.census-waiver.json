@@ -1,0 +1,15 @@
+{
+ "schema_version": 1,
+ "task": "140_route",
+ "note": "A waiver is a CEILING, never a mute, and --prove-waiver fails the lane if it changes no outcome. This lane makes routing refuse what it used to commit silently (28.5) and lay a branch per sink (28.7, 28.8). A correct refusal can move a candidate out of `route` before `validate` ever judges it, which lowers the denominator, and a correct branch can put belts in front of checks that never saw them. Those movements are this lane's to repay: integration runs --no-waivers on the merged tree.",
+ "waivers": [
+  {"code": "BP_R_NO_PATH", "baseline_rate": 0.0, "ceiling_rate": 4.0,
+   "cause": "rule 28.5 turns a silently committed direction mismatch into a named refusal, and rule 28.7 refuses a demand whose branch cannot be laid; both show up here before the router learns to share a trunk",
+   "paid_by": "140_route", "expires": "round-16",
+   "evidence": "docs/round-16-baseline.md section 2, and docs/feature-contracts.md 28.5 and 28.7"},
+  {"code": "BP_V_TARGET_SHORTFALL", "baseline_rate": 1.0, "ceiling_rate": 2.0,
+   "cause": "a sink that used to be claimed by a binding with no belt behind it now reports its real shortfall until the branch is laid",
+   "paid_by": "141_witness", "expires": "round-16",
+   "evidence": "docs/round-16-baseline.md section 2"}
+ ]
+}

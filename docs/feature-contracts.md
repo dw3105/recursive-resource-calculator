@@ -1104,3 +1104,124 @@ per side, and its science machine takes copper-plate and iron-gear-wheel through
 using both lanes of that belt. Serving two flows with one hand is the same economy that makes its factory 22
 inserters where ours plans 26; that is a later round's work, and 27.6 is what makes the current one hand per
 ingredient routable at all.
+
+## 28. One hand, two lanes, and a run that reaches its sink (2026-09-22, round 16, frozen before lanes 140-142)
+
+Round 15 closed the port anchor: every hand has its own belt tile on a perimeter face of its own flow, and
+every code that said *a hand cannot be served* is gone. The product still does not deliver, and the census on
+the player's own captured sheet now says two things instead of four —
+853 `BP_V_TRANSPORT_UNUSED` and 63 `BP_V_ROUTE_DISCONTINUOUS` over 3 candidates, measured on
+`legalcopilot-dev` 2026-09-22 at 5,000,000 ops.
+
+Those two are **one fault counted twice**. Unused hands per candidate are 21, 22 and 20; discontinuous
+records per candidate are 21, 22 and 20; the totals are 63 and 63. A belt is marked served only along a path
+`connection_path` returned (`logic/bp/validate.lua:1443-1445`, reachable only inside `if port then` at
+`:1556` and `:1635`), so one broken run costs one discontinuous record and every belt on it.
+
+Spine measured WHERE, because neither record carries a tile. `tools/route_chain_probe.sh` prints the first
+candidate to reach `validate` and walks it with the validator's own successor rule
+(`logic/bp/validate.lua:478-512`):
+
+```
+CHAIN candidate entities=437 belts=382 inserters=26 machines=11 ports=29
+CHAIN splitters=2 undergrounds=44
+CHAIN bindings=22 whole=13 broken=9
+CHAIN reason nothing ahead                                  7
+CHAIN reason walk closed with no dead end and no target     2
+```
+
+Seven of nine runs stop **short of their sink**, 4 to 24 tiles away, with empty ground ahead of the last
+belt. Every such source feeds several sinks: four science machines take gear from one gear machine, three
+iron-plate machines take ore from one supply. `logic/bp/route.lua:1083` and `:1116` append one binding per
+sink carrying `segment_id = first_segment.segment_id`, and `add_allocation` puts that sink's rate on the
+shared trunk. The trunk is laid once and the branch to each further sink's own port tile is never laid. The
+binding is recorded anyway.
+
+The 26 hands against the player's 22, named as a later round's work at the end of section 27, is that later
+round. It is no longer cosmetic: the player's decision for this round is that the delivery must match their
+factory closely, and their factory reaches 22 hands by serving copper-plate and iron-gear-wheel through one
+hand off one belt, using both lanes of that belt.
+
+Two checks already model both-lanes capacity correctly and must NOT change:
+`segment_capacity` at `logic/bp/validate.lua:752` returns `catalog.belt.items_per_second`, the whole belt; and
+the mixing rule at `logic/bp/validate.lua:980-983` fires only for `kind == "pipe"`, so items are exempt and
+there is no `BP_V_ITEM_MIXING` in `logic/bp/reason_codes.lua`. The segment kind `"lane"` declared at
+`logic/bp/route.lua:7` and branched at `logic/bp/validate.lua:751` is a dead enum that nothing writes; two
+flows on one belt is a multi-flow segment under whole-belt capacity, never a geometric lane.
+
+### 28.1 One hand may serve several item flows
+
+**A port-bound item inserter carries a set of flows and a rate share per flow.** Two flows may share one hand
+only when both arrive on the same belt tile and their summed rate fits one belt's whole-belt capacity,
+`catalog.belt.items_per_second`. Fluids never share a hand.
+
+When a step's flows cannot be paired into the faces its machine has, the block **fails by name** and the
+search takes another partition. It never silently plans a hand that cannot be fed.
+
+### 28.2 One belt tile may carry several item flows
+
+**A belt segment carries a set of flows with per-flow allocations.** Its capacity stays the whole belt, both
+lanes, unchanged. At most **two** item flows may share one belt, because a belt has two lanes. Pipes keep the
+single-flow rule and `BP_V_FLUID_MIXING`.
+
+### 28.3 A shared hand publishes one port
+
+**One hand, one outward cell, one block port.** That port advertises the hand's whole flow set. Two ports
+never claim one tile, and rule 27.1's one-port-per-hand is unchanged by 28.1: a hand that serves two flows is
+still one hand with one port.
+
+### 28.4 A hand is witnessed per flow, not once
+
+**A hand spent proving flow A stays available to prove flow B.** The bookkeeping at
+`logic/bp/validate.lua:1368` that consumes a hand once, and the equality at `:1372` that admits one flow id,
+both become per `(hand, flow)`.
+
+### 28.5 A refused splitter is a refused route
+
+**When a splitter footprint is unavailable the crossing is rejected by name.** A direction-mismatched belt is
+never committed. Today `logic/bp/route.lua:1042-1058` has no `else`: when `splitter_branch_allowed` refuses,
+the block falls through and writes the crossing anyway. Measured on `shared_splitter_input` at HEAD, an east
+belt at `(5,3)` feeds a north belt at `(5,2)` with no splitter and no junction, which Factorio cannot build.
+
+The search and the materializer must ask the same question. `logic/bp/route.lua:1149-1153` admits any
+direction mismatch merely because `work.belt.splitter` exists, never asking whether the splitter's second tile
+is free, and that asymmetry is what lets the fall-through happen. `splitter_can_absorb` at
+`logic/bp/route.lua:812-814` reads like the guard meant to sit at 1042 and has no callers; it is wired in or
+deleted, never left dead.
+
+### 28.6 Delivered bytes are judged against the player's own factory
+
+**The audit compares entity, belt, inserter, pole and wire counts to a factory the game runs** —
+`~/share/RRC/red_science_1s_manual_bp.txt`, sha256
+`934a0034af3069ef40ee1878582d53b26834d287fa4106c2b4480404f6123c30`: 131 entities, 84 belts, 22 inserters, 10
+poles, 12 wires at connector 5, and zero undergrounds, splitters, pipes and beacons. Every count is reported.
+Machine count is exact at 11; inserter count is exact at 22, because that is what 28.1 buys.
+
+### 28.7 Every laid run reaches its own sink
+
+**For every binding there is a directed, same-flow, tile-adjacent belt chain from its source tile to its own
+sink tile**, where a belt's only successor is the tile it faces, plus a splitter's side tile and an
+underground endpoint's partner. A binding that records a sink it laid no belt to is a lie about the factory,
+and it is the measured cause of both remaining codes.
+
+When no such chain can be laid, the demand is **refused by name**. Recording the binding and reporting
+success is forbidden.
+
+### 28.8 One trunk, many branches, each branch laid
+
+**Two demands of one flow whose runs overlap share one trunk** rather than laying two parallel runs. Sharing
+the trunk does not discharge the branch: each sink still gets its own belt from the trunk to its own port
+tile. Belt count is reported against the player's factory on every census.
+
+### 28.9 Order is not a routing strategy
+
+`logic/bp/route.lua:748-757` sorts demands by pairing cost so an expensive span is laid before a short branch
+can fence it in. Measured 2026-09-22 in both directions on the player's real sheet, 3 candidates either way:
+with the sort, 853 `BP_V_TRANSPORT_UNUSED` and 63 `BP_V_ROUTE_DISCONTINUOUS`, and
+`tests/test_route_footprints.lua` 0 of 6 with `tests/test_route_budget.lua` 6 of 8; without it, **949** and
+**67**, and both those files whole.
+
+So the sort is kept, because removing it makes the product worse, and it is not a fix, because it costs real
+geometry. **Neither number is allowed to stand as the answer.** Once 28.5, 28.7 and 28.8 hold, the outcome
+must not depend on which demand is routed first, and that is the condition under which the sort may be
+removed — never before.

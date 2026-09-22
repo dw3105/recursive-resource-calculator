@@ -28,10 +28,24 @@ fi
 out=$(mktemp) || exit 2
 trap 'rm -f "$out"' EXIT
 
+#A run that never returns is over the limit by construction, and it used to hang instead of saying so.
+#Measured 2026-09-22 on legalcopilot-dev: this case carries no `search_budget`, logic/bp/search.lua:143-151
+#leaves the bound nil when nobody supplies one, and the run passed 900 s and was killed from outside having
+#delivered nothing.  The bound below is generous on purpose -- the limit is 5 s and the first candidate on the
+#player's real sheet arrives at about 3 s -- so it only ever fires on a search that is not going to accept.
+#The case input is NEVER given a budget here: golden cases must run at default configuration.
+hard_limit=$(awk -v l="$limit" 'BEGIN{v=l*24; if (v<60) v=60; printf "%d", v}')
+
 start=$(date +%s.%N)
 status=0
-"$lua" "$root/tests/golden/generate.lua" --input "$input" --output "$out" >/dev/null 2>&1 || status=$?
+timeout "$hard_limit" "$lua" "$root/tests/golden/generate.lua" --input "$input" --output "$out" >/dev/null 2>&1 || status=$?
 end=$(date +%s.%N)
+if [ "$status" = 124 ] || [ "$status" = 137 ]; then
+    printf 'ceiling: case=%s interpreter=%s elapsed=>%ss limit=%ss exit=%s result=killed-at-hard-limit\n' \
+        "$case_id" "$lua" "$hard_limit" "$limit" "$status"
+    echo "ceiling.sh: the run did not finish inside ${hard_limit}s, so it is over the ${limit}s limit by construction" >&2
+    exit 1
+fi
 elapsed=$(awk -v a="$start" -v b="$end" 'BEGIN{printf "%.2f", b-a}')
 
 delivered=$(python3 - "$out" <<'PY'

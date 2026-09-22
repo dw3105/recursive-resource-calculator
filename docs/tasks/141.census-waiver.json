@@ -1,0 +1,11 @@
+{
+ "schema_version": 1,
+ "task": "141_witness",
+ "note": "A waiver is a CEILING, never a mute, and --prove-waiver fails the lane if it changes no outcome. This lane adds geometry to a record and makes a shortfall record name its sink; neither changes what the validator accepts, so the census is expected to stand still. The one ceiling below covers the case where naming the consumer step splits one record into several. Integration runs --no-waivers on the merged tree.",
+ "waivers": [
+  {"code": "BP_V_TARGET_SHORTFALL", "baseline_rate": 1.0, "ceiling_rate": 3.0,
+   "cause": "the record gains the consumer step id, so one aggregate shortfall may be reported per short consumer instead of once per flow; the arrangement is unchanged and the count is a reporting change",
+   "paid_by": "140_route", "expires": "round-16",
+   "evidence": "docs/round-16-baseline.md section 2, and logic/bp/validate.lua:996-999"}
+ ]
+}

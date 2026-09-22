@@ -124,3 +124,6 @@
 | `133` | `rrc/agent` | goldens: an acceptance case shaped like the player's sheet | 2026-09-21 |
 | `131` | `rrc/agent` | bindings: every hand gets its own belt | 2026-09-21 |
 | `134` | `rrc/agent` | faces: one face per flow, so a belt can reach every hand | 2026-09-21 |
+| `140` | `rrc/agent` | route: every laid run reaches its own sink, refused splitter is refused route | 2026-09-22 |
+| `141` | `rrc/agent` | witness: locate the orphaned belt, name the short sink, witness a hand per flow | 2026-09-22 |
+| `142` | `rrc/agent` | economy: one hand, two ingredients, one belt, both lanes | 2026-09-22 |

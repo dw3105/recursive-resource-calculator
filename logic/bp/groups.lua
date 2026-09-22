@@ -494,6 +494,13 @@ local function covers(beacon, machine, machine_spec, supply_w, supply_h)
     return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y, supply_w, supply_h)
 end
 
+--Contract 28.1 and 28.3: one hand may serve two item flows that ride one belt, using both belt lanes, which
+--is how the player's own factory gets 22 inserters where ours plans 26.  The switch is OFF here and stays off
+--for every lane: three lanes build three halves of one feature behind it -- groups pairs the hands, route shares the belt, validate witnesses per flow -- and integration
+--flips all three together, because that is the only point where the halves meet.  Golden tests therefore keep
+--passing at default configuration while the halves are being built.
+local multi_flow_hands = false
+
 local function append_inserters(block, step, machine, catalog, input, flows)
     local name, iw, ih = inserter_size(catalog, input and input.inserter)
     local inputs, outputs = {}, {}

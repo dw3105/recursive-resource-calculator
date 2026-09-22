@@ -1,0 +1,11 @@
+{
+ "schema_version": 1,
+ "task": "142_economy",
+ "note": "A waiver is a CEILING, never a mute, and --prove-waiver fails the lane if it changes no outcome. This lane's whole behaviour sits behind multi_flow_hands, which is false at the tip of this branch, so the census must stand STILL. The single ceiling below exists only for the case where making a flow set available to the layout changes a tie-break in block packing and moves a candidate. If this lane needs a larger waiver, the switch has leaked into the default and that is the defect. Integration runs --no-waivers on the merged tree.",
+ "waivers": [
+  {"code": "BP_V_TRANSPORT_UNUSED", "baseline_rate": 284.3333, "ceiling_rate": 300.0,
+   "cause": "a flow set on a hand record can change a deterministic tie-break in block packing, which can move which candidate is judged first; the arrangement rule is unchanged while the switch is off",
+   "paid_by": "140_route", "expires": "round-16",
+   "evidence": "docs/round-16-baseline.md section 2, and docs/feature-contracts.md 28.1"}
+ ]
+}
