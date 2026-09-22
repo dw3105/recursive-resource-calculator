@@ -1,0 +1,6 @@
+logic/bp/power.lua
+tools/blueprint_string.py
+tools/deliver.sh
+tests/test_power.lua
+tests/tools/test_blueprint_string.py
+tests/tools/test_deliver.py

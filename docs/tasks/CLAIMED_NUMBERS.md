@@ -135,3 +135,5 @@
 | `148` | `rrc/agent` | deliver: one command from the player's sheet to judged bytes | 2026-09-22 |
 | `149` | `rrc/agent` | shortfall: the finished science pack must reach the factory edge | 2026-09-22 |
 | `150` | `rrc/agent` | guard: the validator has never been tested against a splitter | 2026-09-22 |
+| `151` | `rrc/agent` | position: every delivered entity carries its own position, and the encoder refuses one that does not | 2026-09-22 |
+| `152` | `rrc/agent` | physics: a published splitter never turns flow | 2026-09-22 |
