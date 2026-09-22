@@ -1213,6 +1213,25 @@ success is forbidden.
 the trunk does not discharge the branch: each sink still gets its own belt from the trunk to its own port
 tile. Belt count is reported against the player's factory on every census.
 
+**The branch is laid as a continuation, never as a fork.** When a trunk can be extended through the next
+sink's own port tile, it is, and no `splitter` is built. The player's own factory is the authority: decoded
+from their bytes 2026-09-22, 84 `transport-belt` and **zero** `splitter` feed eleven machines, and the sinks
+this round routes sit in columns -- `(10,6)`/`(10,7)` and `(12,0)`/`(12,1)`/`(12,2)`. A run that passes
+through each port tile in turn is the geometry they built by hand.
+
+This was decided by the player on 2026-09-22 after both answers were measured on `legalcopilot-dev` against
+`tests/fixtures/routing/player_chain_first_candidate.lua`:
+
+| answer | belts | undergrounds | splitters | entities |
+|---|---|---|---|---|
+| continuation (**taken**) | 85 | 6 | **0** | 91 |
+| fork with a splitter | 81 | 6 | 2 | 89 |
+
+`tests/test_route_footprints.lua` RF1 asserted the fork, and was **amended on 2026-09-22** to assert the
+continuation, because its fixture is the same column shape. Splitter footprint geometry is unchanged and
+still judged, by RF2 and RF3 in that same file, which build real splitters. A `splitter` remains reachable
+whenever no continuation exists; it is the expensive answer, never the forbidden one.
+
 ### 28.9 Order is not a routing strategy
 
 `logic/bp/route.lua:748-757` sorts demands by pairing cost so an expensive span is laid before a short branch

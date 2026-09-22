@@ -1352,25 +1352,7 @@ local function append_normal_path(work, demand, path, amount)
         end
     end
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
-    if not chain_reaches_sink then
-        if os.getenv("RRC_DEBUG_CHAIN") then
-            io.stderr:write("DISCONT flow=" .. tostring(demand.flow_id) .. " src=" .. coordinate_key(demand.source.x, demand.source.y)
-                .. " sink=" .. coordinate_key(demand.sink.x, demand.sink.y) .. " path=")
-            for _, c in ipairs(path) do io.stderr:write(coordinate_key(c.x, c.y) .. " ") end
-            io.stderr:write("\n  cells:")
-            for _, c in ipairs(path) do
-                local s = work.segments_by_cell[coordinate_key(c.x, c.y)]
-                io.stderr:write(" " .. coordinate_key(c.x, c.y) .. "=" .. (s and (tostring(s.segment_id) .. "/d" .. tostring(s.direction)
-                    .. (s.splitter and ("/SPL" .. tostring(s.splitter_direction) .. "@" .. tostring(s.splitter_anchor_key) .. "+" .. tostring(s.splitter_second_key)) or "")
-                    .. (s.underground and "/UG" or "")) or "nil"))
-            end
-            io.stderr:write("\n  walk:")
-            local _, tiles = route_chain_walk(work, demand.source, nil, demand.flow_id)
-            for _, k in ipairs(tiles) do io.stderr:write(" " .. k) end
-            io.stderr:write("\n")
-        end
-        return reject("route-discontinuous")
-    end
+    if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
         work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
             sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id, rate_per_second = amount}
@@ -1963,13 +1945,6 @@ local function next_endpoint_candidate(demand)
 end
 
 local function fail_demand(state, work, demand, code, detail)
-    if os.getenv("RRC_DEBUG_CHAIN") then
-        io.stderr:write("FAILDEMAND code=" .. tostring(code) .. " flow=" .. tostring(demand and demand.flow_id)
-            .. " src=" .. tostring(demand and demand.source and coordinate_key(demand.source.x, demand.source.y))
-            .. " sink=" .. tostring(demand and demand.sink and coordinate_key(demand.sink.x, demand.sink.y))
-            .. " expansions=" .. tostring(work and work.expansions)
-            .. " lastreason=" .. tostring(work and work.last_route_rejection and work.last_route_rejection.reason) .. "\n")
-    end
     if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
     local record = {code = code, flow_id = demand and demand.flow_id}
     if detail ~= nil then record.detail = detail end
@@ -2107,7 +2082,6 @@ function Route.step(state, budget)
                         or (search.saw_capacity and "capacity" or (search.saw_blocked and "blocked" or "no_path"))
                     abandon_search(work, reason)
                     if search.saw_blocked and not search.saw_capacity and not search.saw_fluid_mix
-                        and not os.getenv("RRC_NO_ORDER_RETRY")
                         and search.order_index < #DIRECTION_ORDERS then
                         work.current = begin_search(work, demand, amount, search.order_index + 1)
                     elseif next_endpoint_candidate(demand) then

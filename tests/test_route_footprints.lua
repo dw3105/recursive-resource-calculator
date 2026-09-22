@@ -148,18 +148,39 @@ local function shared_splitter_input()
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " RF1 a splitter claims the second tile beside an existing belt", function()
+    --AMENDED 2026-09-22 on legalcopilot-dev, under contract 28.8, by the player's own decision.
+    --
+    --This case used to assert "the branch creates a splitter at the turn" and pin that splitter's centre at
+    --x = 6.  That was the Way 1 answer: fork the trunk, and pay two tiles for a splitter.  28.8 takes the
+    --Way 2 answer for this exact shape -- two sinks in one column, (5,3) and (5,1) -- because the player's
+    --own factory does: decoded from their bytes 2026-09-22, 84 transport-belt and ZERO splitter.  One run
+    --passes through each port tile in turn and every machine eats off it.
+    --
+    --The footprint contract this file exists for is NOT weakened.  assert_no_overlap still runs here, and
+    --RF2 and RF3 below still build real splitters and still judge their two-tile footprints.  What changed
+    --is only which answer this fixture's geometry asks for.
+    H.test(shape .. " RF1 one run serves a column of sinks and claims no splitter tile", function()
         local state = run(branch_input())
         H.equal(state.ok, true, "branch route succeeds")
         if not state.ok then return end
-        local splitter
+        local splitters = 0
         for _, entity in ipairs(state.result.entities) do
-            if entity.splitter then splitter = entity; break end
+            if entity.splitter then splitters = splitters + 1 end
         end
-        H.equal(splitter ~= nil, true, "the branch creates a splitter at the turn")
-        H.equal(splitter and splitter.position.x, 6, "the splitter is centered across its two tiles")
-        H.equal(entity_at(state.result, 5, 2) ~= nil, true, "the branch continues from the splitter")
-        assert_no_overlap(state.result, "splitter beside belt")
+        H.equal(splitters, 0, "the column is served without forking the trunk")
+        local straight_port = entity_at(state.result, 5, 3)
+        local turn = entity_at(state.result, 5, 2)
+        local branch_port = entity_at(state.result, 5, 1)
+        H.equal(straight_port ~= nil, true, "the run reaches the straight sink's own port tile 5:3")
+        H.equal(turn ~= nil, true, "the run continues through 5:2")
+        H.equal(branch_port ~= nil, true, "the run reaches the branch sink's own port tile 5:1")
+        --28.7: each of those three tiles must hand items to the next one, so the chain is directed.
+        H.equal(straight_port and straight_port.direction, Grid.NORTH, "5:3 faces the tile it feeds")
+        H.equal(turn and turn.direction, Grid.NORTH, "5:2 faces the tile it feeds")
+        for _, entity in ipairs({straight_port, turn, branch_port}) do
+            H.equal(entity and entity.flow_id, "item/branch", "every tile of the run carries the one flow")
+        end
+        assert_no_overlap(state.result, "one run through a column")
     end)
 
     H.test(shape .. " RF2 a splitter never overlaps an underground end", function()
