@@ -240,3 +240,85 @@ and one out, so it fits. `logic/bp/groups.lua` owns that, and it is the next lan
 
 The rates printed above also show `route_live` at work: every port reads `rate=0` except the last machine's,
 which carries the whole step rate.
+
+## 13. After lane 134 and the machine-row inset
+
+Merged `134`, then the integration commit `bf04e31`. Measured on `legalcopilot-dev`, 2026-09-22.
+
+### 13.1 The geometry on the player's REAL sheet
+
+Sections 1 and 12 above printed a port table taken from `tests/test_transport_handshake.lua`'s synthetic
+plan, not from the player's sheet, and labelled it as the sheet. The player caught it: that fixture has a
+copper furnace emitting `item/stone` and a science step taking `iron-gear-wheel` plus `item/iron-plate`, and
+the real sheet has neither. **Every census number in this ledger was measured on the real case; only that
+geometry table was not.** Driving `Groups` through `tests/golden/generate.lua`'s own JSON reader on
+`tests/golden/cases/player-red-science-1s/prepared_input.json` gives the real plan and the real blocks:
+
+```
+STEP automation-science-pack  assembling-machine-3  n=4  in copper-plate, iron-gear-wheel  out science
+STEP copper-plate             electric-furnace      n=2  in copper-ore                     out copper-plate
+STEP iron-gear-wheel          assembling-machine-3  n=1  in iron-plate                     out iron-gear-wheel
+STEP iron-plate               electric-furnace      n=4  in iron-ore                       out iron-plate
+
+block:automation-science-pack#1..#4  w=5  h=4  (-1,1) science out 0.25  (1,-1) gear in 0.25  (5,1) copper-plate in 0.25
+block:copper-plate                   w=5  h=8  (-1,1)(-1,5) copper-ore in 0.5   (5,1)(5,5) copper-plate out 0.5
+block:iron-gear-wheel                w=5  h=4  (-1,1) gear out 1        (5,1) iron-plate in 2
+block:iron-plate                     w=15 h=5  (0,-1)(4,-1)(8,-1)(12,-1) iron-ore in 0.5   (0,5)(4,5)(8,5)(12,5) iron-plate out 0.5
+```
+
+One machine per block wherever three faces are needed, belts on the sides, and the rates over a step's hands
+sum to that step's demand. That is the shape of the factory the player built by hand.
+
+### 13.2 The bug lane 134 shipped, and the two lines that fix it
+
+As committed, a strip of more than two machines kept `machine_y = 0`. A hand on the top face then occupies
+`y = -1` and its outward cell lands at `y = -2`, two tiles outside a block whose own top edge is `-1`.
+`block:iron-plate` published its four iron-ore ports at `attach_dy = -2`, `pack.lua`'s `bounded_slot` refused
+every one, and packing could place that block on no grid: `BP_FAIL_GRID_LIMIT`, twelve `BP_P_NO_FIT`, zero
+candidates reaching `validate`.
+
+Two lines had to move together, and probing showed neither alone worked. The inset at `groups.lua:879-880`
+now applies to every face layout rather than only the one and two machine cases, and the guard in the
+larger-strip branch that demanded `machine_y == 0` is gone, because requiring 0 and insetting the row are
+contradictory.
+
+After: `block:iron-plate` is `w=15 h=5` with ports at `attach_dy = -1` and `attach_dy = 5`, both on the
+perimeter; candidates reaching `validate` go **0 to 3**; `BP_P_NO_FIT` and `BP_FAIL_GRID_LIMIT` are gone.
+
+Census at the fast tier: `BP_V_TRANSPORT_UNUSED` 853, `BP_V_ROUTE_DISCONTINUOUS` 63,
+`BP_V_TARGET_SHORTFALL` 3, over 3 candidates. Waste and connectivity, no longer geometry.
+
+### 13.3 New red that lane 131 caused and no gate could see
+
+`sh tests/run.sh` on `bf04e31` reports two files that were green before round 15 and are red now. Bisected
+across the tags: both pass at `round-15-anchor` and fail at `round-15-bindings`, so lane 131 caused them.
+
+| test | before | now | assertion |
+|---|---:|---:|---|
+| `test_route_footprints` | 6 pass | **0 pass, 6 fail** | RF1 `the splitter is centered across its two tiles: expected 6, got 5.5`; RF2 `the blocked branch does not become a splitter: expected 0, got 1`; RF3 `the fixture exercises a splitter: expected true, got false` |
+| `test_route_budget` | 8 pass | 6 pass, 2 fail | RB4 `the cancellation starts after route work exists: expected true, got false` |
+
+RF2 is a product defect rather than fixture drift: a branch that must not become a splitter now does, and a
+splitter overlapping an underground end is exactly what that case exists to forbid. Per-port demands changed
+which branches carry how much, and splitter selection followed.
+
+**This is my authoring gap, the third of the round.** The `131_bindings` arm I added to
+`tools/verify_round9_lane.sh` lists `test_route.lua`, `test_route_network.lua`,
+`test_route_layout_contract.lua`, `test_demand_terminals.lua`, `test_port_tile_flow.lua` and
+`tests/test_bindings_per_hand.lua`. It omits `test_route_budget.lua` and `test_route_footprints.lua`, which
+are the two files that broke, so the lane's own focused gate could not run them and its census gate does not
+look at splitter geometry at all. A lane gate sees only what its tag names.
+
+`test_corpus_setups` moved the other way, from 12 failing cases to **6** per interpreter.
+
+### 13.4 Suite state on `bf04e31`
+
+| test | interpreter | failing | status |
+|---|---|---:|---|
+| `test_blueprint_pipeline` | both | 2 each | pre-existing |
+| `test_search` | both | 6 each | pre-existing, BP-20 |
+| `test_corpus_setups` | both | 6 each | pre-existing, improved from 12 |
+| `test_route_footprints` | both | 6 each | **new, lane 131** |
+| `test_route_budget` | both | 2 each | **new, lane 131** |
+
+Python: 217 pass. Frozen oracle: 88 of 88 on both interpreters.
