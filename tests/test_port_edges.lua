@@ -106,7 +106,7 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " PE2 members, inserters and beacons have disjoint exact boxes in all directions", function()
-        local block = grouped(one_step(2, 2, true))
+        local block = grouped(one_step(2, 1, true))
         for _, direction in ipairs(DIRECTIONS) do
             local placed = Groups.materialize(block, {x = 20, y = 20, dir = direction})
             local boxes = {}
