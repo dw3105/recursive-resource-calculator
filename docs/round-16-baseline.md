@@ -215,7 +215,36 @@ gained `--observed <file>`, which reads an already-collected inventory. Six case
 A ratchet that cannot go red on a regression and green on an improvement is decoration. These six are why it
 is not.
 
-## 8. Red proofs taken at spine
+## 8. Attempt 1 of all three lanes died on Codex quota, not on its work
+
+Launched 2026-09-22T04:54Z, `140_route`, `141_witness` and `142_economy`, bound 2266 s each. All three came
+back `FAIL reason: engine-exit` after **971 s, 971 s and 993 s**. The verdict says nothing about why. The
+reason is only in each lane's `docs/audit/runs/<label>/attempts/<run_id>/engine.log`, and all three carry the
+same line:
+
+```
+ERROR: You've hit your usage limit. Visit https://chatgpt.com/codex/settings/usage to purchase more credits
+or try again at Sep 27th, 2026 6:44 AM.
+```
+
+The work up to the cut survived in each worktree, and two of the three were already good. Measured
+2026-09-22 by running each lane's own files in its own worktree:
+
+| lane | state | measured |
+|---|---|---|
+| `142_economy` | committed `3d11d4e`, green | `test_hand_economy` 6 of 6 with HE1, HE2 and HE3; `test_groups` 32 of 32; `test_pack` 30 of 30; `test_inserter_geometry` 26 of 26; `test_transport_handshake` 8 of 8; oracle 88 of 88; codes-live 7 of 7; `multi_flow_hands` still `false` at `groups.lua:511` |
+| `141_witness` | uncommitted, green | `test_validate` 44 of 44 against 42 at base; `test_physical_witness` 12 of 12 against 8; `test_validated_candidate` 2 of 2; oracle 88 of 88; codes-live 7 of 7 |
+| `140_route` | uncommitted, regressed | `test_route` 36 of 38; `test_route_footprints` 0 of 6; `test_route_budget` 4 of 8 against 6 at base; `test_route_network` 10 of 14; `tests/test_route_chain.lua` never written |
+
+Lane 140 had real work in flight -- `splitter_can_absorb` wired into the crossing decision and a
+`segment_has_flow` predicate replacing the scalar flow comparison -- and was mid-edit when the engine was
+cut.
+
+Retried 2026-09-22T06:20Z to 06:24Z as attempt 2, in the SAME worktrees so nothing is lost. Two machine
+facts, both measured: `lane launch` refuses a worktree it did not find and never creates one, and a second
+launch of one label is refused with `attempt-already-exists` unless `--attempt-of <run_id>` is passed.
+
+## 9. Red proofs taken at spine
 
 | proof | result |
 |---|---|
