@@ -138,3 +138,4 @@
 | `151` | `rrc/agent` | position: every delivered entity carries its own position, and the encoder refuses one that does not | 2026-09-22 |
 | `152` | `rrc/agent` | physics: a published splitter never turns flow | 2026-09-22 |
 | `153` | `rrc/agent` | audit: the byte auditor has never seen a splitter, and it covers two tiles | 2026-09-22 |
+| `154` | `rrc/agent` | census: the gate counts discarded alternatives, and success discards fewer | 2026-09-22 |
