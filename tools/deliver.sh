@@ -12,9 +12,11 @@ TODAY=$(date -u +%Y%m%d)
 case_id=
 keep_dir=
 target_path="$ROOT/docs/round-16-delivery-target.json"
+no_target=false
+target_seen=false
 
 usage() {
-    echo "usage: tools/deliver.sh <case> [--keep-intermediate DIR] [--target PATH]" >&2
+    echo "usage: tools/deliver.sh <case> [--keep-intermediate DIR] [--target PATH | --no-target]" >&2
 }
 
 while [ "$#" -gt 0 ]; do
@@ -39,7 +41,12 @@ while [ "$#" -gt 0 ]; do
                 exit 2
             fi
             target_path=$2
+            target_seen=true
             shift 2
+            ;;
+        --no-target)
+            no_target=true
+            shift
             ;;
         --*)
             echo "deliver.sh: unknown option: $1" >&2
@@ -57,6 +64,11 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+if [ "$no_target" = true ] && [ "$target_seen" = true ]; then
+    echo "deliver.sh: --no-target cannot be combined with --target" >&2
+    exit 2
+fi
 
 if [ -z "$case_id" ]; then
     usage
@@ -161,7 +173,7 @@ if [ "$case_pattern_ok" != true ] || [ ! -d "$case_dir" ] || [ ! -f "$input_path
     exit "$exit_status"
 fi
 
-if [ ! -f "$target_path" ]; then
+if [ "$no_target" != true ] && [ ! -f "$target_path" ]; then
     reason="target file does not exist: $target_path"
     reason_code=target_missing
     printf 'deliver.sh: %s\n' "$reason" >&2
@@ -284,8 +296,13 @@ byte_count=$(wc -c < "$output_path" | awk '{print $1}')
 
 audit_begin=$(now_ns)
 audit_status=0
-python3 "$ROOT/tools/blueprint_audit.py" "$output_path" --expect-target "$target_path" --json \
-    >"$audit_json" 2>"$scratch_dir/audit.err" || audit_status=$?
+if [ "$no_target" = true ]; then
+    python3 "$ROOT/tools/blueprint_audit.py" "$output_path" --json \
+        >"$audit_json" 2>"$scratch_dir/audit.err" || audit_status=$?
+else
+    python3 "$ROOT/tools/blueprint_audit.py" "$output_path" --expect-target "$target_path" --json \
+        >"$audit_json" 2>"$scratch_dir/audit.err" || audit_status=$?
+fi
 audit_end=$(now_ns)
 audit_s=$(seconds_between "$audit_begin" "$audit_end")
 load_counts

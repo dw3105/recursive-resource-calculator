@@ -34,6 +34,7 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import sys
 import zlib
 from pathlib import Path
@@ -54,6 +55,13 @@ KEEP = ("name", "position", "direction", "recipe", "recipe_quality", "items", "q
 def convert(entities: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     result = []
     for index, entity in enumerate(entities, start=1):
+        position = entity.get("position")
+        if (not isinstance(position, dict)
+                or any(not isinstance(position.get(axis), (int, float))
+                       or not math.isfinite(position[axis]) for axis in ("x", "y"))):
+            raise SystemExit(
+                f"blueprint_string.py: entity {index} ({entity.get('name', '<unnamed>')}) "
+                "has no usable position")
         out: Dict[str, Any] = {"entity_number": index}
         for key in KEEP:
             if entity.get(key) is not None:

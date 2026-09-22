@@ -50,6 +50,18 @@ def decode(stdout):
 
 class BlueprintStringWireTest(unittest.TestCase):
 
+    def test_BS9_locationless_entity_refuses_by_index_and_name(self):
+        status, _, stderr = run({"entities": [{"name": "medium-electric-pole", "quality": "normal"}]})
+        self.assertEqual(status, 1)
+        self.assertIn("entity 1 (medium-electric-pole)", stderr)
+        self.assertIn("has no usable position", stderr)
+
+    def test_BS10_internal_xy_without_position_refuses_by_name(self):
+        status, _, stderr = run({"entities": [{"name": "medium-electric-pole", "x": 10, "y": 20}]})
+        self.assertEqual(status, 1)
+        self.assertIn("entity 1 (medium-electric-pole)", stderr)
+        self.assertIn("has no usable position", stderr)
+
     def test_BS1_a_result_with_no_wires_converts(self):
         """The control. Without it every refusal below is satisfied by a converter that refuses everything."""
         status, stdout, stderr = run({"entities": [POLE_A, POLE_B, MACHINE]})

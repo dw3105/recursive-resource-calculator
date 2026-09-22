@@ -1056,6 +1056,7 @@ function Power.step(state, budget)
                 publish.entities[position] = {
                     id = id, kind = "pole", name = candidate.name, quality = candidate.quality,
                     x = rect.x, y = rect.y, w = rect.w, h = rect.h,
+                    position = {x = rect.x + rect.w / 2, y = rect.y + rect.h / 2},
                     rect = {x = rect.x, y = rect.y, w = rect.w, h = rect.h},
                     supply_w = candidate.supply_w, supply_h = candidate.supply_h,
                     wire_reach = candidate.wire_reach,
