@@ -252,6 +252,42 @@ local function normalize_occupied(input)
     return result
 end
 
+local function occupied_cell_index(occupied)
+    local cells = {}
+    for index, entry in ipairs(occupied) do
+        local rect = entry.rect
+        local min_x, min_y = math.floor(rect.x), math.floor(rect.y)
+        local max_x, max_y = math.ceil(rect.x + rect.w) - 1, math.ceil(rect.y + rect.h) - 1
+        for y = min_y, max_y do
+            for x = min_x, max_x do
+                local key = tostring(x) .. ":" .. tostring(y)
+                local cell = cells[key]
+                if not cell then cell = {}; cells[key] = cell end
+                cell[#cell + 1] = index
+            end
+        end
+    end
+    return cells
+end
+
+local function candidate_is_occupied(candidate, work)
+    local rect = candidate.rect
+    local cells = work.occupied_cells
+    local seen = {}
+    for y = math.floor(rect.y), math.ceil(rect.y + rect.h) - 1 do
+        for x = math.floor(rect.x), math.ceil(rect.x + rect.w) - 1 do
+            local indices = cells[tostring(x) .. ":" .. tostring(y)] or {}
+            for _, index in ipairs(indices) do
+                if not seen[index] then
+                    seen[index] = true
+                    if rect_intersects(rect, work.occupied[index].rect) then return true end
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function connector_id(name)
     if type(defines) == "table" and type(defines.wire_connector_id) == "table"
         and defines.wire_connector_id[name] ~= nil then
@@ -370,6 +406,19 @@ local function next_candidate_position(state)
     local work, cursor = state._work, state.cursor
     if cursor.spec_index > #work.specs or #work.candidates >= work.candidate_limit then return nil end
     local spec_index, spec = cursor.spec_index, work.specs[cursor.spec_index]
+    -- Candidate coordinates are indexed by the rectangles a pole can reach.
+    -- They were built in row-major order, so resuming this cursor preserves
+    -- the exact ordering of the old exhaustive grid walk.
+    local indexed = work.positions_by_spec[spec_index]
+    if indexed then
+        local item = indexed[cursor.position_index or 1]
+        if item then
+            cursor.position_index = (cursor.position_index or 1) + 1
+            return {spec_index = spec_index, x = item.x, y = item.y, covers = item.covers}
+        end
+        cursor.spec_index, cursor.position_index = spec_index + 1, 1
+        return false
+    end
     local max_x, max_y = work.grid_w - spec.tile_w, work.grid_h - spec.tile_h
     local x, y = cursor.x, cursor.y
     if spec.fixed_x ~= nil or spec.fixed_y ~= nil then
@@ -387,6 +436,90 @@ local function next_candidate_position(state)
     if spec.fixed_x ~= nil and x ~= integer(spec.fixed_x, 0) then return false end
     if spec.fixed_y ~= nil and y ~= integer(spec.fixed_y, 0) then return false end
     return {spec_index = spec_index, x = x, y = y}
+end
+
+local function advance_candidate_index(state)
+    local work, builder = state._work, state._work.index_builder
+    local spec = work.specs[builder.spec_index]
+    if not spec then
+        work.index_builder = nil
+        state.cursor = {phase = "candidate_position", spec_index = 1, x = 0, y = 0, position_index = 1}
+        return
+    end
+    local max_x, max_y = work.grid_w - spec.tile_w, work.grid_h - spec.tile_h
+    if builder.mode == "spec_start" then
+        builder.by_key, builder.positions = {}, {}
+        builder.consumer_index, builder.mode = 1, "consumer_start"
+    elseif builder.mode == "consumer_start" then
+        local consumer = work.consumers[builder.consumer_index]
+        if not consumer then
+            builder.mode = "lattice_start"
+        elseif not rect_valid(consumer.rect) then
+            builder.consumer_index = builder.consumer_index + 1
+        else
+            local rect = consumer.rect
+            builder.min_x = math.max(0, math.floor(rect.x - spec.tile_w / 2 - spec.supply_w))
+            builder.max_cx = math.min(max_x, math.ceil(rect.x + rect.w - spec.tile_w / 2 + spec.supply_w))
+            builder.min_y = math.max(0, math.floor(rect.y - spec.tile_h / 2 - spec.supply_h))
+            builder.max_cy = math.min(max_y, math.ceil(rect.y + rect.h - spec.tile_h / 2 + spec.supply_h))
+            if spec.fixed_x ~= nil then builder.min_x, builder.max_cx = integer(spec.fixed_x, 0), integer(spec.fixed_x, 0) end
+            if spec.fixed_y ~= nil then builder.min_y, builder.max_cy = integer(spec.fixed_y, 0), integer(spec.fixed_y, 0) end
+            builder.x, builder.y = builder.min_x, builder.min_y
+            builder.mode = "consumer_position"
+        end
+    elseif builder.mode == "consumer_position" then
+        if builder.y > builder.max_cy then
+            builder.consumer_index, builder.mode = builder.consumer_index + 1, "consumer_start"
+        else
+            local consumer_index = builder.consumer_index
+            local candidate = {spec_index = builder.spec_index, name = spec.name, quality = spec.quality,
+                rect = candidate_rect(spec, builder.x, builder.y), supply_w = spec.supply_w,
+                supply_h = spec.supply_h, wire_reach = spec.wire_reach, covers = {}}
+            if consumer_covered(candidate, work.consumers[consumer_index]) then
+                local key = builder.y * (work.grid_w + 1) + builder.x
+                local item = builder.by_key[key]
+                if not item then item = {x = builder.x, y = builder.y, covers = {}, lattice = false}; builder.by_key[key] = item end
+                item.covers[consumer_index] = true
+            end
+            builder.x = builder.x + 1
+            if builder.x > builder.max_cx then builder.x, builder.y = builder.min_x, builder.y + 1 end
+        end
+    elseif builder.mode == "lattice_start" then
+        builder.lattice_step = math.max(1, math.floor(finite(spec.wire_reach, 2) / 2))
+        builder.x, builder.y, builder.mode = 0, 0, "lattice_position"
+    elseif builder.mode == "lattice_position" then
+        if max_x < 0 or max_y < 0 or builder.y > max_y then
+            builder.finalize_key, builder.mode = nil, "finalize"
+        else
+            local key = builder.y * (work.grid_w + 1) + builder.x
+            local item = builder.by_key[key]
+            if not item then item = {x = builder.x, y = builder.y, covers = {}, lattice = true}; builder.by_key[key] = item
+            else item.lattice = true end
+            builder.x = builder.x + builder.lattice_step
+            if builder.x > max_x then builder.x, builder.y = 0, builder.y + builder.lattice_step end
+        end
+    elseif builder.mode == "finalize" then
+        local key, item = next(builder.by_key, builder.finalize_key)
+        if key == nil then
+            builder.mode = "collect"
+        else
+            builder.finalize_key = key
+            local covers = {}
+            for consumer_index in pairs(item.covers) do covers[#covers + 1] = consumer_index end
+            table.sort(covers)
+            item.covers = covers
+            if #covers > 0 or item.lattice then builder.positions[#builder.positions + 1] = item end
+        end
+    elseif builder.mode == "collect" then
+        table.sort(builder.positions, function(a, b)
+            if a.y ~= b.y then return a.y < b.y end
+            return a.x < b.x
+        end)
+        if builder.positions then
+            work.positions_by_spec[builder.spec_index] = builder.positions
+            builder.spec_index, builder.mode = builder.spec_index + 1, "spec_start"
+        end
+    end
 end
 
 local function advance_pair(repair, count)
@@ -665,11 +798,13 @@ function Power.begin(input)
         + math.max(1, max_poles) * 8 + #consumers + 16)
     local state = {
         done = false, ok = nil,
-        cursor = {phase = "candidate_position", spec_index = 1, x = 0, y = 0},
+        cursor = {phase = "candidate_index"},
         progress = {phase = "power", done_units = 0, total_units = total_units},
         result = nil, errors = nil, ops_used = 0,
         _work = {
             grid_w = grid_w, grid_h = grid_h, specs = specs, consumers = consumers, occupied = occupied,
+            occupied_cells = occupied_cell_index(occupied),
+            positions_by_spec = {}, index_builder = {spec_index = 1, mode = "spec_start"},
             max_poles = math.max(0, max_poles), candidate_limit = candidate_limit,
             search_limit = search_limit, candidates = {}, candidate_keys = {}, candidate_index_by_key = {},
             candidate_eval = nil, selected = {}, selected_set = {}, covered = {}, covered_count = 0,
@@ -703,7 +838,10 @@ function Power.step(state, budget)
         state.ops_used = state.ops_used + 1
         local phase, cursor = state.cursor.phase, state.cursor
 
-        if phase == "candidate_position" then
+        if phase == "candidate_index" then
+            advance_candidate_index(state)
+
+        elseif phase == "candidate_position" then
             if #work.candidates >= work.candidate_limit or cursor.spec_index > #work.specs then
                 work.greedy.mode = "candidate"
                 cursor.phase = "greedy"
@@ -714,8 +852,9 @@ function Power.step(state, budget)
                     work.greedy.mode = "candidate"
                 elseif position ~= false then
                     local candidate = make_candidate(work, position.spec_index, position.x, position.y, true)
-                    work.candidate_eval = {candidate = candidate, occupied_index = 1, consumer_index = 1,
-                        blocked = false}
+                    candidate.covers = position.covers or {}
+                    work.candidate_eval = {candidate = candidate, occupied_index = #work.occupied + 1,
+                        consumer_index = #work.consumers + 1, blocked = candidate_is_occupied(candidate, work)}
                     cursor.phase = "candidate_occupied"
                 end
             end
