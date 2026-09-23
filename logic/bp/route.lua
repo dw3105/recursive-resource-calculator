@@ -2436,6 +2436,13 @@ end
 local function normalize_input(input)
     input = input or {}
     local placements, blocks = map_placements(input), map_blocks(input)
+    local input_entities = {}
+    for _, entity in ipairs(input.entities or {}) do input_entities[#input_entities+1]=entity end
+    for _, block in ipairs(blocks) do
+        for _, field in ipairs({"entities","placed_entities","inserters"}) do
+            for _, entity in ipairs(block[field] or {}) do input_entities[#input_entities+1]=entity end
+        end
+    end
     local work = {
         input_belt_capacity = finite(input.belt_capacity), input_pipe_capacity = finite(input.pipe_capacity),
         input_belt_name = input.belt_name, input_pipe_name = input.pipe_name,
@@ -2443,6 +2450,7 @@ local function normalize_input(input)
         belt = input.belt or (input.catalog and input.catalog.belt) or {},
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         belt_runs = input.belt_runs or {},
+        input_entities = input_entities,
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         --Ids were derived from the arrays' LENGTH.  merge_splitter_footprint folds a side segment out
@@ -2773,7 +2781,7 @@ end
 
 --The source inserter deposits on the far R lane. Curves preserve that lane. At a side entry, validator's
 --physical walk puts the entering flow on the lane nearest its approach side; prove that it is L before keeping.
-local function merge_lane_witness(work, path, candidate)
+local function merge_lane_witness(work, path, candidate, flow_a, a_lane)
     local target_index
     for i, cell in ipairs(path or {}) do
         if cell.x == candidate.x and cell.y == candidate.y then target_index=i; break end
@@ -2781,17 +2789,56 @@ local function merge_lane_witness(work, path, candidate)
     if not target_index then return false end
     local target_segment=work.segments_by_cell[coordinate_key(candidate.x,candidate.y)]
     if not target_segment or target_segment.direction==nil then return false end
+    if target_index < 2 then return false end
+    local adx,ady=Grid.dir_vector(target_segment.direction)
+    local behind=path[target_index-1]
+    if not adx or behind.x~=candidate.x-adx or behind.y~=candidate.y-ady then return false end
+    local behind_segment=work.segments_by_cell[coordinate_key(behind.x,behind.y)]
+    if not behind_segment or behind_segment.direction~=target_segment.direction then return false end
     local rx,ry=Grid.dir_vector(Grid.rotate_dir(target_segment.direction,4))
     if not rx then return false end
     local entering_dot=candidate.dx*rx+candidate.dy*ry
     local b_lane=entering_dot>0 and "R" or "L"
-    if b_lane~="L" then return false end
-    for i=target_index,#path do
+    if b_lane==a_lane then return false end
+    for i=1,#path do
         local cell=path[i]
         local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
         if not segment or segment.underground or segment.splitter then return false end
+        if i < target_index and (not segment_has_flow(segment,flow_a) or segment_flow_count(segment) ~= 1) then return false end
+        if i >= target_index and segment_flow_count(segment) > 2 then return false end
     end
     return true
+end
+
+local function source_lane(work, endpoint, flow_id)
+    local function same_id(a,b)
+        a,b=tostring(a or ""),tostring(b or "")
+        return a==b or a:gsub("^m:","")==b:gsub("^m:","")
+    end
+    for _,run in ipairs(work.belt_runs or {}) do
+        if run.role=="out" then
+            local carries=false
+            for _,id in ipairs(run.flows or {}) do if id==flow_id then carries=true end end
+            if carries then
+                for _,hand_id in ipairs(run.hand_ids or {}) do
+                    for _,hand in ipairs(work.input_entities or {}) do
+                        if same_id(hand.id,hand_id) and (hand.role=="output" or hand.direction=="output") then
+                            local drop=hand.drop_position or hand.drop
+                            local hx,hy=finite(hand.x),finite(hand.y)
+                            local tx,ty=finite(drop and drop.x),finite(drop and drop.y)
+                            if hx and hy and tx and ty then
+                                local rx,ry=Grid.dir_vector(Grid.rotate_dir(run.dir,4))
+                                local dot=(hx-tx)*rx+(hy-ty)*ry
+                                return dot>0 and "L" or "R", true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    -- A source without a represented hand follows the row contract's far-lane drop convention.
+    return "R", false
 end
 
 --The player placed v4 on 2026-09-23 and boxed two belts: "Why these bends?".  Grouping fixes each hand's
@@ -2952,8 +2999,20 @@ local function improve_step(work, st, ops)
                             local feeds_a, feeds_b = feeds_by_flow[flow_a] or {}, feeds_by_flow[flow_b] or {}
                             if feeds_a[1] and feeds_b[1] then
                                 local a, b = feeds_a[1], feeds_b[1]
-                                st.merges[#st.merges + 1] = {rear=rear, a=a, b=b}
-                                st.merges[#st.merges + 1] = {rear=rear, a=b, b=a}
+                                local source_a, source_b = work.endpoint_by_id[a.source_port_id], work.endpoint_by_id[b.source_port_id]
+                                local dx,dy=Grid.dir_vector(rear.travel_dir)
+                                local ahead_a=source_a and (source_a.x-rear.x)*dx+(source_a.y-rear.y)*dy
+                                local ahead_b=source_b and (source_b.x-rear.x)*dx+(source_b.y-rear.y)*dy
+                                local rx,ry=Grid.dir_vector(Grid.rotate_dir(rear.travel_dir,4))
+                                local side_a=source_a and (source_a.x-rear.x)*rx+(source_a.y-rear.y)*ry
+                                local side_b=source_b and (source_b.x-rear.x)*rx+(source_b.y-rear.y)*ry
+                                --The trial is for two sources approaching the rear door from behind it, on one side
+                                --of the row. A source already beyond the door cannot make the player's belt shape.
+                                if ahead_a and ahead_b and ahead_a<0 and ahead_b<0 and side_a*side_b>=0 then
+                                    local first=#st.merges+1
+                                    st.merges[#st.merges + 1] = {rear=rear, a=a, b=b,group_start=first,group_end=first+1}
+                                    st.merges[#st.merges + 1] = {rear=rear, a=b, b=a,group_start=first,group_end=first+1}
+                                end
                             end
                         end
                     end
@@ -3023,12 +3082,15 @@ local function improve_step(work, st, ops)
         elseif st.stage == "merge_start" then
             local pair = st.merges[st.merge_index]
             if not pair then
-                if st.merge_baseline and #work.entities >= #st.merge_baseline.entities then
-                    restore_route_snapshot(work, st.merge_baseline)
-                end
                 reanchor_bindings(work)
                 work.counters.routes_improved = st.improved
                 return used, true
+            end
+            if st.active_group ~= pair.group_start then
+                st.active_group=pair.group_start
+                st.pair_base=route_snapshot(work)
+                st.pair_best=nil
+                st.pair_best_weight=math.huge
             end
             st.snapshot = route_snapshot(work)
             local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second}),
@@ -3101,7 +3163,10 @@ local function improve_step(work, st, ops)
                                     ok=false; break
                                 end
                             end
-                            if ok and merge_lane_witness(work,st.a_path,st.active_candidate) then
+                            local a_source=work.endpoint_by_id[st.pair.a.source_port_id]
+                            local a_lane,a_lane_known=source_lane(work,a_source,st.da.flow_id)
+                            io.stderr:write("RRM ",tostring(a_lane)," known=",tostring(a_lane_known)," srcdir=",tostring(a_source and a_source.travel_dir)," reardir=",tostring(st.pair.rear.travel_dir),"\n")
+                            if ok and merge_lane_witness(work,st.a_path,st.active_candidate,st.da.flow_id,a_lane) then
                                 local sink=sink_key(st.pair.rear,work,st.pair.rear.port_id)
                                 for i=target_index+1,#st.a_path do
                                     local cell=st.a_path[i]
@@ -3152,14 +3217,31 @@ local function improve_step(work, st, ops)
             elseif phase == "finish" then
                 work.free_source_heading, work.allow_bury = nil, nil
                 if all_bindings_reach_sinks(work) and #work.entities < #st.snapshot.entities then
-                    st.accepted=true; st.merge_phase="accepted"
+                    local weight=route_weight(work)
+                    if weight<st.pair_best_weight then
+                        st.pair_best=route_snapshot(work)
+                        st.pair_best_weight=weight
+                    end
                 else st.merge_phase="failed" end
-            elseif phase == "accepted" then
-                st.merge_index=st.merge_index+1; st.snapshot=nil; st.stage="merge_start"
+                restore_route_snapshot(work,st.pair_base)
+                st.merge_index=st.merge_index+1
+                if st.merge_index>st.pair.group_end then
+                    if st.pair_best and #st.pair_best.entities<#st.pair_base.entities then
+                        restore_route_snapshot(work,st.pair_best)
+                    else restore_route_snapshot(work,st.pair_base) end
+                    st.active_group=nil; st.pair_base=nil; st.pair_best=nil
+                end
+                st.snapshot=nil; st.stage="merge_start"
             else
                 work.free_source_heading, work.allow_bury = nil, nil
-                restore_route_snapshot(work, st.snapshot)
+                restore_route_snapshot(work, st.pair_base)
                 st.merge_index=st.merge_index+1; st.snapshot=nil; st.stage="merge_start"
+                if st.merge_index>st.pair.group_end then
+                    if st.pair_best and #st.pair_best.entities<#st.pair_base.entities then
+                        restore_route_snapshot(work,st.pair_best)
+                    end
+                    st.active_group=nil; st.pair_base=nil; st.pair_best=nil
+                end
             end
         end
     end
