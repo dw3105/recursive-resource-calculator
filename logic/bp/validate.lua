@@ -13,6 +13,7 @@ local Grid = require "logic.bp.grid"
 --The world-box conversion is shared with the planner, so the two can never drift apart again.
 local Geometry = require "logic.bp.geometry"
 local Flags = require "logic.bp.flags"
+local Buffer = require "logic.bp.buffer"
 
 local EPSILON = 1e-9
 local INF = math.huge
@@ -885,6 +886,32 @@ local function check_geometry(work, index)
         end
     end
     return index >= #work.infos
+end
+
+--The buffer rule is independent of collision geometry: it is checked once, after the
+--incremental geometry pass, using the shared rule module and a stable entity order.
+local function check_buffer_zones(work)
+    local machines = {}
+    for _, info in ipairs(work.machines) do machines[#machines + 1] = info end
+    table.sort(machines, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    local records = {}
+    for _, machine in ipairs(machines) do
+        local entity = machine.entity or {}
+        local step = work.steps[entity.step_id]
+        local recipe = (step and step.recipe) or entity.recipe
+        local x, y, w, h = entity_tile_rect(machine)
+        records[#records + 1] = {id = tostring(machine.id), rect = {x = x, y = y, w = w, h = h},
+            ring = Buffer.ring(work.catalog, recipe), key = Buffer.key(machine.name, recipe)}
+    end
+    for i = 1, #records do
+        for j = i + 1, #records do
+            local a, b = records[i], records[j]
+            if Buffer.conflict(a, b) then
+                error_record(work.errors, "BP_V_BUFFER_ZONE", {a.id, b.id}, {rect_a = a.rect, rect_b = b.rect})
+            end
+        end
+    end
+    return true
 end
 
 --A plain-data connection_distance is a compatibility override for fixtures and callers. The engine fact for a
@@ -2351,7 +2378,7 @@ function Validate.step(state, budget)
         local phase = state.cursor.phase
         if phase == "geometry" then
             local index = state.cursor.index; check_geometry(work, index); state.cursor.index = index + 1
-            if index >= #work.infos then state.cursor.phase, state.cursor.index = "robo", 1 end
+            if index >= #work.infos then check_buffer_zones(work); state.cursor.phase, state.cursor.index = "robo", 1 end
         elseif phase == "robo" then check_robo(work); state.cursor.phase = "beacon"
         elseif phase == "beacon" then check_beacons(work); state.cursor.phase = "power_coverage"
         elseif phase == "power_coverage" then check_power_coverage(work); state.cursor.phase = "wire_legality"
