@@ -1085,6 +1085,13 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
     local input = stage_input(state, {
         grid = {w = grid.w, h = grid.h}, blocks = blocks, perimeter_ports = external,
         flows = state.work.plan_result.flows, obstacles = obstacles,
+        belt_runs = (function()
+            local runs = {}
+            for _, block in ipairs(blocks or {}) do
+                for _, run in ipairs(block.belt_runs or {}) do runs[#runs + 1] = run end
+            end
+            return runs
+        end)(),
     })
     input.ports = ports
     return input

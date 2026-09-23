@@ -874,6 +874,31 @@ local function register_segment_flow(segment, flow_id)
     segment.flow_ids[flow_id] = true
 end
 
+--Placed row belts are part of the block. They exist before route search and remain fixed while
+--ordinary demands are connected to their heads and ports.
+local function lay_belt_runs(work)
+    for _, run in ipairs(work.belt_runs or {}) do
+        local capacity, kind = capacity_for(work, {is_fluid = false})
+        local direction = run.dir
+        for _, tile in ipairs(run.tiles or {}) do
+            local key = coordinate_key(tile.x, tile.y)
+            if not work.segments_by_cell[key] then
+                local segment = {segment_id = next_segment_id(work), kind = kind,
+                    capacity_per_second = capacity, allocations = {}, direction = direction, length = 1,
+                    fixed = true, belt_run_role = run.role}
+                for _, flow_id in ipairs(run.flows or {}) do register_segment_flow(segment, flow_id) end
+                local entity = {id = next_entity_id(work), name = infrastructure(work, kind),
+                    position = entity_position(tile.x, tile.y), direction = direction, dir = direction,
+                    flow_id = run.flows and run.flows[1], segment_id = segment.segment_id, fixed = true}
+                work.entities[#work.entities + 1] = entity
+                work.segments[#work.segments + 1] = segment
+                work.segments_by_cell[key] = segment
+                work.entity_by_segment[segment.segment_id] = entity
+            end
+        end
+    end
+end
+
 local function segment_allows(work, segment, demand, amount)
     if not segment then return true end
     if segment.kind ~= demand.kind then return false, "occupied" end
@@ -1537,6 +1562,7 @@ local function append_normal_path(work, demand, path, amount)
             direction = segment.direction
         end
         if segment then
+            if segment.fixed and outgoing ~= nil and outgoing ~= segment.direction then return reject("occupied") end
             --A path may END on a splitter's second tile: that is where the sink's own port sits, and an
             --inserter picks from the tile, never from a tile further on.  Only LEAVING the body needs the
             --splitter's own heading.  Demanding it on arrival refused the branch outright: measured
@@ -2397,6 +2423,7 @@ local function normalize_input(input)
         multi_flow_hands = multi_flow_hands_enabled(input),
         belt = input.belt or (input.catalog and input.catalog.belt) or {},
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
+        belt_runs = input.belt_runs or {},
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         --Ids were derived from the arrays' LENGTH.  merge_splitter_footprint folds a side segment out
@@ -2451,6 +2478,7 @@ local function normalize_input(input)
         work.demands_by_key[index] = demand
     end
     work.port_cells = reserve_port_cells(work)
+    lay_belt_runs(work)
     return work
 end
 
@@ -2483,6 +2511,7 @@ local function restart_with_priority(state, work, demand)
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
     work.splitter_blocked_cells = {}
+    lay_belt_runs(work)
     work.attempt_generation, work.current = work.attempt_generation + 1, nil
     audit_route_work(work)
     state.cursor.demand_index, state.progress.done_units = 1, 0
@@ -2495,6 +2524,7 @@ local function clear_route_work(work)
     work.entities, work.segments, work.bindings = {}, {}, {}
     work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
     work.splitter_blocked_cells = {}
+    lay_belt_runs(work)
     work.current = nil
     audit_route_work(work)
 end
@@ -2662,6 +2692,7 @@ local function lift_binding(work, binding)
     local owned_ids, count = {}, 0
     for _, key in ipairs(mine) do
         local segment = work.segments_by_cell[key]
+        if segment and segment.fixed then return nil end
         if segment and not others[key] then
             if segment.splitter then return nil end
             if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
