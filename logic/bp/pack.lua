@@ -401,6 +401,25 @@ local function reset_region_cursor(cursor)
     cursor.direction_index, cursor.origin_x, cursor.origin_y, cursor.needs_offset = 1, nil, nil, false
 end
 
+--Every origin in one free region has the same BSSF score for a given direction. Once a
+--better candidate exists, a region whose best possible score is strictly worse cannot
+--win; strict comparison keeps equal-score regions in the scan for coordinate tie-breaks.
+local function region_can_beat(state, block, region)
+    local best = state.cursor.best
+    if best == nil then return true end
+    for _, direction in ipairs(block.allowed_dirs) do
+        local w, h = Grid.rotate_size(block.w, block.h, direction)
+        if region.w >= w and region.h >= h then
+            local short_side, long_side = Pack.bssf_score(region, w, h)
+            if short_side < best.short_side
+                or (short_side == best.short_side and long_side <= best.long_side) then
+                return true
+            end
+        end
+    end
+    return false
+end
+
 local function place(state, block)
     local candidate = state.cursor.best
     if candidate == nil then
@@ -517,7 +536,11 @@ function Pack.step(state, budget)
         if state.cursor.region_index <= #state.regions then
             if budget.ops == nil or budget.ops <= 0 then break end
             local region = state.regions[state.cursor.region_index]
-            if scan_one(state, block, region) then
+            if state.cursor.direction_index == 1 and state.cursor.origin_x == nil
+                and not region_can_beat(state, block, region) then
+                state.cursor.region_index = state.cursor.region_index + 1
+                reset_region_cursor(state.cursor)
+            elseif scan_one(state, block, region) then
                 state.stats.scans = state.stats.scans + 1
                 budget.ops = budget.ops - math.min(budget.ops, #block.ports > 0 and PORT_ORIGIN_OPS or 1)
             else
