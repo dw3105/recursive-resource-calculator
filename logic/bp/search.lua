@@ -15,7 +15,6 @@ local Plan = require "logic.bp.plan"
 local Preflight = require "logic.bp.preflight"
 local Groups = require "logic.bp.groups"
 local Pack = require "logic.bp.pack"
-local Buffer = require "logic.bp.buffer"
 local Route = require "logic.bp.route"
 local Power = require "logic.bp.power"
 local Validate = require "logic.bp.validate"
@@ -1501,11 +1500,13 @@ local function candidate_fits_grid(state, candidate)
         local sides = type(block.port_sides) == "table" and block.port_sides or {}
         local w = (block.w or 0) + (sides.left and 1 or 0) + (sides.right and 1 or 0)
         local h = (block.h or 0) + (sides.top and 1 or 0) + (sides.bottom and 1 or 0)
-        local machine_area = 0
+        local machine_ring_area = 0
         for _, zone in ipairs(block.buffer_zones or {}) do
-            machine_area = machine_area + (zone.w + (zone.ring or 0)) * (zone.h + (zone.ring or 0))
+            local ring = zone.ring or 0
+            machine_ring_area = machine_ring_area
+                + (zone.w + ring) * (zone.h + ring) - zone.w * zone.h
         end
-        needed = needed + math.max(w * h, machine_area)
+        needed = needed + w * h + machine_ring_area
         widest = math.max(widest, math.min(w, h))
         tallest = math.max(tallest, math.max(w, h))
     end
