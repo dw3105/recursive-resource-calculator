@@ -1,0 +1,2 @@
+logic/bp/power.lua
+tests/test_power_ops.lua

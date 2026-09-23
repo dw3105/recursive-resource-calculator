@@ -1,0 +1,5 @@
+logic/bp/generation.lua
+gui/blueprint_delivery.lua
+gui/progress_panel.lua
+locale/en/locale.cfg
+tests/test_generation_interim.lua

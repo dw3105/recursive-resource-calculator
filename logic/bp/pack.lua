@@ -17,8 +17,10 @@ local Grid = require "logic.bp.grid"
 
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 --An origin with ports evaluates multiple attachment cells and route approaches. Account for that bounded
---inner work so one module call stays short even when the search budget is large.
-local PORT_ORIGIN_OPS = 256
+--inner work so one module call stays short even when the search budget is large.  256 made one op ~0.5 us, so a
+--2000-op game tick did ~1 ms and the player's sheet needed 6101 pack ticks; 16 gives ~8 us per op, ~16 ms per
+--tick (measured 2026-09-23 on legalcopilot-dev with tools/speed_probe.sh).
+local PORT_ORIGIN_OPS = 16
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then

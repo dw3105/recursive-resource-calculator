@@ -2,6 +2,7 @@
 # In-game speed probe for the player's sheet.  The game advances a blueprint search on_tick with
 # Jobs.OPS_PER_TICK = 2000 ops (logic/jobs.lua).  This drives Search.step exactly so and times:
 #   SPEED line : ticks, total CPU, worst single tick, done/ok, entities when done
+#   FIRST line : ticks and CPU until Search exposes its first valid layout as state.interim (round 24)
 #   MOD lines  : every begin/step of plan, groups, pack, route, power, validate, serialize -- calls, CPU, worst call
 # It stops after CAP seconds of CPU (default 40) and says CAP, or END when the search finished.
 # Measured 2026-09-23 on legalcopilot-dev at 59e31ff, CAP=40: not done; worst pack.step 8.157 s,
@@ -29,7 +30,7 @@ for _, m in ipairs({"logic.bp.plan", "logic.bp.groups", "logic.bp.pack", "logic.
     "logic.bp.validate", "logic.bp.serialize"}) do wrap(m) end
 local S = require "logic.bp.search"
 local step = S.step
-local cap, ticks, worst = tonumber(os.getenv("CAP")), 0, 0
+local cap, ticks, worst, first_seen = tonumber(os.getenv("CAP")), 0, 0, false
 local function report(tag, state)
   local entities = state.result and state.result.entities and #state.result.entities or 0
   io.stdout:write(string.format("SPEED %s ticks=%d cpu=%.2f worst_tick=%.3f done=%s ok=%s entities=%d\n", tag, ticks,
@@ -43,6 +44,10 @@ S.step = function(state, budget)
   budget.ops = 2000; ticks = ticks + 1
   local t = os.clock(); local r = step(state, budget); local d = os.clock() - t
   if d > worst then worst = d end
+  if not first_seen and type(state.interim) == "table" and state.interim.result ~= nil then
+    first_seen = true
+    io.stdout:write(string.format("FIRST ticks=%d cpu=%.2f entities=%s\n", ticks, os.clock() - cpu0, tostring(state.interim.entities)))
+  end
   if state.done then report("END", state); os.exit(0) end
   if os.clock() - cpu0 > cap then report("CAP", state); os.exit(0) end
   return r

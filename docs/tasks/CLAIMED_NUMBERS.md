@@ -154,3 +154,8 @@
 | `167` | `rrc/agent` | route: route.begin and the re-route pass split across ticks | 2026-09-23 |
 | `168` | `rrc/agent` | search: stop when the incumbent stops improving; groups.begin resumable | 2026-09-23 |
 | `169` | `rrc/agent` | power: pole placement in far fewer ops | 2026-09-23 |
+| `170` | `rrc/agent` | pack: one op costs microseconds and a layout packs in half a second | 2026-09-23 |
+| `171` | `rrc/agent` | route: a layout routes in one second | 2026-09-23 |
+| `172` | `rrc/agent` | search: stop by layouts, publish each better layout as state.interim, groups.step yields | 2026-09-23 |
+| `173` | `rrc/agent` | deliver: the first layout reaches the player fast, better ones are offered | 2026-09-23 |
+| `174` | `rrc/agent` | power: pole placement in far fewer ops, same poles | 2026-09-23 |
