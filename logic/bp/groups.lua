@@ -1819,7 +1819,7 @@ local function step_ports(steps, catalog, flows)
     return ports
 end
 
-local function make_candidates(input)
+local function prepare_candidates(input)
     --TRI-STATE, and that is load-bearing: `nil` means "use the production switch", `true` forces the feature
     --on, `false` forces it OFF.  The `and ... or previous` form below could only ever force it ON, so once
     --the production flag was on, HE1 in tests/test_hand_economy.lua asked for "switch off", read the global
@@ -1864,48 +1864,55 @@ local function make_candidates(input)
     local limits = input and input.limits or {}
     local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
     local specs = partition_specs(layout_steps, max_candidates * 2)
-    local candidates, failures = {}, {}
-    local seen = {}
-    for _, spec in ipairs(specs) do
-        local blocks = {}
-        local valid = true
-        for _, group in ipairs(spec) do
-            local block_id = "block:" .. group.id
-            local block = build_block(group.steps, catalog, relevant_ports(group.steps, ports, flows), flows, input, block_id)
-            if block.invalid_coverage or block.failure then
-                valid = false
-                failures[#failures + 1] = block.failure or {
-                    name = "beacon-split", code = "BP_P_NO_FIT", detail = "configured beacon coverage cannot be split",
-                }
-                break
-            end
-            blocks[#blocks + 1] = block
-        end
-        if valid then
-            table.sort(blocks, function(a, b) return a.id < b.id end)
-            local ids = {}
-            local beacon_count = 0
-            for _, block in ipairs(blocks) do
-                ids[#ids + 1] = block.id
-                beacon_count = beacon_count + block.physical_beacon_count
-            end
-            local id = table.concat(ids, "|")
-            if not seen[id] then
-                seen[id] = true
-                candidates[#candidates + 1] = {
-                    id = id, candidate_id = id, blocks = blocks,
-                    physical_beacon_count = beacon_count, beacon_count = beacon_count,
-                }
-            end
-        end
-        if #candidates >= max_candidates then break end
-    end
-    table.sort(candidates, function(a, b)
-        if a.physical_beacon_count == b.physical_beacon_count then return a.id < b.id end
-        return a.physical_beacon_count < b.physical_beacon_count
-    end)
     multi_flow_hands = previous_multi_flow_hands
-    return candidates, failures
+    return {input = input, catalog = catalog, flows = flows, ports = ports, specs = specs,
+        max_candidates = max_candidates, forced = forced, candidates = {}, failures = {}, seen = {}, index = 1}
+end
+
+local function build_candidate(context)
+    local input, catalog, flows, ports = context.input, context.catalog, context.flows, context.ports
+    local forced = context.forced
+    local previous = multi_flow_hands
+    if forced ~= nil then multi_flow_hands = forced == true and forced_multi_flow_hands(input) end
+    local spec = context.specs[context.index]
+    local blocks, valid = {}, true
+    for _, group in ipairs(spec) do
+        local block_id = "block:" .. group.id
+        local block = build_block(group.steps, catalog, relevant_ports(group.steps, ports, flows), flows, input, block_id)
+        if block.invalid_coverage or block.failure then
+            valid = false
+            context.failures[#context.failures + 1] = block.failure or {
+                name = "beacon-split", code = "BP_P_NO_FIT", detail = "configured beacon coverage cannot be split",
+            }
+            break
+        end
+        blocks[#blocks + 1] = block
+    end
+    if valid then
+        table.sort(blocks, function(a, b) return a.id < b.id end)
+        local ids, beacon_count = {}, 0
+        for _, block in ipairs(blocks) do
+            ids[#ids + 1] = block.id
+            beacon_count = beacon_count + block.physical_beacon_count
+        end
+        local id = table.concat(ids, "|")
+        if not context.seen[id] then
+            context.seen[id] = true
+            context.candidates[#context.candidates + 1] = {id = id, candidate_id = id, blocks = blocks,
+                physical_beacon_count = beacon_count, beacon_count = beacon_count}
+        end
+    end
+    multi_flow_hands = previous
+    context.index = context.index + 1
+    if #context.candidates >= context.max_candidates then context.index = #context.specs + 1 end
+    if context.index > #context.specs then
+        table.sort(context.candidates, function(a, b)
+            if a.physical_beacon_count == b.physical_beacon_count then return a.id < b.id end
+            return a.physical_beacon_count < b.physical_beacon_count
+        end)
+        return true
+    end
+    return false
 end
 
 function Groups.begin(input)
@@ -1915,35 +1922,35 @@ function Groups.begin(input)
         -- Search already crosses a data-only copy boundary before this call. Retaining this immutable input
         -- reference keeps begin constant-time; candidate construction and its copy costs belong in step.
         work = {input = input or {}, candidates = nil, failures = nil, emitted = {},
-            candidate_enumerations = 0},
+            candidate_enumerations = 0, context = nil},
     }
 end
 
 function Groups.step(state, budget)
     if state.done then return state end
     budget = budget or {ops = 1}
-    local ops = finite(budget.ops, 1)
-    -- Candidate construction is deferred until the budgeted step. Keep the counter on the plain-data
-    -- state so callers can verify begin did not enumerate candidates.
-    if ops > 0 and state.work.candidates == nil then
-        local candidates, failures = make_candidates(state.work.input)
-        state.work.candidates, state.work.failures = candidates, failures
-        state.work.candidate_enumerations = #candidates
-        state.progress.total_units = #candidates
-        state.cursor.phase = "emit"
+    local ops = math.max(0, finite(budget.ops, 1))
+    if ops > 0 and state.work.context == nil then
+        state.work.context = prepare_candidates(state.work.input)
+        state.cursor.phase = "enumerate"
         ops = ops - 1
     end
-    while ops > 0 and state.work.candidates and state.cursor.candidate_index <= #state.work.candidates do
-        local candidate = state.work.candidates[state.cursor.candidate_index]
-        state.work.emitted[#state.work.emitted + 1] = candidate
-        state.cursor.candidate_index = state.cursor.candidate_index + 1
+    while ops > 0 and state.work.context and state.work.context.index <= #state.work.context.specs do
+        local finished = build_candidate(state.work.context)
         state.progress.done_units = state.progress.done_units + 1
         ops = ops - 1
+        if finished then break end
     end
     budget.ops = ops
-    if state.work.candidates and state.cursor.candidate_index > #state.work.candidates then
-        state.result = {candidates = state.work.emitted, failures = list_copy(state.work.failures)}
-        state.done, state.ok = true, #state.work.emitted > 0
+    local context = state.work.context
+    if context and context.index > #context.specs then
+        state.work.candidates = context.candidates
+        state.work.failures = context.failures
+        state.work.candidate_enumerations = #context.candidates
+        state.progress.total_units = #context.candidates
+        state.result = {candidates = list_copy(context.candidates), failures = list_copy(context.failures)}
+        state.done, state.ok = true, #context.candidates > 0
+        state.cursor.phase = "done"
     end
     return state
 end

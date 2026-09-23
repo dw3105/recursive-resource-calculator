@@ -1692,6 +1692,7 @@ function Search.step(container, budget)
                     local record = record_valid_attempt(state, score)
                     local improves = state.incumbent == nil or Validate.compare(score, state.incumbent.score) < 0
                     if improves then
+                        local first_incumbent = state.incumbent == nil
                         if state.work.incumbent_record then
                             state.work.incumbent_record.chosen = false
                             state.work.incumbent_record.reason = "outscored"
@@ -1700,6 +1701,7 @@ function Search.step(container, budget)
                         state.work.incumbent_record = record
                         state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
                             validation = copy(state.work.validate.result)}
+                        if first_incumbent then state.max_ops = nil end
                         state.work.incumbent_location = {grid_index = state.cursor.grid_index,
                             candidate_index = state.cursor.candidate_index, ordering_index = state.cursor.order_index}
                         state.work.no_improvement_attempts = 0
@@ -1710,12 +1712,12 @@ function Search.step(container, budget)
                     state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
                     state.work.attempt_recorded = true
                     begin_improvement_budget(state)
-                    if state.work.validated_layouts >= MAX_LAYOUTS then
+                    if not improves and state.work.no_improvement_attempts >= NO_IMPROVEMENT_LIMIT then
+                        stop_no_improvement(state, "validated alternatives did not improve the incumbent")
+                    elseif state.work.validated_layouts >= MAX_LAYOUTS then
                         state.work.stop_reason = "max_layouts"
                         record_search_bound(state, "max_layouts", "maximum validated layouts reached")
                         begin_serialization(state)
-                    elseif not improves and state.work.no_improvement_attempts >= NO_IMPROVEMENT_LIMIT then
-                        stop_no_improvement(state, "validated alternatives did not improve the incumbent")
                     else
                         discard_candidate(state)
                     end

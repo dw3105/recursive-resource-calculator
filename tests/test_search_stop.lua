@@ -7,6 +7,7 @@ local Pack = require "logic.bp.pack"
 local Power = require "logic.bp.power"
 local Route = require "logic.bp.route"
 local Search = require "logic.bp.search"
+local Serialize = require "logic.bp.serialize"
 local Validate = require "logic.bp.validate"
 
 local function clone(value, seen)
@@ -251,6 +252,42 @@ H.test("SS2 Groups.begin does not enumerate and operation slices preserve candid
         return current.result.candidates
     end
     H.deep_equal(run(1), run(1000000000), "slice size preserves candidate results")
+end)
+
+H.test("SS3 post-incumbent stopping uses validated layouts, never an op ceiling", function()
+    local candidates = {candidate("a", 1, 3), candidate("b", 1, 2), candidate("c", 1, 1),
+        candidate("d", 1, 0)}
+    local input = search_input({{w = 2, h = 2}}, candidates)
+    local state = run_with_stages({candidates = candidates, score_for = function(value)
+        return {beacon_count = 5 - ({a = 1, b = 2, c = 3, d = 4})[value.blocks[1].id], footprint_area = 1}
+    end}, function() return finish(Search.begin(input), 1) end)
+    H.equal(state.result.search.stop, "max_layouts", "the total layout bound is reported")
+    H.equal(state.work.validated_layouts, 3, "exactly three layouts are validated")
+    H.equal(state.work.post_incumbent_limit, nil, "no post-incumbent operation ceiling exists")
+end)
+
+H.test("SS4 interim sequence advances and publishes serialized incumbents", function()
+    local candidates = {candidate("a", 1, 3), candidate("b", 1, 2), candidate("c", 1, 1)}
+    local input = search_input({{w = 2, h = 2}}, candidates)
+    local state = run_with_stages({candidates = candidates, score_for = function(value)
+        return {beacon_count = 4 - ({a = 1, b = 2, c = 3})[value.blocks[1].id], footprint_area = 1}
+    end}, function() return finish(Search.begin(input), 1) end)
+    H.equal(state.interim.sequence, 3, "each improvement increments sequence")
+    local serial = Serialize.begin(state.incumbent.candidate)
+    while not serial.done do Serialize.step(serial, {ops = 1000}) end
+    H.deep_equal(state.interim.result, serial.result, "interim is the serialized incumbent")
+    H.equal(state.interim.entities, #serial.result.entities, "interim entity count is exact")
+end)
+
+H.test("SS5 Groups.step worst call stays below 30 ms", function()
+    local state = Groups.begin({steps = {{step_id = "one", machine = "assembler", machine_count = 1}}})
+    local worst = 0
+    while not state.done do
+        local started = os.clock()
+        Groups.step(state, {ops = 1})
+        worst = math.max(worst, os.clock() - started)
+    end
+    H.equal(worst <= 0.03, true, "worst grouping slice is at most 30 ms; measured " .. tostring(worst))
 end)
 
 H.done("test_search_stop")
