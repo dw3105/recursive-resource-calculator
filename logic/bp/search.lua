@@ -152,9 +152,9 @@ end
 
 local CANDIDATE_ALLOWANCE = 4
 -- The player replay's winning layout is found early; allow two later validated misses to
--- guard against ordering noise, while bounding all post-incumbent exploration to two million ops.
+-- guard against ordering noise while bounding work by complete validated layouts.
 local NO_IMPROVEMENT_LIMIT = 2
-local POST_INCUMBENT_OP_CAP = 2000000
+local MAX_LAYOUTS = 3
 
 local function grid_trial_limit(input, limits, grid_count)
     local maximum = input.max_search_grids or input.max_grid_trials
@@ -1433,6 +1433,13 @@ local function stop_no_improvement(state, reason)
     return true
 end
 
+local function publish_interim(state)
+    local serial = Serialize.begin(state.incumbent.candidate)
+    while not serial.done do Serialize.step(serial, {ops = 1000000000}) end
+    state.interim = {sequence = (state.interim and state.interim.sequence or 0) + 1,
+        result = copy(serial.result), entities = #(serial.result.entities or {})}
+end
+
 local function finish_search_budget(state)
     if state.incumbent then
         record_search_bound(state, "search_budget", "unvisited grid and candidate alternatives were discarded at the operation bound")
@@ -1572,14 +1579,7 @@ function Search.step(container, budget)
     if state.max_ops ~= nil and state.phase ~= "serialize" then
         budget.ops = math.min(budget.ops, math.max(0, state.max_ops - state.ops_used))
     end
-    if state.incumbent and state.work.post_incumbent_limit and state.phase ~= "serialize" then
-        budget.ops = math.min(budget.ops, math.max(0, state.work.post_incumbent_limit - state.ops_used))
-    end
     if budget.ops <= 0 then
-        if state.incumbent and state.work.post_incumbent_limit
-            and state.ops_used >= state.work.post_incumbent_limit and state.phase ~= "serialize" then
-            stop_no_improvement(state, "post-incumbent operation cap reached")
-        end
         if state.max_ops ~= nil and budget_limit_reached(state) and state.phase ~= "serialize" then
             finish_search_budget(state)
         end
@@ -1588,11 +1588,6 @@ function Search.step(container, budget)
     end
 
     while not state.done and budget.ops > 0 do
-        if state.phase ~= "serialize" and state.incumbent and state.work.post_incumbent_limit
-            and state.ops_used >= state.work.post_incumbent_limit then
-            stop_no_improvement(state, "post-incumbent operation cap reached")
-            break
-        end
         if state.phase ~= "serialize" and budget_limit_reached(state) then finish_search_budget(state); break end
         if state.phase == "plan" then
             run_stage(state, "plan_state", Plan, budget)
@@ -1708,15 +1703,18 @@ function Search.step(container, budget)
                         state.work.incumbent_location = {grid_index = state.cursor.grid_index,
                             candidate_index = state.cursor.candidate_index, ordering_index = state.cursor.order_index}
                         state.work.no_improvement_attempts = 0
-                        state.work.post_incumbent_limit = state.work.post_incumbent_limit
-                            or (state.ops_used + POST_INCUMBENT_OP_CAP)
+                        publish_interim(state)
                     else
                         state.work.no_improvement_attempts = (state.work.no_improvement_attempts or 0) + 1
                     end
+                    state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
                     state.work.attempt_recorded = true
                     begin_improvement_budget(state)
-                    if not improves and (state.work.no_improvement_attempts >= NO_IMPROVEMENT_LIMIT
-                        or state.ops_used - state.work.improvement_start_ops >= POST_INCUMBENT_OP_CAP) then
+                    if state.work.validated_layouts >= MAX_LAYOUTS then
+                        state.work.stop_reason = "max_layouts"
+                        record_search_bound(state, "max_layouts", "maximum validated layouts reached")
+                        begin_serialization(state)
+                    elseif not improves and state.work.no_improvement_attempts >= NO_IMPROVEMENT_LIMIT then
                         stop_no_improvement(state, "validated alternatives did not improve the incumbent")
                     else
                         discard_candidate(state)
