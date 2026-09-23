@@ -1319,17 +1319,29 @@ local function route_chain_tiles(work, source, flow_id)
     return tiles
 end
 
-local function search_root(search, key)
-    while search.parent[key] do key = search.parent[key] end
-    return search.points[key]
+--Every tile of the path this search is building, from `key` back to its root.  None of them is laid yet
+--except the ones the path RIDES on an existing run, so a walk over laid segments alone cannot see a ring
+--the path closes through itself.
+local function search_path_tiles(search, key)
+    local tiles = {}
+    while key do
+        local point = search.points[key]
+        if point then tiles[coordinate_key(point.x, point.y)] = true end
+        key = search.parent[key]
+    end
+    return tiles
 end
 
+--A ring is a belt whose items come back to a tile they already passed.  Items leaving onto (x, y) flow on
+--down the laid same-flow chain; if that chain, or (x, y) itself, touches ANY tile of this path, the path
+--closes a ring.  Checking only the root missed one: measured 2026-09-23 on legalcopilot-dev, the science
+--path rooted at (14,0) rode the laid belt (15,0), dived round through (17,2)->(17,7) and (15,7)->(15,2),
+--and aimed its last belt at (15,1) back into (15,0) -- a 12-tile ring, r:320..r:330.
 local function downstream_reaches_root(work, search, from_key, x, y)
-    local root = search_root(search, from_key)
-    if not root then return false end
+    local own = search_path_tiles(search, from_key)
+    if own[coordinate_key(x, y)] then return true end
     local _, tiles = route_chain_walk(work, {x = x, y = y}, nil, search.demand.flow_id)
-    local wanted = coordinate_key(root.x, root.y)
-    for _, key in ipairs(tiles) do if key == wanted then return true end end
+    for _, key in ipairs(tiles) do if own[key] then return true end end
     return false
 end
 
@@ -1876,8 +1888,14 @@ local function search_step(work, search)
         --2026-09-22 on legalcopilot-dev, iron-plate:4 at (17,42) starved with ok=false stage=failed while
         --the trunk already ran east through (9,42) and (13,42).  An underground is still refused -- a belt
         --under the ground feeds nothing above it.
+        --A perimeter DOOR is no inserter: its belt must face the way the door points, or items never leave
+        --the map.  Measured 2026-09-23 on legalcopilot-dev: the science drain at (15,0) travel N was laid
+        --facing EAST by a straight arrival, the next science machine could only reach it round a 12-tile
+        --ring, and refusing the ring left automation-science-pack:4 BP_R_NO_PATH.  So the widening below is
+        --for machine ports only.
         local sink_any_approach = false
-        if target and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
+        if target and not search.demand.sink.perimeter
+            and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
             local sink_segment = work.segments_by_cell[coordinate_key(nx, ny)]
             if sink_segment == nil then
                 --Only a STRAIGHT step onto the empty port tile is widened.  A turn onto it still has to be
