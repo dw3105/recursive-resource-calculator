@@ -185,7 +185,10 @@ local function comparison_catalog()
 end
 
 local function comparison_group(signature)
-    return {signature = signature, name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {}}
+    -- Give the synthetic comparison profiles the same measured area as comparison_catalog's beacon. The
+    -- generated beacon must cover the 1x1 and 2x1 machine footprints before this fixture compares candidates.
+    return {signature = signature, name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {},
+        supply_w = 10, supply_h = 10}
 end
 
 local function comparison_plan()
