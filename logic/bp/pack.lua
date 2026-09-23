@@ -14,6 +14,7 @@
 --already enough work to hold a tick.
 local Pack = {}
 local Grid = require "logic.bp.grid"
+local Buffer = require "logic.bp.buffer"
 
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 --An origin with ports evaluates multiple attachment cells and route approaches. Account for that bounded
@@ -67,13 +68,39 @@ local function copy_block(block)
     for index, port in ipairs(block.ports or block.block_ports or {}) do
         ports[index] = copy_port(port, index)
     end
+    local buffer_zones = {}
+    for index, zone in ipairs(block.buffer_zones or {}) do
+        buffer_zones[index] = {x = zone.x, y = zone.y, w = zone.w, h = zone.h,
+            ring = zone.ring, key = zone.key}
+    end
     return {
         block_id = block.block_id ~= nil and block.block_id or block.id,
         w = block.w,
         h = block.h,
         allowed_dirs = copy_directions(block.allowed_dirs),
         ports = ports,
+        buffer_zones = buffer_zones,
     }
+end
+
+local function rotate_buffer_zones(block, x, y, direction)
+    local zones = {}
+    for _, zone in ipairs(block.buffer_zones or {}) do
+        local dx, dy, w, h = Grid.rotate_rect(zone.x, zone.y, zone.w, zone.h,
+            block.w, block.h, direction)
+        zones[#zones + 1] = {rect = {x = x + dx, y = y + dy, w = w, h = h},
+            ring = zone.ring, key = zone.key}
+    end
+    return zones
+end
+
+local function buffer_zones_fit(state, zones)
+    for _, candidate in ipairs(zones) do
+        for _, placed in ipairs(state.buffer_zones) do
+            if Buffer.conflict(candidate, placed) then return false end
+        end
+    end
+    return true
 end
 
 local function copy_rects(rects)
@@ -312,6 +339,8 @@ end
 local function scan_origin(state, block, region, direction, x, y)
             local w, h = Grid.rotate_size(block.w, block.h, direction)
             state.counters.origins = state.counters.origins + 1
+                local buffer_zones = rotate_buffer_zones(block, x, y, direction)
+                if not buffer_zones_fit(state, buffer_zones) then return true end
                 if placement_avoids_port_cells(state, x, y, w, h) then
                     local short_side, long_side = Pack.bssf_score(region, w, h)
                     local candidate = {
@@ -386,6 +415,8 @@ local function place(state, block)
         port_slots = candidate.port_slots,
     }
     state.placements[#state.placements + 1] = placement
+    local placed_zones = rotate_buffer_zones(block, candidate.x, candidate.y, candidate.dir)
+    for _, zone in ipairs(placed_zones) do state.buffer_zones[#state.buffer_zones + 1] = zone end
 
     --Reserve a routing corridor around the block, never only the block itself.
     --
@@ -459,6 +490,7 @@ function Pack.begin(input)
         progress = {phase = "packing", done_units = 0, total_units = #blocks},
         stats = {peak_free_regions = #regions, scans = 0},
         port_cells = {},
+        buffer_zones = {},
         counters = {origins = 0},
     }
     rebuild_indexes(state)

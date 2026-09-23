@@ -1500,7 +1500,13 @@ local function candidate_fits_grid(state, candidate)
         local sides = type(block.port_sides) == "table" and block.port_sides or {}
         local w = (block.w or 0) + (sides.left and 1 or 0) + (sides.right and 1 or 0)
         local h = (block.h or 0) + (sides.top and 1 or 0) + (sides.bottom and 1 or 0)
-        needed = needed + w * h
+        local machine_ring_area = 0
+        for _, zone in ipairs(block.buffer_zones or {}) do
+            local ring = zone.ring or 0
+            machine_ring_area = machine_ring_area
+                + (zone.w + ring) * (zone.h + ring) - zone.w * zone.h
+        end
+        needed = needed + w * h + machine_ring_area
         widest = math.max(widest, math.min(w, h))
         tallest = math.max(tallest, math.max(w, h))
     end
