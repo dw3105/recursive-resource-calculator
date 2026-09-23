@@ -413,7 +413,7 @@ end
 
 -- Pick each row run independently. The partner locations come from the flow graph; external
 -- partners sit on the same perimeter edge used later to make router terminals.
-local function choose_row_runs(block, placement, all_blocks, all_placements, grid, flows, input_edge, output_edge)
+local function choose_row_runs(block, placement, all_blocks, all_placements, grid, flows, input_edge, output_edge, obstacles)
     if not block.row then return block end
     local placed_by_id = {}
     for index, other in ipairs(all_blocks or {}) do
@@ -458,7 +458,9 @@ local function choose_row_runs(block, placement, all_blocks, all_placements, gri
             if p.row_port and p.role == role and (role ~= "out" or tostring(p.port_id):find("row:out:",1,true)) then original_port = p; break end
         end
         for _, run in ipairs(result.belt_runs or {}) do if run.role == role then original_run = run; break end end
-        if original_port and original_run then
+        --A two-input in-run is fed by two side-loads at its head; reversing it is not yet proven lane-clean.
+        local two_input_head = role == "in" and #((original_run or {}).feeds or {}) > 0
+        if original_port and original_run and not two_input_head then
             local flow_ids = original_run.flows or {}
             local targets = {}
             for _, fid in ipairs(flow_ids) do for _, point in ipairs(partners(role, fid)) do targets[#targets+1] = point end end
@@ -482,9 +484,15 @@ local function choose_row_runs(block, placement, all_blocks, all_placements, gri
                         for _, p in ipairs(reversed.ports or {}) do
                             if p.row_port and p.role == role then
                                 local q=Grid.place_port(reversed,placement,p)
+                                --q.dir is the port's normal, which points INTO the block; the approach tile is outside.
                                 local vx,vy=Grid.dir_vector(q.dir)
-                                for _, tile in ipairs({{x=q.x,y=q.y},{x=q.x+vx,y=q.y+vy}}) do
+                                for _, tile in ipairs({{x=q.x,y=q.y},{x=q.x-vx,y=q.y-vy}}) do
                                     if tile.x < 1 or tile.y < 1 or tile.x >= grid.w-1 or tile.y >= grid.h-1 then valid=false end
+                                    --Roboports and declared obstacles are no place for a port or its approach either
+                                    --(measured 2026-09-23 on legalcopilot-dev: science output reversed onto (1,4) under a roboport at (0..3,0..3)).
+                                    for _, rect in ipairs(obstacles or {}) do
+                                        if tile.x>=rect.x and tile.y>=rect.y and tile.x<rect.x+rect.w and tile.y<rect.y+rect.h then valid=false end
+                                    end
                                     for _, other in ipairs(all_blocks or {}) do
                                         local op=placed_by_id[other.id or other.block_id]
                                         if op and other ~= block and tile.x>=op.placement.x and tile.y>=op.placement.y and tile.x<op.placement.x+other.w and tile.y<op.placement.y+other.h then valid=false end
@@ -511,7 +519,13 @@ local function materialize_candidate(state, candidate, placements)
         if block then
             block = choose_row_runs(block, placement, candidate.blocks, (function() local r={} for _, b in ipairs(candidate.blocks or {}) do r[#r+1]=placement_by_id[b.id or b.block_id] end return r end)(), state.work.grid, state.work.plan_result.flows,
                 (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left",
-                (state.work.input.settings or {}).output_edge or state.work.input.output_edge or "top")
+                (state.work.input.settings or {}).output_edge or state.work.input.output_edge or "top",
+                (function()
+                    local rects = bare_rects(state.work.robo_obstacles)
+                    append_all(rects, bare_rects(state.work.input.obstacles))
+                    append_all(rects, bare_rects(state.work.input.occupied))
+                    return rects
+                end)())
             local placed = Groups.materialize(block, placement)
             blocks[#blocks + 1] = {
                 block_id = block.id or block.block_id, id = block.id or block.block_id,
