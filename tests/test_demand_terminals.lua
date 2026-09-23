@@ -55,7 +55,7 @@ end
 
 --Exercise the private generated-port path through Search.  This is deliberately the first case: the lane's
 --named mutation replaces the production sizing call, and must make this assertion fail.
-local function generated(rate, capacity)
+local function generated(rate, capacity, ports_override, flows_override, sink_ports)
     local originals = {
         groups_begin = Groups.begin, groups_step = Groups.step, materialize = Groups.materialize,
         pack_begin = Pack.begin, pack_step = Pack.step, route_begin = Route.begin, route_step = Route.step,
@@ -71,7 +71,7 @@ local function generated(rate, capacity)
         return state
     end
     Groups.materialize = function(block, placement)
-        return {envelope = {x = placement.x, y = placement.y, w = block.w, h = block.h, dir = Grid.NORTH}, entities = {}, ports = {}}
+        return {envelope = {x = placement.x, y = placement.y, w = block.w, h = block.h, dir = Grid.NORTH}, entities = {}, ports = clone(sink_ports or {})}
     end
     Pack.begin = function(input)
         return {done = false, ok = nil, result = nil, cursor = {}, progress = {}, placement = {
@@ -95,7 +95,7 @@ local function generated(rate, capacity)
     Serialize.step = function() end
 
     local port = input_port(rate, capacity)
-    local state = Search.begin({plan_result = {ports = {port}, flows = {input_flow(rate, "in", 1)}},
+    local state = Search.begin({plan_result = {ports = ports_override or {port}, flows = flows_override or {input_flow(rate, "in", 1)}},
         grids = {{w = 8, h = 8}}, include_roboports = false, settings = {input_edge = "left", output_edge = "top"}})
     local ticks = 0
     while not state.done and ticks < 100 do
@@ -113,6 +113,24 @@ local function generated(rate, capacity)
 end
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " DT nearest generated door follows its own sink", function()
+        local copper = input_port(1, nil); copper.flow_id = "item/copper-ore"; copper.port_id = "copper"
+        local iron = input_port(1, nil); iron.flow_id = "item/iron-ore"; iron.port_id = "iron"
+        local flows = {
+            {flow_id = "item/copper-ore", producers = {{step_id = "$external"}}, consumers = {{step_id = "copper-sink"}}},
+            {flow_id = "item/iron-ore", producers = {{step_id = "$external"}}, consumers = {{step_id = "iron-sink"}}},
+        }
+        local sinks = {
+            {flow_id = "item/copper-ore", role = "in", step_id = "copper-sink", x = 2, y = 6},
+            {flow_id = "item/iron-ore", role = "in", step_id = "iron-sink", x = 2, y = 1},
+        }
+        local _, doors = generated(1, nil, {copper, iron}, flows, sinks)
+        H.equal(doors[1].flow_id, "item/copper-ore", "copper gets the lower door closest to its consumer")
+        H.equal(doors[1].y, 6, "copper door follows the lower sink")
+        H.equal(doors[2].flow_id, "item/iron-ore", "iron gets its own door")
+        H.equal(doors[2].y, 1, "iron door follows the upper sink")
+    end)
+
     H.test(shape .. " DT1 aggregate rate sizes generated terminals", function()
         local state, ports = generated(25, 10)
         H.equal(state.done, true, "generated terminal search reaches a terminal state")

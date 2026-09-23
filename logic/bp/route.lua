@@ -1139,6 +1139,22 @@ end
 local function append_crossing(work, demand, entry, exit_cell, amount)
     local capacity, kind = capacity_for(work, demand.flow)
     if amount > capacity + tolerance(capacity) then return false, "capacity" end
+    --Both endpoint tiles must still be empty at the COMMIT, never only when the search planned them.  A
+    --rolled-back append re-runs this creator against a `work` that moved on: measured 2026-09-22 on
+    --legalcopilot-dev, the pair entry=9:5 exit=13:5 was laid, rolled back, a splitter was converted onto
+    --(9,6)+(9,5) in between, and the pair was then laid a second time straight through the splitter's own
+    --body -- published as r:238 over r:264 and caught by tests/test_route_collision.lua RX1.
+    for _, cell in ipairs({entry, exit_cell}) do
+        local cell_key = coordinate_key(cell.x, cell.y)
+        if work.segments_by_cell[cell_key] ~= nil or work.underground_cells[cell_key] then
+            --Refusing this pair refuses a CROSSING, never the demand.  The route loop reads these two
+            --coordinates, marks the cell so the search stops offering it, and searches again -- exactly the
+            --recovery contract 28.5 already gives a refused splitter footprint.
+            work.last_route_rejection = work.last_route_rejection or {}
+            work.last_route_rejection.x, work.last_route_rejection.y = cell.x, cell.y
+            return false, "crossing-occupied"
+        end
+    end
     local direction = direction_from_step(entry.x, entry.y, exit_cell.x, exit_cell.y)
     local family = kind == "pipe" and work.pipe or work.belt
     local name = (family and family.underground) or infrastructure(work, kind)
@@ -1166,6 +1182,13 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     work.segments_by_cell[coordinate_key(exit_cell.x, exit_cell.y)] = segment
     work.underground_cells[coordinate_key(entry.x, entry.y)] = true
     work.underground_cells[coordinate_key(exit_cell.x, exit_cell.y)] = true
+    --An underground endpoint is a real entity on a real tile, so no splitter footprint may later claim it.
+    --This creator marked `underground_cells` and never `splitter_blocked_cells`, and it is the creator that
+    --lays almost every pair, so almost every pair was invisible to `splitter_cell_allowed`: measured
+    --2026-09-22 on legalcopilot-dev, splitter r:238 at (9.5,6) facing EAST published straight on top of
+    --underground-belt r:264 at (9.5,5.5), caught by tests/test_route_collision.lua RX1.
+    work.splitter_blocked_cells[coordinate_key(entry.x, entry.y)] = true
+    work.splitter_blocked_cells[coordinate_key(exit_cell.x, exit_cell.y)] = true
     register_segment_flow(segment, demand.flow_id)
     add_allocation(segment, demand.flow_id, sink_key(demand.sink, work, demand.sink_port_id), amount)
     return true, nil, segment
@@ -1498,6 +1521,10 @@ local function append_underground(work, demand, candidate, amount)
     work.entity_by_segment[segment.segment_id] = first
     work.splitter_blocked_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
     work.splitter_blocked_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
+    --Same pair of facts, the other way round: this creator marked only the splitter guard, so a later
+    --crossing could dive through a tile a pair already owns.
+    work.underground_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
+    work.underground_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
     local sink = sink_key(demand.sink, work, demand.sink_port_id)
     add_allocation(segment, demand.flow_id, sink, amount)
     work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
@@ -1801,11 +1828,26 @@ local function search_step(work, search)
         --laid was then real waste: measured 2026-09-22 on legalcopilot-dev, item/copper-plate into
         --automation-science-pack:2 built a splitter at (11,12)+(12,12) and an orphan belt at (11,11) while
         --the trunk already ran through (12,11).  Contract 28.8 wants the continuation, and this is it.
-        local sink_on_existing_run = false
+        --Round 19 widens that to a port tile that is still EMPTY, and for the same reason: the inserter
+        --reads the tile, so the belt on it may face any way.  Demanding the port's own travel direction on
+        --an empty tile forced every machine after the first in a row to leave the trunk, turn onto its own
+        --port tile and die there, so the trunk could never continue to the next machine: measured
+        --2026-09-22 on legalcopilot-dev, iron-plate:4 at (17,42) starved with ok=false stage=failed while
+        --the trunk already ran east through (9,42) and (13,42).  An underground is still refused -- a belt
+        --under the ground feeds nothing above it.
+        local sink_any_approach = false
         if target and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
             local sink_segment = work.segments_by_cell[coordinate_key(nx, ny)]
-            sink_on_existing_run = sink_segment ~= nil and not sink_segment.underground
-                and segment_has_flow(sink_segment, search.demand.flow_id)
+            if sink_segment == nil then
+                --Only a STRAIGHT step onto the empty port tile is widened.  A turn onto it still has to be
+                --the turn the port asked for, because a turn is where the router builds a splitter and a
+                --body it never fed: allowing every approach built r:8 at (6.0,1.5) with no belt behind it,
+                --measured 2026-09-22 by tests/test_route_splitter_physics.lua SP3.
+                sink_any_approach = current.direction ~= nil and current.direction == direction
+            else
+                sink_any_approach = not sink_segment.underground
+                    and segment_has_flow(sink_segment, search.demand.flow_id)
+            end
         end
         --A splitter body outputs ONLY in front of the tiles it covers.  A search that turns while it is
         --inside the body plans a belt the splitter never feeds, so the body is committed to the trunk's
@@ -1815,7 +1857,7 @@ local function search_step(work, search)
         if not surfaced and not reversed and not in_body
             and (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction)
             and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction
-                or sink_on_existing_run) then
+                or sink_any_approach) then
             local leaving = work.segments_by_cell[coordinate_key(current.x, current.y)]
             --The body jump.  Leaving a belt already laid is not a turn -- no entity turns flow.  It is a
             --step into the OTHER tile of the splitter this cell is about to become, and the items keep the
@@ -1860,7 +1902,19 @@ local function search_step(work, search)
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
-            elseif not first then
+            elseif (not first or search.demand.source.perimeter) and current.mode ~= 2 then
+                --A dive may NEVER start inside a splitter body.  Mode 2 is the tile the body jump claims,
+                --and at search time that tile is still free, so the search happily planned an underground
+                --entrance on it and the append then published the splitter over it: measured 2026-09-22 on
+                --legalcopilot-dev, splitter r:238 at (9.5,6) covering (9,6)+(9,5) with underground-belt
+                --r:264 published at (9.5,5.5), caught by tests/test_route_collision.lua RX1.
+                --A door on the grid edge may dive on its very FIRST step.  An edge door has exactly one tile
+                --and no room to go around, so a belt already laid across its face sealed it completely:
+                --measured 2026-09-22 on legalcopilot-dev, item/iron-ore entering at (0,42) with the
+                --iron-plate trunk running north up the whole of column x=1, four BP_R_NO_PATH and not one
+                --furnace fed.  Diving under that trunk is what the player's own factory does.  A MACHINE
+                --port keeps the old rule: its source tile is the tile an inserter drops onto, and that tile
+                --stays a plain belt.
                 local crossing = crossing_target(work, search.demand, search, current, direction, search.amount)
                 if crossing then
                     local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
@@ -2289,7 +2343,18 @@ function Route.step(state, budget)
                 if type(outcome) == "table" then
                     local placed, reason = append_normal_path(work, demand, outcome, amount)
                     work.current = nil
-                    if not placed and reason == "splitter-footprint" then
+                    if not placed and reason == "crossing-occupied" then
+                        --A crossing refused at the COMMIT is a refused crossing, never a refused demand.
+                        --The tile it wanted is already taken in the live graph, so a fresh search sees that
+                        --and plans round it.  Bounded, because a search that keeps landing on taken tiles
+                        --must be allowed to fail honestly rather than spin.
+                        demand.crossing_retries = (demand.crossing_retries or 0) + 1
+                        if demand.crossing_retries <= 4 then
+                            work.current = begin_search(work, demand, amount, 1)
+                        else
+                            fail_demand(state, work, demand, "BP_R_NO_PATH")
+                        end
+                    elseif not placed and reason == "splitter-footprint" then
                         --A refused splitter footprint is a refused CROSSING, never a refused demand.  Record
                         --the anchor cell so the search stops offering it, then search again.  Without this,
                         --contract 28.5's named refusal turns every crossing it correctly rejects into

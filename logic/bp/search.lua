@@ -772,6 +772,34 @@ local function terminal_networks(state)
     return result
 end
 
+local function terminal_consumers(state, network)
+    local flow = network.flow or {}
+    local sinks = network.role == "in" and flow.consumers or flow.producers
+    local wanted = {}
+    for _, entry in ipairs(sinks or {}) do
+        local id = entry_id(entry)
+        if id and id ~= "$external" then wanted[id] = true end
+    end
+    local result = {}
+    for _, block in ipairs(state.work.materialized and state.work.materialized.blocks or {}) do
+        for _, port in ipairs(block.ports or {}) do
+            local id = port.block_id or port.step_id or port.owner_id or port.owner
+            if port_flow_id(port) == port_flow_id(network.port) and wanted[id] then
+                result[#result + 1] = {x = port.x, y = port.y}
+            end
+        end
+    end
+    return result
+end
+
+local function slot_cost(slot, consumers)
+    local cost = 0
+    for _, point in ipairs(consumers) do
+        cost = cost + math.abs(slot.x - point.x) + math.abs(slot.y - point.y)
+    end
+    return cost
+end
+
 local function perimeter_blocked_cells(blocks, obstacles)
     local result = {}
     local function add_rect(raw)
@@ -798,7 +826,24 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
     local occupied = {}
     local external = {}
     local sizing = {}
-    for _, network in ipairs(terminal_networks(state)) do
+    local networks = terminal_networks(state)
+    for _, network in ipairs(networks) do
+        network.consumers = terminal_consumers(state, network)
+        local best
+        for _, slot in ipairs(slots[network.role]) do
+            local key = perimeter_cell_key(slot.x, slot.y)
+            if not occupied[key] and (not perimeter_port_needs_route(network.port) or not blocked[key]) then
+                local cost = slot_cost(slot, network.consumers)
+                if best == nil or cost < best then best = cost end
+            end
+        end
+        network.need = best or math.huge
+    end
+    table.sort(networks, function(a, b)
+        if a.need ~= b.need then return a.need > b.need end
+        return a.key < b.key
+    end)
+    for _, network in ipairs(networks) do
         local port = network.port
         local role = network.role
         local sizing_result = terminals_for_demand(state, network)
@@ -820,14 +865,24 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
         local requested = sizing_result.count
         local base_id = port.port_id or port.id or port_flow_id(port) or role
         for copy_index = 1, requested do
-            local index = next_slot[role]
+            local index, best_cost
+            for candidate_index, candidate_slot in ipairs(slots[role]) do
+                local key = perimeter_cell_key(candidate_slot.x, candidate_slot.y)
+                if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then
+                    local cost = slot_cost(candidate_slot, network.consumers)
+                    if index == nil or cost < best_cost or (cost == best_cost and candidate_index < index) then
+                        index, best_cost = candidate_index, cost
+                    end
+                end
+            end
+            index = index or (#slots[role] + 1)
             while index <= #slots[role] do
                 local slot = slots[role][index]
                 local key = perimeter_cell_key(slot.x, slot.y)
                 if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then break end
                 index = index + 1
             end
-            next_slot[role] = index + 1
+            next_slot[role] = math.max(next_slot[role], index + 1)
             if index > #slots[role] then
                 return external, false
             end

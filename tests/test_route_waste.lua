@@ -85,6 +85,17 @@ for _, shape in ipairs(H.shapes()) do
             local x, y = xy(entity)
             occupied[x .. ":" .. y] = true
         end
+        --A reserved port cell counts as taken even though nothing is ever published on it.  It is an
+        --inserter's own drop or pickup tile, and a foreign flow running across it would steal that tile from
+        --the port, so diving under it buys exactly what a dive is for.  Measured 2026-09-22 on
+        --legalcopilot-dev: the pair (2,4) to (2,6) covers only (2,5), which carries no entity and is
+        --reserved by another port.
+        for key, _ in pairs(state.work.port_cells or {}) do occupied[key] = true end
+        --A machine covers many tiles and publishes ONE entity, at its centre, so the entity sweep above sees
+        --only that centre.  The tiles a dive passes under are the machine's other tiles: measured
+        --2026-09-22 on legalcopilot-dev, the pair (2,4) to (2,6) covers (2,5), owned by
+        --`machine:block:cable+circuit` and carrying no entity of its own.
+        for key, _ in pairs(state.work.obstacles or {}) do occupied[key] = true end
         local bad = false
         for _, segment in ipairs(state.work.segments or {}) do
             if segment.underground then
@@ -92,14 +103,21 @@ for _, shape in ipairs(H.shapes()) do
                 local x2, y2 = segment.underground_exit_x, segment.underground_exit_y
                 local dx = x2 == x1 and 0 or (x2 > x1 and 1 or -1)
                 local dy = y2 == y1 and 0 or (y2 > y1 and 1 or -1)
+                --A dive is paid for by what it passes UNDER.  The row asserted the opposite when it was
+                --written -- it failed the moment a covered tile held an entity, which is the one shape a
+                --dive is FOR -- so it was red on correct geometry.  Corrected 2026-09-22 on
+                --legalcopilot-dev to its own sentence: waste is a pair whose covered tiles are all free.
                 local tiles = {}
+                local covers_occupied = false
                 local x, y = x1 + dx, y1 + dy
                 while x ~= x2 or y ~= y2 do
                     tiles[#tiles + 1] = {x,y}
-                    if occupied[x .. ":" .. y] then bad = true end
+                    if occupied[x .. ":" .. y] then covers_occupied = true end
                     x, y = x + dx, y + dy
                 end
-                print(string.format("%s RW3 underground covered tiles: %s", shape, cells_text(tiles)))
+                if not covers_occupied then bad = true end
+                print(string.format("%s RW3 underground covered tiles: %s occupied=%s", shape,
+                    cells_text(tiles), tostring(covers_occupied)))
             end
         end
         H.equal(bad, false, "every underground skips at least one occupied tile")

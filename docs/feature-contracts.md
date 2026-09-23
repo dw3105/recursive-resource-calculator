@@ -1236,6 +1236,27 @@ from their bytes 2026-09-22, 84 `transport-belt` and **zero** `splitter` feed el
 this round routes sit in columns -- `(10,6)`/`(10,7)` and `(12,0)`/`(12,1)`/`(12,2)`. A run that passes
 through each port tile in turn is the geometry they built by hand.
 
+**A belt on a sink's own port tile may face any direction.** An inserter reads the TILE, never the belt's
+facing, so a trunk runs STRAIGHT THROUGH a sink's port tile and carries on to the next machine. Requiring the
+port's own travel direction on an empty port tile forced every machine after the first in a row to leave the
+trunk, turn onto its own port tile and stop there, so the trunk could never reach the next one: measured
+2026-09-22 on `legalcopilot-dev` as `iron-plate:4` at `(17,42)` starved with `ok=false` while the trunk
+already ran east through `(9,42)` and `(13,42)`. Only a STRAIGHT step onto an empty port tile is widened; a
+TURN onto it still takes the direction the port asked for, because a turn is where a `splitter` is converted
+and its body must be fed.
+
+**Two entities may never claim one tile.** An underground pair marks both of its endpoint tiles in
+`underground_cells` AND in `splitter_blocked_cells`, and a dive may never START inside a splitter body
+(`mode == 2`): at search time the body's second tile is still free, so the search planned an underground
+entrance on it and the append then published the splitter over that entrance -- `r:238` at `(9.5,6)` over
+`underground-belt r:264` at `(9.5,5.5)`, measured 2026-09-22 on `legalcopilot-dev`.
+
+**A door on the grid edge may dive on its FIRST step.** An edge door owns one tile and has no room to go
+round, so a belt laid across its face seals it: `item/iron-ore` entering at `(0,42)` against the
+`item/iron-plate` trunk running north up the whole of column `x=1` lost four demands to `BP_R_NO_PATH` and fed
+no furnace, measured 2026-09-22 on `legalcopilot-dev`. A MACHINE port keeps the old rule -- its source tile is
+the tile an inserter drops onto, and that tile stays a plain belt.
+
 This was decided by the player on 2026-09-22 after both answers were measured on `legalcopilot-dev` against
 `tests/fixtures/routing/player_chain_first_candidate.lua`:
 

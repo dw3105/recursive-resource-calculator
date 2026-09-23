@@ -198,7 +198,12 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.ok, true, "the candidate routes")
         if not state.ok then return end
         local geometry = measure(shape .. " RC2", state)
-        H.equal(geometry.splitters, 0, "28.8 serves the column by continuation, so no splitter is built")
+        --RE-MEASURED 2026-09-22 on legalcopilot-dev, after a trunk was allowed to run STRAIGHT THROUGH a
+        --sink's own empty port tile.  Continuation now reaches further, so the one demand that still has to
+        --LEAVE the extended trunk forks once: 85 belts + 0 splitters became 84 belts + 1 splitter, the same
+        --93 transport entities.  On the player's own sheet the same change took transport from 297 to 232.
+        --The ceiling is ONE fork, never a free hand: a second one means continuation stopped working.
+        H.equal(geometry.splitters <= 1, true, "28.8 forks at most once, where the trunk must be left")
         H.equal(geometry.surface <= 85, true, "surface belts stay at or below the measured 85")
         --The 6-to-8 raise was made on 2026-09-22 to accept a dive the player then rejected in game.
         --A splitter never turns flow and a foreign flow may never be merged into, so a run that meets a
@@ -217,7 +222,7 @@ for _, shape in ipairs(H.shapes()) do
         if not state.ok then return end
         local geometry = measure(shape .. " RC5", state)
         H.equal(state.work.multi_flow_hands, true, "the seam forces multi-flow hands on")
-        H.equal(geometry.splitters, 0, "forced-on 28.8 never forks")
+        H.equal(geometry.splitters <= 1, true, "forced-on 28.8 forks at most once")
         H.equal(#(state.work.shortfalls or {}), 0, "forced-on candidate serves every demand")
         H.equal(broken_count(state), 0, "forced-on bindings keep directed chains")
     end)
@@ -249,10 +254,10 @@ for _, shape in ipairs(H.shapes()) do
         if not state.ok then return end
         local geometry = measure(shape .. " RC8", state)
         H.equal(state.work.multi_flow_hands, false, "the seam forces multi-flow hands off")
-        H.equal(geometry.surface, 85, "forced-off surface belts stay at the measured 85")
+        H.equal(geometry.surface, 84, "forced-off surface belts stay at the measured 84")
         --Same measurement as RC2: the foreign-flow crossing at (14,2) is dived under, never split through.
         H.equal(geometry.underground, 6, "forced-off underground endpoints stay at the measured 6")
-        H.equal(geometry.splitters, 0, "forced-off geometry has no splitters")
+        H.equal(geometry.splitters <= 1, true, "forced-off geometry forks at most once")
         H.equal(broken_count(state), 0, "forced-off bindings keep directed chains")
     end)
 
