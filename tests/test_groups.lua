@@ -40,7 +40,9 @@ local function plan(quality)
                 beacon_groups = {first_group}, forbids_speed_beacon = quality == true,
                 inputs = {{flow_id = "item/ore", rate_per_second = 1}},
                 outputs = {{flow_id = "item/plate", rate_per_second = 1}}},
-            {step_id = "beta", recipe = "beta", machine = "assembler", machine_count = 1,
+            --Same recipe as alpha: the buffer-zone rule (logic/bp/buffer.lua, the player 2026-09-23) lets only one
+            --machine and one recipe share a block, so a shared-beacon block needs two steps of one recipe.
+            {step_id = "beta", recipe = "alpha", machine = "assembler", machine_count = 1,
                 modules = {}, beacon_groups = {speed_group()},
                 forbids_speed_beacon = false,
                 inputs = {{flow_id = "item/ore", rate_per_second = 1}},
@@ -429,15 +431,22 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " BG4 a block of five machines of differing sizes each gets its configured count", function()
         local input = differing_machine_plan()
         local all = candidates(finish({plan = input, catalog = differing_machine_catalog(), limits = {max_candidates = 1}}))
-        local grouped = find_by_blocks(all, 1)
-        H.equal(grouped ~= nil, true, "the five differing machines share a block")
+        --Differing machines never share a block under the buffer-zone rule (the player, 2026-09-23); each block
+        --still gives each of its machines the configured beacon count.
+        local grouped = all[1]
+        H.equal(grouped ~= nil, true, "a candidate exists")
         if grouped then
             local requested = {}
             for _, spec in ipairs(input.specs) do requested[spec.id] = spec.count end
-            for _, machine in ipairs(grouped.blocks[1].machines) do
-                H.equal(#grouped.blocks[1].beacon_coverage[machine.id] >= requested[machine.step_id], true,
-                    "machine " .. tostring(machine.step_id) .. " gets its configured count")
+            local seen = 0
+            for _, block in ipairs(grouped.blocks) do
+                for _, machine in ipairs(block.machines) do
+                    seen = seen + 1
+                    H.equal(#(block.beacon_coverage[machine.id] or {}) >= requested[machine.step_id], true,
+                        "machine " .. tostring(machine.step_id) .. " gets its configured count")
+                end
             end
+            H.equal(seen, #input.specs, "every one of the five machines is placed")
         end
     end)
 

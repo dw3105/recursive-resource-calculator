@@ -65,7 +65,7 @@ local function blocks_for_each_step(instruction_bound)
     H.equal(plan.ok, true, "the player's plan is healthy before any beacon work")
     input.plan = plan.result
 
-    local make_candidates = upvalue(Groups.begin, "make_candidates")
+    local make_candidates = upvalue(Groups.step, "make_candidates")
     local normalize_plan = upvalue(make_candidates, "normalize_plan")
     local build_block = upvalue(make_candidates, "build_block")
     local step_ports = upvalue(make_candidates, "step_ports")
