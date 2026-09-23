@@ -1087,7 +1087,12 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
         flows = state.work.plan_result.flows, obstacles = obstacles,
         belt_runs = (function()
             local runs = {}
-            for _, block in ipairs(blocks or {}) do
+            local ordered = {}
+            for _, block in ipairs(blocks or {}) do ordered[#ordered + 1] = block end
+            table.sort(ordered, function(a, b)
+                return tostring(a.block_id or a.id or "") < tostring(b.block_id or b.id or "")
+            end)
+            for _, block in ipairs(ordered) do
                 for _, run in ipairs(block.belt_runs or {}) do runs[#runs + 1] = run end
             end
             return runs

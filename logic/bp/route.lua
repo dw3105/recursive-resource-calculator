@@ -874,6 +874,8 @@ local function register_segment_flow(segment, flow_id)
     segment.flow_ids[flow_id] = true
 end
 
+local add_allocation
+
 --Placed row belts are part of the block. They exist before route search and remain fixed while
 --ordinary demands are connected to their heads and ports.
 local function lay_belt_runs(work)
@@ -886,9 +888,17 @@ local function lay_belt_runs(work)
                 local segment = {segment_id = next_segment_id(work), kind = kind,
                     capacity_per_second = capacity, allocations = {}, direction = direction, length = 1,
                     fixed = true, belt_run_role = run.role}
-                for _, flow_id in ipairs(run.flows or {}) do register_segment_flow(segment, flow_id) end
+                for _, flow_id in ipairs(run.flows or {}) do
+                    register_segment_flow(segment, flow_id)
+                    for _, demand in ipairs(work.demands or {}) do
+                        local endpoint = run.role == "in" and demand.sink or demand.source
+                        if demand.flow_id == flow_id and endpoint and endpoint.step_id ~= "$external" then
+                            add_allocation(segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
+                        end
+                    end
+                end
                 local entity = {id = next_entity_id(work), name = infrastructure(work, kind),
-                    position = entity_position(tile.x, tile.y), direction = direction, dir = direction,
+                    position = {x = tile.x + 0.5, y = tile.y + 0.5}, direction = direction, dir = direction,
                     flow_id = run.flows and run.flows[1], segment_id = segment.segment_id, fixed = true}
                 work.entities[#work.entities + 1] = entity
                 work.segments[#work.segments + 1] = segment
@@ -1021,8 +1031,6 @@ local function splitter_cell_allowed(work, demand, x, y, segment, search)
     end
     return true
 end
-
-local add_allocation
 
 local function splitter_branch_allowed(work, demand, x, y, direction, segment, search)
     if segment and segment.splitter then
