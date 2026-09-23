@@ -2191,15 +2191,15 @@ function Groups.step(state, budget)
     if state.done then return state end
     budget = budget or {ops = 1}
     local requested_ops = math.max(0, finite(budget.ops, 1))
-    --A grouping transition can construct a sizeable block. Keep one transition per call so the engine can
-    --checkpoint between transitions even when Search supplies its full 2,000-op tick budget.
-    local ops = math.min(requested_ops, 1)
+    local ops = requested_ops
+    local slice_started = os.clock()
     if ops > 0 and state.work.context == nil then
         state.work.context = prepare_candidates(state.work.input)
         state.cursor.phase = "enumerate"
         ops = ops - 1
     end
-    while ops > 0 and state.work.context and not state.work.context.finished do
+    while ops > 0 and os.clock() - slice_started < 0.020
+        and state.work.context and not state.work.context.finished do
         yield_group_slice()
         local context = state.work.context
         if context.pending_spec then
@@ -2212,7 +2212,7 @@ function Groups.step(state, budget)
             context.finished = true
         else
             context.pending_spec = partition_step(context.partition)
-            if context.pending_spec == nil then ops = ops - 1 end
+            ops = ops - 1
         end
     end
     budget.ops = requested_ops - ops
