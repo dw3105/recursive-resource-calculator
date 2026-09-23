@@ -1602,7 +1602,11 @@ function Search.step(container, budget)
             end
         elseif state.phase == "groups" then
             run_stage(state, "groups", Groups, budget)
-            if stage_done(state.work.groups) then
+            if not stage_done(state.work.groups) then
+                --Grouping is a potentially dense search tree. Advance one resumable transition per game tick;
+                --leaving the unused nominal ops for the next tick keeps the engine frame bounded.
+                break
+            else
                 declare_allowance(state)
                 if state.work.groups.ok == false and not (state.work.groups.result and state.work.groups.result.candidates) then
                     if not next_grid(state) then finish_grid_or_search(state) end
