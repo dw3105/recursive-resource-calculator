@@ -155,6 +155,7 @@ local CANDIDATE_ALLOWANCE = 4
 -- guard against ordering noise while bounding work by complete validated layouts.
 local NO_IMPROVEMENT_LIMIT = 2
 local MAX_LAYOUTS = 3
+local MAX_FLIP_TRIALS = 8
 
 local function grid_trial_limit(input, limits, grid_count)
     local maximum = input.max_search_grids or input.max_grid_trials
@@ -413,102 +414,6 @@ end
 
 -- Pick each row run independently. The partner locations come from the flow graph; external
 -- partners sit on the same perimeter edge used later to make router terminals.
-local function choose_row_runs(block, placement, all_blocks, all_placements, grid, flows, input_edge, output_edge, obstacles)
-    if not block.row then return block end
-    local placed_by_id = {}
-    for index, other in ipairs(all_blocks or {}) do
-        local p = all_placements[index]
-        if p then
-            local entry = {block = other, placement = p}
-            placed_by_id[other.id or other.block_id] = entry
-            --Plan flows name partners by step id; a block holds the machines of its steps.
-            for _, machine in ipairs(other.machines or {}) do
-                if machine.step_id ~= nil and placed_by_id[machine.step_id] == nil then placed_by_id[machine.step_id] = entry end
-            end
-        end
-    end
-    local result = block
-    local function port_point(candidate, port)
-        local q = Grid.place_port(candidate, placement, port)
-        return {x = q.x, y = q.y}
-    end
-    local function partners(role, flow_id)
-        local f
-        for _, candidate in ipairs(flows or {}) do if (candidate.flow_id or candidate.id) == flow_id then f = candidate; break end end
-        local entries = f and (role == "out" and f.consumers or f.producers) or {}
-        local points = {}
-        for _, entry in ipairs(entries or {}) do
-            local id = partner_id(entry)
-            if id == "$external" then
-                local edge = role == "out" and output_edge or input_edge
-                local axis_x = edge == "left" and 0 or edge == "right" and grid.w - 1
-                local axis_y = edge == "top" and 0 or edge == "bottom" and grid.h - 1
-                if axis_x then points[#points+1] = {x=axis_x,y=math.max(0,math.min(grid.h-1, placement.y))}
-                else points[#points+1] = {x=math.max(0,math.min(grid.w-1, placement.x)),y=axis_y or 0} end
-            else
-                local found = placed_by_id[id]
-                if found then points[#points+1] = {x=found.placement.x+found.block.w/2,y=found.placement.y+found.block.h/2} end
-            end
-        end
-        return points
-    end
-    for _, role in ipairs({"in", "out"}) do
-        local original_port, original_run
-        for _, p in ipairs(result.ports or {}) do
-            if p.row_port and p.role == role and (role ~= "out" or tostring(p.port_id):find("row:out:",1,true)) then original_port = p; break end
-        end
-        for _, run in ipairs(result.belt_runs or {}) do if run.role == role then original_run = run; break end end
-        --A two-input in-run is fed by two side-loads at its head; reversing it is not yet proven lane-clean.
-        local two_input_head = role == "in" and #((original_run or {}).feeds or {}) > 0
-        if original_port and original_run and not two_input_head then
-            local flow_ids = original_run.flows or {}
-            local targets = {}
-            for _, fid in ipairs(flow_ids) do for _, point in ipairs(partners(role, fid)) do targets[#targets+1] = point end end
-            if role == "in" and original_port.rear ~= true then
-                local feeds = original_run.feeds or {}
-                if #feeds > 0 then
-                    local x,y=0,0; for _, feed in ipairs(feeds) do x=x+feed.side_tile.x; y=y+feed.side_tile.y end
-                    original_port = {attach_dx=x/#feeds,attach_dy=y/#feeds,normal_dir=Grid.WEST}
-                end
-            end
-            if #targets > 0 then
-                local reversed = Groups.reverse_run(result, role)
-                if reversed then
-                    local rp
-                    for _, p in ipairs(reversed.ports or {}) do if p.row_port and p.role == role and (role ~= "out" or tostring(p.port_id):find("row:out:",1,true)) then rp=p; break end end
-                    if rp then
-                        local a,b=port_point(result,original_port),port_point(reversed,rp)
-                        local da,db=math.huge,math.huge
-                        for _, target in ipairs(targets) do da=math.min(da,manhattan(a,target)); db=math.min(db,manhattan(b,target)) end
-                        local valid=true
-                        for _, p in ipairs(reversed.ports or {}) do
-                            if p.row_port and p.role == role then
-                                local q=Grid.place_port(reversed,placement,p)
-                                --q.dir is the port's normal, which points INTO the block; the approach tile is outside.
-                                local vx,vy=Grid.dir_vector(q.dir)
-                                for _, tile in ipairs({{x=q.x,y=q.y},{x=q.x-vx,y=q.y-vy}}) do
-                                    if tile.x < 1 or tile.y < 1 or tile.x >= grid.w-1 or tile.y >= grid.h-1 then valid=false end
-                                    --Roboports and declared obstacles are no place for a port or its approach either
-                                    --(measured 2026-09-23 on legalcopilot-dev: science output reversed onto (1,4) under a roboport at (0..3,0..3)).
-                                    for _, rect in ipairs(obstacles or {}) do
-                                        if tile.x>=rect.x and tile.y>=rect.y and tile.x<rect.x+rect.w and tile.y<rect.y+rect.h then valid=false end
-                                    end
-                                    for _, other in ipairs(all_blocks or {}) do
-                                        local op=placed_by_id[other.id or other.block_id]
-                                        if op and other ~= block and tile.x>=op.placement.x and tile.y>=op.placement.y and tile.x<op.placement.x+other.w and tile.y<op.placement.y+other.h then valid=false end
-                                    end
-                                end
-                            end
-                        end
-                        if valid and db < da then result=reversed end
-                    end
-                end
-            end
-        end
-    end
-    return result
-end
-
 local function materialize_candidate(state, candidate, placements)
     local by_id = block_map(candidate.blocks)
     local blocks, entities, ports = {}, {}, {}
@@ -517,15 +422,6 @@ local function materialize_candidate(state, candidate, placements)
     for _, placement in ipairs(placements or {}) do
         local block = by_id[placement.block_id or placement.id]
         if block then
-            block = choose_row_runs(block, placement, candidate.blocks, (function() local r={} for _, b in ipairs(candidate.blocks or {}) do r[#r+1]=placement_by_id[b.id or b.block_id] end return r end)(), state.work.grid, state.work.plan_result.flows,
-                (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left",
-                (state.work.input.settings or {}).output_edge or state.work.input.output_edge or "top",
-                (function()
-                    local rects = bare_rects(state.work.robo_obstacles)
-                    append_all(rects, bare_rects(state.work.input.obstacles))
-                    append_all(rects, bare_rects(state.work.input.occupied))
-                    return rects
-                end)())
             local placed = Groups.materialize(block, placement)
             blocks[#blocks + 1] = {
                 block_id = block.id or block.block_id, id = block.id or block.block_id,
@@ -538,8 +434,6 @@ local function materialize_candidate(state, candidate, placements)
     end
     return blocks, entities, ports
 end
-
-Search._choose_row_runs = choose_row_runs
 
 --`materialized.ports` and each `blocks[i].ports` hold separate copies of one port (append_all copies), and
 --Route reads the block copies.  A slide must reach every copy.
@@ -1406,6 +1300,7 @@ local function start_grid(state)
     state.work.candidate = nil
     state.work.orderings = nil
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
+    state.work.flip_queue, state.work.flip_trials, state.work.active_flip = {}, 0, false
     state.cursor.candidate_index, state.cursor.order_index = 1, 1
     set_phase(state, "groups")
     return true
@@ -1564,6 +1459,13 @@ local function stop_no_improvement(state, reason)
     return true
 end
 
+local function flip_trial_stops_search(state)
+    return not state.work.active_flip
+        and (state.work.no_improvement_attempts or 0) >= NO_IMPROVEMENT_LIMIT
+        and #(state.work.flip_queue or {}) == 0
+end
+Search._flip_trial_stops_search = flip_trial_stops_search
+
 local function publish_interim(state)
     local serial = Serialize.begin(state.incumbent.candidate)
     while not serial.done do Serialize.step(serial, {ops = 1000000000}) end
@@ -1604,7 +1506,8 @@ function Search.begin(input)
             rejections = {}, discarded_alternatives = {}, valid_alternatives = {}, attempt_recorded = false,
             candidate_rejection_start = 1, incumbent_record = nil, search_bound_recorded = false, bound_reason = nil,
             allowance_derived = max_ops == nil, allowance_declared = false, feasibility_limit = nil,
-            improvement_budget = nil, improvement_started = false, improvement_start_ops = nil},
+            improvement_budget = nil, improvement_started = false, improvement_start_ops = nil,
+            flip_queue = {}, flip_trials = 0, active_flip = false},
     }
     state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
     state.initial_revisions = copy(state.revisions)
@@ -1653,8 +1556,45 @@ local function candidate_fits_grid(state, candidate)
     return fits
 end
 
+local function queue_candidate_flips(state, source)
+    local work = state.work
+    if not source or (work.flip_trials or 0) + #work.flip_queue >= MAX_FLIP_TRIALS then return end
+    local variants = {}
+    for _, block in ipairs(source.blocks or {}) do
+        local id = block.id or block.block_id
+        for _, role in ipairs({"out", "in"}) do
+            local run
+            for _, value in ipairs(block.belt_runs or {}) do if value.role == role then run = value; break end end
+            local eligible = run and run.reversed ~= true
+            if role == "in" and run and #(run.feeds or {}) > 0 then eligible = false end
+            if eligible then
+                local reversed = Groups.reverse_run(block, role)
+                if reversed then
+                    local variant = copy(source)
+                    variant.id = tostring(candidate_label(source) or "candidate") .. ":flip:" .. tostring(id) .. ":" .. role
+                    for index, other in ipairs(variant.blocks or {}) do
+                        if (other.id or other.block_id) == id then variant.blocks[index] = reversed; break end
+                    end
+                    variants[#variants + 1] = variant
+                end
+            end
+        end
+    end
+    for _, variant in ipairs(variants) do
+        if (work.flip_trials or 0) + #work.flip_queue >= MAX_FLIP_TRIALS then break end
+        work.flip_queue[#work.flip_queue + 1] = variant
+    end
+end
+Search._queue_candidate_flips = queue_candidate_flips
+
 local function prepare_candidate(state)
-    local candidate = state.work.groups.result.candidates[state.cursor.candidate_index]
+    local candidate
+    if state.work.active_flip then candidate = state.work.candidate
+    elseif #(state.work.flip_queue or {}) > 0 then
+        candidate = table.remove(state.work.flip_queue, 1)
+        state.work.flip_trials = (state.work.flip_trials or 0) + 1
+        state.work.active_flip = true
+    else candidate = state.work.groups.result.candidates[state.cursor.candidate_index] end
     if not candidate then
         finish_grid_or_search(state)
         return false
@@ -1691,6 +1631,12 @@ local function discard_candidate(state)
         record_discarded_attempt(state, score, score and "lower_score" or "rejected")
     end
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
+    if state.work.active_flip then
+        state.work.active_flip = false
+        state.work.candidate = nil
+        prepare_candidate(state)
+        return
+    end
     state.cursor.order_index = state.cursor.order_index + 1
     if state.work.orderings and state.cursor.order_index <= #state.work.orderings then
         prepare_candidate(state)
@@ -1835,6 +1781,7 @@ function Search.step(container, budget)
                         record.chosen = true
                         state.work.incumbent_record = record
                         state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
+                            source_candidate = copy(state.work.candidate),
                             validation = copy(state.work.validate.result)}
                         --The layout-count stop decides when to stop; the declared improvement allowance stays as a finite
                         --safety net (tests/test_search_allowance.lua), sized from the grid area, never a fixed op count.
@@ -1847,14 +1794,31 @@ function Search.step(container, budget)
                             candidate_index = state.cursor.candidate_index, ordering_index = state.cursor.order_index}
                         state.work.no_improvement_attempts = 0
                         publish_interim(state)
-                    else
+                        queue_candidate_flips(state, state.work.candidate)
+                    elseif not state.work.active_flip then
                         state.work.no_improvement_attempts = (state.work.no_improvement_attempts or 0) + 1
                     end
-                    state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
+                    if not state.work.active_flip then
+                        state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
+                    end
                     state.work.attempt_recorded = true
-                    if not improves and state.work.no_improvement_attempts >= NO_IMPROVEMENT_LIMIT then
+                    if state.work.active_flip then
+                        state.work.active_flip = false
+                        state.work.candidate = nil
+                        if #(state.work.flip_queue or {}) == 0 and not improves
+                            and (state.work.no_improvement_attempts or 0) >= NO_IMPROVEMENT_LIMIT then
+                            stop_no_improvement(state, "validated alternatives did not improve the incumbent")
+                        elseif #(state.work.flip_queue or {}) == 0
+                            and (state.work.validated_layouts or 0) >= MAX_LAYOUTS then
+                            state.work.stop_reason = "max_layouts"
+                            record_search_bound(state, "max_layouts", "maximum validated layouts reached")
+                            begin_serialization(state)
+                        else
+                            prepare_candidate(state)
+                        end
+                    elseif not improves and flip_trial_stops_search(state) then
                         stop_no_improvement(state, "validated alternatives did not improve the incumbent")
-                    elseif state.work.validated_layouts >= MAX_LAYOUTS then
+                    elseif state.work.validated_layouts >= MAX_LAYOUTS and #(state.work.flip_queue or {}) == 0 then
                         state.work.stop_reason = "max_layouts"
                         record_search_bound(state, "max_layouts", "maximum validated layouts reached")
                         begin_serialization(state)
