@@ -1909,11 +1909,13 @@ local function make_candidates(input)
 end
 
 function Groups.begin(input)
-    local candidates, failures = make_candidates(input or {})
     return {
-        done = false, ok = nil, cursor = {candidate_index = 1},
-        progress = {phase = "grouping", done_units = 0, total_units = #candidates},
-        work = {candidates = candidates, failures = failures, emitted = {}},
+        done = false, ok = nil, cursor = {phase = "enumerate", candidate_index = 1},
+        progress = {phase = "grouping", done_units = 0, total_units = nil},
+        -- Search already crosses a data-only copy boundary before this call. Retaining this immutable input
+        -- reference keeps begin constant-time; candidate construction and its copy costs belong in step.
+        work = {input = input or {}, candidates = nil, failures = nil, emitted = {},
+            candidate_enumerations = 0},
     }
 end
 
@@ -1921,7 +1923,17 @@ function Groups.step(state, budget)
     if state.done then return state end
     budget = budget or {ops = 1}
     local ops = finite(budget.ops, 1)
-    while ops > 0 and state.cursor.candidate_index <= #state.work.candidates do
+    -- Candidate construction is deferred until the budgeted step. Keep the counter on the plain-data
+    -- state so callers can verify begin did not enumerate candidates.
+    if ops > 0 and state.work.candidates == nil then
+        local candidates, failures = make_candidates(state.work.input)
+        state.work.candidates, state.work.failures = candidates, failures
+        state.work.candidate_enumerations = #candidates
+        state.progress.total_units = #candidates
+        state.cursor.phase = "emit"
+        ops = ops - 1
+    end
+    while ops > 0 and state.work.candidates and state.cursor.candidate_index <= #state.work.candidates do
         local candidate = state.work.candidates[state.cursor.candidate_index]
         state.work.emitted[#state.work.emitted + 1] = candidate
         state.cursor.candidate_index = state.cursor.candidate_index + 1
@@ -1929,7 +1941,7 @@ function Groups.step(state, budget)
         ops = ops - 1
     end
     budget.ops = ops
-    if state.cursor.candidate_index > #state.work.candidates then
+    if state.work.candidates and state.cursor.candidate_index > #state.work.candidates then
         state.result = {candidates = state.work.emitted, failures = list_copy(state.work.failures)}
         state.done, state.ok = true, #state.work.emitted > 0
     end
