@@ -1246,15 +1246,16 @@ local function publish(job)
     local final_sequence = type(job.state) == "table" and type(job.state.search) == "table"
         and job.state.search.interim and job.state.search.interim.sequence
     local final_entities = type(blueprint.entities) == "table" and #blueprint.entities or 0
+    local had_interim = handle.interim ~= nil
     local equal_delivered = handle.delivered_sequence ~= nil and handle.interim
         and handle.interim.sequence == final_sequence and handle.interim.entities == final_entities
     if equal_delivered then
         --The cursor already received this exact best result while the search was running.
-    elseif handle.interim then
-        handle.interim = {sequence = final_sequence or (handle.interim.sequence + 1), entities = final_entities,
+    else
+        handle.interim = {sequence = final_sequence or (had_interim and (handle.interim.sequence + 1) or 1), entities = final_entities,
             result = blueprint, blueprint_string = encoded}
     end
-    if handle.deliver and not equal_delivered and not handle.interim then
+    if handle.deliver and not equal_delivered and not had_interim then
         local ok, reason = BlueprintDelivery.deliver(handle.player_index, blueprint)
         if not ok and reason ~= "blueprint_cursor_busy" then
             handle.delivery_reason = reason
