@@ -1667,7 +1667,9 @@ local function machine_port_for(work, machine, flow_id, role)
         if not is_external_port(port) and (port.role or port.direction) == role
             and (port.step_id == nil or port.step_id == machine.entity.step_id) then
             if flow_id == nil or flow_compatible(port, flow_id) then
-                if port.member_id == nil or port.member_id == machine.id or port.member_id == machine.entity.machine_id then
+                --A row port serves every machine of its row: they share one belt run (docs/contracts/row_block.md).
+                if port.member_id == nil or port.row_port or port.member_id == machine.id
+                    or port.member_id == machine.entity.machine_id then
                     return port
                 end
             end
