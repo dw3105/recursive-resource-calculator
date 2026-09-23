@@ -1935,8 +1935,9 @@ local function search_step(work, search)
         if first and not search.demand.source.perimeter
             and work.segments_by_cell[coordinate_key(current.x, current.y)] == nil then
             local landing = work.segments_by_cell[coordinate_key(nx, ny)]
-            source_any_heading = landing ~= nil and not landing.underground and not landing.splitter
-                and segment_has_flow(landing, search.demand.flow_id)
+            source_any_heading = work.free_source_heading == true
+                or (landing ~= nil and not landing.underground and not landing.splitter
+                    and segment_has_flow(landing, search.demand.flow_id))
         end
         --A splitter body outputs ONLY in front of the tiles it covers.  A search that turns while it is
         --inside the body plans a belt the splitter never feeds, so the body is committed to the trunk's
@@ -2364,6 +2365,159 @@ function Route.cancel(state)
     return state
 end
 
+--Re-route pass, the player's instrument, 2026-09-23 on legalcopilot-dev.  Paths are laid one at a time, so
+--the first path is planned with nothing else on the grid and the later ones must work round it.  Once every
+--path exists, each one is lifted -- only the plain belts it owns alone -- and searched again with a free first
+--heading at its machine output.  The new path is KEPT ONLY WHEN IT LAYS FEWER ENTITIES than the ones lifted;
+--otherwise the snapshot is restored.  So the pass never grows the factory.  Measured on the player's sheet:
+--furnace 4's output at (17,48) was forced SOUTH and walked (17,49)..(13,49) back up into the trunk, six
+--belts where the straight (17,48)..(14,48) is four ("Why this bend?").
+--The tiles items actually travel from `source` to `sink`, following laid same-flow segments, pairs and both
+--splitter outputs.  nil when the chain does not reach.
+local function binding_path(work, binding)
+    local source = work.endpoint_by_id and work.endpoint_by_id[binding.source_port_id]
+    local sink = work.endpoint_by_id and work.endpoint_by_id[binding.sink_port_id]
+    if not source or not sink then return nil end
+    local start, target = coordinate_key(source.x, source.y), coordinate_key(sink.x, sink.y)
+    local parent, queue, head = {[start] = false}, {start}, 1
+    while queue[head] do
+        local key = queue[head]; head = head + 1
+        if key == target then break end
+        local segment = work.segments_by_cell[key]
+        if segment and segment_has_flow(segment, binding.flow_id) then
+            local nexts = {}
+            if segment.underground then
+                if key == segment.underground_entry_key then nexts[#nexts + 1] = segment.underground_exit_key end
+                if key == segment.underground_exit_key then
+                    local dx, dy = Grid.dir_vector(segment.direction)
+                    if dx then nexts[#nexts + 1] = coordinate_key(segment.underground_exit_x + dx, segment.underground_exit_y + dy) end
+                end
+            elseif segment.splitter then
+                local dx, dy = Grid.dir_vector(segment.splitter_direction)
+                if dx then
+                    nexts[#nexts + 1] = coordinate_key(segment.splitter_anchor_x + dx, segment.splitter_anchor_y + dy)
+                    local sx, sy = coordinate_from_key(segment.splitter_second_key or "")
+                    if sx then nexts[#nexts + 1] = coordinate_key(sx + dx, sy + dy) end
+                end
+                nexts[#nexts + 1] = segment.splitter_second_key
+            else
+                local x, y = coordinate_from_key(key)
+                local dx, dy = Grid.dir_vector(segment.direction)
+                if dx then nexts[#nexts + 1] = coordinate_key(x + dx, y + dy) end
+            end
+            for _, n in ipairs(nexts) do
+                if n and parent[n] == nil then parent[n] = key; queue[#queue + 1] = n end
+            end
+        end
+    end
+    if parent[target] == nil then return nil end
+    local path, key = {}, target
+    while key do path[#path + 1] = key; key = parent[key] or nil end
+    return path
+end
+
+--What a path owns ALONE: its own source-to-sink tiles minus every tile on any other path of the same flow.
+--Ownership by allocation fails twice over: add_allocation sums rates per (flow, sink), so a merged trunk
+--shows one allocation; and a branch laid from a seed on the trunk records nothing upstream of that seed,
+--so a trunk four paths ride looked like one path's.  Measured 2026-09-23 on legalcopilot-dev: the first
+--version lifted the whole 31-tile iron-plate trunk and orphaned three furnaces.
+local function lift_binding(work, binding)
+    local mine = binding_path(work, binding)
+    if not mine then return nil end
+    local others = {}
+    for _, other in ipairs(work.bindings) do
+        if other ~= binding and other.flow_id == binding.flow_id then
+            for _, key in ipairs(binding_path(work, other) or {}) do others[key] = true end
+        end
+    end
+    local owned_ids, count = {}, 0
+    for _, key in ipairs(mine) do
+        local segment = work.segments_by_cell[key]
+        if segment and not others[key] then
+            if segment.underground or segment.splitter then return nil end
+            if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
+        end
+    end
+    if count < 2 then return nil end
+    for _, key in ipairs(mine) do
+        local segment = work.segments_by_cell[key]
+        if segment and others[key] then
+            for index, allocation in ipairs(segment.allocations or {}) do
+                if allocation.flow_id == binding.flow_id and allocation.sink == binding.sink then
+                    allocation.rate_per_second = allocation.rate_per_second - binding.rate_per_second
+                    if allocation.rate_per_second <= tolerance(binding.rate_per_second) then
+                        table.remove(segment.allocations, index)
+                    end
+                    break
+                end
+            end
+        end
+    end
+    local segments = {}
+    for _, segment in ipairs(work.segments) do
+        if not owned_ids[segment.segment_id] then segments[#segments + 1] = segment end
+    end
+    work.segments = segments
+    for key, segment in pairs(work.segments_by_cell) do
+        if owned_ids[segment.segment_id] then work.segments_by_cell[key] = nil end
+    end
+    local entities = {}
+    for _, entity in ipairs(work.entities) do
+        if not owned_ids[entity.segment_id] then entities[#entities + 1] = entity end
+    end
+    work.entities = entities
+    for segment_id in pairs(owned_ids) do work.entity_by_segment[segment_id] = nil end
+    local bindings = {}
+    for _, other in ipairs(work.bindings) do if other ~= binding then bindings[#bindings + 1] = other end end
+    work.bindings = bindings
+    return count
+end
+
+local function improve_routes(work)
+    --Bindings are named by fields, never held by reference: a restored snapshot replaces every table.
+    local order = {}
+    for _, binding in ipairs(work.bindings or {}) do
+        order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second}
+    end
+    local improved = 0
+    for _, wanted in ipairs(order) do
+        local binding
+        for _, candidate in ipairs(work.bindings or {}) do
+            if candidate.source_port_id == wanted[1] and candidate.sink_port_id == wanted[2]
+                and candidate.rate_per_second == wanted[3] then binding = candidate; break end
+        end
+        local demand
+        for _, candidate in ipairs(work.demands or {}) do
+            if candidate.source and candidate.sink and candidate.source.port_id == binding.source_port_id
+                and candidate.sink.port_id == binding.sink_port_id then demand = candidate; break end
+        end
+        if binding and demand then
+            local snapshot = route_snapshot(work)
+            local before = #work.entities
+            local lifted = lift_binding(work, binding)
+            local kept = false
+            if lifted then
+                local amount = binding.rate_per_second
+                work.free_source_heading = true
+                local search = begin_search(work, demand, amount, 1)
+                local path, steps = nil, 0
+                while steps < 200000 do
+                    steps = steps + 1
+                    local outcome = search_step(work, search)
+                    if type(outcome) == "table" then path = outcome; break end
+                    if outcome == "failed" then break end
+                end
+                work.free_source_heading = nil
+                if path and append_normal_path(work, demand, path, amount) and #work.entities < before then
+                    kept, improved = true, improved + 1
+                end
+            end
+            if not kept then restore_route_snapshot(work, snapshot) end
+        end
+    end
+    work.counters.routes_improved = improved
+end
+
 function Route.step(state, budget)
     if state.done then return state end
     if state.cancelled then return Route.cancel(state) end
@@ -2382,6 +2536,7 @@ function Route.step(state, budget)
     while ops > 0 and not state.done do
         local demand = work.demands[state.cursor.demand_index]
         if not demand then
+            if not work.improved then work.improved = true; improve_routes(work) end
             state.result, state.done, state.ok = result_for(work), true, true
             state.progress.phase = "done"
             break
