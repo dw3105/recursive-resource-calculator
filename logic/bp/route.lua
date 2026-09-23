@@ -488,6 +488,10 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         travel_dir = endpoint_direction(port, placement, role),
     }
     endpoint.connection = connection_for(block, port, placement, catalog, x, y)
+    --The search names the one-tile moves its hand may make along the machine face (see improve_routes).
+    if type(port.slide_options) == "table" and port.hand_x ~= nil and port.hand_y ~= nil then
+        endpoint.slide_options, endpoint.hand_x, endpoint.hand_y = port.slide_options, port.hand_x, port.hand_y
+    end
     --A rotated materialization carries source-frame attach geometry and a validator-facing travel direction.
     --Traversal still uses the placed direction above, but the validator also protects the approach implied by
     --this published direction. Keep that second direction private to reservation construction.
@@ -2249,7 +2253,11 @@ local function result_for(work)
         if flow_ids and #flow_ids > 1 then entity.flow_ids = flow_ids end
     end
     local result = {entities = {}, segments = {}, port_bindings = work.bindings, bindings = work.bindings,
-        shortfalls = work.shortfalls or {}}
+        shortfalls = work.shortfalls or {}, port_slides = {}}
+    for _, port_id in ipairs(sorted_keys(work.port_slides or {})) do
+        local slide = work.port_slides[port_id]
+        result.port_slides[#result.port_slides + 1] = {port_id = port_id, dx = slide.dx, dy = slide.dy}
+    end
     for _, entity in ipairs(work.entities) do
         if not entity._route_removed then result.entities[#result.entities + 1] = entity end
     end
@@ -2655,32 +2663,26 @@ local function lift_binding(work, binding)
     for _, key in ipairs(mine) do
         local segment = work.segments_by_cell[key]
         if segment and not others[key] then
-            if segment.underground or segment.splitter then return nil end
+            if segment.splitter then return nil end
             if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
         end
     end
     if count < 2 then return nil end
-    for _, key in ipairs(mine) do
-        local segment = work.segments_by_cell[key]
-        if segment and others[key] then
-            for index, allocation in ipairs(segment.allocations or {}) do
-                if allocation.flow_id == binding.flow_id and allocation.sink == binding.sink then
-                    allocation.rate_per_second = allocation.rate_per_second - binding.rate_per_second
-                    if allocation.rate_per_second <= tolerance(binding.rate_per_second) then
-                        table.remove(segment.allocations, index)
-                    end
-                    break
-                end
-            end
-        end
-    end
+    --Shared tiles keep this path's rate: the re-search seeds from the trunk, so items for this sink still ride
+    --every tile upstream of its branch.  Subtracting here left the gear trunk at zero after two kept re-routes,
+    --and audit_route_work then deleted the gear output tile and two bindings with it (2026-09-23,
+    --legalcopilot-dev, first candidate of the player's sheet).
     local segments = {}
     for _, segment in ipairs(work.segments) do
         if not owned_ids[segment.segment_id] then segments[#segments + 1] = segment end
     end
     work.segments = segments
     for key, segment in pairs(work.segments_by_cell) do
-        if owned_ids[segment.segment_id] then work.segments_by_cell[key] = nil end
+        if owned_ids[segment.segment_id] then
+            work.segments_by_cell[key] = nil
+            --A lifted pair frees its two endpoint tiles for the re-search.
+            if segment.underground then work.underground_cells[key], work.splitter_blocked_cells[key] = nil, nil end
+        end
     end
     local entities = {}
     for _, entity in ipairs(work.entities) do
@@ -2713,48 +2715,153 @@ local function route_weight(work)
     return #work.entities + SIDELOAD_UNDERGROUND_COST * side_fed_inputs(work)
 end
 
+--The player placed v4 on 2026-09-23 and boxed two belts: "Why these bends?".  Grouping fixes each hand's
+--tile before any belt exists, so the belt bent to reach it: science input (11,5) picked from (12,5) off a run
+--along y=6, and science output (16,10) dropped on (16,9) beside its dive at (17,7).  A hand may move one tile
+--along its machine face (the search names the legal moves as `slide_options`); its port tile moves with it.
+--Returns an undo, or nil when a new tile is taken.
+local function slide_endpoint(work, endpoint, dx, dy)
+    local port_x, port_y = endpoint.x + dx, endpoint.y + dy
+    local hand_x, hand_y = endpoint.hand_x + dx, endpoint.hand_y + dy
+    local port_key, hand_key = coordinate_key(port_x, port_y), coordinate_key(hand_x, hand_y)
+    if not inside_grid(work, port_x, port_y) or not inside_grid(work, hand_x, hand_y) then return nil end
+    if work.segments_by_cell[port_key] or work.segments_by_cell[hand_key] then return nil end
+    if work.underground_cells[port_key] or work.underground_cells[hand_key] then return nil end
+    local owner = static_owner(work, port_x, port_y)
+    if owner ~= nil and not is_allowed_owner(owner) then return nil end
+    if work.obstacles[hand_key] ~= nil or not is_allowed_owner(indexed_cell(work.grid, hand_x, hand_y)) then return nil end
+    if work.port_cells[hand_key] ~= nil then return nil end
+    for port_id in pairs((work.port_cells[port_key] or {})._port_owners or {}) do
+        if port_id ~= endpoint.port_id then return nil end
+    end
+    local old_hand_key = coordinate_key(endpoint.hand_x, endpoint.hand_y)
+    local old = {x = endpoint.x, y = endpoint.y, hand_x = endpoint.hand_x, hand_y = endpoint.hand_y,
+        port_cells = work.port_cells, owner = work.obstacles[old_hand_key]}
+    work.obstacles[old_hand_key] = nil
+    work.obstacles[hand_key] = old.owner or ("hand:" .. tostring(endpoint.port_id))
+    endpoint.x, endpoint.y, endpoint.hand_x, endpoint.hand_y = port_x, port_y, hand_x, hand_y
+    work.port_cells = reserve_port_cells(work)
+    return function()
+        work.obstacles[hand_key] = nil
+        work.obstacles[old_hand_key] = old.owner
+        endpoint.x, endpoint.y, endpoint.hand_x, endpoint.hand_y = old.x, old.y, old.hand_x, old.hand_y
+        work.port_cells = old.port_cells
+    end
+end
+
+local function find_binding(work, wanted)
+    for _, candidate in ipairs(work.bindings or {}) do
+        if candidate.source_port_id == wanted[1] and candidate.sink_port_id == wanted[2]
+            and candidate.rate_per_second == wanted[3] then return candidate end
+    end
+end
+
+local function bindings_on_port(work, port_id)
+    local count = 0
+    for _, binding in ipairs(work.bindings or {}) do
+        if binding.source_port_id == port_id or binding.sink_port_id == port_id then count = count + 1 end
+    end
+    return count
+end
+
+--Lift one path and search it again, with an optional hand slide.  Returns the new weight (nil when no path
+--was laid) and the slide's undo; the caller restores the route snapshot itself.
+local function reroute_once(work, wanted, demand, option)
+    local binding = find_binding(work, wanted)
+    if not binding or not lift_binding(work, binding) then return nil end
+    local undo
+    if option then
+        undo = slide_endpoint(work, option.endpoint, option.dx, option.dy)
+        if not undo then return nil end
+    end
+    local amount = binding.rate_per_second
+    work.free_source_heading, work.allow_bury = true, true
+    local search = begin_search(work, demand, amount, 1)
+    local path, steps = nil, 0
+    while steps < 200000 do
+        steps = steps + 1
+        local outcome = search_step(work, search)
+        if type(outcome) == "table" then path = outcome; break end
+        if outcome == "failed" then break end
+    end
+    work.free_source_heading, work.allow_bury = nil, nil
+    --A lift may take a pair or a shared tile another path's walk missed; a re-route that leaves any binding
+    --short of its sink is smaller only because it broke something, so it never counts.
+    if path and append_normal_path(work, demand, path, amount) and all_bindings_reach_sinks(work) then
+        return route_weight(work), undo
+    end
+    return nil, undo
+end
+
+--A binding names one live segment of its path.  A kept re-route may delete that segment; point the binding at
+--the first live tile of its own path, sink end first.
+local function reanchor_bindings(work)
+    local live = {}
+    for _, segment in ipairs(work.segments) do live[segment.segment_id] = segment end
+    for _, binding in ipairs(work.bindings) do
+        if not live[binding.segment_id] then
+            for _, key in ipairs(binding_path(work, binding) or {}) do
+                local segment = work.segments_by_cell[key]
+                if segment and segment_has_flow(segment, binding.flow_id) then binding.segment_id = segment.segment_id; break end
+            end
+        end
+    end
+end
+
 local function improve_routes(work)
     --Bindings are named by fields, never held by reference: a restored snapshot replaces every table.
     local order = {}
     for _, binding in ipairs(work.bindings or {}) do
         order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second}
     end
+    work.port_slides = work.port_slides or {}
     local improved = 0
     for _, wanted in ipairs(order) do
-        local binding
-        for _, candidate in ipairs(work.bindings or {}) do
-            if candidate.source_port_id == wanted[1] and candidate.sink_port_id == wanted[2]
-                and candidate.rate_per_second == wanted[3] then binding = candidate; break end
-        end
         local demand
         for _, candidate in ipairs(work.demands or {}) do
-            if candidate.source and candidate.sink and candidate.source.port_id == binding.source_port_id
-                and candidate.sink.port_id == binding.sink_port_id then demand = candidate; break end
+            if candidate.source and candidate.sink and candidate.source.port_id == wanted[1]
+                and candidate.sink.port_id == wanted[2] then demand = candidate; break end
         end
-        if binding and demand then
-            local snapshot = route_snapshot(work)
-            local before = route_weight(work)
-            local lifted = lift_binding(work, binding)
-            local kept = false
-            if lifted then
-                local amount = binding.rate_per_second
-                work.free_source_heading, work.allow_bury = true, true
-                local search = begin_search(work, demand, amount, 1)
-                local path, steps = nil, 0
-                while steps < 200000 do
-                    steps = steps + 1
-                    local outcome = search_step(work, search)
-                    if type(outcome) == "table" then path = outcome; break end
-                    if outcome == "failed" then break end
-                end
-                work.free_source_heading, work.allow_bury = nil, nil
-                if path and append_normal_path(work, demand, path, amount) and route_weight(work) < before then
-                    kept, improved = true, improved + 1
+        if demand and find_binding(work, wanted) then
+            --Option 1 keeps both hands; each further option slides one hand one tile.  A hand slides only
+            --when this path is the only one on its port, so no other belt loses its end tile.
+            local options = {false}
+            for _, endpoint in ipairs({demand.sink, demand.source}) do
+                if endpoint.slide_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
+                    for _, slide in ipairs(endpoint.slide_options) do
+                        options[#options + 1] = {endpoint = endpoint, dx = slide.dx, dy = slide.dy}
+                    end
                 end
             end
-            if not kept then restore_route_snapshot(work, snapshot) end
+            local before = route_weight(work)
+            local best, best_weight = nil, before
+            for index, option in ipairs(options) do
+                local snapshot = route_snapshot(work)
+                local weight, undo = reroute_once(work, wanted, demand, option or nil)
+                if weight and weight < best_weight then best, best_weight = index, weight end
+                restore_route_snapshot(work, snapshot)
+                if undo then undo() end
+            end
+            if best then
+                local option = options[best] or nil
+                local snapshot = route_snapshot(work)
+                local weight, undo = reroute_once(work, wanted, demand, option)
+                if weight and weight < before then
+                    improved = improved + 1
+                    if option then
+                        local port_id = option.endpoint.port_id
+                        local slide = work.port_slides[port_id] or {dx = 0, dy = 0}
+                        work.port_slides[port_id] = {dx = slide.dx + option.dx, dy = slide.dy + option.dy}
+                        option.endpoint.slide_options = nil
+                    end
+                else
+                    restore_route_snapshot(work, snapshot)
+                    if undo then undo() end
+                end
+            end
         end
     end
+    reanchor_bindings(work)
     work.counters.routes_improved = improved
 end
 
