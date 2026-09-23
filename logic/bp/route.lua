@@ -2741,12 +2741,16 @@ local function slide_endpoint(work, endpoint, dx, dy)
     work.obstacles[hand_key] = old.owner or ("hand:" .. tostring(endpoint.port_id))
     endpoint.x, endpoint.y, endpoint.hand_x, endpoint.hand_y = port_x, port_y, hand_x, hand_y
     work.port_cells = reserve_port_cells(work)
-    return function()
-        work.obstacles[hand_key] = nil
-        work.obstacles[old_hand_key] = old.owner
-        endpoint.x, endpoint.y, endpoint.hand_x, endpoint.hand_y = old.x, old.y, old.hand_x, old.hand_y
-        work.port_cells = old.port_cells
-    end
+    old.hand_key, old.old_hand_key = hand_key, old_hand_key
+    return old
+end
+
+--The undo is plain data, never a closure: the improve pass now spans game ticks, so it lives in storage.
+local function unslide_endpoint(work, endpoint, old)
+    work.obstacles[old.hand_key] = nil
+    work.obstacles[old.old_hand_key] = old.owner
+    endpoint.x, endpoint.y, endpoint.hand_x, endpoint.hand_y = old.x, old.y, old.hand_x, old.hand_y
+    work.port_cells = old.port_cells
 end
 
 local function find_binding(work, wanted)
@@ -2764,33 +2768,51 @@ local function bindings_on_port(work, port_id)
     return count
 end
 
---Lift one path and search it again, with an optional hand slide.  Returns the new weight (nil when no path
---was laid) and the slide's undo; the caller restores the route snapshot itself.
-local function reroute_once(work, wanted, demand, option)
+--One re-route trial, resumable: start lifts the path, applies an optional hand slide and begins the search; run
+--spends one op per search step and stops when the budget does; finish appends and weighs.  The player's in-game
+--generate ran 10+ minutes at 3 UPS on 2026-09-23 because this pass ran inside ONE game tick.
+local IMPROVE_TRIAL_OPS = 50
+local IMPROVE_MAX_STEPS = 200000
+
+local function trial_start(work, wanted, demand, option)
+    local trial = {option = option, steps = 0, done = false}
     local binding = find_binding(work, wanted)
-    if not binding or not lift_binding(work, binding) then return nil end
-    local undo
+    if not binding or not lift_binding(work, binding) then trial.done = true; return trial end
     if option then
-        undo = slide_endpoint(work, option.endpoint, option.dx, option.dy)
-        if not undo then return nil end
+        trial.slide = slide_endpoint(work, option.endpoint, option.dx, option.dy)
+        if not trial.slide then trial.done = true; return trial end
     end
-    local amount = binding.rate_per_second
+    trial.amount = binding.rate_per_second
     work.free_source_heading, work.allow_bury = true, true
-    local search = begin_search(work, demand, amount, 1)
-    local path, steps = nil, 0
-    while steps < 200000 do
-        steps = steps + 1
-        local outcome = search_step(work, search)
-        if type(outcome) == "table" then path = outcome; break end
-        if outcome == "failed" then break end
+    trial.search = begin_search(work, demand, trial.amount, 1)
+    return trial
+end
+
+local function trial_run(work, trial, ops)
+    local used = 0
+    while not trial.done and used < ops do
+        if trial.steps >= IMPROVE_MAX_STEPS then trial.done = true; break end
+        trial.steps, used = trial.steps + 1, used + 1
+        local outcome = search_step(work, trial.search)
+        if type(outcome) == "table" then trial.path, trial.done = outcome, true
+        elseif outcome == "failed" then trial.done = true end
     end
+    return used
+end
+
+--Returns the new weight, or nil when no path was laid or a binding lost its sink.  A lift may take a pair or a
+--shared tile another path's walk missed; a re-route that leaves any binding short of its sink is smaller only
+--because it broke something, so it never counts.
+local function trial_finish(work, trial, demand)
     work.free_source_heading, work.allow_bury = nil, nil
-    --A lift may take a pair or a shared tile another path's walk missed; a re-route that leaves any binding
-    --short of its sink is smaller only because it broke something, so it never counts.
-    if path and append_normal_path(work, demand, path, amount) and all_bindings_reach_sinks(work) then
-        return route_weight(work), undo
+    if trial.path and append_normal_path(work, demand, trial.path, trial.amount) and all_bindings_reach_sinks(work) then
+        return route_weight(work)
     end
-    return nil, undo
+    return nil
+end
+
+local function trial_undo(work, trial)
+    if trial.slide then unslide_endpoint(work, trial.option.endpoint, trial.slide) end
 end
 
 --A binding names one live segment of its path.  A kept re-route may delete that segment; point the binding at
@@ -2808,61 +2830,92 @@ local function reanchor_bindings(work)
     end
 end
 
-local function improve_routes(work)
+local function improve_begin(work)
     --Bindings are named by fields, never held by reference: a restored snapshot replaces every table.
     local order = {}
     for _, binding in ipairs(work.bindings or {}) do
         order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second}
     end
     work.port_slides = work.port_slides or {}
-    local improved = 0
-    for _, wanted in ipairs(order) do
-        local demand
-        for _, candidate in ipairs(work.demands or {}) do
-            if candidate.source and candidate.sink and candidate.source.port_id == wanted[1]
-                and candidate.sink.port_id == wanted[2] then demand = candidate; break end
-        end
-        if demand and find_binding(work, wanted) then
-            --Option 1 keeps both hands; each further option slides one hand one tile.  A hand slides only
-            --when this path is the only one on its port, so no other belt loses its end tile.
-            local options = {false}
-            for _, endpoint in ipairs({demand.sink, demand.source}) do
-                if endpoint.slide_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
-                    for _, slide in ipairs(endpoint.slide_options) do
-                        options[#options + 1] = {endpoint = endpoint, dx = slide.dx, dy = slide.dy}
+    return {order = order, index = 0, stage = "next", improved = 0}
+end
+
+--Advance the improve pass by at most about `ops` ops; returns ops used and whether the pass finished.  The trials
+--and their order are exactly those of the one-shot pass, so the kept layout does not depend on the budget.
+local function improve_step(work, st, ops)
+    local used = 0
+    while used < ops do
+        if st.stage == "next" then
+            used = used + 1
+            st.index = st.index + 1
+            local wanted = st.order[st.index]
+            if not wanted then
+                reanchor_bindings(work)
+                work.counters.routes_improved = st.improved
+                return used, true
+            end
+            local demand
+            for _, candidate in ipairs(work.demands or {}) do
+                if candidate.source and candidate.sink and candidate.source.port_id == wanted[1]
+                    and candidate.sink.port_id == wanted[2] then demand = candidate; break end
+            end
+            if demand and find_binding(work, wanted) then
+                --Option 1 keeps both hands; each further option slides one hand one tile.  A hand slides only
+                --when this path is the only one on its port, so no other belt loses its end tile.
+                local options = {false}
+                for _, endpoint in ipairs({demand.sink, demand.source}) do
+                    if endpoint.slide_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
+                        for _, slide in ipairs(endpoint.slide_options) do
+                            options[#options + 1] = {endpoint = endpoint, dx = slide.dx, dy = slide.dy}
+                        end
                     end
                 end
+                st.wanted, st.demand, st.options = wanted, demand, options
+                st.before = route_weight(work)
+                st.best, st.best_weight, st.option_index = nil, st.before, 1
+                st.stage = "trial_start"
             end
-            local before = route_weight(work)
-            local best, best_weight = nil, before
-            for index, option in ipairs(options) do
-                local snapshot = route_snapshot(work)
-                local weight, undo = reroute_once(work, wanted, demand, option or nil)
-                if weight and weight < best_weight then best, best_weight = index, weight end
-                restore_route_snapshot(work, snapshot)
-                if undo then undo() end
-            end
-            if best then
-                local option = options[best] or nil
-                local snapshot = route_snapshot(work)
-                local weight, undo = reroute_once(work, wanted, demand, option)
-                if weight and weight < before then
-                    improved = improved + 1
-                    if option then
-                        local port_id = option.endpoint.port_id
-                        local slide = work.port_slides[port_id] or {dx = 0, dy = 0}
-                        work.port_slides[port_id] = {dx = slide.dx + option.dx, dy = slide.dy + option.dy}
-                        option.endpoint.slide_options = nil
-                    end
-                else
-                    restore_route_snapshot(work, snapshot)
-                    if undo then undo() end
+        elseif st.stage == "trial_start" or st.stage == "commit_start" then
+            local commit = st.stage == "commit_start"
+            st.snapshot = route_snapshot(work)
+            st.trial = trial_start(work, st.wanted, st.demand, st.options[commit and st.best or st.option_index] or nil)
+            st.stage = commit and "commit_run" or "trial_run"
+            used = used + IMPROVE_TRIAL_OPS
+        elseif st.stage == "trial_run" or st.stage == "commit_run" then
+            used = used + trial_run(work, st.trial, ops - used)
+            if st.trial.done then st.stage = st.stage == "trial_run" and "trial_end" or "commit_end" end
+        elseif st.stage == "trial_end" then
+            local weight = trial_finish(work, st.trial, st.demand)
+            if weight and weight < st.best_weight then st.best, st.best_weight = st.option_index, weight end
+            restore_route_snapshot(work, st.snapshot)
+            trial_undo(work, st.trial)
+            st.snapshot, st.trial = nil, nil
+            st.option_index = st.option_index + 1
+            if st.option_index <= #st.options then st.stage = "trial_start"
+            elseif st.best then st.stage = "commit_start"
+            else st.stage = "next" end
+            used = used + IMPROVE_TRIAL_OPS
+        elseif st.stage == "commit_end" then
+            local option = st.options[st.best] or nil
+            local weight = trial_finish(work, st.trial, st.demand)
+            if weight and weight < st.before then
+                st.improved = st.improved + 1
+                if option then
+                    local port_id = option.endpoint.port_id
+                    local slide = work.port_slides[port_id] or {dx = 0, dy = 0}
+                    work.port_slides[port_id] = {dx = slide.dx + option.dx, dy = slide.dy + option.dy}
+                    option.endpoint.slide_options = nil
                 end
+            else
+                restore_route_snapshot(work, st.snapshot)
+                trial_undo(work, st.trial)
             end
+            st.snapshot, st.trial = nil, nil
+            st.stage = "next"
+            used = used + IMPROVE_TRIAL_OPS
         end
     end
-    reanchor_bindings(work)
-    work.counters.routes_improved = improved
+    return used, false
 end
 
 function Route.step(state, budget)
@@ -2883,7 +2936,13 @@ function Route.step(state, budget)
     while ops > 0 and not state.done do
         local demand = work.demands[state.cursor.demand_index]
         if not demand then
-            if not work.improved then work.improved = true; improve_routes(work) end
+            if not work.improved then
+                work.improve_state = work.improve_state or improve_begin(work)
+                local used, finished = improve_step(work, work.improve_state, ops)
+                ops = math.max(0, ops - used)
+                if finished then work.improved, work.improve_state = true, nil end
+            end
+            if not work.improved then break end
             unbury_empty_pairs(work)
             state.result, state.done, state.ok = result_for(work), true, true
             state.progress.phase = "done"
