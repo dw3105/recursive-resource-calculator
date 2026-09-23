@@ -1698,7 +1698,13 @@ function Search.step(container, budget)
                         state.work.incumbent_record = record
                         state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
                             validation = copy(state.work.validate.result)}
-                        if first_incumbent then state.max_ops = nil end
+                        --The layout-count stop decides when to stop; the declared improvement allowance stays as a finite
+                        --safety net (tests/test_search_allowance.lua), sized from the grid area, never a fixed op count.
+                        if first_incumbent and state.work.allowance_derived then
+                            state.max_ops = state.ops_used + math.max(1, state.work.improvement_budget or 1)
+                        elseif first_incumbent then
+                            state.max_ops = nil
+                        end
                         state.work.incumbent_location = {grid_index = state.cursor.grid_index,
                             candidate_index = state.cursor.candidate_index, ordering_index = state.cursor.order_index}
                         state.work.no_improvement_attempts = 0

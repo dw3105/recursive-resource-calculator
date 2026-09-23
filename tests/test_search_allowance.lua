@@ -155,7 +155,10 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(used.route >= #candidates, true, "several candidates are routed")
         H.equal(used.power >= #candidates, true, "several candidates reach power")
         H.equal(used.validate >= #candidates, true, "several candidates are validated")
-        H.equal(used.serialize_begin, 1, "publication is entered once")
+        --Each better layout is also serialized early as state.interim (round 24); the final publication is
+        --entered once on top of those.
+        local interims = type(state.interim) == "table" and state.interim.sequence or 0
+        H.equal(used.serialize_begin, interims + 1, "publication is entered once after one serialization per interim")
     end)
 
     H.test(shape .. " an exhausted allowance keeps and serializes its incumbent", function()

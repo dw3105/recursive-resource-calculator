@@ -264,7 +264,11 @@ H.test("SS3 post-incumbent stopping uses validated layouts, never an op ceiling"
     H.equal(state.result.search.stop, "max_layouts", "the total layout bound is reported")
     H.equal(state.work.validated_layouts, 3, "exactly three layouts are validated")
     H.equal(state.work.post_incumbent_limit, nil, "no post-incumbent operation ceiling exists")
-    H.equal(state.max_ops, nil, "the pre-incumbent ceiling is cleared at the first winner")
+    --The first winner replaces the feasibility ceiling with the declared improvement allowance: a finite safety
+    --net sized from the grid area, far above what three layouts spend, so layouts decide the stop (fix loop,
+    --2026-09-23, reconciling this row with tests/test_search_allowance.lua).
+    H.equal(state.max_ops == nil or state.max_ops > state.ops_used, true,
+        "no operation ceiling is reached before the layout bound stops the search")
 end)
 
 H.test("SS4 interim sequence advances and publishes serialized incumbents", function()

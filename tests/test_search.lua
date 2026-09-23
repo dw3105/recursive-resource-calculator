@@ -200,7 +200,10 @@ end
 local function comparison_input(orderings, grid)
     return {
         plan = comparison_plan(), catalog = comparison_catalog(), pole = pole(), include_roboports = false,
-        grids = {grid or {w = 3, h = 5}}, block_orderings = clone(orderings), synthetic_comparison = true,
+        --10x10: the blocks grew to 2x3 and 3x3 (beacon rows) and never fit the old 3x5 grid, BP_P_NO_FIT in pack
+        --since at least round 18 (c14ad83), and two different machines need 2+2 ring tiles between them
+        --(logic/bp/buffer.lua); these rows judge which validated candidate wins, not grid size.
+        grids = {grid or {w = 10, h = 10}}, block_orderings = clone(orderings), synthetic_comparison = true,
         synthetic_tie = grid ~= nil,
     }
 end
@@ -523,7 +526,7 @@ for _, shape in ipairs(H.shapes()) do
 
     H.test(shape .. " BP-20 equal beacon counts defer to footprint area", function()
         local state, scores = finish_with_validation_scores(
-            comparison_input(comparison_order("block:a", "block:b"), {w = 3, h = 5}),
+            comparison_input(comparison_order("block:a", "block:b"), {w = 10, h = 10}),
             "footprint tie-break search")
         H.equal(state.ok, true, "the tie-break search succeeds")
         H.equal(#scores, 2, "two candidates were validated for the tie-break")

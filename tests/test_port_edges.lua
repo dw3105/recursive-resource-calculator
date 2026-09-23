@@ -51,7 +51,9 @@ local function pack_one(block, direction)
     local state = Pack.begin({area = Grid.rect(0, 0, 40, 40), obstacles = {}, blocks = {{
         block_id = block.block_id, w = block.w, h = block.h, allowed_dirs = {direction}, ports = block.ports,
     }}})
-    for _ = 1, 1000 do
+    --Round 23 charges pack ops per origin tried (PORT_ORIGIN_OPS), so a 40x40 area needs ~25600 ops; this row
+    --judges port edges, not the budget, so the loop runs until packing is done.
+    for _ = 1, 100000 do
         if state.done then break end
         Pack.step(state, {ops = 10})
     end
