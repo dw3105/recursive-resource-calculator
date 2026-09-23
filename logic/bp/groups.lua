@@ -1013,6 +1013,15 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, step in ipairs(steps) do machine_total = machine_total + step.machine_count end
     local face_layout = face_per_flow and has_item_port and machine_total <= 2
     local logical_face_layout = face_per_flow and has_item_port
+    local row_layout = false
+    if multi_flow_hands and machine_total >= 2 and #steps == 1 then
+        local probe = hand_groups_for({}, steps[1], {}, catalog, input, flows)
+        local ins, outs = 0, 0
+        for _, hand in ipairs(probe) do
+            if hand.role == "input" then ins = ins + 1 else outs = outs + 1 end
+        end
+        row_layout = ins <= 1 and outs <= 1 and ins + outs > 0
+    end
     local machine_specs = {}
     local machine_specs_by_id = {}
     local machines_by_id = {}
@@ -1038,6 +1047,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 machine_w = math.max(machine_w, layout_w)
                 machine_h = machine_h + mh
                 if #machine_specs > 1 then machine_h = machine_h + 1 end
+            elseif row_layout then
+                machine_w = machine_w + mw
+                machine_h = math.max(machine_h, mh)
             else
                 machine_w = machine_w + layout_w
                 if #machine_specs > 1 then machine_w = machine_w + 1 end
@@ -1106,6 +1118,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --candidates reaching validate. The inset is owed to every block that puts a hand on a face, not only
     --to the one and two machine cases that face_layout covers.
     if (face_layout or logical_face_layout) and beacon_rows_h == 0 then machine_y = 1 end
+    if row_layout and beacon_rows_h == 0 then machine_y = 2 end
     if beacon_rows_h > 0 then
         -- Keep the established spacer when the collision box still reaches the row, but remove it when the
         -- actual y extent would leave a gap.  This is deliberately a world-box test, not a centre comparison.
@@ -1141,7 +1154,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --straddles the machines instead of starting flush with them. Supply reach is measured from the beacon
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
-    local machine_x0 = face_layout and 1 or 0
+    local machine_x0 = (face_layout or row_layout) and 1 or 0
     for _, row in ipairs(beacon_row_specs) do
         if not face_layout then machine_x0 = math.max(machine_x0, row.w) end
     end
@@ -1168,7 +1181,24 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         block.machines[#block.machines + 1] = machine
         block.members[#block.members + 1] = machine
         machines_by_id[machine.id] = machine
-        if face_layout then y = y + spec.h + 1 else x = x + spec.layout_w + 1 end
+        if face_layout then y = y + spec.h + 1
+        elseif row_layout then x = x + spec.w
+        else x = x + spec.layout_w + 1 end
+    end
+
+    if row_layout then
+        block.row = {machines = #block.machines}
+        block.allowed_dirs = {NORTH, EAST}
+        block.face_by_machine = {}
+        for _, machine in ipairs(block.machines) do
+            block.face_by_machine[machine.id] = {}
+            for _, flow in ipairs(steps[1].inputs or {}) do
+                if not flow_is_fluid(flow, flows) then block.face_by_machine[machine.id][flow.flow_id or flow.full_name] = "top" end
+            end
+            for _, flow in ipairs(steps[1].outputs or {}) do
+                if not flow_is_fluid(flow, flows) then block.face_by_machine[machine.id][flow.flow_id or flow.full_name] = "bottom" end
+            end
+        end
     end
 
     if multi_flow_hands then
@@ -1664,6 +1694,42 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
     block.beacon_count = block.physical_beacon_count
     block_ports(block, steps, ports, flows)
+    if row_layout then
+        local in_hands, out_hands, xs = {}, {}, {}
+        for _, hand in ipairs(block.inserters) do
+            if hand.role == "input" then in_hands[#in_hands + 1] = hand else out_hands[#out_hands + 1] = hand end
+        end
+        table.sort(in_hands, function(a,b) return a.x < b.x end)
+        table.sort(out_hands, function(a,b) return a.x < b.x end)
+        local flows_in, flows_out = {}, {}
+        for _, p in ipairs(steps[1].inputs or {}) do if not flow_is_fluid(p, flows) then flows_in[#flows_in+1] = p.flow_id or p.full_name end end
+        for _, p in ipairs(steps[1].outputs or {}) do if not flow_is_fluid(p, flows) then flows_out[#flows_out+1] = p.flow_id or p.full_name end end
+        table.sort(flows_in); table.sort(flows_out)
+        local pickup_y, drop_y = machine_y - 2, machine_y + max_machine_h + 1
+        local first_x = block.machines[1].x + math.floor(block.machines[1].w / 2)
+        local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
+        local tiles_in, tiles_out = {}, {}
+        for x = first_x - 2, last_x + 1 do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
+        for x = first_x, last_x + 1 do tiles_out[#tiles_out+1] = {x=x,y=drop_y} end
+        local feeds = {}
+        for i, fid in ipairs(flows_in) do
+            local side = i == 1 and -1 or 1
+            feeds[#feeds+1] = {flow_id=fid, side_tile={x=first_x-2,y=pickup_y+side}, travel_dir=side == -1 and SOUTH or NORTH}
+            block.ports[#block.ports+1] = {port_id="row:in:"..fid, role="in",kind="item",flow_id=fid,step_id=steps[1].step_id,
+                attach_dx=first_x-2,attach_dy=pickup_y+side,normal_dir=side == -1 and NORTH or SOUTH,
+                travel_dir=side == -1 and SOUTH or NORTH,member_id=block.machines[1].id}
+        end
+        local outflow = flows_out[1]
+        block.ports[#block.ports+1] = {port_id="row:out:"..tostring(outflow),role="out",kind="item",flow_id=outflow,
+            step_id=steps[1].step_id,attach_dx=last_x+2,attach_dy=drop_y,normal_dir=WEST,travel_dir=EAST,
+            member_id=block.machines[#block.machines].id}
+        block.belt_runs = {
+            {role="in",flows=flows_in,tiles=tiles_in,dir=EAST,head={x=first_x-2,y=pickup_y},feeds=feeds,hand_ids=(function() local a={} for _,h in ipairs(in_hands) do a[#a+1]=h.id end return a end)()},
+            {role="out",flows=flows_out,tiles=tiles_out,dir=EAST,port={x=last_x+2,y=drop_y,travel_dir=EAST},hand_ids=(function() local a={} for _,h in ipairs(out_hands) do a[#a+1]=h.id end return a end)()},
+        }
+        block.row.machines = #block.machines
+        block.w = math.max(block.w,last_x+3); block.h = math.max(block.h,drop_y+1)
+    end
 
     -- A speed beacon is never allowed to claim a quality machine, even if a malformed plan uses a speed
     -- group on that step. Keep the physical influence record intact: removing covered_members while the beacon
@@ -1877,7 +1943,11 @@ local function make_candidates(input)
         end
         local distinct = 0
         for _ in pairs(item_flows) do distinct = distinct + 1 end
-        if distinct > 2 and step.machine_count > 1 then
+        local item_inputs, item_outputs = 0, 0
+        for _, p in ipairs(step.inputs or {}) do if not flow_is_fluid(p, flows) then item_inputs = item_inputs + 1 end end
+        for _, p in ipairs(step.outputs or {}) do if not flow_is_fluid(p, flows) then item_outputs = item_outputs + 1 end end
+        local row_possible = multi_flow_hands and item_inputs <= 2 and item_outputs <= 1
+        if distinct > 2 and step.machine_count > 1 and not row_possible then
             for ordinal = 1, step.machine_count do
                 local fragment = copy(step)
                 fragment.machine_count = 1
@@ -1983,7 +2053,7 @@ end
 function Groups.materialize(block, placement)
     placement = placement or {x = 0, y = 0, dir = NORTH}
     local px, py, dir = finite(placement.x, 0), finite(placement.y, 0), placement.dir or NORTH
-    local placed = {entities = {}, ports = {}, envelope = nil}
+    local placed = {entities = {}, ports = {}, belt_runs = {}, envelope = nil}
     local occupied = {}
     local oriented_w, oriented_h = Grid.rotate_size(block.w, block.h, dir)
     placed.envelope = {x = px, y = py, w = oriented_w, h = oriented_h, dir = dir}
@@ -2082,6 +2152,26 @@ function Groups.materialize(block, placement)
         placed_port._occupied = copy(occupied)
         placed_port._block_w, placed_port._block_h = block.w, block.h
         placed.ports[#placed.ports + 1] = placed_port
+    end
+    for _, run in ipairs(block.belt_runs or {}) do
+        local target = copy(run)
+        local function place(p)
+            local x,y = Grid.rotate_point(p.x,p.y,block.w,block.h,dir)
+            return {x=px+x,y=py+y}
+        end
+        for i,tile in ipairs(run.tiles or {}) do target.tiles[i]=place(tile) end
+        if run.head then target.head=place(run.head) end
+        if run.feeds then
+            target.feeds={}
+            for i,feed in ipairs(run.feeds) do
+                target.feeds[i]={flow_id=feed.flow_id,side_tile=place(feed.side_tile),travel_dir=Grid.rotate_dir(feed.travel_dir,dir)}
+            end
+        end
+        if run.port then
+            local p=place(run.port); target.port={x=p.x,y=p.y,travel_dir=Grid.rotate_dir(run.port.travel_dir,dir)}
+        end
+        target.dir=Grid.rotate_dir(run.dir,dir)
+        placed.belt_runs[#placed.belt_runs+1]=target
     end
     table.sort(placed.entities, function(a, b) return a.id < b.id end)
     table.sort(placed.ports, function(a, b)
