@@ -199,6 +199,7 @@ local function normal_for_slot(slot, w, h)
 end
 
 local function port_slots(block, port)
+    if port._slot_options then return port._slot_options end
     local result, seen = {}, {}
     local function add(slot)
         if not bounded_slot(slot, block.w, block.h) then return end
@@ -215,8 +216,9 @@ local function port_slots(block, port)
     if port.attach_dx ~= nil and port.attach_dy ~= nil then
         add({attach_dx = port.attach_dx, attach_dy = port.attach_dy, normal_dir = port.normal_dir})
     end
-    if port.pinned then return result end
+    if port.pinned then port._slot_options = result; return result end
     for _, slot in ipairs(edge_slots(block.w, block.h)) do add(slot) end
+    port._slot_options = result
     return result
 end
 
