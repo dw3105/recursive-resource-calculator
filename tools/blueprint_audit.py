@@ -432,6 +432,67 @@ def audit_orphans(entities, cells, pairs) -> Tuple[List[str], int, int]:
     return failures, len(dead), dead_pipe, terminals
 
 
+def audit_transport_shapes(entities, pairs):
+    """Count side entries, blocked underground entries, adjacent tunnels, and directed belt cycles."""
+    transport = {tile: e for e in entities if e.get("name") in BELTS | UG_BELTS | SPLITTERS
+                 for tile in occupied_tiles(e)}
+    side, blocked, back = [], [], []
+    pair_map = {a: b for a, b in pairs} | {b: a for a, b in pairs}
+    for target, inlet in transport.items():
+        if inlet.get("name") not in UG_BELTS or inlet.get("type") != "input":
+            continue
+        d = inlet.get("direction", 0)
+        if d not in VEC: continue
+        vx, vy = VEC[d]
+        for feeder in ((target[0]-vy, target[1]+vx), (target[0]+vy, target[1]-vx)):
+            source = transport.get(feeder)
+            if not source or source.get("name") not in BELTS | SPLITTERS: continue
+            if source.get("direction", 0) not in VEC or VEC[source.get("direction", 0)] != (target[0]-feeder[0], target[1]-feeder[1]): continue
+            side.append((feeder, target))
+            # A lane is the item's side relative to travel. Side-feeding lanes occupy the side nearest the inlet.
+            if source.get("name") in SPLITTERS: continue
+            sd = source.get("direction", 0); sv = VEC.get(sd)
+            if sv and (-sv[1], sv[0]) == (vx, vy):
+                blocked.append((feeder, target))
+    inputs = [e for e in entities if e.get("name") in UG_BELTS and e.get("type")=="input"]
+    outputs = [e for e in entities if e.get("name") in UG_BELTS and e.get("type")=="output"]
+    for out in outputs:
+        x,y=out["position"]["x"],out["position"]["y"]; d=out.get("direction",0); v=VEC.get(d)
+        if not v: continue
+        nxt=(x+v[0],y+v[1]); inp=transport.get(nxt)
+        if inp and inp.get("name") in UG_BELTS and inp.get("type")=="input" and inp.get("direction")==d:
+            origin=pair_map.get((x,y))
+            end=pair_map.get(nxt)
+            if origin and end:
+                span=abs(origin[0]-end[0])+abs(origin[1]-end[1])
+                if span <= UG_REACH.get(out.get("name"),5): back.append(((x,y),nxt))
+    # Directed tile graph; underground inputs jump to their paired output. Splitter tiles emit to both front tiles.
+    graph={}
+    for cell,e in transport.items():
+        d=e.get("direction",0); v=VEC.get(d); dest=[]
+        if e.get("name") in UG_BELTS and e.get("type")=="input":
+            q=pair_map.get(cell)
+            if q in transport: dest=[q]
+        elif v:
+            if e.get("name") in SPLITTERS:
+                dest=[q for t in occupied_tiles(e) if (q:=(t[0]+v[0],t[1]+v[1])) in transport]
+            else:
+                q=(cell[0]+v[0],cell[1]+v[1])
+                if q in transport: dest=[q]
+        graph[cell]=dest
+    visiting=set(); visited=set(); cycles=0
+    def visit(n):
+        nonlocal cycles
+        if n in visiting: cycles+=1; return
+        if n in visited: return
+        visiting.add(n)
+        for q in graph.get(n,[]): visit(q)
+        visiting.remove(n); visited.add(n)
+    for cell in graph: visit(cell)
+    tile = lambda p: (int(p[0] // 1), int(p[1] // 1))
+    return len(side), len(blocked), len(back), cycles, [f"({tile(a)[0]},{tile(a)[1]})->({tile(b)[0]},{tile(b)[1]})" for a,b in blocked]
+
+
 def audit_beacons(entities, config: Dict[str, int]) -> Tuple[List[str], int]:
     """Contract 26.6: extra influence is legal, a REDUNDANT beacon is not.
 
@@ -490,6 +551,7 @@ def main(argv=None) -> int:
     underground_failures, underground_by_family, underground_pairs = audit_underground(entities)
     orphan_failures, dead_belt, dead_pipe, terminals = audit_orphans(entities, cells, underground_pairs)
     beacon_failures, redundant = audit_beacons(entities, config)
+    sideload, sideload_blocked, back_to_back, cycles, blocked_rows = audit_transport_shapes(entities, underground_pairs)
 
     counts = {
         **family_census(entities),
@@ -503,11 +565,16 @@ def main(argv=None) -> int:
         "unused_pipe_tiles": dead_pipe,
         "inferred_terminals": len(terminals),
         "redundant_beacons": redundant,
+        "sideload": sideload, "sideload_blocked": sideload_blocked,
+        "back_to_back": back_to_back, "cycles": cycles,
     }
     groups = [("inserter endpoints (contract 26.3)", inserter_failures),
               ("underground pairing (contract 26.5)", underground_failures),
               ("unused transport (contract 26.2)", orphan_failures),
-              ("beacon redundancy (contract 26.6)", beacon_failures)]
+              ("beacon redundancy (contract 26.6)", beacon_failures),
+              ("blocked underground side-load", blocked_rows),
+              ("underground back-to-back", [str(x) for x in range(back_to_back)]),
+              ("belt route cycles", [str(x) for x in range(cycles)])]
 
     if args.json:
         print(json.dumps(counts, indent=2, sort_keys=True))
