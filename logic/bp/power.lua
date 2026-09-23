@@ -448,7 +448,7 @@ local function advance_candidate_index(state)
     end
     local max_x, max_y = work.grid_w - spec.tile_w, work.grid_h - spec.tile_h
     if builder.mode == "spec_start" then
-        builder.by_key, builder.lattice = {}, {}
+        builder.by_key, builder.positions = {}, {}
         builder.consumer_index, builder.mode = 1, "consumer_start"
     elseif builder.mode == "consumer_start" then
         local consumer = work.consumers[builder.consumer_index]
@@ -489,7 +489,7 @@ local function advance_candidate_index(state)
         builder.x, builder.y, builder.mode = 0, 0, "lattice_position"
     elseif builder.mode == "lattice_position" then
         if max_x < 0 or max_y < 0 or builder.y > max_y then
-            builder.finalize_key, builder.representatives, builder.mode = nil, {}, "finalize"
+            builder.finalize_key, builder.mode = nil, "finalize"
         else
             local key = builder.y * (work.grid_w + 1) + builder.x
             local item = builder.by_key[key]
@@ -501,53 +501,23 @@ local function advance_candidate_index(state)
     elseif builder.mode == "finalize" then
         local key, item = next(builder.by_key, builder.finalize_key)
         if key == nil then
-            builder.sorted_representatives = {}
-            for _, representative in pairs(builder.representatives) do
-                builder.sorted_representatives[#builder.sorted_representatives + 1] = representative
-            end
-            table.sort(builder.sorted_representatives,
-                function(a, b) if a.y ~= b.y then return a.y < b.y end return a.x < b.x end)
-            builder.representative_index, builder.lattice_index = 1, 1
-            builder.output, builder.output_seen, builder.mode = {}, {}, "collect"
+            builder.mode = "collect"
         else
             builder.finalize_key = key
             local covers = {}
             for consumer_index in pairs(item.covers) do covers[#covers + 1] = consumer_index end
             table.sort(covers)
             item.covers = covers
-            if #covers > 0 then
-                local bucket = math.max(1, math.floor(spec.wire_reach / 2))
-                local signature = table.concat(covers, ",") .. "@"
-                    .. math.floor((item.x + spec.tile_w / 2) / bucket) .. ":"
-                    .. math.floor((item.y + spec.tile_h / 2) / bucket)
-                local old = builder.representatives[signature]
-                if not old or item.y < old.y or (item.y == old.y and item.x < old.x) then
-                    builder.representatives[signature] = item
-                end
-            end
-            if item.lattice then builder.lattice[#builder.lattice + 1] = item end
+            if #covers > 0 or item.lattice then builder.positions[#builder.positions + 1] = item end
         end
     elseif builder.mode == "collect" then
-        local lattice = builder.lattice[builder.lattice_index]
-        local representative = builder.sorted_representatives[builder.representative_index]
-        if not lattice and not representative then
-            work.positions_by_spec[builder.spec_index] = builder.output
+        table.sort(builder.positions, function(a, b)
+            if a.y ~= b.y then return a.y < b.y end
+            return a.x < b.x
+        end)
+        if builder.positions then
+            work.positions_by_spec[builder.spec_index] = builder.positions
             builder.spec_index, builder.mode = builder.spec_index + 1, "spec_start"
-        else
-            local item
-            if not representative or (lattice and (lattice.y < representative.y
-                or (lattice.y == representative.y and lattice.x <= representative.x))) then
-                item = lattice
-                builder.lattice_index = builder.lattice_index + 1
-            else
-                item = representative
-                builder.representative_index = builder.representative_index + 1
-            end
-            local key = tostring(item.x) .. ":" .. tostring(item.y)
-            if not builder.output_seen[key] then
-                builder.output_seen[key] = true
-                builder.output[#builder.output + 1] = item
-            end
         end
     end
 end
