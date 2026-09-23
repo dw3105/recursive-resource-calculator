@@ -27,7 +27,8 @@ local function candidate(mode)
             if hand.role == "input" then hand.flow_ids = {RowFixture.COPPER} end
         end
     end
-    local state = Validate.begin({grid={w=60,h=60}, catalog={entity={}, inserter={pickup_offset={x=0,y=1},drop_offset={x=0,y=-1},items_per_second=10}, belt={items_per_second=10, lane_items_per_second=5}}, entities=entities})
+    for _, hand in ipairs(row.inserters) do entities[#entities + 1] = hand end
+    local state = Validate.begin({grid={w=60,h=60}, catalog={entity={}, inserter={pickup_offset={x=0,y=-1},drop_offset={x=0,y=1},items_per_second=10}, belt={items_per_second=10, lane_items_per_second=5}}, entities=entities})
     while not state.done do Validate.step(state, {ops=100}) end
     return state
 end

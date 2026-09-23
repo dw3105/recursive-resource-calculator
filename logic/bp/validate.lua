@@ -1485,7 +1485,9 @@ local function check_transport_shapes(work)
                             add(next_key, near, flow_id)
                         end
                     elseif to.kind == "belt" and not fed_from_behind(next_key) then
-                        add(next_key, lane, flow_id)
+                        add(next_key, lane)
+                        -- A side-fed head places its entering item on the lane nearest the feed side.
+                        add(next_key, near, flow_id)
                     else
                         add(next_key, near, flow_id)
                         if to.kind == "splitter" then add(to.other, near, flow_id) end
