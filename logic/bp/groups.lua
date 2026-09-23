@@ -1406,7 +1406,25 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- obligation: the inserter at the producer and the inserter at the consumer must each see the other machine
     -- as a real endpoint, even when the producer appears first in step order.
     for _, spec in ipairs(machine_specs) do
-        append_inserters(block, spec.step, machines_by_id[spec.id], catalog, input, flows)
+        local machine = machines_by_id[spec.id]
+        if row_layout then
+            local groups = hand_groups_for(block, spec.step, machine, catalog, input, flows)
+            for index, hand in ipairs(groups) do
+                local input_hand = hand.role == "input"
+                local hx = machine.x + math.floor((machine.w - 1) / 2)
+                local hy = input_hand and machine.y - 1 or machine.y + machine.h
+                local id = member_id("inserter", spec.step.step_id, machine.ordinal, hand.role .. ":" .. tostring(index))
+                local hand_member = {id=id,kind="inserter",type="inserter",name=(input and input.inserter and input.inserter.name) or "inserter",
+                    step_id=spec.step.step_id,machine_id=machine.id,role=hand.role,flow_ids=list_copy(hand.flow_ids),
+                    flow_id=#hand.flow_ids==1 and hand.flow_ids[1] or nil,
+                    port_id=(input_hand and "row:in:" or "row:out:") .. tostring(hand.flow_ids[1]),
+                    x=hx,y=hy,w=1,h=1,dir=input_hand and SOUTH or NORTH,
+                    pickup_position={x=hx+0.5,y=(input_hand and machine.y-2 or machine.y+machine.h-1)+0.5},
+                    drop_position={x=hx+0.5,y=(input_hand and machine.y or machine.y+machine.h+1)+0.5},
+                    port_bound=true,flow_entries=list_copy(hand.ports),_hand_key=hand.key}
+                block.inserters[#block.inserters+1]=hand_member
+            end
+        else append_inserters(block, spec.step, machine, catalog, input, flows) end
     end
 
     -- The bottom machine face is the shared perimeter face for external item hands.  Refuse an overfull face
@@ -1695,6 +1713,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     block.beacon_count = block.physical_beacon_count
     block_ports(block, steps, ports, flows)
     if row_layout then
+        block.ports = {}
         local in_hands, out_hands, xs = {}, {}, {}
         for _, hand in ipairs(block.inserters) do
             if hand.role == "input" then in_hands[#in_hands + 1] = hand else out_hands[#out_hands + 1] = hand end
@@ -1709,8 +1728,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local first_x = block.machines[1].x + math.floor(block.machines[1].w / 2)
         local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
         local tiles_in, tiles_out = {}, {}
-        for x = first_x - 2, last_x + 1 do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
-        for x = first_x, last_x + 1 do tiles_out[#tiles_out+1] = {x=x,y=drop_y} end
+        for x = first_x - 2, last_x do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
+        for x = first_x, last_x do tiles_out[#tiles_out+1] = {x=x,y=drop_y} end
         local feeds = {}
         for i, fid in ipairs(flows_in) do
             local side = i == 1 and -1 or 1

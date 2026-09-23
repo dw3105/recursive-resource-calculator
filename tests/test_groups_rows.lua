@@ -8,7 +8,7 @@ local catalog = {entity={assembler={name="assembler",tile_w=3,tile_h=3,etype="as
     inserter={name="inserter",tile_w=1,tile_h=1,pickup_offset={x=0,y=1},drop_offset={x=0,y=-1}}},
     inserter={name="inserter",pickup_offset={x=0,y=1},drop_offset={x=0,y=-1}}, belt={items_per_second=15}}
 local function plan(count, three)
-    local ins = {{flow_id=copper,rate_per_second=count},{flow_id=gear,rate_per_second=count}}
+    local ins = {{flow_id=copper,rate_per_second=count,pickup_cell={x=1,y=0}},{flow_id=gear,rate_per_second=count,pickup_cell={x=1,y=0}}}
     if three then ins[#ins+1]={flow_id="item/extra",rate_per_second=count} end
     local steps={{step_id="science",machine="assembler",machine_count=count,recipe="automation-science-pack",inputs=ins,
         outputs={{flow_id=pack,rate_per_second=count}}}}
@@ -17,6 +17,7 @@ local function plan(count, three)
     return {steps=steps,flows=flows,ports={}}
 end
 local function grouped(input)
+    input._force_multi_flow_hands = true
     local s=Groups.begin(input)
     for _=1,8 do if s.done then break end; Groups.step(s,{ops=1}) end
     return s.result and s.result.candidates or {}
