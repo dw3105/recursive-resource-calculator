@@ -108,6 +108,7 @@ local function persist_handle(handle)
         settings = copy_plain(handle.settings) or {},
         prepared_input_identity = copy_plain(handle.prepared_input_identity),
         grid_spacing = copy_plain(handle.grid_spacing),
+        interim = copy_plain(handle.interim), delivered_sequence = handle.delivered_sequence,
     }
     if handle.reason_codes then record.reason_codes = copy_plain(handle.reason_codes) or {} end
     if handle.reason_details then record.reason_details = copy_plain(handle.reason_details) or {} end
@@ -154,6 +155,8 @@ local function handle_from_record(record)
     if record.canonical then handle.canonical = copy_plain(record.canonical) or {} end
     if record.capture then handle.capture = copy_plain(record.capture) or {} end
     if record.delivery_reason ~= nil then handle.delivery_reason = record.delivery_reason end
+    if record.interim then handle.interim = copy_plain(record.interim) end
+    handle.delivered_sequence = integer(record.delivered_sequence, nil)
     return handle
 end
 
@@ -1170,6 +1173,26 @@ local function step(job, budget)
         job.phase = state.search.phase
         job.progress = copy_plain(state.search.progress) or job.progress
         local active_handle = handle_for(job)
+        local interim = state.search.interim
+        if active_handle and type(interim) == "table" and type(interim.result) == "table"
+            and type(interim.sequence) == "number"
+            and (not active_handle.interim or interim.sequence > active_handle.interim.sequence) then
+            local candidate = copy_plain(interim.result)
+            local encoded = encode_blueprint(candidate)
+            if candidate and encoded then
+                local first = active_handle.interim == nil
+                active_handle.interim = {sequence = interim.sequence, entities = integer(interim.entities, #candidate.entities),
+                    result = candidate, blueprint_string = encoded}
+                active_handle.phase = first and "improving" or active_handle.phase
+                if first then job.phase = "improving" end
+                if first and active_handle.deliver then
+                    local ok = BlueprintDelivery.deliver(active_handle.player_index, candidate)
+                    if ok then active_handle.delivered_sequence = interim.sequence end
+                end
+                persist_handle(active_handle)
+                bridge_attempt(active_handle, false)
+            end
+        end
         local spacing = search_grid_spacing(job)
         if active_handle and spacing and not active_handle.grid_spacing then
             active_handle.grid_spacing = spacing
@@ -1220,12 +1243,41 @@ local function publish(job)
     update_capture(handle, nil, "success", nil, "done")
     bridge_attempt(handle, false)
 
-    if handle.deliver then
+    local final_sequence = type(job.state) == "table" and type(job.state.search) == "table"
+        and job.state.search.interim and job.state.search.interim.sequence
+    local final_entities = type(blueprint.entities) == "table" and #blueprint.entities or 0
+    local had_interim = handle.interim ~= nil
+    local equal_delivered = handle.delivered_sequence ~= nil and handle.interim
+        and handle.interim.sequence == final_sequence and handle.interim.entities == final_entities
+    if equal_delivered then
+        --The cursor already received this exact best result while the search was running.
+    else
+        handle.interim = {sequence = final_sequence or (had_interim and (handle.interim.sequence + 1) or 1), entities = final_entities,
+            result = blueprint, blueprint_string = encoded}
+    end
+    if handle.deliver and not equal_delivered and not had_interim then
         local ok, reason = BlueprintDelivery.deliver(handle.player_index, blueprint)
         if not ok and reason ~= "blueprint_cursor_busy" then
             handle.delivery_reason = reason
         end
     end
+    persist_handle(handle)
+    bridge_attempt(handle, false)
+end
+
+function Generation.deliver_interim(player_index, job_id, sequence)
+    local handle = handles[job_id] or handle_from_record(saved_record(job_id))
+    if handle then handles[job_id] = handle end
+    local interim = handle and handle.interim
+    if not handle or handle.player_index ~= player_index or not interim or interim.sequence ~= sequence then
+        return false, "stale_offer"
+    end
+    local ok, reason = BlueprintDelivery.deliver(player_index, interim.result)
+    if ok then
+        handle.delivered_sequence = interim.sequence
+        persist_handle(handle)
+    end
+    return ok, reason
 end
 
 function Generation.register()
@@ -1294,6 +1346,8 @@ local function public_status(handle)
         result.reason_codes, result.stage = copy_plain(handle.reason_codes) or {}, handle.phase
         result.reason_details = copy_plain(handle.reason_details) or {}
     end
+    result.interim = handle.interim and {sequence = handle.interim.sequence, entities = handle.interim.entities,
+        blueprint_string = handle.interim.blueprint_string} or nil
     return result
 end
 
@@ -1333,6 +1387,8 @@ local function public_attempt(handle, player_index, sheet_id)
         grid_spacing = copy_plain(handle.grid_spacing),
         diagnostics = diagnostics, search_diagnostics = copy_plain(diagnostics) or {},
     }
+    result.interim = handle.interim and {sequence = handle.interim.sequence, entities = handle.interim.entities,
+        blueprint_string = handle.interim.blueprint_string} or nil
     result.input_fingerprint = identity and identity.input_fingerprint or nil
     if capture then
         result.prepared_input = copy_plain(capture) or {}
