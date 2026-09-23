@@ -340,7 +340,8 @@ local function scan_origin(state, block, region, direction, x, y)
             local w, h = Grid.rotate_size(block.w, block.h, direction)
             state.counters.origins = state.counters.origins + 1
                 local buffer_zones = rotate_buffer_zones(block, x, y, direction)
-                if placement_avoids_port_cells(state, x, y, w, h) and buffer_zones_fit(state, buffer_zones) then
+                if not buffer_zones_fit(state, buffer_zones) then return true end
+                if placement_avoids_port_cells(state, x, y, w, h) then
                     local short_side, long_side = Pack.bssf_score(region, w, h)
                     local candidate = {
                         x = x, y = y, dir = direction, w = w, h = h,
