@@ -157,7 +157,7 @@ Commit your work on `lane/161` with a message that says what changed and what wa
 checks below as the very LAST action, after the final commit.** A lane that ends with uncommitted work is
 a failed lane whatever it built.
 
-## What done means
+## What done mean
 
 ```checks
 {"name": "route-regress", "command": "git diff --name-only round-21-base HEAD | grep -v '^docs/tasks/161' | grep -Ev '^(logic/bp/route\\.lua|tests/test_route_underground_feed\\.lua|tests/test_route_collision\\.lua|tests/test_route_chain\\.lua)$' | ( ! grep . ) && for l in lua5.2 lua5.4; do $l tests/test_route_underground_feed.lua 2>&1 | tail -1 | grep -q ' 0 failed' || exit 1; done && sh tools/round21_regress.sh | tail -1 | grep -q '^regress-ok$' && echo route-regress-ok", "expect_exit": 0, "expect_regex": "route-regress-ok", "timeout_s": 1800}

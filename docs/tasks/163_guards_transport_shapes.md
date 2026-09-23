@@ -121,7 +121,7 @@ Commit your work on `lane/163` with a message that says what changed and what wa
 checks below as the very LAST action, after the final commit.** A lane that ends with uncommitted work is a
 failed lane whatever it built.
 
-## What done means
+## What done mean
 
 ```checks
 {"name": "guards-rows", "command": "git diff --name-only round-21-base HEAD | grep -v '^docs/tasks/163' | grep -Ev '^(logic/bp/validate\\.lua|logic/bp/reason_codes\\.lua|tools/blueprint_audit\\.py|tools/deliver\\.sh|tests/test_validate_transport_shapes\\.lua|tests/tools/test_blueprint_audit\\.py)$' | ( ! grep . ) && for l in lua5.2 lua5.4; do $l tests/test_validate_transport_shapes.lua 2>&1 | tail -1 | grep -q ' 0 failed' || exit 1; $l tests/test_validate.lua 2>&1 | tail -1 | grep -q '44 passed, 0 failed' || exit 1; $l tests/test_validate_splitter.lua 2>&1 | tail -1 | grep -q '12 passed, 0 failed' || exit 1; $l tests/test_locale_keys.lua 2>&1 | tail -1 | grep -q ' 0 failed' || exit 1; done && python3 -m pytest -q tests/tools/test_blueprint_audit.py 2>&1 | tail -1 | grep -Eq '^[0-9]+ passed' && echo guards-rows-ok", "expect_exit": 0, "expect_regex": "guards-rows-ok", "timeout_s": 1800}
