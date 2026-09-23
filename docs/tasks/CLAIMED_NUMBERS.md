@@ -145,3 +145,6 @@
 | `158` | `rrc/agent` | waste: no U-turn that buys nothing, no dive that was never needed | 2026-09-22 |
 | `159` | `rrc/agent` | doors: an input enters next to the machines that consume it | 2026-09-22 |
 | `160` | `rrc/agent` | doors re-cut: an input enters next to its machines, and the blueprint still ships | 2026-09-22 |
+| `161` | `rrc/agent` | route: a dive is fed straight, one pair where one reaches, and no belt ring | 2026-09-23 |
+| `162` | `rrc/agent` | doors: a door sits at the END of its consumers, never the middle | 2026-09-23 |
+| `163` | `rrc/agent` | guards: validator and byte auditor refuse side-load, back-to-back and ring | 2026-09-23 |
