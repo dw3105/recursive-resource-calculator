@@ -853,9 +853,13 @@ function Power.step(state, budget)
                 elseif position ~= false then
                     local candidate = make_candidate(work, position.spec_index, position.x, position.y, true)
                     candidate.covers = position.covers or {}
+                    local blocked = candidate_is_occupied(candidate, work)
                     work.candidate_eval = {candidate = candidate, occupied_index = #work.occupied + 1,
-                        consumer_index = #work.consumers + 1, blocked = candidate_is_occupied(candidate, work)}
-                    cursor.phase = "candidate_occupied"
+                        consumer_index = #work.consumers + 1, blocked = blocked}
+                    -- The cell index above already performed exact intersection tests.  Rewalking
+                    -- every occupied rectangle here charged one op per unrelated building.
+                    if blocked then work.candidate_eval = nil; cursor.phase = "candidate_position"
+                    else cursor.phase = "candidate_coverage" end
                 end
             end
 
