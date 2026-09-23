@@ -610,6 +610,28 @@ local function hand_groups_for(block, step, machine, catalog, input, flows)
     return groups
 end
 
+--Round 26 row block: every item input of the row rides one shared two-lane belt, one flow per lane, so
+--the row's input hand carries all of them (at most two) whatever the single-belt pairing rule says.
+--Outputs keep one hand each. Nil when the step cannot be a row.
+local function row_hand_groups(step, flows)
+    local machine_count = step._rate_machine_count or step.machine_count or 1
+    local inputs, groups = {}, {}
+    for _, port in ipairs(step.inputs or {}) do
+        if not flow_is_fluid(port, flows) then inputs[#inputs + 1] = port end
+    end
+    if #inputs > 2 then return nil end
+    if #inputs > 0 then groups[#groups + 1] = hand_group("input", inputs, machine_count) end
+    local outs = 0
+    for _, port in ipairs(step.outputs or {}) do
+        if not flow_is_fluid(port, flows) then
+            outs = outs + 1
+            groups[#groups + 1] = hand_group("output", {port}, machine_count)
+        end
+    end
+    if outs > 1 or #groups == 0 then return nil end
+    return groups
+end
+
 local function contains_flow(hand, flow_id)
     if type(hand and hand.flow_ids) == "table" then
         for _, id in ipairs(hand.flow_ids) do if id == flow_id then return true end end
@@ -1015,12 +1037,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local logical_face_layout = face_per_flow and has_item_port
     local row_layout = false
     if multi_flow_hands and machine_total >= 2 and #steps == 1 then
-        local probe = hand_groups_for({}, steps[1], {}, catalog, input, flows)
-        local ins, outs = 0, 0
-        for _, hand in ipairs(probe) do
-            if hand.role == "input" then ins = ins + 1 else outs = outs + 1 end
-        end
-        row_layout = ins <= 1 and outs <= 1 and ins + outs > 0
+        row_layout = row_hand_groups(steps[1], flows) ~= nil
     end
     local machine_specs = {}
     local machine_specs_by_id = {}
@@ -1208,7 +1225,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             for _, candidate in ipairs(steps) do
                 if candidate.step_id == machine.step_id then step = candidate; break end
             end
-            local groups = hand_groups_for(block, step or {}, machine, catalog, input, flows)
+            local groups = row_layout and row_hand_groups(step or {}, flows)
+                or hand_groups_for(block, step or {}, machine, catalog, input, flows)
             local by_flow = {}
             block.hand_groups_by_machine[machine.id] = groups
             block.hand_key_by_machine[machine.id] = by_flow
@@ -1219,7 +1237,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
     end
 
-    if logical_face_layout then
+    if logical_face_layout and not row_layout then
         local flow_machines, machine_indices = {}, {}
         for index, machine in ipairs(block.machines) do machine_indices[machine.id] = index end
         for _, machine in ipairs(block.machines) do
@@ -1408,7 +1426,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, spec in ipairs(machine_specs) do
         local machine = machines_by_id[spec.id]
         if row_layout then
-            local groups = hand_groups_for(block, spec.step, machine, catalog, input, flows)
+            local groups = row_hand_groups(spec.step, flows)
             for index, hand in ipairs(groups) do
                 local input_hand = hand.role == "input"
                 local hx = machine.x + math.floor((machine.w - 1) / 2)

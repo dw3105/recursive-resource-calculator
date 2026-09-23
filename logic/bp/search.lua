@@ -415,7 +415,7 @@ local function materialize_candidate(state, candidate, placements)
             blocks[#blocks + 1] = {
                 block_id = block.id or block.block_id, id = block.id or block.block_id,
                 x = placed.envelope.x, y = placed.envelope.y, w = placed.envelope.w, h = placed.envelope.h,
-                dir = placed.envelope.dir, ports = placed.ports,
+                dir = placed.envelope.dir, ports = placed.ports, belt_runs = placed.belt_runs,
             }
             append_all(entities, placed.entities)
             append_all(ports, placed.ports)
@@ -888,7 +888,16 @@ local function terminal_consumers(state, network)
         for _, port in ipairs(block.ports or {}) do
             local id = port.block_id or port.step_id or port.owner_id or port.owner
             if port_flow_id(port) == port_flow_id(network.port) and wanted[id] then
-                result[#result + 1] = {x = port.x, y = port.y}
+                local x, y = finite(port.x), finite(port.y)
+                if x == nil or y == nil then
+                    --A rotated placement keeps source-frame attach geometry (Groups.materialize); place it as
+                    --mark_perimeter_port_cells does.
+                    local frame = {w = finite(port._block_w, finite(block.w, 1)), h = finite(port._block_h, finite(block.h, 1))}
+                    local placed = Grid.place_port(frame, {x = finite(block.x, 0), y = finite(block.y, 0),
+                        dir = finite(block.dir, Grid.NORTH)}, port)
+                    x, y = placed.x, placed.y
+                end
+                if x ~= nil and y ~= nil then result[#result + 1] = {x = x, y = y} end
             end
         end
     end
