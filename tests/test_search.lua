@@ -177,6 +177,9 @@ end
 
 local function comparison_catalog()
     local catalog = base_catalog()
+    catalog.entity.beacon = clone(catalog.entity.beacon)
+    catalog.entity.beacon.beacon = {supply_w = 2, supply_h = 2}
+    if catalog.beacon then catalog.beacon = {beacon = {supply_w = 2, supply_h = 2}} end
     catalog.entity["wide-assembler"] = {
         name = "wide-assembler", tile_w = 2, tile_h = 1, energy_usage_w = 1,
         collision_box = box(), collision_mask = {"item-layer"},
@@ -185,10 +188,11 @@ local function comparison_catalog()
 end
 
 local function comparison_group(signature)
-    -- Give the synthetic comparison profiles the same measured area as comparison_catalog's beacon. The
-    -- generated beacon must cover the 1x1 and 2x1 machine footprints before this fixture compares candidates.
+    --Supply 2, matching comparison_catalog: each block's beacon reaches its own machine only.  With supply 10
+    --on this small grid each beacon reached BOTH machines, so removing either one left every count met and the
+    --validator refused both as BP_V_BEACON_REDUNDANT (measured 2026-09-23 on legalcopilot-dev).
     return {signature = signature, name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {},
-        supply_w = 10, supply_h = 10}
+        supply_w = 2, supply_h = 2}
 end
 
 local function comparison_plan()
