@@ -1419,11 +1419,17 @@ local function check_transport_shapes(work)
         if not behind or behind.ug == "input" then return false end
         return behind.d == tile.d
     end
-    local lanes, queue, head = {}, {}, 1
-    local function add(key, lane)
+    local lanes, witnesses, queue, head = {}, {}, {}, 1
+    local function add(key, lane, flow_id)
         if tiles[key] == nil then return end
         lanes[key] = lanes[key] or {}
-        if not lanes[key][lane] then lanes[key][lane] = true; queue[#queue + 1] = {key, lane} end
+        if not lanes[key][lane] then lanes[key][lane] = true end
+        if flow_id then
+            witnesses[key] = witnesses[key] or {L = {}, R = {}}
+            if not witnesses[key][lane][flow_id] then witnesses[key][lane][flow_id] = true; queue[#queue + 1] = {key, lane, flow_id} end
+        elseif not lanes[key][lane .. "_walked"] then
+            lanes[key][lane .. "_walked"] = true; queue[#queue + 1] = {key, lane, false}
+        end
     end
     for _, hand in ipairs(work.inserters or {}) do
         local _, _, drop_x, drop_y = transfer_cells(hand, work)
@@ -1438,20 +1444,27 @@ local function check_transport_shapes(work)
             local rx, ry = right_of(tile.d)
             local hx, hy = tile_of(hand)
             local dot = (hx - drop_x) * rx + (hy - drop_y) * ry
-            add(tile_key(drop_x, drop_y), dot > 0 and "L" or "R")
+            local lane, ids = dot > 0 and "L" or "R", declared_flow_ids(hand)
+            if #ids == 0 then add(tile_key(drop_x, drop_y), lane)
+            else for _, flow_id in ipairs(ids) do add(tile_key(drop_x, drop_y), lane, flow_id) end end
+        end
+    end
+    for key, tile in pairs(tiles) do
+        if tile.kind == "belt" then
+            for _, flow_id in ipairs(declared_flow_ids(tile.info)) do add(key, "R", flow_id) end
         end
     end
     local blocked = {}
     while head <= #queue do
-        local key, lane = queue[head][1], queue[head][2]
+        local key, lane, flow_id = queue[head][1], queue[head][2], queue[head][3]
         head = head + 1
         local from = tiles[key]
         for _, next_key in ipairs(outputs(key)) do
             local to = next_key and tiles[next_key]
             if to then
                 if from.ug == "input" or from.d == to.d then
-                    add(next_key, lane)
-                    if to.kind == "splitter" then add(to.other, lane) end
+                    add(next_key, lane, flow_id)
+                    if to.kind == "splitter" then add(to.other, lane, flow_id) end
                 elseif from.d ~= Grid.dir_opposite(to.d) then
                     local rx, ry = right_of(to.d)
                     local near = ((from.x - to.x) * rx + (from.y - to.y) * ry) > 0 and "R" or "L"
@@ -1469,16 +1482,34 @@ local function check_transport_shapes(work)
                                     {feeder = {x = from.x, y = from.y}, underground_input = {x = to.x, y = to.y}, lane = lane})
                             end
                         else
-                            add(next_key, near)
+                            add(next_key, near, flow_id)
                         end
                     elseif to.kind == "belt" and not fed_from_behind(next_key) then
-                        add(next_key, lane)
+                        add(next_key, lane, flow_id)
                     else
-                        add(next_key, near)
-                        if to.kind == "splitter" then add(to.other, near) end
+                        add(next_key, near, flow_id)
+                        if to.kind == "splitter" then add(to.other, near, flow_id) end
                     end
                 end
             end
+        end
+    end
+    for _, hand in ipairs(work.inserters or {}) do
+        local entity = hand.entity or hand
+        local ids = declared_flow_ids(hand)
+        if entity.role == "input" and #ids == 2 then
+            local px, py = transfer_cells(hand, work)
+            local found = px and witnesses[tile_key(px, py)] or {L = {}, R = {}}
+            local left, right, valid = {}, {}, true
+            for flow_id in pairs(found.L or {}) do left[#left + 1] = flow_id end
+            for flow_id in pairs(found.R or {}) do right[#right + 1] = flow_id end
+            table.sort(left); table.sort(right)
+            for _, flow_id in ipairs(ids) do if not found.L[flow_id] and not found.R[flow_id] then valid = false end end
+            for _, a in ipairs(ids) do for _, b in ipairs(ids) do
+                if a ~= b and ((found.L[a] and found.L[b]) or (found.R[a] and found.R[b])) then valid = false end
+            end end
+            if not valid then error_record(work.errors, "BP_V_LANE_MIX", {tostring(hand.id)},
+                {hand_id = tostring(hand.id), tile = {x = px, y = py}, flows = {L = left, R = right}}) end
         end
     end
     for key, tile in pairs(tiles) do
