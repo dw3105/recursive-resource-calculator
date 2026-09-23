@@ -66,6 +66,9 @@ local function blocks_for_each_step(instruction_bound)
     input.plan = plan.result
 
     local make_candidates = upvalue(Groups.step, "make_candidates")
+    --Round 26: make_candidates runs make_candidates_once with and without rows; the helpers live on the inner one.
+    local has_once, once = pcall(upvalue, make_candidates, "make_candidates_once")
+    if has_once then make_candidates = once end
     local normalize_plan = upvalue(make_candidates, "normalize_plan")
     local build_block = upvalue(make_candidates, "build_block")
     local step_ports = upvalue(make_candidates, "step_ports")

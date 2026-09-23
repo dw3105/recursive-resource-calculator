@@ -52,5 +52,8 @@ return {
          {full_name = "item/copper-cable", rate_per_second = 2}}),
     supported_outcome = "production",
     expected_outcome = "production",
-    max_ticks = 700,
+    --700 until round 26: the pre-row pass has no candidate here (beacon coverage cannot be split) and failed at
+    --once; the row pass now offers one honest attempt that also fails, measured 748 ticks on legalcopilot-dev
+    --2026-09-23. 900 is capture_case's own default runaway bound.
+    max_ticks = 900,
 }

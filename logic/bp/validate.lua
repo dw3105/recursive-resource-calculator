@@ -1460,10 +1460,21 @@ local function check_transport_shapes(work)
     for key, _ in pairs(tiles) do
         for _, next_key in ipairs(outputs(key)) do if next_key then fed[next_key] = true end end
     end
+    --A chain start that declares two or more flows is a mixed supply whose lanes this candidate never shows;
+    --its flows are witnessed as present with lane unknown ("?" suffix), which proves presence but never a mix.
     for key, tile in pairs(tiles) do
         if tile.kind == "belt" and not fed[key] then
-            for _, flow_id in ipairs(declared_flow_ids(tile.info)) do add(key, "L", flow_id); add(key, "R", flow_id) end
+            local declared = declared_flow_ids(tile.info)
+            for _, flow_id in ipairs(declared) do
+                local tag = #declared > 1 and (tostring(flow_id) .. "?") or flow_id
+                add(key, "L", tag); add(key, "R", tag)
+            end
         end
+    end
+    --A side entry puts every item of the feeding belt on the near lane, so a lane-unknown witness becomes known.
+    local function known(flow_id)
+        if type(flow_id) == "string" and flow_id:sub(-1) == "?" then return flow_id:sub(1, -2) end
+        return flow_id
     end
     local blocked = {}
     while head <= #queue do
@@ -1493,15 +1504,15 @@ local function check_transport_shapes(work)
                                     {feeder = {x = from.x, y = from.y}, underground_input = {x = to.x, y = to.y}, lane = lane})
                             end
                         else
-                            add(next_key, near, flow_id)
+                            add(next_key, near, known(flow_id))
                         end
                     elseif to.kind == "belt" and not fed_from_behind(next_key) then
                         add(next_key, lane)
                         -- A side-fed head places its entering item on the lane nearest the feed side.
-                        add(next_key, near, flow_id)
+                        add(next_key, near, known(flow_id))
                     else
-                        add(next_key, near, flow_id)
-                        if to.kind == "splitter" then add(to.other, near, flow_id) end
+                        add(next_key, near, known(flow_id))
+                        if to.kind == "splitter" then add(to.other, near, known(flow_id)) end
                     end
                 end
             end
@@ -1517,7 +1528,12 @@ local function check_transport_shapes(work)
             for flow_id in pairs(found.L or {}) do left[#left + 1] = flow_id end
             for flow_id in pairs(found.R or {}) do right[#right + 1] = flow_id end
             table.sort(left); table.sort(right)
-            for _, flow_id in ipairs(ids) do if not found.L[flow_id] and not found.R[flow_id] then valid = false end end
+            for _, flow_id in ipairs(ids) do
+                local unknown = tostring(flow_id) .. "?"
+                if not found.L[flow_id] and not found.R[flow_id] and not found.L[unknown] and not found.R[unknown] then
+                    valid = false
+                end
+            end
             for _, a in ipairs(ids) do for _, b in ipairs(ids) do
                 if a ~= b and ((found.L[a] and found.L[b]) or (found.R[a] and found.R[b])) then valid = false end
             end end

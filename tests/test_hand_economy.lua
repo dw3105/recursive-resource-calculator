@@ -55,7 +55,14 @@ local function finish(force)
     H.equal(state.done, true, "the red-science shape finishes grouping")
     H.equal(state.result ~= nil and #state.result.candidates > 0, true,
         "the red-science shape has a grouping candidate")
-    return state.result and state.result.candidates[1]
+    --Round 26 puts row candidates first (docs/contracts/row_block.md; tests/test_rows_integration.lua RI4).
+    --This file characterizes the pre-row shapes, which still follow them: the first candidate without a row.
+    for _, candidate in ipairs(state.result and state.result.candidates or {}) do
+        local has_row = false
+        for _, block in ipairs(candidate.blocks or {}) do if block.row then has_row = true end end
+        if not has_row then return candidate end
+    end
+    return nil
 end
 
 local function all_members(candidate, kind)
