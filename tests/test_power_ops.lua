@@ -65,4 +65,44 @@ H.test("PO2 one-op resumes and one-shot budgets produce identical poles and wire
     H.equal(one_wires, all_wires, "wire edges are budget independent")
 end)
 
+H.test("PO3 indexed coverage scoring stays below 52000 ops", function()
+    local state = run(sheet_input(), 2000)
+    H.equal(state.ops_used < 52000, true, "measured " .. state.ops_used .. " ops; bound is 52000")
+end)
+
+local function snapshot(input)
+    local state = run(input, 2000)
+    local poles, wires = layout(state.result)
+    return poles, wires
+end
+
+local pole_name = "medium-electric-pole"
+local function input_for(consumers, grid_w, grid_h, reach, max_poles)
+    return {grid_w = grid_w, grid_h = grid_h, consumers = consumers,
+        pole = {name = pole_name, tile_w = 1, tile_h = 1, supply_w = 5, supply_h = 5,
+            wire_reach = reach}, limits = {max_poles = max_poles}}
+end
+
+H.test("PO4 three frozen fixtures keep round-24-base poles and wires", function()
+    local fixtures = {
+        {input = sheet_input(),
+            poles = "medium-electric-pole:normal:1:19:1:1|medium-electric-pole:normal:1:1:1:1|medium-electric-pole:normal:1:37:1:1|medium-electric-pole:normal:25:19:1:1|medium-electric-pole:normal:25:1:1:1|medium-electric-pole:normal:25:37:1:1|medium-electric-pole:normal:49:19:1:1|medium-electric-pole:normal:49:1:1:1|medium-electric-pole:normal:49:37:1:1|medium-electric-pole:normal:73:19:1:1|medium-electric-pole:normal:73:1:1:1|medium-electric-pole:normal:73:37:1:1",
+            wires = "p:1:5:p:2:5|p:1:5:p:5:5|p:1:5:p:6:5|p:2:5:p:3:5|p:2:5:p:7:5|p:3:5:p:4:5|p:3:5:p:8:5|p:5:5:p:10:5|p:5:5:p:9:5|p:6:5:p:11:5|p:7:5:p:12:5"},
+        {input = input_for({{id = "a", rect = {x = 4, y = 4, w = 2, h = 2}},
+                {id = "b", rect = {x = 30, y = 20, w = 2, h = 2}}}, 48, 32, 30, 8),
+            poles = "medium-electric-pole:normal:0:0:1:1|medium-electric-pole:normal:25:15:1:1",
+            wires = "p:1:5:p:2:5"},
+        {input = input_for({{id = "a", rect = {x = 3, y = 3, w = 2, h = 2}},
+                {id = "b", rect = {x = 50, y = 28, w = 2, h = 2}},
+                {id = "c", rect = {x = 28, y = 18, w = 2, h = 2}}}, 64, 40, 20, 10),
+            poles = "medium-electric-pole:normal:0:0:1:1|medium-electric-pole:normal:23:13:1:1|medium-electric-pole:normal:39:4:1:1|medium-electric-pole:normal:45:23:1:1|medium-electric-pole:normal:8:0:1:1",
+            wires = "p:1:5:p:2:5|p:4:5:p:2:5|p:4:5:p:3:5|p:5:5:p:3:5"},
+    }
+    for index, fixture in ipairs(fixtures) do
+        local poles, wires = snapshot(fixture.input)
+        H.equal(poles, fixture.poles, "fixture " .. index .. " pole placements")
+        H.equal(wires, fixture.wires, "fixture " .. index .. " wire edges")
+    end
+end)
+
 H.done("test_power_ops")
