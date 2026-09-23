@@ -97,6 +97,27 @@ class BlueprintAuditTest(unittest.TestCase):
         self.assertEqual([counts[k] for k in ("sideload", "sideload_blocked", "back_to_back", "cycles")], [0,0,0,0])
         self.assertEqual(done.returncode, 0)
 
+    def test_ACC19_a_crossing_underground_never_blocks_a_pair(self):
+        """(5,3) E -> (10,3) E passes under a NORTH exit at (6,3): both pairs are whole."""
+        entities = [
+            {"entity_number": 1, "name": "underground-belt", "type": "input", "direction": 4, "position": {"x": 5.5, "y": 3.5}},
+            {"entity_number": 2, "name": "underground-belt", "type": "output", "direction": 4, "position": {"x": 10.5, "y": 3.5}},
+            {"entity_number": 3, "name": "underground-belt", "type": "input", "direction": 0, "position": {"x": 6.5, "y": 8.5}},
+            {"entity_number": 4, "name": "underground-belt", "type": "output", "direction": 0, "position": {"x": 6.5, "y": 3.5}},
+        ]
+        from importlib import util
+        spec = util.spec_from_file_location("blueprint_audit", str(AUDIT))
+        module = util.module_from_spec(spec); spec.loader.exec_module(module)
+        failures, by_family, pairs = module.audit_underground(entities)
+        self.assertEqual(failures, [])
+        self.assertEqual(len(pairs), 4)
+        #Control: the same pair with a SAME-axis endpoint in its span is still refused.
+        blocked = copy.deepcopy(entities)
+        blocked[3]["direction"] = 4
+        blocked[3]["type"] = "input"
+        failures, _, _ = module.audit_underground(blocked)
+        self.assertTrue(any("(5.5,3.5)" in f for f in failures))
+
     def test_ACC18_direction_points_to_pickup_and_drop_is_behind(self):
         entities = [
             {"name": "assembling-machine-1", "position": {"x": -0.5, "y": 0.5}},
@@ -268,7 +289,11 @@ class BlueprintAuditTest(unittest.TestCase):
         counts = json.loads(done.stdout)
         self.assertEqual(counts["invalid_inserters"], 11)
         self.assertEqual(counts["unpairable_pipe_to_ground"], 12)
-        self.assertEqual(counts["unpairable_underground_belt"], 4)
+        #4 to 0 on 2026-09-23, legalcopilot-dev.  All four were one shape: a same-axis pair with an
+        #underground of the OTHER axis sitting in its span -- (5.5,2.5) S to (5.5,5.5) S across (5.5,3.5) W, and
+        #(8.5,18.5) E to (12.5,18.5) E across (11.5,18.5) N.  The engine pairs only along an endpoint's own axis,
+        #so the crossing endpoint is no blocker.  Round 21's first delivery was refused on the same false shape.
+        self.assertEqual(counts["unpairable_underground_belt"], 0)
         #51, not the 224 this suite first froze. The bounding-box terminal rule reported every belt of a
         #working hand-built factory as unused, so its count here was inflated too. 51 belt entities of 224
         #genuinely reach no sink or are reached by no source.

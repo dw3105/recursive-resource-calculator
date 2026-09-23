@@ -262,6 +262,15 @@ def audit_underground(entities) -> Tuple[List[str], Dict[str, int]]:
                               if m["position"]["x"] == qx and m["position"]["y"] == qy), None)
                 if other is None:
                     continue
+                #An endpoint on the OTHER axis is not a candidate at all: the engine pairs an underground only
+                #along its own axis, so a crossing pair passes under it.  Counting it as a blocker reported
+                #(5,3) E -> (10,3) E, which passes under the NORTH exit at (6,3), as two orphans, measured
+                #2026-09-23 on legalcopilot-dev in round 21's first delivery.
+                if VEC.get(other.get("direction", 0), (None, None))[0] == 0 and vx == 0 or \
+                        VEC.get(other.get("direction", 0), (None, None))[1] == 0 and vy == 0:
+                    pass
+                else:
+                    continue
                 #The FIRST endpoint of this family along the axis is the one the engine pairs with.  A later,
                 #better-oriented candidate never gets the chance -- that is the stolen-partner case.
                 if other.get("direction", 0) == want_direction and (
