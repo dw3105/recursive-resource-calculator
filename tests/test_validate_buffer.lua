@@ -25,6 +25,7 @@ local function catalog()
             first = {ingredients = {{name = "iron"}}},
             second = {ingredients = {{name = "copper"}, {name = "iron"}}},
         },
+        inserter = {items_per_second = 5},
     }
 end
 
@@ -95,4 +96,4 @@ H.test("VB4 belt, inserter, pole and beacon may occupy a machine ring", function
     H.equal(buffer_record(state), nil, "non-machine entities inside a ring are allowed")
 end)
 
-H.run()
+H.done("test_validate_buffer")
