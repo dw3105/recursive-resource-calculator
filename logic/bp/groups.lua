@@ -514,6 +514,10 @@ local function forced_multi_flow_hands(input)
 end
 
 local multi_flow_hands = Flags.multi_flow_hands
+--Round 26: while true, a step of two or more same-recipe machines is built as one row block
+--(docs/contracts/row_block.md). make_candidates runs once with rows and once without, so a sheet the row
+--layout cannot route still gets every candidate it had before rows.
+local rows_enabled = false
 
 local function flow_entry_rate(entry)
     return math.max(0, finite(entry and entry.share_per_second,
@@ -1036,7 +1040,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local face_layout = face_per_flow and has_item_port and machine_total <= 2
     local logical_face_layout = face_per_flow and has_item_port
     local row_layout = false
-    if multi_flow_hands and machine_total >= 2 and #steps == 1 then
+    if rows_enabled and machine_total >= 2 and #steps == 1 then
         row_layout = row_hand_groups(steps[1], flows) ~= nil
     end
     --A row is one horizontal line of touching machines; the one/two machine vertical face stack never applies.
@@ -1961,7 +1965,7 @@ local function step_ports(steps, catalog, flows)
     return ports
 end
 
-local function make_candidates(input)
+local function make_candidates_once(input)
     --TRI-STATE, and that is load-bearing: `nil` means "use the production switch", `true` forces the feature
     --on, `false` forces it OFF.  The `and ... or previous` form below could only ever force it ON, so once
     --the production flag was on, HE1 in tests/test_hand_economy.lua asked for "switch off", read the global
@@ -1973,7 +1977,7 @@ local function make_candidates(input)
     if forced ~= nil then multi_flow_hands = forced == true and forced_multi_flow_hands(input) end
     -- Row blocks own the two-lane belt contract, so eligible grouped steps must construct paired hands even
     -- while the legacy multi-flow switch remains off for all other layouts.
-    if forced == nil then multi_flow_hands = true end
+    if forced == nil and rows_enabled then multi_flow_hands = true end
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
     -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a
@@ -1994,7 +1998,7 @@ local function make_candidates(input)
         local item_inputs, item_outputs = 0, 0
         for _, p in ipairs(step.inputs or {}) do if not flow_is_fluid(p, flows) then item_inputs = item_inputs + 1 end end
         for _, p in ipairs(step.outputs or {}) do if not flow_is_fluid(p, flows) then item_outputs = item_outputs + 1 end end
-        local row_possible = multi_flow_hands and item_inputs <= 2 and item_outputs <= 1
+        local row_possible = rows_enabled and multi_flow_hands and item_inputs <= 2 and item_outputs <= 1
         if distinct > 2 and step.machine_count > 1 and not row_possible then
             for ordinal = 1, step.machine_count do
                 local fragment = copy(step)
@@ -2054,6 +2058,35 @@ local function make_candidates(input)
         return a.physical_beacon_count < b.physical_beacon_count
     end)
     multi_flow_hands = previous_multi_flow_hands
+    return candidates, failures
+end
+
+--Row candidates first (fewer blocks, so the first valid layout comes sooner), then every candidate the sheet
+--had before rows. A row candidate's id is prefixed so it never collides with its legacy twin.
+local function make_candidates(input)
+    rows_enabled = true
+    local ok, rows, row_failures = pcall(make_candidates_once, input)
+    rows_enabled = false
+    if not ok then error(rows, 0) end
+    local legacy, failures = make_candidates_once(input)
+    local candidates, seen = {}, {}
+    for _, candidate in ipairs(rows) do
+        local has_row = false
+        for _, block in ipairs(candidate.blocks) do if block.row then has_row = true; break end end
+        if has_row then
+            candidate.id = "rows:" .. candidate.id
+            candidate.candidate_id = candidate.id
+            candidates[#candidates + 1] = candidate
+            seen[candidate.id] = true
+        end
+    end
+    for _, candidate in ipairs(legacy) do
+        if not seen[candidate.id] then candidates[#candidates + 1] = candidate end
+    end
+    local limits = input and input.limits or {}
+    local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or (input and input.max_candidates), 128)))
+    while #candidates > max_candidates do table.remove(candidates) end
+    for _, failure in ipairs(row_failures or {}) do failures[#failures + 1] = failure end
     return candidates, failures
 end
 
