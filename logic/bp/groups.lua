@@ -1039,6 +1039,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     if multi_flow_hands and machine_total >= 2 and #steps == 1 then
         row_layout = row_hand_groups(steps[1], flows) ~= nil
     end
+    --A row is one horizontal line of touching machines; the one/two machine vertical face stack never applies.
+    if row_layout then face_layout = false end
     local machine_specs = {}
     local machine_specs_by_id = {}
     local machines_by_id = {}
@@ -1436,7 +1438,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                     step_id=spec.step.step_id,machine_id=machine.id,role=hand.role,flow_ids=list_copy(hand.flow_ids),
                     flow_id=#hand.flow_ids==1 and hand.flow_ids[1] or nil,
                     port_id=(input_hand and "row:in:" or "row:out:") .. tostring(hand.flow_ids[1]),
-                    x=hx,y=hy,w=1,h=1,dir=input_hand and SOUTH or NORTH,
+                    x=hx,y=hy,w=1,h=1,
+                    --Both hands move items south in the block frame (top belt -> machine -> bottom belt); the
+                    --internal dir names that movement (serialize flips it at the publish boundary).
+                    dir=SOUTH,
                     pickup_position={x=hx+0.5,y=(input_hand and machine.y-2 or machine.y+machine.h-1)+0.5},
                     drop_position={x=hx+0.5,y=(input_hand and machine.y or machine.y+machine.h+1)+0.5},
                     port_bound=true,flow_entries=list_copy(hand.ports),_hand_key=hand.key}
@@ -1747,25 +1752,28 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
         local tiles_in, tiles_out = {}, {}
         for x = first_x - 2, last_x do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
-        for x = first_x, last_x do tiles_out[#tiles_out+1] = {x=x,y=drop_y} end
+        --The output run reaches the block's right edge so its port lies on the boundary (attach_dx == w).
+        local row_w = math.max(block.w, last_x + 2)
+        for x = first_x, row_w - 1 do tiles_out[#tiles_out+1] = {x=x,y=drop_y} end
         local feeds = {}
         for i, fid in ipairs(flows_in) do
             local side = i == 1 and -1 or 1
             feeds[#feeds+1] = {flow_id=fid, side_tile={x=first_x-2,y=pickup_y+side}, travel_dir=side == -1 and SOUTH or NORTH}
-            block.ports[#block.ports+1] = {port_id="row:in:"..fid, role="in",kind="item",flow_id=fid,step_id=steps[1].step_id,
-                attach_dx=first_x-2,attach_dy=pickup_y+side,normal_dir=side == -1 and NORTH or SOUTH,
+            block.ports[#block.ports+1] = {port_id="row:in:"..fid, row_port=true, role="in",kind="item",flow_id=fid,step_id=steps[1].step_id,
+                attach_dx=first_x-2,attach_dy=pickup_y+side,normal_dir=side == -1 and SOUTH or NORTH,
                 travel_dir=side == -1 and SOUTH or NORTH,member_id=block.machines[1].id}
         end
         local outflow = flows_out[1]
-        block.ports[#block.ports+1] = {port_id="row:out:"..tostring(outflow),role="out",kind="item",flow_id=outflow,
-            step_id=steps[1].step_id,attach_dx=last_x+2,attach_dy=drop_y,normal_dir=WEST,travel_dir=EAST,
+        block.ports[#block.ports+1] = {port_id="row:out:"..tostring(outflow),row_port=true,role="out",kind="item",flow_id=outflow,
+            step_id=steps[1].step_id,attach_dx=row_w,attach_dy=drop_y,normal_dir=WEST,travel_dir=EAST,
             member_id=block.machines[#block.machines].id}
         block.belt_runs = {
             {role="in",flows=flows_in,tiles=tiles_in,dir=EAST,head={x=first_x-2,y=pickup_y},feeds=feeds,hand_ids=(function() local a={} for _,h in ipairs(in_hands) do a[#a+1]=h.id end return a end)()},
-            {role="out",flows=flows_out,tiles=tiles_out,dir=EAST,port={x=last_x+2,y=drop_y,travel_dir=EAST},hand_ids=(function() local a={} for _,h in ipairs(out_hands) do a[#a+1]=h.id end return a end)()},
+            {role="out",flows=flows_out,tiles=tiles_out,dir=EAST,port={x=row_w,y=drop_y,travel_dir=EAST},hand_ids=(function() local a={} for _,h in ipairs(out_hands) do a[#a+1]=h.id end return a end)()},
         }
         block.row.machines = #block.machines
-        block.w = math.max(block.w,last_x+3); block.h = math.max(block.h,drop_y+1)
+        block.w = row_w; block.h = math.max(block.h,drop_y+1)
+        block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
     end
 
     -- A speed beacon is never allowed to claim a quality machine, even if a malformed plan uses a speed
@@ -2150,7 +2158,8 @@ function Groups.materialize(block, placement)
         --dropped attach_dx to nil, and Grid.place_port then did arithmetic on that nil deep inside the
         --validator's port-approach check -- a crash no run ever reached while grouping still failed earlier.
         local slot_is_own = slot and slot.attach_dx == port.attach_dx and slot.attach_dy == port.attach_dy
-        if port.inserter_id ~= nil and slot and not slot_is_own then
+        --A row port sits at its belt run's head or end (docs/contracts/row_block.md); a packer slot never moves it.
+        if (port.inserter_id ~= nil or port.row_port) and slot and not slot_is_own then
             -- A packer override may only repeat an inserter's authored hand cell.  A synthetic fallback would
             -- sever the transport handshake, so refuse the override and retain the port's own attachment.
             slot = nil
@@ -2196,7 +2205,8 @@ function Groups.materialize(block, placement)
     for _, run in ipairs(block.belt_runs or {}) do
         local target = copy(run)
         local function place(p)
-            local x,y = Grid.rotate_point(p.x,p.y,block.w,block.h,dir)
+            --A run tile is a whole cell: rotating its corner as a point shifts it by one (see Grid.place_port).
+            local x,y = Grid.rotate_cell(p.x,p.y,block.w,block.h,dir)
             return {x=px+x,y=py+y}
         end
         for i,tile in ipairs(run.tiles or {}) do target.tiles[i]=place(tile) end

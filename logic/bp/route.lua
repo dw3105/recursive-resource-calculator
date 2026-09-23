@@ -478,6 +478,9 @@ local function normalize_endpoint(block, placement, port, catalog, work)
     if mirrored then port = mirrored end
     local endpoint = {
         port_id = port.port_id or port.id or ((block.block_id or block.id or "block") .. ":" .. tostring(port.flow_id or port.full_name)),
+        --A row port feeds its belt run's head or leaves its end (docs/contracts/row_block.md): like a perimeter
+        --door, its belt must face the port's own heading.
+        row_port = port.row_port == true or nil,
         block_id = block.block_id or block.id,
         step_id = port.step_id or block_step_id(block),
         role = role,
@@ -911,6 +914,9 @@ end
 
 local function segment_allows(work, segment, demand, amount)
     if not segment then return true end
+    --A placed row's belt run is part of its block: a demand reaches it only through the row's own head-side
+    --or output port, never by joining the run from the side (that puts two flows on one lane).
+    if segment.fixed then return false, "occupied" end
     if segment.kind ~= demand.kind then return false, "occupied" end
     local same_flow = segment_has_flow(segment, demand.flow_id)
     if not same_flow then
@@ -2077,7 +2083,7 @@ local function search_step(work, search)
         --ring, and refusing the ring left automation-science-pack:4 BP_R_NO_PATH.  So the widening below is
         --for machine ports only.
         local sink_any_approach = false
-        if target and not search.demand.sink.perimeter
+        if target and not search.demand.sink.perimeter and not search.demand.sink.row_port
             and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
             local sink_segment = work.segments_by_cell[coordinate_key(nx, ny)]
             if sink_segment == nil then
@@ -2101,7 +2107,7 @@ local function search_step(work, search)
         --so the output merges into it with one belt.  Freeing every first heading let early outputs wander
         --and fenced in two copper-plate demands (BP_R_NO_PATH), measured the same day.
         local source_any_heading = false
-        if first and not search.demand.source.perimeter
+        if first and not search.demand.source.perimeter and not search.demand.source.row_port
             and work.segments_by_cell[coordinate_key(current.x, current.y)] == nil then
             local landing = work.segments_by_cell[coordinate_key(nx, ny)]
             source_any_heading = work.free_source_heading == true

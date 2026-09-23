@@ -748,13 +748,18 @@ local function block_port_geometry(errors, root, placements)
         local width, height = finite(block.w), finite(block.h)
         if width and height then
             for _, port in ipairs(list_from(block.ports or block.block_ports)) do
+                --attach_dx/attach_dy are in the block's own frame; a rotated placement's envelope is not.
+                local width, height = finite(port._block_w, width), finite(port._block_h, height)
                 local dx, dy = finite(port.attach_dx), finite(port.attach_dy)
                 local bounded = dx and dy and (((dx == -1 or dx == width) and dy >= 0 and dy < height)
                     or ((dy == -1 or dy == height) and dx >= 0 and dx < width))
                 local id = port.port_id or port.id
-                if not bounded then error_record(errors, "BP_V_PORT_EDGE_WRONG", {tostring(id)}, {reason = "attachment is not on the block boundary"}) end
+                --A row's second head feed side-loads from inside the envelope, beside the head (docs/contracts/
+                --row_block.md); its tile is free ground, so the boundary rule does not apply to it.
+                local interior_row_feed = port.row_port and port.role == "in" and not bounded
+                if not bounded and not interior_row_feed then error_record(errors, "BP_V_PORT_EDGE_WRONG", {tostring(id)}, {reason = "attachment is not on the block boundary"}) end
                 local nx, ny = Grid.dir_vector(port.normal_dir or Grid.NORTH)
-                local inward = bounded and ((dx == -1 and nx == 1) or (dx == width and nx == -1) or (dy == -1 and ny == 1) or (dy == height and ny == -1))
+                local inward = interior_row_feed or (bounded and ((dx == -1 and nx == 1) or (dx == width and nx == -1) or (dy == -1 and ny == 1) or (dy == height and ny == -1)))
                 if not inward then error_record(errors, "BP_V_PORT_EDGE_WRONG", {tostring(id)}, {reason = "normal does not point into the block"}) end
                 local placement = placements[block.block_id or block.id]
                 if placement and port.x ~= nil and port.y ~= nil then
@@ -1449,9 +1454,15 @@ local function check_transport_shapes(work)
             else for _, flow_id in ipairs(ids) do add(tile_key(drop_x, drop_y), lane, flow_id) end end
         end
     end
+    --A belt chain's first tile (no transport tile feeds it) carries its declared flows on both lanes; every
+    --other tile learns its flows only from what reaches it, so a side-load puts a flow on its near lane alone.
+    local fed = {}
+    for key, _ in pairs(tiles) do
+        for _, next_key in ipairs(outputs(key)) do if next_key then fed[next_key] = true end end
+    end
     for key, tile in pairs(tiles) do
-        if tile.kind == "belt" then
-            for _, flow_id in ipairs(declared_flow_ids(tile.info)) do add(key, "R", flow_id) end
+        if tile.kind == "belt" and not fed[key] then
+            for _, flow_id in ipairs(declared_flow_ids(tile.info)) do add(key, "L", flow_id); add(key, "R", flow_id) end
         end
     end
     local blocked = {}
