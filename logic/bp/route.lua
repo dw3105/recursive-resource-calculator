@@ -485,6 +485,7 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         step_id = port.step_id or block_step_id(block),
         role = role,
         flow_id = port_flow_id(port),
+        flow_ids = port.flow_ids,
         kind = port.kind or (port.is_fluid and "fluid" or "item"),
         rate_per_second = finite(port.rate_per_second, finite(port.rate, 0)),
         x = x, y = y,
@@ -2462,6 +2463,10 @@ local function normalize_input(input)
                 work.endpoint_by_id[endpoint.port_id] = endpoint
                 work.endpoint_index[endpoint.flow_id] = work.endpoint_index[endpoint.flow_id] or {["in"] = {}, ["out"] = {}}
                 work.endpoint_index[endpoint.flow_id][endpoint.role][#work.endpoint_index[endpoint.flow_id][endpoint.role] + 1] = endpoint
+            elseif endpoint and port.rear and port.port_id == "row:in:rear" then
+                -- Keep the multi-flow rear door out of first-pass demand indexing, but make
+                -- its physical location available to the improve pass.
+                work.endpoint_by_id[endpoint.port_id] = endpoint
             end
         end
     end
@@ -2706,8 +2711,12 @@ local function lift_binding(work, binding)
     local owned_ids, count = {}, 0
     for _, key in ipairs(mine) do
         local segment = work.segments_by_cell[key]
-        if segment and segment.fixed then return nil end
-        if segment and not others[key] then
+        -- Fixed row runs stay in place; only ordinary connector tiles are lifted.
+        if segment and segment.fixed then
+            -- The binding's path includes the row's head run. It is the stable endpoint
+            -- shared by the original and rear-feed layouts, so leave it claimed.
+        end
+        if segment and not segment.fixed and not others[key] then
             if segment.splitter then return nil end
             if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
         end
