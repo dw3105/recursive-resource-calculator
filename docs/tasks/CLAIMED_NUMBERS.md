@@ -159,3 +159,6 @@
 | `172` | `rrc/agent` | search: stop by layouts, publish each better layout as state.interim, groups.step yields | 2026-09-23 |
 | `173` | `rrc/agent` | deliver: the first layout reaches the player fast, better ones are offered | 2026-09-23 |
 | `174` | `rrc/agent` | power: pole placement in far fewer ops, same poles | 2026-09-23 |
+| `175` | `rrc/agent` | groups: every block carries buffer zones; different recipes never share a block | 2026-09-23 |
+| `176` | `rrc/agent` | pack: no machine lands in another machine's buffer zone | 2026-09-23 |
+| `177` | `rrc/agent` | validate: BP_V_BUFFER_ZONE refuses a machine inside another's buffer zone | 2026-09-23 |
