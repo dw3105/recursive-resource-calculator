@@ -7,7 +7,6 @@ local function candidate(mode)
     local row = RowFixture.science_row(Grid.NORTH, 10, 10)
     local entities = {}
     for _, item in ipairs(row.machines) do entities[#entities + 1] = item end
-    for _, item in ipairs(row.inserters) do entities[#entities + 1] = item end
     local function belt(id, x, y, dir, flow_ids)
         entities[#entities + 1] = {id=id, kind="belt", name="transport-belt", x=x, y=y, w=1, h=1, dir=dir, flow_ids=flow_ids}
     end
@@ -28,7 +27,6 @@ local function candidate(mode)
             if hand.role == "input" then hand.flow_ids = {RowFixture.COPPER} end
         end
     end
-    for _, hand in ipairs(row.inserters) do if hand.role == "input" then entities[#entities + 1] = hand end end
     local state = Validate.begin({grid={w=60,h=60}, catalog={entity={}, inserter={pickup_offset={x=0,y=1},drop_offset={x=0,y=-1},items_per_second=10}, belt={items_per_second=10, lane_items_per_second=5}}, entities=entities})
     while not state.done do Validate.step(state, {ops=100}) end
     return state
