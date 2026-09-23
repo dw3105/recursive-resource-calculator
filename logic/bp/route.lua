@@ -41,6 +41,8 @@ local SEEDED_SINK_LAST = 0
 local SPLITTER_BODY_COST = 4
 --A side-fed dive blocks one lane; retain it only after straight routes, including a splitter, lose.
 local SIDELOAD_UNDERGROUND_COST = 8
+--Player: “it is much more reasonable to put gears belt underground instead of copper plates one!” (9,20).
+local BURY_COST = 3
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 local DIRECTION_ORDERS = {
     DIRECTIONS,
@@ -1363,6 +1365,118 @@ local function all_bindings_reach_sinks(work)
     return true
 end
 
+local function bury_candidate(work, x, y, cross_direction)
+    local dx, dy = Grid.dir_vector(cross_direction)
+    local rdx, rdy = Grid.dir_vector(Grid.rotate_dir(cross_direction, 12))
+    if not rdx then return nil end
+    local function seg(px, py) return work.segments_by_cell[coordinate_key(px, py)] end
+    local bx, by = x - rdx, y - rdy
+    local ax, ay = x + rdx, y + rdy
+    local BBx, BBy, AAx, AAy = bx - rdx, by - rdy, ax + rdx, ay + rdy
+    local b, c, a = seg(bx, by), seg(x, y), seg(ax, ay)
+    if not b or not c or not a or b.underground or c.underground or a.underground
+        or b.splitter or c.splitter or a.splitter or b.kind ~= "belt" or c.kind ~= "belt" or a.kind ~= "belt"
+        or b.direction ~= Grid.dir_from_vector(rdx, rdy) or c.direction ~= b.direction or a.direction ~= b.direction then return nil end
+    local function same_flows(s)
+        local ids = {}
+        for _, allocation in ipairs(s.allocations or {}) do ids[allocation.flow_id] = true end
+        return ids
+    end
+    local flows = same_flows(b)
+    for _, s in ipairs({c, a}) do
+        local other = same_flows(s)
+        for id in pairs(flows) do if not other[id] then return nil end end
+        for id in pairs(other) do if not flows[id] then return nil end end
+    end
+    local function port_or_obstacle(px, py)
+        local key = coordinate_key(px, py)
+        if work.port_cells and work.port_cells[key] ~= nil then return true end
+        for _, demand in ipairs(work.demands or {}) do
+            for _, endpoint in ipairs({demand.source, demand.sink}) do
+                if endpoint and math.abs(endpoint.x - px) + math.abs(endpoint.y - py) <= 2 then return true end
+            end
+        end
+        return static_owner(work, px, py) ~= nil
+    end
+    for _, p in ipairs({{bx,by},{x,y},{ax,ay}}) do if port_or_obstacle(p[1],p[2]) then return nil end end
+    local feed = seg(BBx, BBy)
+    if not feed then return nil end
+    if feed.underground then
+        if feed.underground_exit_key ~= coordinate_key(BBx,BBy) or feed.direction ~= b.direction then return nil end
+    elseif feed.splitter then
+        if feed.splitter_direction ~= b.direction then return nil end
+    elseif feed.direction ~= b.direction then return nil end
+    local after = seg(AAx, AAy)
+    if not after or after.direction ~= b.direction then return nil end
+    local after_flows = same_flows(after)
+    for id in pairs(flows) do if not after_flows[id] then return nil end end
+    local reach = math.max(0, math.floor(finite(work.belt and work.belt.underground_max_distance, 0)))
+    for _, s in ipairs(work.segments) do
+        if s.underground and s.direction == b.direction then
+            for _, p in ipairs({{bx,by},{ax,ay}}) do
+                if not s.underground_entry_x or not s.underground_exit_x
+                    or not s.underground_entry_y or not s.underground_exit_y then return nil end
+                if (p[1] == s.underground_entry_x and p[2] == s.underground_entry_y)
+                    or (p[1] == s.underground_exit_x and p[2] == s.underground_exit_y) then return nil end
+                if s.underground_entry_y == p[2] and s.underground_exit_y == p[2]
+                    and math.abs(s.underground_entry_x-p[1]) <= reach and math.abs(s.underground_exit_x-p[1]) <= reach then return nil end
+                if s.underground_entry_x == p[1] and s.underground_exit_x == p[1]
+                    and math.abs(s.underground_entry_y-p[2]) <= reach and math.abs(s.underground_exit_y-p[2]) <= reach then return nil end
+            end
+        end
+    end
+    return {x=x,y=y,entry_x=bx,entry_y=by,exit_x=ax,exit_y=ay,direction=b.direction,
+        source_ids={b.segment_id,c.segment_id,a.segment_id},cross_direction=cross_direction}
+end
+
+local function apply_bury(work, candidate)
+    local fresh = bury_candidate(work, candidate.x, candidate.y, candidate.cross_direction)
+    if not fresh then return false end
+    local b = work.segments_by_cell[coordinate_key(fresh.entry_x,fresh.entry_y)]
+    local c = work.segments_by_cell[coordinate_key(fresh.x,fresh.y)]
+    local a = work.segments_by_cell[coordinate_key(fresh.exit_x,fresh.exit_y)]
+    local old = {[b.segment_id]=true,[c.segment_id]=true,[a.segment_id]=true}
+    local segment = {segment_id=next_segment_id(work),kind="belt",capacity_per_second=b.capacity_per_second,
+        allocations={},flow_id=b.flow_id,flow_ids=b.flow_ids,direction=b.direction,underground=true,length=2,
+        underground_entry_x=fresh.entry_x,underground_entry_y=fresh.entry_y,
+        underground_exit_x=fresh.exit_x,underground_exit_y=fresh.exit_y,
+        underground_entry_key=coordinate_key(fresh.entry_x,fresh.entry_y),underground_exit_key=coordinate_key(fresh.exit_x,fresh.exit_y)}
+    local allocation_by_key = {}
+    for _, old_segment in ipairs({b,c,a}) do
+        for _, al in ipairs(old_segment.allocations or {}) do
+            local key = tostring(al.flow_id) .. "\0" .. tostring(al.sink)
+            local existing = allocation_by_key[key]
+            if existing then existing.rate_per_second = math.max(existing.rate_per_second, al.rate_per_second)
+            else
+                local copy = {flow_id=al.flow_id,sink=al.sink,rate_per_second=al.rate_per_second}
+                segment.allocations[#segment.allocations+1] = copy
+                allocation_by_key[key] = copy
+            end
+        end
+    end
+    local kept={}
+    for _, s in ipairs(work.segments) do if old[s.segment_id] then s._route_removed=true else kept[#kept+1]=s end end
+    local underground_name = work.belt and work.belt.underground or infrastructure(work,"belt")
+    local first, second = {id=next_entity_id(work),name=underground_name,position=entity_position(fresh.entry_x,fresh.entry_y),
+        direction=segment.direction,dir=segment.direction,flow_id=segment.flow_id,ug_role="input",type="input",segment_id=segment.segment_id},
+        {id=next_entity_id(work),name=underground_name,position=entity_position(fresh.exit_x,fresh.exit_y),
+        direction=segment.direction,dir=segment.direction,flow_id=segment.flow_id,ug_role="output",type="output",segment_id=segment.segment_id}
+    first.ug_pair_id, second.ug_pair_id = second.id, first.id
+    for _, e in ipairs(work.entities) do if old[e.segment_id] then e._route_removed=true end end
+    for id in pairs(old) do work.entity_by_segment[id] = nil end
+    work.entities[#work.entities + 1] = first
+    work.entities[#work.entities + 1] = second
+    kept[#kept+1]=segment; work.segments=kept
+    for _, key in ipairs({coordinate_key(fresh.entry_x,fresh.entry_y),coordinate_key(fresh.x,fresh.y),coordinate_key(fresh.exit_x,fresh.exit_y)}) do
+        work.segments_by_cell[key]=nil
+    end
+    work.segments_by_cell[segment.underground_entry_key]=segment; work.segments_by_cell[segment.underground_exit_key]=segment
+    work.entity_by_segment[segment.segment_id]=first
+    for _, id in ipairs({segment.underground_entry_key,segment.underground_exit_key}) do work.underground_cells[id]=true;work.splitter_blocked_cells[id]=true end
+    for _, binding in ipairs(work.bindings) do if old[binding.segment_id] then binding.segment_id=segment.segment_id end end
+    return true
+end
+
 local function append_normal_path(work, demand, path, amount)
     local snapshot = route_snapshot(work)
     local function reject(reason)
@@ -1378,6 +1492,17 @@ local function append_normal_path(work, demand, path, amount)
     local first_segment
     local allocated_segments = {}
     local index = 0
+    --A planned bury is applied before the crossing flow is materialised; commit repeats the full eligibility
+    --check because earlier route commits may have changed any of its five witness tiles.
+    for _, candidate in ipairs(path.buries or {}) do
+        local ok = apply_bury(work, candidate)
+        if not ok then
+            work.last_route_rejection = work.last_route_rejection or {}
+            work.last_route_rejection.x, work.last_route_rejection.y = candidate.x, candidate.y
+            work.last_route_rejection.bury = true
+            return reject("crossing-occupied")
+        end
+    end
     while index < #path do
         index = index + 1
         local cell = path[index]
@@ -1525,7 +1650,7 @@ local function append_underground(work, demand, candidate, amount)
     end
     local segment = {segment_id = next_segment_id(work), kind = kind,
         capacity_per_second = capacity, allocations = {}, flow_id = demand.flow_id, direction = candidate.direction,
-        underground = true, length = candidate.distance,
+        underground = true, explicit = true, length = candidate.distance,
         underground_entry_key = coordinate_key(candidate.source.x, candidate.source.y),
         underground_exit_key = coordinate_key(candidate.sink.x, candidate.sink.y),
         underground_entry_x = candidate.source.x, underground_entry_y = candidate.source.y,
@@ -1766,6 +1891,12 @@ local function reconstruct(search, target_key)
     end
     local path = {}
     for index = #reversed, 1, -1 do path[#path + 1] = reversed[index] end
+    path.buries = {}
+    key = target_key
+    while key do
+        if search.buries and search.buries[key] then path.buries[#path.buries + 1] = search.buries[key] end
+        key = search.parent[key]
+    end
     return path
 end
 
@@ -1970,6 +2101,18 @@ local function search_step(work, search)
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
             elseif (not first or search.demand.source.perimeter) and current.mode ~= 2 then
+                local bury_key = coordinate_key(nx, ny)
+                local bury = not (search.demand.bury_blocked and search.demand.bury_blocked[bury_key])
+                    and bury_candidate(work, nx, ny, direction) or nil
+                if bury then
+                    local inserted = enqueue_state(search, nx, ny, direction, 0, current.key,
+                        current.cost + BURY_COST + (current.direction ~= direction and 1 or 0))
+                    if inserted then
+                        local key = state_key(nx, ny, direction, search.demand.kind, 0)
+                        search.buries = search.buries or {}
+                        search.buries[key] = bury
+                    end
+                end
                 --A dive may NEVER start inside a splitter body.  Mode 2 is the tile the body jump claims,
                 --and at search time that tile is still free, so the search happily planned an underground
                 --entrance on it and the append then published the splitter over it: measured 2026-09-22 on
@@ -2089,6 +2232,80 @@ local function result_for(work)
         result.segments[#result.segments + 1] = copy
     end
     return result
+end
+
+--Player: “underground belts are more expensive than normal one and unused ones must be 'unburied'.”
+--The (9,20) crossing motivates burying the straight gear run; pairs that cover nothing are the reverse.
+local function unbury_empty_pairs(work)
+    local underground_pairs = {}
+    for _, segment in ipairs(work.segments or {}) do
+        --An endpoint pair requested by underground port connections is part of the blueprint's port shape.
+        --UNBURY applies to optional crossing pairs, which are the expensive geometry the player called out.
+        if segment.underground and not segment.explicit then underground_pairs[#underground_pairs + 1] = segment end
+    end
+    table.sort(underground_pairs, function(a, b) return a.underground_entry_key < b.underground_entry_key end)
+    for _, pair in ipairs(underground_pairs) do
+        local own_ports = {}
+        local pair_bindings = {}
+        for _, binding in ipairs(work.bindings or {}) do
+            if binding.segment_id == pair.segment_id then
+                own_ports[binding.source_port_id], own_ports[binding.sink_port_id] = true, true
+                pair_bindings[#pair_bindings + 1] = binding
+            end
+        end
+        local dx, dy = Grid.dir_vector(pair.direction)
+        local x, y = pair.underground_entry_x + dx, pair.underground_entry_y + dy
+        local covered, occupied = {}, false
+        while x ~= pair.underground_exit_x or y ~= pair.underground_exit_y do
+            local key = coordinate_key(x, y)
+            covered[#covered + 1] = {x = x, y = y, key = key}
+            local reserved = work.port_cells and work.port_cells[key]
+            local other_port = false
+            for owner, present in pairs(reserved or {}) do
+                if present and owner ~= "_port_owners" and tostring(owner):sub(1, 5) ~= "flow:" and not own_ports[owner] then
+                    other_port = true
+                end
+            end
+            if work.segments_by_cell[key] or static_owner(work, x, y) ~= nil or indexed_cell(work.grid, x, y)
+                or other_port then occupied = true end
+            x, y = x + dx, y + dy
+        end
+        if not occupied then
+            local cells = {{x = pair.underground_entry_x, y = pair.underground_entry_y}}
+            for _, cell in ipairs(covered) do cells[#cells + 1] = cell end
+            cells[#cells + 1] = {x = pair.underground_exit_x, y = pair.underground_exit_y}
+            for _, e in ipairs(work.entities) do
+                if e.segment_id == pair.segment_id then e._route_removed = true end
+            end
+            work.segments_by_cell[pair.underground_entry_key] = nil
+            work.segments_by_cell[pair.underground_exit_key] = nil
+            work.underground_cells[pair.underground_entry_key], work.underground_cells[pair.underground_exit_key] = nil, nil
+            work.splitter_blocked_cells[pair.underground_entry_key], work.splitter_blocked_cells[pair.underground_exit_key] = nil, nil
+            pair._route_removed = true
+            work.entity_by_segment[pair.segment_id] = nil
+            local remaining_segments = {}
+            for _, segment in ipairs(work.segments) do if segment ~= pair then remaining_segments[#remaining_segments + 1] = segment end end
+            work.segments = remaining_segments
+            for _, cell in ipairs(cells) do
+                local segment = {segment_id = next_segment_id(work), kind = pair.kind,
+                    capacity_per_second = pair.capacity_per_second, allocations = {}, flow_id = pair.flow_id,
+                    flow_ids = pair.flow_ids, direction = pair.direction, length = 1}
+                for _, a in ipairs(pair.allocations or {}) do
+                    segment.allocations[#segment.allocations + 1] = {flow_id = a.flow_id, sink = a.sink,
+                        rate_per_second = a.rate_per_second}
+                end
+                local belt = {id = next_entity_id(work), name = infrastructure(work, pair.kind),
+                    position = entity_position(cell.x, cell.y), direction = pair.direction, dir = pair.direction,
+                    flow_id = pair.flow_id, segment_id = segment.segment_id}
+                work.entities[#work.entities + 1] = belt
+                work.segments[#work.segments + 1] = segment
+                work.segments_by_cell[coordinate_key(cell.x, cell.y)] = segment
+                work.entity_by_segment[segment.segment_id] = belt
+            end
+            --The original binding is reattached to the first replacement belt in the directed chain.
+            for _, binding in ipairs(pair_bindings) do binding.segment_id = work.segments_by_cell[pair.underground_entry_key].segment_id end
+        end
+    end
 end
 
 --A port is useless without the tile its transport reaches it from: an input needs the tile it is entered from,
@@ -2356,6 +2573,7 @@ function Route.step(state, budget)
     while ops > 0 and not state.done do
         local demand = work.demands[state.cursor.demand_index]
         if not demand then
+            unbury_empty_pairs(work)
             state.result, state.done, state.ok = result_for(work), true, true
             state.progress.phase = "done"
             break
@@ -2417,6 +2635,11 @@ function Route.step(state, budget)
                         --and plans round it.  Bounded, because a search that keeps landing on taken tiles
                         --must be allowed to fail honestly rather than spin.
                         demand.crossing_retries = (demand.crossing_retries or 0) + 1
+                        local rejection = work.last_route_rejection or {}
+                        if rejection.bury and rejection.x ~= nil and rejection.y ~= nil then
+                            demand.bury_blocked = demand.bury_blocked or {}
+                            demand.bury_blocked[coordinate_key(rejection.x, rejection.y)] = true
+                        end
                         if demand.crossing_retries <= 4 then
                             work.current = begin_search(work, demand, amount, 1)
                         else
