@@ -1418,13 +1418,6 @@ local function declare_allowance(state)
     state.max_ops = state.work.feasibility_limit
 end
 
-local function begin_improvement_budget(state)
-    if not state.work.allowance_derived or not state.work.allowance_declared or state.work.improvement_started then return end
-    state.work.improvement_started = true
-    state.work.improvement_start_ops = state.ops_used
-    state.max_ops = state.ops_used + math.max(1, state.work.improvement_budget or 1)
-end
-
 local function stop_no_improvement(state, reason)
     if not state.incumbent then return false end
     state.work.stop_reason = "no_improvement"
@@ -1711,7 +1704,6 @@ function Search.step(container, budget)
                     end
                     state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
                     state.work.attempt_recorded = true
-                    begin_improvement_budget(state)
                     if not improves and state.work.no_improvement_attempts >= NO_IMPROVEMENT_LIMIT then
                         stop_no_improvement(state, "validated alternatives did not improve the incumbent")
                     elseif state.work.validated_layouts >= MAX_LAYOUTS then

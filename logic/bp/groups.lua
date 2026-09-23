@@ -16,6 +16,9 @@
 --A machine holding a quality module must never end up inside a speed beacon's influence. That is a hard
 --placement rule here and a hard failure in the validator, not a score.
 local Groups = {}
+--A running block build is runtime-only. The saved job state keeps the plain cursor; after a load, a missing
+--continuation simply restarts the current pure block build from that cursor.
+local running_blocks = setmetatable({}, {__mode = "k"})
 
 local Grid = require "logic.bp.grid"
 local Geometry = require "logic.bp.geometry"
@@ -38,6 +41,8 @@ end
 
 local function copy(value, seen)
     if type(value) ~= "table" then return value end
+    local _, is_main = coroutine.running()
+    if not is_main then coroutine.yield("slice") end
     seen = seen or {}
     if seen[value] then return seen[value] end
     local result = {}
@@ -974,7 +979,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local beacon_groups = {}
     local seen_groups = {}
     for _, step in ipairs(steps) do
+        coroutine.yield("slice")
         for _, group in ipairs(step._groups) do
+            coroutine.yield("slice")
             local existing = beacon_groups[group.signature]
             if not existing then
                 existing = copy(group)
@@ -999,6 +1006,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local face_per_flow = true
     local has_item_port = false
     for _, port in ipairs(ports or {}) do
+        coroutine.yield("slice")
         if not flow_is_fluid(port, flows) then has_item_port = true; break end
     end
     -- A one/two-machine block can put each hand on a real machine face. Larger legacy strips still keep every
@@ -1016,6 +1024,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local machine_w = 0
     local machine_h = 0
     for _, step in ipairs(steps) do
+        coroutine.yield("slice")
         local mw, mh = machine_size(step, catalog)
         local machine_spec = lookup_entity(catalog, step.machine, "machine")
         max_machine_h = math.max(max_machine_h, mh)
@@ -1024,6 +1033,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for _, entry in ipairs(step.inputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for _, entry in ipairs(step.outputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for ordinal = 1, step.machine_count do
+            coroutine.yield("slice")
             local physical_ordinal = step._physical_ordinal or ordinal
             local spec = {step = step, ordinal = physical_ordinal, w = mw, h = mh, layout_w = layout_w,
                 machine_spec = machine_spec}
@@ -1051,6 +1061,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local beacon_rows_h = 0
     local top_rows, bottom_rows, beacon_row_specs = {}, {}, {}
     for _, group in ipairs(ordered_groups) do
+        coroutine.yield("slice")
         if group.count_per_machine > 0 then
             local bw, bh = dimensions(catalog, group.name, "beacon", 3, 3)
             local count = math.max(1, group.count_per_machine)
@@ -1090,6 +1101,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
 
     local input_count, output_count = 0, 0
     for _, port in ipairs(ports or {}) do
+        coroutine.yield("slice")
         if port.role == "out" then output_count = output_count + 1 else input_count = input_count + 1 end
     end
     local w = math.max(1, machine_w, rows_width(), input_count, output_count, input_count + output_count)
@@ -1108,11 +1120,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local needs_tighter_row = false
         local row_y = 0
         for _, row in ipairs(top_rows) do
+            coroutine.yield("slice")
             row.y = row_y
             row_y = row_y + row.h + 1
             for _, spec in ipairs(machine_specs) do
+                coroutine.yield("slice")
                 local requests = false
                 for _, entry in ipairs(spec.step._groups or {}) do
+                    coroutine.yield("slice")
                     if entry.signature == row.group.signature and entry.count_per_machine > 0 then
                         requests = true
                         break
@@ -1139,10 +1154,12 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
     local machine_x0 = face_layout and 1 or 0
     for _, row in ipairs(beacon_row_specs) do
+        coroutine.yield("slice")
         if not face_layout then machine_x0 = math.max(machine_x0, row.w) end
     end
     local x, y = machine_x0, machine_y
     for _, spec in ipairs(machine_specs) do
+        coroutine.yield("slice")
         local machine = {
             id = spec.id,
             kind = "machine", type = "machine", name = spec.step.machine, entity = spec.step.machine,
@@ -1170,8 +1187,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     if multi_flow_hands then
         block.hand_groups_by_machine, block.hand_key_by_machine, block.hand_flows = {}, {}, {}
         for _, machine in ipairs(block.machines) do
+            coroutine.yield("slice")
             local step
             for _, candidate in ipairs(steps) do
+                coroutine.yield("slice")
                 if candidate.step_id == machine.step_id then step = candidate; break end
             end
             local groups = hand_groups_for(block, step or {}, machine, catalog, input, flows)
@@ -1179,6 +1198,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             block.hand_groups_by_machine[machine.id] = groups
             block.hand_key_by_machine[machine.id] = by_flow
             for _, hand in ipairs(groups) do
+                coroutine.yield("slice")
                 block.hand_flows[hand.key] = list_copy(hand.flow_ids)
                 for _, flow_id in ipairs(hand.flow_ids) do by_flow[flow_id] = hand.key end
             end
@@ -1189,12 +1209,15 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local flow_machines, machine_indices = {}, {}
         for index, machine in ipairs(block.machines) do machine_indices[machine.id] = index end
         for _, machine in ipairs(block.machines) do
+            coroutine.yield("slice")
             local step
             for _, candidate in ipairs(steps) do
+                coroutine.yield("slice")
                 if candidate.step_id == machine.step_id then step = candidate; break end
             end
             local function collect(role, entries)
                 for _, port in ipairs(entries or {}) do
+                    coroutine.yield("slice")
                     if not flow_is_fluid(port, flows) then
                         local bound = port_bound_for(block, machine, role, port, flows)
                         if bound then
@@ -1219,6 +1242,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             block.face_by_machine[machine_id][flow_id] = side
             if multi_flow_hands and block.hand_flows[flow_id] then
                 for _, member_flow_id in ipairs(block.hand_flows[flow_id]) do
+                    coroutine.yield("slice")
                     block.face_by_machine[machine_id][member_flow_id] = side
                 end
             end
@@ -1241,9 +1265,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 block.face_by_machine = {}
                 for _, machine in ipairs(block.machines) do block.face_by_machine[machine.id] = {} end
                 for index, flow_id in ipairs(flow_ids) do
+                    coroutine.yield("slice")
                     local side = index == 1 and "top" or "bottom"
                     block.face_by_flow[flow_id] = side
                     for machine_id, _ in pairs(flow_machines[flow_id]) do
+                        coroutine.yield("slice")
                         set_face(machine_id, flow_id, side)
                     end
                 end
@@ -1251,8 +1277,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         else
             local ordered = {}
             for _, flow_id in ipairs(flow_ids) do
+                coroutine.yield("slice")
                 local members, interior = {}, false
                 for machine_id, machine in pairs(flow_machines[flow_id]) do
+                    coroutine.yield("slice")
                     members[#members + 1] = machine
                     local index = machine_indices[machine_id]
                     if index ~= 1 and index ~= #block.machines then interior = true end
@@ -1267,9 +1295,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
 
             local horizontal = {}
             for _, entry in ipairs(ordered) do
+                coroutine.yield("slice")
                 if entry.interior then horizontal[#horizontal + 1] = entry end
             end
             for _, entry in ipairs(ordered) do
+                coroutine.yield("slice")
                 local already = false
                 for _, selected in ipairs(horizontal) do if selected == entry then already = true; break end end
                 if not already and #horizontal < 2 then horizontal[#horizontal + 1] = entry end
@@ -1282,12 +1312,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 for index, entry in ipairs(horizontal) do side_by_flow[entry.flow_id] = index == 1 and "left" or "right" end
                 local vertical = {}
                 for _, entry in ipairs(ordered) do
+                    coroutine.yield("slice")
                     if side_by_flow[entry.flow_id] == nil then vertical[#vertical + 1] = entry end
                 end
                 local top_available = machine_y == 1
                 local bottom_available = #bottom_rows == 0
                 local vertical_sides = {}
                 for _, entry in ipairs(vertical) do
+                    coroutine.yield("slice")
                     local needs_top, needs_bottom = false, false
                     if #block.machines == 1 then
                         local side
@@ -1302,6 +1334,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                         end
                     else
                         for _, machine in ipairs(entry.members) do
+                            coroutine.yield("slice")
                             local index = machine_indices[machine.id]
                             if index == 1 then needs_top = true
                             elseif index == #block.machines then needs_bottom = true
@@ -1342,13 +1375,17 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                     block.face_by_machine = {}
                     for _, machine in ipairs(block.machines) do block.face_by_machine[machine.id] = {} end
                     for _, entry in ipairs(horizontal) do
+                        coroutine.yield("slice")
                         local side = side_by_flow[entry.flow_id]
                         for _, machine in ipairs(entry.members) do
+                            coroutine.yield("slice")
                             set_face(machine.id, entry.flow_id, side)
                         end
                     end
                     for _, entry in ipairs(vertical) do
+                        coroutine.yield("slice")
                         for _, machine in ipairs(entry.members) do
+                            coroutine.yield("slice")
                             local index = machine_indices[machine.id]
                             local side = #block.machines == 1 and entry.endpoint_side
                                 or (index == 1 and "top" or "bottom")
@@ -1372,6 +1409,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- obligation: the inserter at the producer and the inserter at the consumer must each see the other machine
     -- as a real endpoint, even when the producer appears first in step order.
     for _, spec in ipairs(machine_specs) do
+        coroutine.yield("slice")
         append_inserters(block, spec.step, machines_by_id[spec.id], catalog, input, flows)
     end
 
@@ -1381,8 +1419,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     if not block.failure and not face_layout then
         local _, inserter_w = inserter_size(catalog, input and input.inserter)
         for _, machine in ipairs(block.machines) do
+            coroutine.yield("slice")
             local bound = 0
             for _, inserter in ipairs(block.inserters) do
+                coroutine.yield("slice")
                 if inserter.machine_id == machine.id and inserter.port_bound then bound = bound + 1 end
             end
             local face_columns = math.floor(machine.w / math.max(1, inserter_w))
@@ -1395,6 +1435,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
     local has_port_bound_inserter = false
     for _, inserter in ipairs(block.inserters) do
+        coroutine.yield("slice")
         if inserter.port_bound then has_port_bound_inserter = true; break end
     end
     if not block.failure and has_port_bound_inserter and #bottom_rows > 0 then
@@ -1407,12 +1448,15 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- so variable inserter heights cannot overlap either.
     local inserter_bottom = machine_y + max_machine_h
     for _, machine in ipairs(block.machines) do
+        coroutine.yield("slice")
         inserter_bottom = math.max(inserter_bottom, machine.y + machine.h)
     end
     for _, inserter in ipairs(block.inserters) do
+        coroutine.yield("slice")
         inserter_bottom = math.max(inserter_bottom, inserter.y + inserter.h)
     end
     for _, inserter in ipairs(block.inserters) do
+        coroutine.yield("slice")
         block.members[#block.members + 1] = inserter
     end
 
@@ -1422,6 +1466,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local bottom_y = inserter_bottom
     local bottom_row_y = bottom_y
     for _, row in ipairs(bottom_rows) do
+        coroutine.yield("slice")
         row.y = bottom_row_y
         bottom_row_y = bottom_row_y + row.h + 1
     end
@@ -1436,9 +1481,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local function required_count(machine, group)
         local step
         for _, candidate in ipairs(steps) do
+            coroutine.yield("slice")
             if candidate.step_id == machine.step_id then step = candidate; break end
         end
         for _, entry in ipairs(step and step._groups or {}) do
+            coroutine.yield("slice")
             if entry.signature == group.signature then return entry.count_per_machine end
         end
         return 0
@@ -1480,6 +1527,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local group = row.group
         local deficit, order = {}, {}
         for _, machine in ipairs(block.machines) do
+            coroutine.yield("slice")
             local need = required_count(machine, group)
             if need > 0 then deficit[machine.id] = need; order[#order + 1] = machine end
         end
@@ -1487,11 +1535,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         if #order == 0 then row.count = 0 return end
         local origins, taken = row_origins(row), {}
         while true do
+            coroutine.yield("slice")
             local best_x, best_gain, best_index = nil, 0, nil
             for index, origin_x in ipairs(origins) do
+                coroutine.yield("slice")
                 if not taken[index] then
                     local gain = 0
                     for _, machine in ipairs(order) do
+                        coroutine.yield("slice")
                         if deficit[machine.id] > 0 then
                             local spec = machine_specs_by_id[machine.id].machine_spec
                             if covers({x = origin_x, y = row.y, w = row.w, h = row.h}, machine, spec,
@@ -1507,6 +1558,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             taken[best_index] = true
             row.positions[#row.positions + 1] = best_x
             for _, machine in ipairs(order) do
+                coroutine.yield("slice")
                 if deficit[machine.id] > 0 then
                     local spec = machine_specs_by_id[machine.id].machine_spec
                     if covers({x = best_x, y = row.y, w = row.w, h = row.h}, machine, spec,
@@ -1529,13 +1581,16 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
 
     local group_beacon_indices = {}
     for _, row in ipairs(beacon_row_specs) do
+        coroutine.yield("slice")
         local group = row.group
         local placed_row_x = row_x(row)
         local required = {}
         for _, machine in ipairs(block.machines) do
+            coroutine.yield("slice")
             local step = nil
             for _, candidate in ipairs(steps) do if candidate.step_id == machine.step_id then step = candidate break end end
             for _, step_group_entry in ipairs(step and step._groups or {}) do
+                coroutine.yield("slice")
                 if step_group_entry.signature == group.signature and step_group_entry.count_per_machine > 0 then
                     required[#required + 1] = machine.id
                     break
@@ -1545,6 +1600,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         group.required_machines = required
         group_beacon_indices[group.signature] = group_beacon_indices[group.signature] or 0
         for beacon_index = 1, row.count do
+            coroutine.yield("slice")
             group_beacon_indices[group.signature] = group_beacon_indices[group.signature] + 1
             local beacon_x = placed_row_x + ((row.positions or {})[beacon_index] or (beacon_index - 1) * row.w)
             local beacon = {
@@ -1561,7 +1617,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             }
             local covered = {}
             for _, machine_id in ipairs(required) do
+                coroutine.yield("slice")
                 for _, machine in ipairs(block.machines) do
+                    coroutine.yield("slice")
                     local machine_spec = machine_specs_by_id[machine.id].machine_spec
                     if machine.id == machine_id and covers(beacon, machine, machine_spec,
                         group.supply_w, group.supply_h) then
@@ -1585,8 +1643,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- the whole block is assembled: per-row placement alone cannot see that a second row is covered by the first.
     local function requirement_for(machine, signature)
         for _, step in ipairs(steps) do
+            coroutine.yield("slice")
             if step.step_id == machine.step_id then
                 for _, group in ipairs(step._groups or {}) do
+                    coroutine.yield("slice")
                     if group.signature == signature then return group.count_per_machine end
                 end
             end
@@ -1601,11 +1661,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
 
     local function redundant(candidate)
         for _, machine in ipairs(block.machines) do
+            coroutine.yield("slice")
             for _, group in ipairs(ordered_groups) do
+                coroutine.yield("slice")
                 local required = requirement_for(machine, group.signature)
                 if required > 0 then
                     local count = 0
                     for _, beacon in ipairs(block.beacons) do
+                        coroutine.yield("slice")
                         if beacon ~= candidate and beacon.signature == group.signature and covered_by(beacon, machine) then
                             count = count + 1
                         end
@@ -1619,11 +1682,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
 
     local changed = true
     while changed do
+        coroutine.yield("slice")
         changed = false
         for index, beacon in ipairs(block.beacons) do
+            coroutine.yield("slice")
             if redundant(beacon) then
                 table.remove(block.beacons, index)
                 for member_index, member in ipairs(block.members) do
+                    coroutine.yield("slice")
                     if member == beacon then table.remove(block.members, member_index); break end
                 end
                 changed = true
@@ -1636,8 +1702,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- Re-publish the complete physical influence after pruning.  In particular, never blank covered_members to
     -- make a load-bearing beacon look removable: extra influence is legal and remains visible to validation.
     for _, beacon in ipairs(block.beacons) do
+        coroutine.yield("slice")
         local covered_all, required = {}, {}
         for _, machine in ipairs(block.machines) do
+            coroutine.yield("slice")
             if covered_by(beacon, machine) then
                 covered_all[#covered_all + 1] = machine.id
                 if requirement_for(machine, beacon.signature) > 0 then required[#required + 1] = machine.id end
@@ -1653,6 +1721,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- cell with a machine, another inserter, or a beacon.
     local max_inserter_bottom = inserter_bottom
     for _, inserter in ipairs(block.inserters) do
+        coroutine.yield("slice")
         max_inserter_bottom = math.max(max_inserter_bottom, inserter.y + inserter.h)
     end
     block.w = w
@@ -1665,8 +1734,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- group on that step. Keep the physical influence record intact: removing covered_members while the beacon
     -- remains placed only makes bookkeeping look safe. The candidate is rejected and the caller can try a split.
     for _, beacon in ipairs(block.beacons) do
+        coroutine.yield("slice")
         if beacon.has_speed_module then
             for _, machine_id in ipairs(beacon.covered_members) do
+                coroutine.yield("slice")
                 local machine
                 for _, candidate in ipairs(block.machines) do if candidate.id == machine_id then machine = candidate break end end
                 if machine and machine.forbids_speed_beacon then block.invalid_coverage = true end
@@ -1674,27 +1745,35 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
     end
     for _, machine in ipairs(block.machines) do
+        coroutine.yield("slice")
         block.beacon_coverage[machine.id] = {}
         for _, beacon in ipairs(block.beacons) do
+            coroutine.yield("slice")
             local required = false
             for _, member_id_value in ipairs(beacon.covered_members) do
+                coroutine.yield("slice")
                 if member_id_value == machine.id then required = true break end
             end
             if required then block.beacon_coverage[machine.id][#block.beacon_coverage[machine.id] + 1] = beacon.id end
         end
     end
     for _, machine in ipairs(block.machines) do
+        coroutine.yield("slice")
         for _, group in ipairs(ordered_groups) do
+            coroutine.yield("slice")
             local required = 0
             local step
             for _, candidate in ipairs(steps) do if candidate.step_id == machine.step_id then step = candidate break end end
             for _, entry in ipairs(step and step._groups or {}) do
+                coroutine.yield("slice")
                 if entry.signature == group.signature then required = entry.count_per_machine break end
             end
             if required > 0 then
                 local got = 0
                 for _, beacon_id in ipairs(block.beacon_coverage[machine.id]) do
+                    coroutine.yield("slice")
                     for _, beacon in ipairs(block.beacons) do
+                        coroutine.yield("slice")
                         if beacon.id == beacon_id and beacon.signature == group.signature then got = got + 1 end
                     end
                 end
@@ -1709,12 +1788,19 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     table.sort(block.ports, function(a, b) return tostring(a.port_id) < tostring(b.port_id) end)
     return block
 end
+local function partition_begin(steps, limit)
+    return {steps = steps, limit = limit, buckets = {}, result = {},
+        stack = {{index = 1, next_bucket = 1, new_tried = false}}, done = false}
+end
 
-local function partition_specs(steps, limit)
-    local result, buckets = {}, {}
-    local function emit()
+--One resumable depth-first-search transition. Emission order is identical to partition_specs' recursion.
+local function partition_step(state)
+    if state.done then return nil end
+    if #state.result >= state.limit then state.done = true; return nil end
+    local frame = state.stack[#state.stack]
+    if frame.index > #state.steps then
         local groups = {}
-        for index, bucket in ipairs(buckets) do
+        for index, bucket in ipairs(state.buckets) do
             local ids = {}
             for _, step in ipairs(bucket) do
                 ids[#ids + 1] = tostring(step.step_id)
@@ -1722,30 +1808,49 @@ local function partition_specs(steps, limit)
             end
             groups[#groups + 1] = {steps = list_copy(bucket), id = table.concat(ids, "+"), ordinal = index}
         end
-        result[#result + 1] = groups
-    end
-    local function visit(index)
-        if #result >= limit then return end
-        if index > #steps then emit() return end
-        local step = steps[index]
-        for bucket_index = 1, #buckets do
-            local bucket = buckets[bucket_index]
-            local allowed = true
-            for _, other in ipairs(bucket) do
-                if not step_can_join(step, other) then allowed = false break end
-            end
-            if allowed then
-                bucket[#bucket + 1] = step
-                visit(index + 1)
-                bucket[#bucket] = nil
-            end
+        state.result[#state.result + 1] = groups
+        table.remove(state.stack)
+        if frame.choice then
+            local bucket = state.buckets[frame.choice]
+            bucket[#bucket] = nil
+            if frame.new_bucket then table.remove(state.buckets) end
         end
-        buckets[#buckets + 1] = {step}
-        visit(index + 1)
-        buckets[#buckets] = nil
+        if #state.stack == 0 then state.done = true end
+        return groups
     end
-    visit(1)
-    return result
+    local step = state.steps[frame.index]
+    while frame.next_bucket <= #state.buckets do
+        local bucket_index = frame.next_bucket
+        frame.next_bucket = frame.next_bucket + 1
+        local allowed = true
+        for _, other in ipairs(state.buckets[bucket_index]) do
+            if not step_can_join(step, other) then allowed = false; break end
+        end
+        if allowed then
+            local bucket = state.buckets[bucket_index]
+            bucket[#bucket + 1] = step
+            state.stack[#state.stack + 1] = {index = frame.index + 1, next_bucket = 1, new_tried = false,
+                choice = bucket_index}
+            return nil
+        end
+        return nil
+    end
+    if not frame.new_tried then
+        frame.new_tried = true
+        state.buckets[#state.buckets + 1] = {step}
+        state.stack[#state.stack + 1] = {index = frame.index + 1, next_bucket = 1, new_tried = false,
+            choice = #state.buckets, new_bucket = true}
+        return nil
+    end
+    table.remove(state.stack)
+    if frame.choice then
+        local bucket = state.buckets[frame.choice]
+        bucket[#bucket] = nil
+        if frame.new_bucket then table.remove(state.buckets) end
+    else
+        state.done = true
+    end
+    return nil
 end
 
 local function relevant_ports(block_steps, ports, flows)
@@ -1863,32 +1968,60 @@ local function prepare_candidates(input)
     end
     local limits = input and input.limits or {}
     local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
-    local specs = partition_specs(layout_steps, max_candidates * 2)
+    local partition = partition_begin(layout_steps, max_candidates * 2)
     multi_flow_hands = previous_multi_flow_hands
-    return {input = input, catalog = catalog, flows = flows, ports = ports, specs = specs,
+    return {input = input, catalog = catalog, flows = flows, ports = ports, partition = partition,
         max_candidates = max_candidates, forced = forced, candidates = {}, failures = {}, seen = {}, index = 1}
 end
 
-local function build_candidate(context)
+local function begin_candidate(context, spec)
+    context.build = {spec = spec, blocks = {}, valid = true, group_index = 1}
+end
+
+local function advance_candidate(state, context)
     local input, catalog, flows, ports = context.input, context.catalog, context.flows, context.ports
     local forced = context.forced
     local previous = multi_flow_hands
     if forced ~= nil then multi_flow_hands = forced == true and forced_multi_flow_hands(input) end
-    local spec = context.specs[context.index]
-    local blocks, valid = {}, true
-    for _, group in ipairs(spec) do
+    local build = context.build
+    local group = build.spec[build.group_index]
+    if group then
         local block_id = "block:" .. group.id
-        local block = build_block(group.steps, catalog, relevant_ports(group.steps, ports, flows), flows, input, block_id)
+        local running = running_blocks[state]
+        if not running or running.group_index ~= build.group_index then
+            local relevant = relevant_ports(group.steps, ports, flows)
+            running = {group_index = build.group_index,
+                thread = coroutine.create(function()
+                    return build_block(group.steps, catalog, relevant, flows, input, block_id)
+                end)}
+            running_blocks[state] = running
+        end
+        local resumed = {coroutine.resume(running.thread)}
+        if not resumed[1] then
+            running_blocks[state] = nil
+            error(resumed[2], 0)
+        end
+        if coroutine.status(running.thread) ~= "dead" then
+            multi_flow_hands = previous
+            return false
+        end
+        running_blocks[state] = nil
+        local block = resumed[2]
         if block.invalid_coverage or block.failure then
-            valid = false
+            build.valid = false
             context.failures[#context.failures + 1] = block.failure or {
                 name = "beacon-split", code = "BP_P_NO_FIT", detail = "configured beacon coverage cannot be split",
             }
-            break
+            build.group_index = #build.spec + 1
+        else
+            build.blocks[#build.blocks + 1] = block
+            build.group_index = build.group_index + 1
         end
-        blocks[#blocks + 1] = block
+        multi_flow_hands = previous
+        if build.group_index <= #build.spec then return false end
     end
-    if valid then
+    if build.valid then
+        local blocks = build.blocks
         table.sort(blocks, function(a, b) return a.id < b.id end)
         local ids, beacon_count = {}, 0
         for _, block in ipairs(blocks) do
@@ -1903,9 +2036,10 @@ local function build_candidate(context)
         end
     end
     multi_flow_hands = previous
+    if #context.candidates >= context.max_candidates then context.partition.done = true end
+    context.build = nil
     context.index = context.index + 1
-    if #context.candidates >= context.max_candidates then context.index = #context.specs + 1 end
-    if context.index > #context.specs then
+    if context.partition.done then
         table.sort(context.candidates, function(a, b)
             if a.physical_beacon_count == b.physical_beacon_count then return a.id < b.id end
             return a.physical_beacon_count < b.physical_beacon_count
@@ -1929,21 +2063,33 @@ end
 function Groups.step(state, budget)
     if state.done then return state end
     budget = budget or {ops = 1}
-    local ops = math.max(0, finite(budget.ops, 1))
+    local requested_ops = math.max(0, finite(budget.ops, 1))
+    --A grouping transition can construct a sizeable block. Keep one transition per call so the engine can
+    --checkpoint between transitions even when Search supplies its full 2,000-op tick budget.
+    local ops = math.min(requested_ops, 1)
     if ops > 0 and state.work.context == nil then
         state.work.context = prepare_candidates(state.work.input)
         state.cursor.phase = "enumerate"
         ops = ops - 1
     end
-    while ops > 0 and state.work.context and state.work.context.index <= #state.work.context.specs do
-        local finished = build_candidate(state.work.context)
-        state.progress.done_units = state.progress.done_units + 1
-        ops = ops - 1
-        if finished then break end
+    while ops > 0 and state.work.context and not state.work.context.finished do
+        local context = state.work.context
+        if context.pending_spec then
+            if context.build == nil then begin_candidate(context, context.pending_spec) end
+            context.finished = advance_candidate(state, context)
+            if context.build == nil then context.pending_spec = nil end
+            state.progress.done_units = state.progress.done_units + 1
+            ops = ops - 1
+        elseif context.partition.done then
+            context.finished = true
+        else
+            context.pending_spec = partition_step(context.partition)
+            if context.pending_spec == nil then ops = ops - 1 end
+        end
     end
-    budget.ops = ops
+    budget.ops = requested_ops - ops
     local context = state.work.context
-    if context and context.index > #context.specs then
+    if context and context.finished then
         state.work.candidates = context.candidates
         state.work.failures = context.failures
         state.work.candidate_enumerations = #context.candidates

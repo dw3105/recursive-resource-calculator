@@ -264,6 +264,7 @@ H.test("SS3 post-incumbent stopping uses validated layouts, never an op ceiling"
     H.equal(state.result.search.stop, "max_layouts", "the total layout bound is reported")
     H.equal(state.work.validated_layouts, 3, "exactly three layouts are validated")
     H.equal(state.work.post_incumbent_limit, nil, "no post-incumbent operation ceiling exists")
+    H.equal(state.max_ops, nil, "the pre-incumbent ceiling is cleared at the first winner")
 end)
 
 H.test("SS4 interim sequence advances and publishes serialized incumbents", function()
