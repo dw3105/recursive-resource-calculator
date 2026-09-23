@@ -155,6 +155,7 @@ local CANDIDATE_ALLOWANCE = 4
 -- guard against ordering noise while bounding work by complete validated layouts.
 local NO_IMPROVEMENT_LIMIT = 2
 local MAX_LAYOUTS = 3
+local MAX_FLIP_TRIALS = 8
 
 local function grid_trial_limit(input, limits, grid_count)
     local maximum = input.max_search_grids or input.max_grid_trials
@@ -405,9 +406,19 @@ local function block_map(blocks)
     return result
 end
 
+local function manhattan(a, b) return math.abs(a.x - b.x) + math.abs(a.y - b.y) end
+local function partner_id(entry)
+    if type(entry) == "table" then return entry.step_id or entry.block_id or entry.id or entry.owner_id end
+    return entry
+end
+
+-- Pick each row run independently. The partner locations come from the flow graph; external
+-- partners sit on the same perimeter edge used later to make router terminals.
 local function materialize_candidate(state, candidate, placements)
     local by_id = block_map(candidate.blocks)
     local blocks, entities, ports = {}, {}, {}
+    local placement_by_id = {}
+    for _, p in ipairs(placements or {}) do placement_by_id[p.block_id or p.id] = p end
     for _, placement in ipairs(placements or {}) do
         local block = by_id[placement.block_id or placement.id]
         if block then
@@ -1289,6 +1300,7 @@ local function start_grid(state)
     state.work.candidate = nil
     state.work.orderings = nil
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
+    state.work.flip_queue, state.work.flip_trials, state.work.active_flip = {}, 0, false
     state.cursor.candidate_index, state.cursor.order_index = 1, 1
     set_phase(state, "groups")
     return true
@@ -1447,6 +1459,13 @@ local function stop_no_improvement(state, reason)
     return true
 end
 
+local function flip_trial_stops_search(state)
+    return not state.work.active_flip
+        and (state.work.no_improvement_attempts or 0) >= NO_IMPROVEMENT_LIMIT
+        and #(state.work.flip_queue or {}) == 0
+end
+Search._flip_trial_stops_search = flip_trial_stops_search
+
 local function publish_interim(state)
     local serial = Serialize.begin(state.incumbent.candidate)
     while not serial.done do Serialize.step(serial, {ops = 1000000000}) end
@@ -1487,7 +1506,8 @@ function Search.begin(input)
             rejections = {}, discarded_alternatives = {}, valid_alternatives = {}, attempt_recorded = false,
             candidate_rejection_start = 1, incumbent_record = nil, search_bound_recorded = false, bound_reason = nil,
             allowance_derived = max_ops == nil, allowance_declared = false, feasibility_limit = nil,
-            improvement_budget = nil, improvement_started = false, improvement_start_ops = nil},
+            improvement_budget = nil, improvement_started = false, improvement_start_ops = nil,
+            flip_queue = {}, flip_trials = 0, active_flip = false},
     }
     state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
     state.initial_revisions = copy(state.revisions)
@@ -1536,8 +1556,45 @@ local function candidate_fits_grid(state, candidate)
     return fits
 end
 
+local function queue_candidate_flips(state, source)
+    local work = state.work
+    if not source or (work.flip_trials or 0) + #work.flip_queue >= MAX_FLIP_TRIALS then return end
+    local variants = {}
+    for _, block in ipairs(source.blocks or {}) do
+        local id = block.id or block.block_id
+        for _, role in ipairs({"out", "in"}) do
+            local run
+            for _, value in ipairs(block.belt_runs or {}) do if value.role == role then run = value; break end end
+            local eligible = run and run.reversed ~= true
+            if role == "in" and run and #(run.feeds or {}) > 0 then eligible = false end
+            if eligible then
+                local reversed = Groups.reverse_run(block, role)
+                if reversed then
+                    local variant = copy(source)
+                    variant.id = tostring(candidate_label(source) or "candidate") .. ":flip:" .. tostring(id) .. ":" .. role
+                    for index, other in ipairs(variant.blocks or {}) do
+                        if (other.id or other.block_id) == id then variant.blocks[index] = reversed; break end
+                    end
+                    variants[#variants + 1] = variant
+                end
+            end
+        end
+    end
+    for _, variant in ipairs(variants) do
+        if (work.flip_trials or 0) + #work.flip_queue >= MAX_FLIP_TRIALS then break end
+        work.flip_queue[#work.flip_queue + 1] = variant
+    end
+end
+Search._queue_candidate_flips = queue_candidate_flips
+
 local function prepare_candidate(state)
-    local candidate = state.work.groups.result.candidates[state.cursor.candidate_index]
+    local candidate
+    if state.work.active_flip then candidate = state.work.candidate
+    elseif #(state.work.flip_queue or {}) > 0 then
+        candidate = table.remove(state.work.flip_queue, 1)
+        state.work.flip_trials = (state.work.flip_trials or 0) + 1
+        state.work.active_flip = true
+    else candidate = state.work.groups.result.candidates[state.cursor.candidate_index] end
     if not candidate then
         finish_grid_or_search(state)
         return false
@@ -1574,6 +1631,12 @@ local function discard_candidate(state)
         record_discarded_attempt(state, score, score and "lower_score" or "rejected")
     end
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
+    if state.work.active_flip then
+        state.work.active_flip = false
+        state.work.candidate = nil
+        prepare_candidate(state)
+        return
+    end
     state.cursor.order_index = state.cursor.order_index + 1
     if state.work.orderings and state.cursor.order_index <= #state.work.orderings then
         prepare_candidate(state)
@@ -1718,6 +1781,7 @@ function Search.step(container, budget)
                         record.chosen = true
                         state.work.incumbent_record = record
                         state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
+                            source_candidate = copy(state.work.candidate),
                             validation = copy(state.work.validate.result)}
                         --The layout-count stop decides when to stop; the declared improvement allowance stays as a finite
                         --safety net (tests/test_search_allowance.lua), sized from the grid area, never a fixed op count.
@@ -1730,14 +1794,31 @@ function Search.step(container, budget)
                             candidate_index = state.cursor.candidate_index, ordering_index = state.cursor.order_index}
                         state.work.no_improvement_attempts = 0
                         publish_interim(state)
-                    else
+                        queue_candidate_flips(state, state.work.candidate)
+                    elseif not state.work.active_flip then
                         state.work.no_improvement_attempts = (state.work.no_improvement_attempts or 0) + 1
                     end
-                    state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
+                    if not state.work.active_flip then
+                        state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
+                    end
                     state.work.attempt_recorded = true
-                    if not improves and state.work.no_improvement_attempts >= NO_IMPROVEMENT_LIMIT then
+                    if state.work.active_flip then
+                        state.work.active_flip = false
+                        state.work.candidate = nil
+                        if #(state.work.flip_queue or {}) == 0 and not improves
+                            and (state.work.no_improvement_attempts or 0) >= NO_IMPROVEMENT_LIMIT then
+                            stop_no_improvement(state, "validated alternatives did not improve the incumbent")
+                        elseif #(state.work.flip_queue or {}) == 0
+                            and (state.work.validated_layouts or 0) >= MAX_LAYOUTS then
+                            state.work.stop_reason = "max_layouts"
+                            record_search_bound(state, "max_layouts", "maximum validated layouts reached")
+                            begin_serialization(state)
+                        else
+                            prepare_candidate(state)
+                        end
+                    elseif not improves and flip_trial_stops_search(state) then
                         stop_no_improvement(state, "validated alternatives did not improve the incumbent")
-                    elseif state.work.validated_layouts >= MAX_LAYOUTS then
+                    elseif state.work.validated_layouts >= MAX_LAYOUTS and #(state.work.flip_queue or {}) == 0 then
                         state.work.stop_reason = "max_layouts"
                         record_search_bound(state, "max_layouts", "maximum validated layouts reached")
                         begin_serialization(state)
