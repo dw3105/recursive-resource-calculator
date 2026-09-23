@@ -481,6 +481,9 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         --A row port feeds its belt run's head or leaves its end (docs/contracts/row_block.md): like a perimeter
         --door, its belt must face the port's own heading.
         row_port = port.row_port == true or nil,
+        --A one-flow rear port may be entered by a curve: its belt faces the port's heading into the row head, and
+        --with nothing behind it that belt is a curve, not a side-load (round 28, the player's v8 U-turn).
+        rear_curve = (port.rear == true and port_flow_id(port) ~= nil and #(port.flow_ids or {port_flow_id(port)}) <= 1) or nil,
         block_id = block.block_id or block.id,
         step_id = port.step_id or block_step_id(block),
         role = role,
@@ -1559,6 +1562,9 @@ local function append_normal_path(work, demand, path, amount)
         local next_cell = path[index + 1] or path[index - 1] or cell
         local direction = direction_from_step(cell.x, cell.y, next_cell.x, next_cell.y)
         if index == #path and #path > 1 then direction = direction_from_step(path[index - 1].x, path[index - 1].y, cell.x, cell.y) end
+        --A curve onto a one-flow rear port: the last belt faces the port's heading, into the row's head.
+        if index == #path and demand.sink and demand.sink.rear_curve and demand.sink.travel_dir ~= nil
+            and cell.x == demand.sink.x and cell.y == demand.sink.y then direction = demand.sink.travel_dir end
         --A cell has TWO directions and they decide different things.  `incoming` is how the items arrived,
         --`outgoing` is how they leave.  Arriving at a run already laid from one of its SIDES is a merge and
         --builds nothing; the run keeps its own heading and carries the items on.  LEAVING a run sideways is
@@ -2088,6 +2094,11 @@ local function search_step(work, search)
         --ring, and refusing the ring left automation-science-pack:4 BP_R_NO_PATH.  So the widening below is
         --for machine ports only.
         local sink_any_approach = false
+        if target and search.demand.sink.rear_curve and search.demand.sink.travel_dir ~= nil
+            and direction ~= Grid.dir_opposite(search.demand.sink.travel_dir)
+            and work.segments_by_cell[coordinate_key(nx, ny)] == nil then
+            sink_any_approach = true
+        end
         if target and not search.demand.sink.perimeter and not search.demand.sink.row_port
             and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
             local sink_segment = work.segments_by_cell[coordinate_key(nx, ny)]
