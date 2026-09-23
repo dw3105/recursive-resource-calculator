@@ -1184,6 +1184,7 @@ local function step(job, budget)
                 active_handle.interim = {sequence = interim.sequence, entities = integer(interim.entities, #candidate.entities),
                     result = candidate, blueprint_string = encoded}
                 active_handle.phase = first and "improving" or active_handle.phase
+                if first then job.phase = "improving" end
                 if first and active_handle.deliver then
                     local ok = BlueprintDelivery.deliver(active_handle.player_index, candidate)
                     if ok then active_handle.delivered_sequence = interim.sequence end
@@ -1259,6 +1260,8 @@ local function publish(job)
             handle.delivery_reason = reason
         end
     end
+    persist_handle(handle)
+    bridge_attempt(handle, false)
 end
 
 function Generation.deliver_interim(player_index, job_id, sequence)
@@ -1383,6 +1386,8 @@ local function public_attempt(handle, player_index, sheet_id)
         grid_spacing = copy_plain(handle.grid_spacing),
         diagnostics = diagnostics, search_diagnostics = copy_plain(diagnostics) or {},
     }
+    result.interim = handle.interim and {sequence = handle.interim.sequence, entities = handle.interim.entities,
+        blueprint_string = handle.interim.blueprint_string} or nil
     result.input_fingerprint = identity and identity.input_fingerprint or nil
     if capture then
         result.prepared_input = copy_plain(capture) or {}

@@ -155,7 +155,7 @@ function ProgressPanel.set_offer(sheet_flow, job_id, interim)
     if not offer then
         offer = flow.add{type = "flow", name = OFFER_NAME, direction = "horizontal"}
         offer.add{type = "label", name = "hxrrc_better_layout_label"}
-        offer.add{type = "button", name = OFFER_BUTTON}
+        offer.add{type = "button", name = OFFER_BUTTON, caption = {"hxrrc.deliver_better_layout"}}
     end
     offer.children[1].caption = {"hxrrc.better_layout_found", interim.entities}
     offer.children[2].tags = {job_id = job_id, sequence = interim.sequence}
@@ -236,7 +236,8 @@ local function refresh_all()
                 local status = id and Registry.generation and Registry.generation.status(player_index, id)
                 ProgressPanel.update(sheet_flow, progress, id, status and status.interim)
             else
-                ProgressPanel.set_offer(sheet_flow, nil, nil)
+                local attempt = Registry.generation and Registry.generation.lookup(player_index, sheet_id)
+                ProgressPanel.set_offer(sheet_flow, attempt and attempt.job_id, attempt and attempt.interim)
                 ProgressPanel.hide(sheet_flow)
             end
         end
