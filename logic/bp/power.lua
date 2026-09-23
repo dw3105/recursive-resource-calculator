@@ -853,9 +853,13 @@ function Power.step(state, budget)
                 elseif position ~= false then
                     local candidate = make_candidate(work, position.spec_index, position.x, position.y, true)
                     candidate.covers = position.covers or {}
+                    local blocked = candidate_is_occupied(candidate, work)
                     work.candidate_eval = {candidate = candidate, occupied_index = #work.occupied + 1,
-                        consumer_index = #work.consumers + 1, blocked = candidate_is_occupied(candidate, work)}
-                    cursor.phase = "candidate_occupied"
+                        consumer_index = #work.consumers + 1, blocked = blocked}
+                    -- The cell index above already performed exact intersection tests.  Rewalking
+                    -- every occupied rectangle here charged one op per unrelated building.
+                    if blocked then work.candidate_eval = nil; cursor.phase = "candidate_position"
+                    else cursor.phase = "candidate_coverage" end
                 end
             end
 
@@ -920,40 +924,36 @@ function Power.step(state, budget)
                     end
                 end
             elseif greedy.mode == "selected_check" then
-                if greedy.selected_position <= #work.selected then
-                    local selected_index = work.selected[greedy.selected_position]
+                local rejected, variant_count = false, 0
+                for _, selected_index in ipairs(work.selected) do
                     local selected = work.candidates[selected_index]
                     local candidate = work.candidates[greedy.candidate]
-                    if rect_intersects(candidate.rect, selected.rect) then greedy.rejected = true end
-                    if candidate.spec_index == selected.spec_index then greedy.variant_count = greedy.variant_count + 1 end
-                    greedy.selected_position = greedy.selected_position + 1
-                else
-                    local limit = work.specs[work.candidates[greedy.candidate].spec_index].max_count
-                    if limit ~= nil and greedy.variant_count >= limit then greedy.rejected = true end
-                    if greedy.rejected then
-                        greedy.candidate_index = greedy.candidate_index + 1
-                        greedy.mode = "candidate"
-                    else
-                        greedy.cover_index, greedy.gain, greedy.total = 1, 0, 0
-                        greedy.mode = "coverage"
-                    end
+                    if rect_intersects(candidate.rect, selected.rect) then rejected = true end
+                    if candidate.spec_index == selected.spec_index then variant_count = variant_count + 1 end
                 end
-            elseif greedy.mode == "coverage" then
                 local candidate = work.candidates[greedy.candidate]
-                if greedy.cover_index <= #candidate.covers then
-                    local consumer_index = candidate.covers[greedy.cover_index]
-                    greedy.total = greedy.total + 1
-                    if not work.covered[consumer_index] then greedy.gain = greedy.gain + 1 end
-                    greedy.cover_index = greedy.cover_index + 1
+                local limit = work.specs[candidate.spec_index].max_count
+                if limit ~= nil and variant_count >= limit then rejected = true end
+                if rejected then
+                    greedy.candidate_index = greedy.candidate_index + 1
+                    greedy.mode = "candidate"
                 else
-                    if greedy.gain > 0 and (greedy.best == nil or greedy.gain > greedy.best_gain
-                        or (greedy.gain == greedy.best_gain and (greedy.total > greedy.best_total
-                            or (greedy.total == greedy.best_total and greedy.candidate < greedy.best)))) then
-                        greedy.best, greedy.best_gain, greedy.best_total = greedy.candidate, greedy.gain, greedy.total
+                    local gain, total = 0, #candidate.covers
+                    for _, consumer_index in ipairs(candidate.covers) do
+                        if not work.covered[consumer_index] then gain = gain + 1 end
+                    end
+                    if gain > 0 and (greedy.best == nil or gain > greedy.best_gain
+                        or (gain == greedy.best_gain and (total > greedy.best_total
+                            or (total == greedy.best_total and greedy.candidate < greedy.best)))) then
+                        greedy.best, greedy.best_gain, greedy.best_total = greedy.candidate, gain, total
                     end
                     greedy.candidate_index = greedy.candidate_index + 1
                     greedy.mode = "candidate"
                 end
+            elseif greedy.mode == "coverage" then
+                --Kept for state compatibility with older resumable states; new scans
+                --score a candidate's short cover list in one op above.
+                greedy.mode = "candidate"
             elseif greedy.mode == "add" then
                 local index = greedy.best
                 work.selected[#work.selected + 1] = index
@@ -961,17 +961,14 @@ function Power.step(state, budget)
                 greedy.cover_index, greedy.mode = 1, "add_coverage"
             elseif greedy.mode == "add_coverage" then
                 local candidate = work.candidates[greedy.best]
-                if greedy.cover_index <= #candidate.covers then
-                    local consumer_index = candidate.covers[greedy.cover_index]
+                for _, consumer_index in ipairs(candidate.covers) do
                     if not work.covered[consumer_index] then
                         work.covered[consumer_index] = true
                         work.covered_count = work.covered_count + 1
                     end
-                    greedy.cover_index = greedy.cover_index + 1
-                else
-                    greedy.best, greedy.best_gain, greedy.best_total = nil, -1, -1
-                    greedy.candidate_index, greedy.mode = 1, "candidate"
                 end
+                greedy.best, greedy.best_gain, greedy.best_total = nil, -1, -1
+                greedy.candidate_index, greedy.mode = 1, "candidate"
             end
 
         elseif phase == "connect" then
