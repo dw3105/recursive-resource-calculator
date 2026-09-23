@@ -16,6 +16,7 @@
 --A machine holding a quality module must never end up inside a speed beacon's influence. That is a hard
 --placement rule here and a hard failure in the validator, not a score.
 local Groups = {}
+local GROUP_SLICE_SECONDS = 0.015
 --A running block build is runtime-only. The saved job state keeps the plain cursor; after a load, a missing
 --continuation simply restarts the current pure block build from that cursor.
 local running_blocks = setmetatable({}, {__mode = "k"})
@@ -2198,7 +2199,7 @@ function Groups.step(state, budget)
         state.cursor.phase = "enumerate"
         ops = ops - 1
     end
-    while ops > 0 and os.clock() - slice_started < 0.020
+    while ops > 0 and os.clock() - slice_started < GROUP_SLICE_SECONDS
         and state.work.context and not state.work.context.finished do
         yield_group_slice()
         local context = state.work.context
