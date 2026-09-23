@@ -91,7 +91,8 @@ end)
 
 H.test("RI5 pack keeps a row's ports and their approach tiles off the grid's outer ring", function()
     local b = row_block(); H.equal(b ~= nil, true, "row exists"); if not b then return end
-    local area = Grid.rect(0, 0, b.w + 4, b.w + 4)
+    --Rear port + approach on one end, output port + approach on the other, each off the outer ring: 3 tiles a side.
+    local area = Grid.rect(0, 0, b.w + 8, b.w + 8)
     local state, steps = Pack.begin({area = area, blocks = {b}, obstacles = {}, limits = {}}), 0
     while not state.done and steps < 100000 do Pack.step(state, {ops = 64}); steps = steps + 1 end
     H.equal(state.ok, true, "row packs")

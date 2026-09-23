@@ -54,3 +54,28 @@ segments before any demand is searched and never lifts or re-routes them.
 
 Every paired input hand's pickup tile must carry each of its flows, on different lanes (`BP_V_LANE_MIX`
 otherwise).
+
+## Round 27 geometry (supersedes the head position above)
+
+A row starts flush at x=0. Its machines' pickup/drop columns run from `row.first_x` to `row.last_x` and the block is
+exactly `w = first_x + last_x + 1` wide, so the row is mirror-symmetric about its centre line.
+
+- In-run: head = one tile before the first pickup (`first_x - 1`); tiles head..`last_x`; `dir` EAST in the block frame.
+- Out-run: first drop (`first_x`) .. `w - 1`; port at `attach_dx = w` (right edge).
+
+## §Rear port
+
+- `row:in:<flow>` with `rear = true`, attach `(first_x - 2, pickup_y)` = x -1 (left edge), `travel_dir = normal_dir = EAST`:
+  a ONE-input row's only input port. The belt enters the head from behind (straight or curve); no side-load.
+- `row:in:rear` with `rear = true`, `flow_ids = {every input flow}` and NO `flow_id`: offered by a TWO-input row beside
+  its two head side feeds. First routing never uses it (route indexes endpoints by `flow_id`). Round 27 route merge
+  trial may: flow A to the rear port, flow B side-loaded onto A's belt upstream from the side whose near lane A leaves
+  empty.
+
+## §Reversal
+
+`Groups.reverse_run(block, role)` (`role` "in" or "out") returns a COPY of a row block whose `role` run flows the other
+way; `block` is untouched. Mirror about the centre line `x' = first_x + last_x - x` applies to that run's tiles (order
+reversed), head, feeds and port; its `dir` and every EAST/WEST port heading flip; every port whose id starts
+`row:<role>:` moves with it (attach_dx mirrored, normal/travel flipped). Reversing twice gives the block back. Nil when
+the block is no symmetric row. Ports stay on the boundary: -1 <-> w.

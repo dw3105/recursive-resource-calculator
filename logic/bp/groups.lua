@@ -1177,7 +1177,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --straddles the machines instead of starting flush with them. Supply reach is measured from the beacon
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
-    local machine_x0 = (face_layout or row_layout) and 1 or 0
+    --A row starts flush at x=0 so it is mirror-symmetric about its machines' centre line: its head sits one tile
+    --before the first pickup and its output port one tile past the run's end, so Groups.reverse_run can flip either
+    --run and every port still lands on the block boundary (docs/contracts/row_block.md §Reversal).
+    local machine_x0 = row_layout and 0 or (face_layout and 1 or 0)
     for _, row in ipairs(beacon_row_specs) do
         if not face_layout then machine_x0 = math.max(machine_x0, row.w) end
     end
@@ -1755,27 +1758,42 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local first_x = block.machines[1].x + math.floor(block.machines[1].w / 2)
         local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
         local tiles_in, tiles_out = {}, {}
-        for x = first_x - 2, last_x do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
+        for x = first_x - 1, last_x do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
         --The output run reaches the block's right edge so its port lies on the boundary (attach_dx == w).
         local row_w = math.max(block.w, last_x + 2)
         for x = first_x, row_w - 1 do tiles_out[#tiles_out+1] = {x=x,y=drop_y} end
         local feeds = {}
-        for i, fid in ipairs(flows_in) do
-            local side = i == 1 and -1 or 1
-            feeds[#feeds+1] = {flow_id=fid, side_tile={x=first_x-2,y=pickup_y+side}, travel_dir=side == -1 and SOUTH or NORTH}
-            block.ports[#block.ports+1] = {port_id="row:in:"..fid, row_port=true, role="in",kind="item",flow_id=fid,step_id=steps[1].step_id,
-                attach_dx=first_x-2,attach_dy=pickup_y+side,normal_dir=side == -1 and SOUTH or NORTH,
-                travel_dir=side == -1 and SOUTH or NORTH,member_id=block.machines[1].id}
+        if #flows_in == 1 then
+            --One input flow needs no lane split: its belt enters the head straight from behind (a straight or a
+            --curve), never by a side-load round the head (docs/contracts/row_block.md §Rear port).
+            local fid = flows_in[1]
+            block.ports[#block.ports+1] = {port_id="row:in:"..fid, row_port=true, rear=true, role="in",kind="item",
+                flow_id=fid,flow_ids={fid},step_id=steps[1].step_id,attach_dx=first_x-2,attach_dy=pickup_y,
+                normal_dir=EAST,travel_dir=EAST,member_id=block.machines[1].id}
+        else
+            for i, fid in ipairs(flows_in) do
+                local side = i == 1 and -1 or 1
+                feeds[#feeds+1] = {flow_id=fid, side_tile={x=first_x-1,y=pickup_y+side}, travel_dir=side == -1 and SOUTH or NORTH}
+                block.ports[#block.ports+1] = {port_id="row:in:"..fid, row_port=true, role="in",kind="item",flow_id=fid,step_id=steps[1].step_id,
+                    attach_dx=first_x-1,attach_dy=pickup_y+side,normal_dir=side == -1 and SOUTH or NORTH,
+                    travel_dir=side == -1 and SOUTH or NORTH,member_id=block.machines[1].id}
+            end
+            --The rear port carries every input flow on one already lane-split belt. It has no scalar flow_id, so
+            --first routing never uses it; route's merge trial (round 27) may (docs/contracts/row_block.md §Rear port).
+            block.ports[#block.ports+1] = {port_id="row:in:rear", row_port=true, rear=true, role="in",kind="item",
+                flow_ids=list_copy(flows_in),step_id=steps[1].step_id,attach_dx=first_x-2,attach_dy=pickup_y,
+                normal_dir=EAST,travel_dir=EAST,member_id=block.machines[1].id}
         end
         local outflow = flows_out[1]
         block.ports[#block.ports+1] = {port_id="row:out:"..tostring(outflow),row_port=true,role="out",kind="item",flow_id=outflow,
             step_id=steps[1].step_id,attach_dx=row_w,attach_dy=drop_y,normal_dir=WEST,travel_dir=EAST,
             member_id=block.machines[#block.machines].id}
         block.belt_runs = {
-            {role="in",flows=flows_in,tiles=tiles_in,dir=EAST,head={x=first_x-2,y=pickup_y},feeds=feeds,hand_ids=(function() local a={} for _,h in ipairs(in_hands) do a[#a+1]=h.id end return a end)()},
+            {role="in",flows=flows_in,tiles=tiles_in,dir=EAST,head={x=first_x-1,y=pickup_y},feeds=feeds,hand_ids=(function() local a={} for _,h in ipairs(in_hands) do a[#a+1]=h.id end return a end)()},
             {role="out",flows=flows_out,tiles=tiles_out,dir=EAST,port={x=row_w,y=drop_y,travel_dir=EAST},hand_ids=(function() local a={} for _,h in ipairs(out_hands) do a[#a+1]=h.id end return a end)()},
         }
         block.row.machines = #block.machines
+        block.row.first_x, block.row.last_x = first_x, last_x
         block.w = row_w; block.h = math.max(block.h,drop_y+1)
         block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
     end
@@ -2128,6 +2146,53 @@ function Groups.step(state, budget)
         state.done, state.ok = true, #state.work.emitted > 0
     end
     return state
+end
+
+--Round 26 row reversal (docs/contracts/row_block.md §Reversal). Returns a copy of `block` whose `role` run ("in" or
+--"out") flows the other way: its tiles, head, feeds and port are mirrored about the machines' centre line
+--x' = first_x + last_x - x, its direction and every horizontal port heading flip, and that run's row ports move with
+--it. Nil when the block is no symmetric row (then the caller keeps the block as built). Pure: `block` is untouched.
+function Groups.reverse_run(block, role)
+    local row = block and block.row
+    if not row or row.first_x == nil or row.last_x == nil then return nil end
+    local axis = row.first_x + row.last_x
+    if axis + 1 ~= block.w then return nil end
+    local result = copy(block)
+    local function mirror_x(x) return axis - x end
+    local function flip(d)
+        if d == EAST then return WEST elseif d == WEST then return EAST end
+        return d
+    end
+    local found = false
+    for _, run in ipairs(result.belt_runs or {}) do
+        if run.role == role then
+            found = true
+            local tiles = {}
+            for index = #run.tiles, 1, -1 do
+                local t = run.tiles[index]
+                tiles[#tiles + 1] = {x = mirror_x(t.x), y = t.y}
+            end
+            run.tiles, run.dir = tiles, flip(run.dir)
+            if run.head then run.head = {x = mirror_x(run.head.x), y = run.head.y} end
+            for _, feed in ipairs(run.feeds or {}) do
+                feed.side_tile = {x = mirror_x(feed.side_tile.x), y = feed.side_tile.y}
+                feed.travel_dir = flip(feed.travel_dir)
+            end
+            if run.port then
+                run.port = {x = mirror_x(run.port.x), y = run.port.y, travel_dir = flip(run.port.travel_dir)}
+            end
+            run.reversed = not run.reversed
+        end
+    end
+    if not found then return nil end
+    local prefix = "row:" .. role .. ":"
+    for _, port in ipairs(result.ports or {}) do
+        if port.row_port and tostring(port.port_id):sub(1, #prefix) == prefix then
+            port.attach_dx = mirror_x(port.attach_dx)
+            port.normal_dir, port.travel_dir = flip(port.normal_dir), flip(port.travel_dir)
+        end
+    end
+    return result
 end
 
 --A placed block's entities, ids prefixed "m:", rotated through Grid.place_member and Grid.place_port only
