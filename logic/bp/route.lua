@@ -1778,7 +1778,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
                     search.saw_blocked = true
                     return false
                 end
-                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) then
+                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) and not search.merge_target then
                     search.saw_blocked = true
                     return false
                 end
@@ -2773,6 +2773,29 @@ local function route_weight(work)
     return #work.entities + SIDELOAD_UNDERGROUND_COST * side_fed_inputs(work)
 end
 
+--The source inserter deposits on the far R lane. Curves preserve that lane. At a side entry, validator's
+--physical walk puts the entering flow on the lane nearest its approach side; prove that it is L before keeping.
+local function merge_lane_witness(work, path, candidate)
+    local target_index
+    for i, cell in ipairs(path or {}) do
+        if cell.x == candidate.x and cell.y == candidate.y then target_index=i; break end
+    end
+    if not target_index then return false end
+    local target_segment=work.segments_by_cell[coordinate_key(candidate.x,candidate.y)]
+    if not target_segment or target_segment.direction==nil then return false end
+    local rx,ry=Grid.dir_vector(Grid.rotate_dir(target_segment.direction,4))
+    if not rx then return false end
+    local entering_dot=candidate.dx*rx+candidate.dy*ry
+    local b_lane=entering_dot>0 and "R" or "L"
+    if b_lane~="L" then return false end
+    for i=target_index,#path do
+        local cell=path[i]
+        local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+        if not segment or segment.underground or segment.splitter then return false end
+    end
+    return true
+end
+
 --The player placed v4 on 2026-09-23 and boxed two belts: "Why these bends?".  Grouping fixes each hand's
 --tile before any belt exists, so the belt bent to reach it: science input (11,5) picked from (12,5) off a run
 --along y=6, and science output (16,10) dropped on (16,9) beside its dive at (17,7).  A hand may move one tile
@@ -3002,7 +3025,8 @@ local function improve_step(work, st, ops)
             local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second}),
                 find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second})
             st.pair, st.accepted = pair, false
-            if ba and bb and lift_binding(work, ba) and lift_binding(work, bb) then
+            local lifted_a, lifted_b = ba and lift_binding(work, ba), bb and lift_binding(work, bb)
+            if ba and bb and lifted_a and lifted_b then
                 local da, db
                 for _, d in ipairs(work.demands or {}) do
                     if d.source.port_id == pair.a.source_port_id then da = da or d end
@@ -3033,13 +3057,19 @@ local function improve_step(work, st, ops)
                             local candidates = {}
                             for _, cell in ipairs(outcome) do
                                 local seg = work.segments_by_cell[coordinate_key(cell.x,cell.y)]
-                                if seg and not seg.underground and not seg.splitter and not seg.fixed then
+                                local reserved = work.port_cells[coordinate_key(cell.x,cell.y)]
+                                local merge_reserved = reserved == nil or reserved["flow:"..tostring(st.da.flow_id)]
+                                    or reserved["flow:"..tostring(st.db.flow_id)] or reserved[st.pair.rear.port_id]
+                                for _, endpoint in pairs(work.endpoint_by_id or {}) do
+                                    if endpoint.x == cell.x and endpoint.y == cell.y then merge_reserved = false; break end
+                                end
+                                if seg and not seg.underground and not seg.splitter and not seg.fixed and merge_reserved then
                                     for _, side in ipairs({Grid.rotate_dir(seg.direction, 4),Grid.rotate_dir(seg.direction, 12)}) do
                                         local dx,dy=Grid.dir_vector(side)
                                         local near = side == Grid.rotate_dir(seg.direction,4)
                                         -- Source-side feeds occupy the far lane; the opposite side is the open near lane.
                                         local far_side = Grid.rotate_dir(seg.direction,4)
-                                        if (side ~= far_side) then candidates[#candidates+1]={x=cell.x,y=cell.y,dx=dx,dy=dy} end
+                                        candidates[#candidates+1]={x=cell.x,y=cell.y,dx=dx,dy=dy}
                                     end
                                 end
                             end
@@ -3049,26 +3079,64 @@ local function improve_step(work, st, ops)
                     else
                         st.merge_b_path = outcome
                         if append_normal_path(work, st.db_trial, outcome, st.pair.b.rate_per_second) then
-                            st.merge_phase = "finish"
+                            local target_index
+                            for i, cell in ipairs(st.a_path or {}) do
+                                if cell.x == st.db_trial.sink.x and cell.y == st.db_trial.sink.y then target_index=i; break end
+                            end
+                            local ok = target_index ~= nil
+                            for i=target_index or 1,#(st.a_path or {}) do
+                                local cell=st.a_path[i]
+                                local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+                                if not segment or segment.underground or segment.splitter
+                                    or (i>target_index and segment_total(segment)+st.pair.b.rate_per_second > segment.capacity_per_second+tolerance(segment.capacity_per_second)) then
+                                    ok=false; break
+                                end
+                            end
+                            if ok and merge_lane_witness(work,st.a_path,st.active_candidate) then
+                                local sink=sink_key(st.pair.rear,work,st.pair.rear.port_id)
+                                for i=target_index+1,#st.a_path do
+                                    local cell=st.a_path[i]
+                                    local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+                                    register_segment_flow(segment,st.db.flow_id)
+                                    add_allocation(segment,st.db.flow_id,sink,st.pair.b.rate_per_second)
+                                end
+                                -- The side entry rides A's trunk from the merge tile to the rear door.
+                                for _,binding in ipairs(work.bindings) do
+                                    if binding.source_port_id==st.pair.b.source_port_id and binding.sink_port_id==st.pair.rear.port_id then
+                                        binding.segment_id=work.segments_by_cell[coordinate_key(st.db_trial.sink.x,st.db_trial.sink.y)].segment_id
+                                    end
+                                end
+                                st.merge_phase="finish"
+                            else
+                                restore_route_snapshot(work, st.trial_snapshot)
+                                st.candidate_index=st.candidate_index+1
+                                st.merge_phase=st.candidate_index<=#st.candidates and "bstart" or "failed"
+                            end
                         else
                             restore_route_snapshot(work, st.trial_snapshot)
                             st.candidate_index = st.candidate_index + 1
                             st.merge_phase = "bstart"
                         end
                     end
-                elseif outcome == "failed" or st.merge_steps > IMPROVE_MAX_STEPS then st.merge_phase = "failed" end
+                elseif outcome == "failed" or st.merge_steps > IMPROVE_MAX_STEPS then
+                    if phase == "b" then
+                        st.candidate_index = st.candidate_index + 1
+                        st.merge_phase = st.candidate_index <= #(st.candidates or {}) and "bstart" or "failed"
+                    else st.merge_phase = "failed" end
+                end
             elseif phase == "bstart" then
                 local c = st.candidates[st.candidate_index]
                 if not c then st.merge_phase = "failed"
                 else
                     st.trial_snapshot = route_snapshot(work)
+                    st.active_candidate=c
                     local virtual = {x=c.x,y=c.y,port_id=st.pair.rear.port_id,role="in",flow_id=st.db.flow_id,travel_dir=nil}
                     local db = {}; for k,v in pairs(st.db) do db[k]=v end
                     db.sink, db.sink_port_id, db.binding_sink_port_id = virtual, st.pair.rear.port_id, st.pair.rear.port_id
                     st.db_trial=db
                     -- Force the final step to enter the chosen A tile from its open side.
                     st.merge_search=begin_search(work, db, st.pair.b.rate_per_second, 1)
-                    st.merge_search.merge_target={x=c.x,y=c.y,from_x=c.x-c.dx,from_y=c.y-c.dy}
+                    st.merge_search.merge_target={x=c.x,y=c.y,from_x=c.x+c.dx,from_y=c.y+c.dy}
                     st.merge_search.target_override=true
                     st.merge_phase="b"
                 end
