@@ -6,6 +6,18 @@ Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_co
 This task is complete in itself. It names no other lane and no other branch. Everything you need is on
 `round-21-base`.
 
+## Attempt 2 — resume, do NOT stop early
+
+Attempt 1 stopped after 180 s with the work half done and nothing committed: the auditor already reports
+`5 1 1 1` on round 20's bytes and `0 0 0 0` on the player's factory, the codes are registered and
+`tools/deliver.sh` carries the keys — **that work is still in your worktree; keep it.** Missing: the three
+validator checks in `logic/bp/validate.lua`, `tests/test_validate_transport_shapes.lua`, the auditor rows in
+`tests/tools/test_blueprint_audit.py`, the commit, and the checks.
+
+You have about 35 minutes. **Do not end your turn until every item under "What to build" exists, is
+committed, and both checks have run.** Stopping with uncommitted work is a failed lane. If one item is truly
+blocked, commit everything else, then say which item and why.
+
 ## Explain very simply
 
 The player placed round 20's blueprint in Factorio 2.0.77 on 2026-09-23 and found three transport defects
