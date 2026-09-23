@@ -1674,7 +1674,7 @@ local function append_normal_path(work, demand, path, amount)
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
     if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
-        work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
+        work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
             sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id, rate_per_second = amount}
     end
     --debug-disabled
@@ -2054,6 +2054,10 @@ local function search_step(work, search)
         local dx, dy = Grid.dir_vector(direction)
         local nx, ny = current.x + dx, current.y + dy
         local target = nx == search.demand.sink.x and ny == search.demand.sink.y
+        if search.merge_target then
+            target = nx == search.merge_target.x and ny == search.merge_target.y
+                and current.x == search.merge_target.from_x and current.y == search.merge_target.from_y
+        end
         local first = current.x == search.demand.source.x and current.y == search.demand.source.y
         --An underground exit IS the underground entity, and it delivers onto the one tile it faces.  A search
         --that turns the moment it surfaces plans a belt no chain can walk: measured 2026-09-22 on the frozen
@@ -2906,6 +2910,26 @@ local function improve_step(work, st, ops)
             if not wanted then
                 reanchor_bindings(work)
                 work.counters.routes_improved = st.improved
+                -- Rear merge trials run after the ordinary reroutes have reached their fixed point.
+                if not st.merges then
+                    st.merges, st.merge_index = {}, 1
+                    local seen = {}
+                    for _, rear in pairs(work.endpoint_by_id or {}) do
+                        if rear.port_id == "row:in:rear" then
+                            local feeds = {}
+                            for _, binding in ipairs(work.bindings or {}) do
+                                if binding.sink_port_id ~= rear.port_id then
+                                    local ep = work.endpoint_by_id[binding.sink_port_id]
+                                    if ep and ep.row_port and ep.role == "in" and ep.block_id == rear.block_id then
+                                        feeds[#feeds + 1] = binding
+                                    end
+                                end
+                            end
+                            if #feeds >= 2 then st.merges[#st.merges + 1] = {rear=rear, a=feeds[1], b=feeds[2]} end
+                        end
+                    end
+                    if #st.merges > 0 then st.stage = "merge_start"; break end
+                end
                 return used, true
             end
             local demand
@@ -2967,6 +2991,99 @@ local function improve_step(work, st, ops)
             st.snapshot, st.trial = nil, nil
             st.stage = "next"
             used = used + IMPROVE_TRIAL_OPS
+        elseif st.stage == "merge_start" then
+            local pair = st.merges[st.merge_index]
+            if not pair then
+                reanchor_bindings(work)
+                work.counters.routes_improved = st.improved
+                return used, true
+            end
+            st.snapshot = route_snapshot(work)
+            local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second}),
+                find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second})
+            st.pair, st.accepted = pair, false
+            if ba and bb and lift_binding(work, ba) and lift_binding(work, bb) then
+                local da, db
+                for _, d in ipairs(work.demands or {}) do
+                    if d.source.port_id == pair.a.source_port_id then da = da or d end
+                    if d.source.port_id == pair.b.source_port_id then db = db or d end
+                end
+                if da and db then
+                    st.da, st.db = {}, {}
+                    for k,v in pairs(da) do st.da[k]=v end
+                    for k,v in pairs(db) do st.db[k]=v end
+                    st.da.sink, st.da.sink_port_id = pair.rear, pair.rear.port_id
+                    st.da.binding_sink_port_id = pair.rear.port_id
+                    st.merge_search = begin_search(work, st.da, pair.a.rate_per_second, 1)
+                    st.merge_phase, st.merge_steps = "a", 0
+                    work.free_source_heading, work.allow_bury = true, true
+                else st.merge_phase = "failed" end
+            else st.merge_phase = "failed" end
+            st.stage = "merge_run"
+            used = used + IMPROVE_TRIAL_OPS
+        elseif st.stage == "merge_run" then
+            local phase = st.merge_phase
+            if phase == "a" or phase == "b" then
+                local outcome = search_step(work, st.merge_search)
+                used = used + 1; st.merge_steps = st.merge_steps + 1
+                if type(outcome) == "table" then
+                    if phase == "a" then
+                        if append_normal_path(work, st.da, outcome, st.pair.a.rate_per_second) then
+                            st.a_path = outcome
+                            local candidates = {}
+                            for _, cell in ipairs(outcome) do
+                                local seg = work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+                                if seg and not seg.underground and not seg.splitter and not seg.fixed then
+                                    for _, side in ipairs({Grid.rotate_dir(seg.direction, 4),Grid.rotate_dir(seg.direction, 12)}) do
+                                        local dx,dy=Grid.dir_vector(side)
+                                        local near = side == Grid.rotate_dir(seg.direction,4)
+                                        -- Source-side feeds occupy the far lane; the opposite side is the open near lane.
+                                        local far_side = Grid.rotate_dir(seg.direction,4)
+                                        if (side ~= far_side) then candidates[#candidates+1]={x=cell.x,y=cell.y,dx=dx,dy=dy} end
+                                    end
+                                end
+                            end
+                            st.candidates, st.candidate_index = candidates, 1
+                            st.merge_phase = "bstart"
+                        else st.merge_phase = "failed" end
+                    else
+                        st.merge_b_path = outcome
+                        if append_normal_path(work, st.db_trial, outcome, st.pair.b.rate_per_second) then
+                            st.merge_phase = "finish"
+                        else
+                            restore_route_snapshot(work, st.trial_snapshot)
+                            st.candidate_index = st.candidate_index + 1
+                            st.merge_phase = "bstart"
+                        end
+                    end
+                elseif outcome == "failed" or st.merge_steps > IMPROVE_MAX_STEPS then st.merge_phase = "failed" end
+            elseif phase == "bstart" then
+                local c = st.candidates[st.candidate_index]
+                if not c then st.merge_phase = "failed"
+                else
+                    st.trial_snapshot = route_snapshot(work)
+                    local virtual = {x=c.x,y=c.y,port_id=st.pair.rear.port_id,role="in",flow_id=st.db.flow_id,travel_dir=nil}
+                    local db = {}; for k,v in pairs(st.db) do db[k]=v end
+                    db.sink, db.sink_port_id, db.binding_sink_port_id = virtual, st.pair.rear.port_id, st.pair.rear.port_id
+                    st.db_trial=db
+                    -- Force the final step to enter the chosen A tile from its open side.
+                    st.merge_search=begin_search(work, db, st.pair.b.rate_per_second, 1)
+                    st.merge_search.merge_target={x=c.x,y=c.y,from_x=c.x-c.dx,from_y=c.y-c.dy}
+                    st.merge_search.target_override=true
+                    st.merge_phase="b"
+                end
+            elseif phase == "finish" then
+                work.free_source_heading, work.allow_bury = nil, nil
+                if all_bindings_reach_sinks(work) and #work.entities < #st.snapshot.entities then
+                    st.accepted=true; st.merge_phase="accepted"
+                else st.merge_phase="failed" end
+            elseif phase == "accepted" then
+                st.merge_index=st.merge_index+1; st.snapshot=nil; st.stage="merge_start"
+            else
+                work.free_source_heading, work.allow_bury = nil, nil
+                restore_route_snapshot(work, st.snapshot)
+                st.merge_index=st.merge_index+1; st.snapshot=nil; st.stage="merge_start"
+            end
         end
     end
     return used, false
