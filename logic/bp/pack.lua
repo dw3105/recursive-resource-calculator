@@ -57,7 +57,9 @@ local function copy_port(port, index)
         port_id = port.port_id or port.id or tostring(index),
         role = port.role,
         inserter_id = port.inserter_id,
-        pinned = port.inserter_id ~= nil,
+        --A row port is fixed at its belt run's head or end (docs/contracts/row_block.md), like a hand's port.
+        row_port = port.row_port == true or nil,
+        pinned = port.inserter_id ~= nil or port.row_port == true,
         attach_dx = finite(port.attach_dx), attach_dy = finite(port.attach_dy),
         normal_dir = finite(port.normal_dir), travel_dir = finite(port.travel_dir),
     }
@@ -231,12 +233,15 @@ local function port_slots(block, port)
     if port._slot_options then return port._slot_options end
     local result, seen = {}, {}
     local function add(slot)
-        if not bounded_slot(slot, block.w, block.h) then return end
+        --A row's second head feed sits inside the envelope beside the head; it keeps its own heading.
+        local interior_row_feed = port.row_port and not bounded_slot(slot, block.w, block.h)
+        if not bounded_slot(slot, block.w, block.h) and not interior_row_feed then return end
         local key = slot_key(slot.attach_dx, slot.attach_dy)
         if seen[key] then return end
         seen[key] = true
-        local normal = normal_for_slot(slot, block.w, block.h)
+        local normal = interior_row_feed and slot.normal_dir or normal_for_slot(slot, block.w, block.h)
         local travel = port.role == "in" and normal or Grid.dir_opposite(normal)
+        if port.row_port and port.travel_dir ~= nil then travel = port.travel_dir end
         result[#result + 1] = {
             attach_dx = slot.attach_dx, attach_dy = slot.attach_dy,
             normal_dir = normal, travel_dir = travel,
@@ -258,6 +263,11 @@ local function cell_is_free(state, x, y)
     end
     ensure_port_index(state)
     return not state.port_cell_index[cell_key(x, y)] and state.free_cell_index[cell_key(x, y)] == true
+end
+
+local function inner_cell(state, x, y)
+    return x > state.area.x and y > state.area.y
+        and x < state.area.x + state.area.w - 1 and y < state.area.y + state.area.h - 1
 end
 
 local function placement_avoids_port_cells(state, x, y, w, h)
@@ -287,13 +297,17 @@ local function choose_port_slots(state, block, x, y, direction)
             -- The endpoint itself must be free, and the first cell on the route side must also exist. This
             -- is what makes an edge port routable: an input needs a predecessor inside the grid, an output
             -- needs its first successor inside it.
-            if cell_is_free(state, world_x, world_y) and cell_is_free(state, approach_x, approach_y) then
+            --A row port and the tile before it also keep off the grid's outer ring: a row feed boxed against
+            --the edge has one way in, and the paths laid before it took that way (measured 2026-09-23 on
+            --legalcopilot-dev, the player's sheet: copper-ore BP_R_NO_PATH into a furnace row at x=0).
+            local inner = not port.row_port or (inner_cell(state, world_x, world_y) and inner_cell(state, approach_x, approach_y))
+            if inner and cell_is_free(state, world_x, world_y) and cell_is_free(state, approach_x, approach_y) then
                 options[#options + 1] = {slot = slot, x = world_x, y = world_y}
             end
         end
         if #options == 0 then
             if port.pinned and port.attach_dx ~= nil and port.attach_dy ~= nil
-                and bounded_slot(port, block.w, block.h) then
+                and (port.row_port or bounded_slot(port, block.w, block.h)) then
                 return nil, "pinned-free"
             end
             return nil, "no-slot"
@@ -462,9 +476,16 @@ local function place(state, block)
         local pieces = Grid.subtract(region, reserved)
         for _, piece in ipairs(pieces) do next_regions[#next_regions + 1] = piece end
     end
-    for _, slot in ipairs(candidate.port_slots or {}) do
+    for index, slot in ipairs(candidate.port_slots or {}) do
         local x, y = world_slot(block, candidate.x, candidate.y, candidate.dir, slot)
         state.port_cells[#state.port_cells + 1] = {x = x, y = y}
+        --A row port's approach tile is reserved too, so no later block covers the row's one way in or out.
+        local port = block.ports and block.ports[index]
+        if port and port.row_port and slot.travel_dir ~= nil then
+            local dx, dy = Grid.dir_vector(Grid.rotate_dir(slot.travel_dir, candidate.dir))
+            if port.role == "in" then dx, dy = -dx, -dy end
+            state.port_cells[#state.port_cells + 1] = {x = x + dx, y = y + dy}
+        end
     end
     state.regions = prune_regions(next_regions)
     rebuild_indexes(state)
