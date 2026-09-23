@@ -16,6 +16,9 @@ local Pack = {}
 local Grid = require "logic.bp.grid"
 
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
+--An origin with ports evaluates multiple attachment cells and route approaches. Account for that bounded
+--inner work so one module call stays short even when the search budget is large.
+local PORT_ORIGIN_OPS = 256
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
@@ -77,6 +80,35 @@ local function copy_rects(rects)
     return result
 end
 
+--Equivalent to Grid.prune's stable containment rule, with larger rectangles considered first. Keeping
+--only maximal rectangles while scanning avoids the quadratic all-pairs pass when a placement fragments space.
+local function prune_regions(rects)
+    local order = {}
+    for i, rect in ipairs(rects) do order[i] = {index = i, rect = rect, area = rect.w * rect.h} end
+    table.sort(order, function(a, b)
+        if a.area ~= b.area then return a.area > b.area end
+        return a.index < b.index
+    end)
+    local maximal, keep = {}, {}
+    for _, item in ipairs(order) do
+        local r, contained = item.rect, false
+        for _, larger in ipairs(maximal) do
+            if larger.x <= r.x and larger.y <= r.y
+                and larger.x + larger.w >= r.x + r.w and larger.y + larger.h >= r.y + r.h then
+                contained = true
+                break
+            end
+        end
+        if not contained then
+            keep[item.index] = true
+            maximal[#maximal + 1] = r
+        end
+    end
+    local out = {}
+    for i, rect in ipairs(rects) do if keep[i] then out[#out + 1] = rect end end
+    return out
+end
+
 local function set_result(state)
     state.result = {
         placements = state.placements,
@@ -116,6 +148,32 @@ end
 
 local function slot_key(dx, dy)
     return tostring(dx) .. ":" .. tostring(dy)
+end
+
+local function cell_key(x, y) return tostring(x) .. ":" .. tostring(y) end
+
+local function rebuild_indexes(state)
+    local free = {}
+    for _, region in ipairs(state.regions) do
+        for y = region.y, region.y + region.h - 1 do
+            for x = region.x, region.x + region.w - 1 do free[cell_key(x, y)] = true end
+        end
+    end
+    state.free_cell_index = free
+    local ports, n = {}, 0
+    for _, cell in ipairs(state.port_cells or {}) do
+        ports[cell_key(cell.x, cell.y)] = true
+        n = n + 1
+    end
+    state.port_cell_index, state.port_cell_count = ports, n
+end
+
+local function ensure_port_index(state)
+    if state.port_cell_index == nil or state.port_cell_count ~= #(state.port_cells or {}) then
+        local ports, n = {}, 0
+        for _, cell in ipairs(state.port_cells or {}) do ports[cell_key(cell.x, cell.y)] = true; n = n + 1 end
+        state.port_cell_index, state.port_cell_count = ports, n
+    end
 end
 
 local function edge_slots(w, h)
@@ -167,21 +225,15 @@ local function cell_is_free(state, x, y)
         or x >= state.area.x + state.area.w or y >= state.area.y + state.area.h then
         return false
     end
-    for _, cell in ipairs(state.port_cells or {}) do
-        if cell.x == x and cell.y == y then return false end
-    end
-    for _, region in ipairs(state.regions) do
-        if x >= region.x and y >= region.y and x < region.x + region.w and y < region.y + region.h then
-            return true
-        end
-    end
-    return false
+    ensure_port_index(state)
+    return not state.port_cell_index[cell_key(x, y)] and state.free_cell_index[cell_key(x, y)] == true
 end
 
 local function placement_avoids_port_cells(state, x, y, w, h)
-    for _, cell in ipairs(state.port_cells or {}) do
-        if cell.x >= x and cell.y >= y and cell.x < x + w and cell.y < y + h then return false end
-    end
+    ensure_port_index(state)
+    for cy = y, y + h - 1 do for cx = x, x + w - 1 do
+        if state.port_cell_index[cell_key(cx, cy)] then return false end
+    end end
     return true
 end
 
@@ -253,11 +305,9 @@ local function choose_port_slots(state, block, x, y, direction)
     return selected
 end
 
-local function scan_region(state, block, region)
-    for _, direction in ipairs(block.allowed_dirs) do
-        local w, h = Grid.rotate_size(block.w, block.h, direction)
-        if region.w >= w and region.h >= h then
-            local function try(x, y)
+local function scan_origin(state, block, region, direction, x, y)
+            local w, h = Grid.rotate_size(block.w, block.h, direction)
+            state.counters.origins = state.counters.origins + 1
                 if placement_avoids_port_cells(state, x, y, w, h) then
                     local short_side, long_side = Pack.bssf_score(region, w, h)
                     local candidate = {
@@ -277,19 +327,45 @@ local function scan_region(state, block, region)
                     end
                 end
                 return false
-            end
-            local needs_offset = try(region.x, region.y)
-            if needs_offset then
-                -- A pinned port is allowed to move with its block.  The authored attachment remains the only
-                -- slot option; scan the same free region for a block origin where that option has room.
-                for y = region.y, region.y + region.h - h do
-                    for x = region.x, region.x + region.w - w do
-                        if x ~= region.x or y ~= region.y then try(x, y) end
-                    end
+end
+
+local function scan_one(state, block, region)
+    local c = state.cursor
+    while c.direction_index <= #block.allowed_dirs do
+        local direction = block.allowed_dirs[c.direction_index]
+        local w, h = Grid.rotate_size(block.w, block.h, direction)
+        if region.w < w or region.h < h then
+            c.direction_index, c.needs_offset = c.direction_index + 1, false
+        elseif c.origin_x == nil then
+            c.origin_x, c.origin_y, c.needs_offset = region.x, region.y, false
+        else
+            local x, y = c.origin_x, c.origin_y
+            local pinned_failed = scan_origin(state, block, region, direction, x, y)
+            if x == region.x and y == region.y then
+                c.needs_offset = pinned_failed
+                c.origin_x, c.origin_y = region.x + 1, region.y
+                if c.origin_x > region.x + region.w - w then
+                    c.origin_x, c.origin_y = region.x, region.y + 1
+                end
+            else
+                c.origin_x = x + 1
+                if c.origin_x > region.x + region.w - w then
+                    c.origin_x, c.origin_y = region.x, y + 1
                 end
             end
+            if not c.needs_offset then
+                c.direction_index, c.origin_x, c.origin_y = c.direction_index + 1, nil, nil
+            elseif c.origin_y > region.y + region.h - h then
+                c.direction_index, c.origin_x, c.origin_y, c.needs_offset = c.direction_index + 1, nil, nil, false
+            end
+            return true
         end
     end
+    return false
+end
+
+local function reset_region_cursor(cursor)
+    cursor.direction_index, cursor.origin_x, cursor.origin_y, cursor.needs_offset = 1, nil, nil, false
 end
 
 local function place(state, block)
@@ -336,13 +412,15 @@ local function place(state, block)
         local x, y = world_slot(block, candidate.x, candidate.y, candidate.dir, slot)
         state.port_cells[#state.port_cells + 1] = {x = x, y = y}
     end
-    state.regions = Grid.prune(next_regions)
+    state.regions = prune_regions(next_regions)
+    rebuild_indexes(state)
     if #state.regions > state.stats.peak_free_regions then
         state.stats.peak_free_regions = #state.regions
     end
 
     state.cursor.block_index = state.cursor.block_index + 1
     state.cursor.region_index = 1
+    reset_region_cursor(state.cursor)
     state.cursor.best = nil
     state.progress.done_units = state.progress.done_units + 1
 
@@ -372,11 +450,14 @@ function Pack.begin(input)
         done = false,
         ok = nil,
         result = nil,
-        cursor = {block_index = 1, region_index = 1, best = nil},
+        cursor = {block_index = 1, region_index = 1, best = nil,
+            direction_index = 1, origin_x = nil, origin_y = nil, needs_offset = false},
         progress = {phase = "packing", done_units = 0, total_units = #blocks},
         stats = {peak_free_regions = #regions, scans = 0},
         port_cells = {},
+        counters = {origins = 0},
     }
+    rebuild_indexes(state)
 
     if limits.max_free_regions ~= nil and #regions > limits.max_free_regions then
         fail(state, "BP_P_REGION_LIMIT")
@@ -400,10 +481,13 @@ function Pack.step(state, budget)
         if state.cursor.region_index <= #state.regions then
             if budget.ops == nil or budget.ops <= 0 then break end
             local region = state.regions[state.cursor.region_index]
-            state.cursor.region_index = state.cursor.region_index + 1
-            state.stats.scans = state.stats.scans + 1
-            budget.ops = budget.ops - 1
-            scan_region(state, block, region)
+            if scan_one(state, block, region) then
+                state.stats.scans = state.stats.scans + 1
+                budget.ops = budget.ops - math.min(budget.ops, #block.ports > 0 and PORT_ORIGIN_OPS or 1)
+            else
+                state.cursor.region_index = state.cursor.region_index + 1
+                reset_region_cursor(state.cursor)
+            end
             if budget.ops <= 0 then break end
         else
             place(state, block)
