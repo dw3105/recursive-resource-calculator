@@ -1816,20 +1816,29 @@ local function crossing_targets(work, demand, search, current, direction, amount
     return targets
 end
 
+--A tile that is ANOTHER port of this same flow: a run passing it serves that port for free (contract 28.8).
+local function same_flow_port_tile(work, demand, x, y)
+    local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+    if not (reserved and reserved["flow:" .. tostring(demand.flow_id)]) then return false end
+    for owner, _ in pairs(reserved._port_owners or {}) do
+        local owner_id = type(owner) == "table" and (owner.port_id or owner.id) or owner
+        if owner_id ~= demand.sink.port_id and owner_id ~= demand.source.port_id then return true end
+    end
+    return false
+end
+
 local function transition_cost(work, demand, x, y, direction, previous_direction, mode, distance, amount)
     if mode == 1 then
         --Both endpoints and the underground span are real cost.  Crossings also carry the witness overhead.
-        return 2 + distance + 2
+        --A pair SURFACING on another same-flow port tile earns the same pass-through credit a plain step
+        --does.  Without it, science machine 3's dive (6,8)->(6,3) onto machine 1's output tile tied with a
+        --walk east along y=9, lost the tie, and machine 1 then laid its own second long run: measured
+        --2026-09-23 on legalcopilot-dev, 6 entities above the player's hand fix.
+        return 2 + distance + 2 - (same_flow_port_tile(work, demand, x, y) and 0.5 or 0)
     end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     local cost = 1
-    local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
-    if reserved and reserved["flow:" .. tostring(demand.flow_id)] then
-        for owner, _ in pairs(reserved._port_owners or {}) do
-            local owner_id = type(owner) == "table" and (owner.port_id or owner.id) or owner
-            if owner_id ~= demand.sink.port_id then cost = 0.5; break end
-        end
-    end
+    if same_flow_port_tile(work, demand, x, y) then cost = 0.5 end
     if segment and segment_has_flow(segment, demand.flow_id)
         and segment.kind == demand.kind
         and segment_total(segment) + amount <= segment.capacity_per_second + tolerance(segment.capacity_per_second) then
