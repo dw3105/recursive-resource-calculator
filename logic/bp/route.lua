@@ -1803,7 +1803,12 @@ local function crossing_targets(work, demand, search, current, direction, amount
         if not inside_grid(work, x, y) then break end
         local key = coordinate_key(x, y)
         local underground_key = state_key(x, y, direction, demand.kind, 1)
-        if blocked_middle and not search.best[underground_key] and not work.segments_by_cell[key] and not work.underground_cells[key]
+        --No `search.best[underground_key]` refusal here: an exit already reached may be reached again more
+        --cheaply, and `enqueue_state` keeps the cheaper.  Refusing it lost the straight feed the player asked
+        --for: measured 2026-09-23 on legalcopilot-dev, science 2 reached (13,2) first through a side-fed dive
+        --at (13,7) costing 20, so the straight feed (14,8) W, (13,8) N, dive at (13,7), costing 13, was never
+        --offered.
+        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key]
             and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
             targets[#targets + 1] = {x = x, y = y, distance = distance}
         end
