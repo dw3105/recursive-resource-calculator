@@ -43,6 +43,9 @@ H.test("a flip trial does not trip the ordinary no-improvement stop",function()
     local state={work={active_flip=true,no_improvement_attempts=2,flip_queue={}}}
     H.equal(Search._flip_trial_stops_search(state),false,"flip validation is outside the ordinary miss limit")
     state.work.active_flip=false
+    state.work.flip_queue={{id="queued"}}
+    H.equal(Search._flip_trial_stops_search(state),false,"queued flips keep the search alive")
+    state.work.flip_queue={}
     H.equal(Search._flip_trial_stops_search(state),true,"ordinary candidates still obey the limit")
 end)
 H.test("reversed runs are never flipped back",function()
