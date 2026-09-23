@@ -1243,6 +1243,103 @@ local function check_underground(work)
     return true
 end
 
+-- Transport shape guards operate on the candidate's published tile geometry.  A carried_lane may be
+-- supplied by a route producer; otherwise inserter drops seed the two belt lanes and lanes continue straight.
+local function check_transport_shapes(work)
+    local tiles, lanes = {}, {}
+    for _, info in ipairs(work.infos) do
+        if transport_kind(info) == "belt" then
+            local x, y = tile_of(info); tiles[tile_key(x, y)] = info
+            if info.entity.carried_lane then lanes[tile_key(x,y)] = info.entity.carried_lane end
+        end
+    end
+    for _, hand in ipairs(work.inserters) do
+        local x,y=tile_of(hand); local dir=entity_direction(hand) or hand.entity.dir
+        local dx,dy=Grid.dir_vector(dir or Grid.NORTH)
+        local bx,by=x-dx,y-dy; local key=tile_key(bx,by)
+        if tiles[key] then
+            local lane=hand.entity.carried_lane
+            if not lane then
+                lane="right"
+                local belt_dir=entity_direction(tiles[key]); local tx,ty=Grid.dir_vector(belt_dir or Grid.NORTH)
+                local hx,hy=Grid.dir_vector(dir or Grid.NORTH)
+                if tx and hx then
+                    local side_x,side_y=x-bx,y-by; local right_x,right_y=-ty,tx
+                    if side_x*right_x+side_y*right_y>0 then lane="left" elseif side_x*right_x+side_y*right_y<0 then lane="right" end
+                end
+            end
+            lanes[key] = lanes[key] or lane
+        end
+    end
+    -- Propagate the inserter's lane along each directed belt tile, including curves: the lane is
+    -- relative to travel, so a curve changes its compass side but never swaps left and right.
+    local queue, head = {}, 1
+    for key in pairs(lanes) do queue[#queue+1]=key end
+    while head<=#queue do
+        local key=queue[head]; head=head+1
+        local info=tiles[key]; local lane=lanes[key]; local x,y=tile_of(info); local dx,dy=Grid.dir_vector(entity_direction(info) or Grid.NORTH)
+        if dx then
+            local next_key=tile_key(x+dx,y+dy); local next_info=tiles[next_key]
+            if next_info and endpoint_type(info)~="output" and lanes[next_key]==nil then
+                lanes[next_key]=lane; queue[#queue+1]=next_key
+            end
+        end
+    end
+    for _, ug in ipairs(work.infos) do
+        if transport_kind(ug)=="belt" and endpoint_type(ug)=="input" then
+            local x,y=tile_of(ug); local d=entity_direction(ug); local dx,dy=Grid.dir_vector(d or Grid.NORTH)
+            for _, side in ipairs({-1,1}) do
+                local fx,fy=x-side*dy,y+side*dx; local feeder=tiles[tile_key(fx,fy)]
+                if feeder and entity_direction(feeder)==Grid.dir_from_vector(side*dy,-side*dx) then
+                    local lane=lanes[tile_key(fx,fy)] or feeder.entity.carried_lane
+                    -- Inlet hood is its forward half.  Relative lane 1 is right of travel.
+                    local fd=entity_direction(feeder); local vx,vy=Grid.dir_vector(fd)
+                    local right_x,right_y=-vy,vx
+                    local blocked_x,blocked_y=dx,dy
+                    if lane == "right" and right_x==blocked_x and right_y==blocked_y or lane=="left" and right_x==-blocked_x and right_y==-blocked_y then
+                        error_record(work.errors,"BP_V_UNDERGROUND_SIDELOAD_BLOCKED",{tostring(feeder.id),tostring(ug.id)},
+                            {feeder={x=fx,y=fy}, underground_input={x=x,y=y}, lane=lane})
+                    end
+                end
+            end
+        end
+    end
+    local outputs={}
+    for _, info in ipairs(work.infos) do if endpoint_type(info)=="output" then outputs[#outputs+1]=info end end
+    for _, out in ipairs(outputs) do
+        local x,y=tile_of(out); local d=entity_direction(out); local dx,dy=Grid.dir_vector(d or Grid.NORTH)
+        local next_tile=tiles[tile_key(x+dx,y+dy)]
+        if next_tile and endpoint_type(next_tile)=="input" and entity_direction(next_tile)==d then
+            local pair=work.info_by_id[out.entity.ug_pair_id or out.entity.underground_pair_id]
+            local second=work.info_by_id[next_tile.entity.ug_pair_id or next_tile.entity.underground_pair_id]
+            if pair and second then
+                local nm=tostring(name_of(out.entity) or "")
+                local family_reach=nm:find("turbo%-") and 11 or nm:find("express%-") and 9 or nm:find("fast%-") and 7 or 5
+                local reach=finite(out.entity.max_underground_distance, finite(work.catalog.belt and work.catalog.belt.underground_max_distance,family_reach))
+                local span=math.abs(pair.cx-second.cx)+math.abs(pair.cy-second.cy)
+                if span<=reach then error_record(work.errors,"BP_V_UNDERGROUND_BACK_TO_BACK",{tostring(out.id),tostring(next_tile.id)},{span=span,reach=reach}) end
+            end
+        end
+    end
+    -- Linear color walk detects a directed cycle in the ordinary one-successor belt graph.
+    local state={}; local function visit(info)
+        local x,y=tile_of(info); local key=tile_key(x,y); if state[key]==1 then return true elseif state[key]==2 then return false end
+        state[key]=1; local d=entity_direction(info); local found=false
+        if endpoint_type(info)=="input" then
+            local pair=work.info_by_id[info.entity.ug_pair_id or info.entity.underground_pair_id]
+            if pair then found=visit(pair) end
+        elseif d then
+            local dx,dy=Grid.dir_vector(d); local n=dx and tiles[tile_key(x+dx,y+dy)]
+            if n then found=visit(n) end
+        end
+        state[key]=2; return found
+    end
+    for _, info in ipairs(work.infos) do if transport_kind(info)=="belt" and visit(info) then
+        error_record(work.errors,"BP_V_ROUTE_LOOP",{tostring(info.id)},{x=info.cx,y=info.cy}); break
+    end end
+    return true
+end
+
 local function port_owner(work, port)
     local wanted = port.block_id
     local owner
@@ -2169,7 +2266,7 @@ function Validate.step(state, budget)
         elseif phase == "wire_legality" then check_wire_legality(work); state.cursor.phase = "wire_connectivity"
         elseif phase == "wire_connectivity" then check_wire_connectivity(work); state.cursor.phase = "segments"
         elseif phase == "segments" then check_segments(work); state.cursor.phase = "underground"
-        elseif phase == "underground" then check_underground(work); state.cursor.phase = "port_approaches"
+        elseif phase == "underground" then check_underground(work); check_transport_shapes(work); state.cursor.phase = "port_approaches"
         elseif phase == "port_approaches" then check_port_approaches(work); state.cursor.phase = "ports"
         elseif phase == "ports" then check_ports(work); state.cursor.phase = "physical"
         elseif phase == "physical" then check_physical_transfers(work); state.cursor.phase = "machines"

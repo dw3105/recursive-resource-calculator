@@ -80,7 +80,7 @@ input_path="$case_dir/prepared_input.json"
 output_path="${HOME:-}/share/RRC/${case_id}-${TODAY}.txt"
 
 family_keys="belts undergrounds splitters inserters machines poles pipes beacons roboports other entities_excluding_roboports"
-audit_keys="entities wires invalid_inserters unpairable_underground unpairable_underground_belt unpairable_pipe_to_ground unused_belt_tiles unused_pipe_tiles inferred_terminals redundant_beacons"
+audit_keys="entities wires invalid_inserters unpairable_underground unpairable_underground_belt unpairable_pipe_to_ground unused_belt_tiles unused_pipe_tiles inferred_terminals redundant_beacons sideload sideload_blocked back_to_back cycles"
 for key in $family_keys $audit_keys; do
     eval "count_$key=-"
 done

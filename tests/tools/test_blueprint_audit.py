@@ -80,6 +80,23 @@ def audit(entities, *extra):
 
 class BlueprintAuditTest(unittest.TestCase):
 
+    def test_round20_transport_shape_rows_and_manual_control(self):
+        fixture = ROOT / "tests/fixtures/blueprints/round20_delivered.txt"
+        done = subprocess.run([sys.executable, str(AUDIT), str(fixture), "--json"], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 1)
+        counts = json.loads(done.stdout)
+        self.assertEqual(counts["sideload"], 5)
+        self.assertGreaterEqual(counts["sideload_blocked"], 1)
+        self.assertEqual(counts["back_to_back"], 1)
+        self.assertEqual(counts["cycles"], 1)
+        text = subprocess.run([sys.executable, str(AUDIT), str(fixture)], capture_output=True, text=True)
+        self.assertIn("(14,4)->(13,4)", text.stdout)
+        reference = pathlib.Path.home() / "share/RRC/red_science_1s_manual_bp.txt"
+        done = subprocess.run([sys.executable, str(AUDIT), str(reference), "--json"], capture_output=True, text=True)
+        counts = json.loads(done.stdout)
+        self.assertEqual([counts[k] for k in ("sideload", "sideload_blocked", "back_to_back", "cycles")], [0,0,0,0])
+        self.assertEqual(done.returncode, 0)
+
     def test_ACC18_direction_points_to_pickup_and_drop_is_behind(self):
         entities = [
             {"name": "assembling-machine-1", "position": {"x": -0.5, "y": 0.5}},
@@ -258,6 +275,8 @@ class BlueprintAuditTest(unittest.TestCase):
         self.assertEqual(counts["unused_belt_tiles"], 51)
         self.assertEqual(counts["unused_pipe_tiles"], 35)
         self.assertEqual(counts["wires"], 0)
+        self.assertEqual({k: counts[k] for k in ("sideload", "sideload_blocked", "back_to_back", "cycles")},
+                         {"sideload": 14, "sideload_blocked": 6, "back_to_back": 0, "cycles": 1})
 
 
 if __name__ == "__main__":
