@@ -1945,6 +1945,9 @@ local function make_candidates(input)
     local previous_multi_flow_hands = multi_flow_hands
     local forced = input and input._force_multi_flow_hands
     if forced ~= nil then multi_flow_hands = forced == true and forced_multi_flow_hands(input) end
+    -- Row blocks own the two-lane belt contract, so eligible grouped steps must construct paired hands even
+    -- while the legacy multi-flow switch remains off for all other layouts.
+    if forced == nil then multi_flow_hands = true end
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
     -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a
