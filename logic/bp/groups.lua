@@ -20,6 +20,7 @@ local Groups = {}
 local Grid = require "logic.bp.grid"
 local Geometry = require "logic.bp.geometry"
 local Flags = require "logic.bp.flags"
+local Buffer = require "logic.bp.buffer"
 
 local NORTH, EAST, SOUTH, WEST = Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST
 
@@ -261,6 +262,9 @@ local function step_can_join(a, b)
     -- on the perimeter. Keep each fragment a block of its own; joining it back to a neighbouring machine would
     -- reintroduce the interior face the partition is meant to escape.
     if a._force_block == true or b._force_block == true then return false end
+    -- A physical block has one recipe and one machine setup.  Buffer sharing is permitted only
+    -- between machines of that exact pair, so distinct steps cannot share a block across either.
+    if a.recipe ~= b.recipe or a.machine ~= b.machine then return false end
     if a.forbids_speed_beacon ~= b.forbids_speed_beacon then return false end
     if a.interface_signature ~= nil and b.interface_signature ~= nil
         and tostring(a.interface_signature) ~= tostring(b.interface_signature) then
@@ -1707,6 +1711,33 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     table.sort(block.beacons, function(a, b) return a.id < b.id end)
     table.sort(block.inserters, function(a, b) return a.id < b.id end)
     table.sort(block.ports, function(a, b) return tostring(a.port_id) < tostring(b.port_id) end)
+    -- Keep explicit recipe-aware buffer facts beside the block in its local frame.  Recipes live on
+    -- steps (including furnaces, whose blueprint entities intentionally have no recipe field).
+    local step_by_id = {}
+    for _, step in ipairs(steps) do step_by_id[step.step_id] = step end
+    block.buffer_zones = {}
+    for _, machine in ipairs(block.machines) do
+        local step = step_by_id[machine.step_id]
+        if step then
+            block.buffer_zones[#block.buffer_zones + 1] = {
+                x = machine.x, y = machine.y, w = machine.w, h = machine.h,
+                ring = Buffer.ring(catalog, step.recipe),
+                key = Buffer.key(machine.name, step.recipe),
+            }
+        end
+    end
+    table.sort(block.buffer_zones, function(a, b)
+        if a.y == b.y then return a.x < b.x end
+        return a.y < b.y
+    end)
+    for i = 1, #block.buffer_zones do
+        local a = block.buffer_zones[i]
+        for j = i + 1, #block.buffer_zones do
+            local b = block.buffer_zones[j]
+            assert(not Buffer.conflict({rect = a, ring = a.ring, key = a.key},
+                {rect = b, ring = b.ring, key = b.key}), "group block contains conflicting machine buffer zones")
+        end
+    end
     return block
 end
 
