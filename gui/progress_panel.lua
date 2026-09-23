@@ -14,6 +14,8 @@ local UNKNOWN_TOTAL_ESTIMATE = 100
 local CANCEL_LABEL_NAME = "hxrrc_calc_canceled_label"
 local LAST_PHASE_TAG = "hxrrc_progress_phase"
 local LAST_VALUE_TAG = "hxrrc_progress_value"
+local OFFER_NAME = "hxrrc_better_layout_offer"
+local OFFER_BUTTON = "hxrrc_deliver_better_layout"
 
 --Sheet requires this module to install its handlers, so the edge back is late: Factorio refuses require inside a
 --handler, and both modules load while control.lua is parsed.
@@ -112,7 +114,7 @@ function ProgressPanel.hide(sheet_flow)
 end
 
 --progress: {phase = locale key suffix, done_units, total_units | nil}
-function ProgressPanel.update(sheet_flow, progress)
+function ProgressPanel.update(sheet_flow, progress, job_id, interim)
     if not progress then
         return
     end
@@ -128,6 +130,7 @@ function ProgressPanel.update(sheet_flow, progress)
     bar.tooltip = {"hxrrc.calc_progress_tooltip", {key}, finite_nonnegative_integer(progress.done_units), total}
     bar.value = value
     ProgressPanel.show(sheet_flow)
+    ProgressPanel.set_offer(sheet_flow, job_id, interim)
 end
 
 local function output_flow_of(sheet_flow)
@@ -136,6 +139,37 @@ local function output_flow_of(sheet_flow)
             return child
         end
     end
+end
+
+function ProgressPanel.set_offer(sheet_flow, job_id, interim)
+    local flow = output_flow_of(sheet_flow)
+    if not flow or flow.valid == false then return end
+    local offer
+    for _, child in ipairs(flow.children or {}) do
+        if child.name == OFFER_NAME then offer = child; break end
+    end
+    if not interim then
+        if offer then offer.destroy() end
+        return
+    end
+    if not offer then
+        offer = flow.add{type = "flow", name = OFFER_NAME, direction = "horizontal"}
+        offer.add{type = "label", name = "hxrrc_better_layout_label"}
+        offer.add{type = "button", name = OFFER_BUTTON}
+    end
+    offer.children[1].caption = {"hxrrc.better_layout_found", interim.entities}
+    offer.children[2].tags = {job_id = job_id, sequence = interim.sequence}
+end
+
+local function deliver_offer(event)
+    local tags = event and event.element and event.element.tags or {}
+    local generation = Registry.generation
+    if generation and tags.job_id and tags.sequence then
+        generation.deliver_interim(event.player_index, tags.job_id, tags.sequence)
+    end
+end
+if event_handlers and event_handlers.on_gui_click then
+    event_handlers.on_gui_click[OFFER_BUTTON] = deliver_offer
 end
 
 local function mark_canceled(sheet_flow)
@@ -192,10 +226,17 @@ local function refresh_all()
         local pane = player_storage and player_storage.sheet_section and player_storage.sheet_section.sheet_pane
         for _, tab_and_sheet in ipairs(pane and pane.tabs or {}) do
             local sheet_flow = tab_and_sheet.content
-            local progress = jobs.progress_of(player_index, sheet.id_of(sheet_flow))
+            local sheet_id = sheet.id_of(sheet_flow)
+            local progress = jobs.progress_of(player_index, sheet_id)
             if progress then
-                ProgressPanel.update(sheet_flow, progress)
+                local data = storage[player_index]
+                local job = data and data.blueprint_job
+                local id = job and job.sheet_id == sheet_id and job.state and job.state.input
+                    and job.state.input.generation_job_id
+                local status = id and Registry.generation and Registry.generation.status(player_index, id)
+                ProgressPanel.update(sheet_flow, progress, id, status and status.interim)
             else
+                ProgressPanel.set_offer(sheet_flow, nil, nil)
                 ProgressPanel.hide(sheet_flow)
             end
         end
