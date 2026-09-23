@@ -1913,13 +1913,30 @@ local function search_step(work, search)
                     and segment_has_flow(sink_segment, search.demand.flow_id)
             end
         end
+        --A MACHINE output port's first belt may face any way, for the same reason a sink's may: the inserter
+        --drops onto the TILE.  Forcing the port's own heading sent science machine 4's output at (16,1) north
+        --into a 9-entity loop round (18,0)..(18,2) and under (17,2)->(15,2), where the player's fix is ONE
+        --belt at (16,1) facing west into the trunk at (15,1): measured 2026-09-23 on legalcopilot-dev,
+        --~/share/RRC/player-red-science-1s-20260923-fixed.txt, 249 entities against our 257.  A perimeter
+        --door keeps its heading, and a source tile already carrying a laid belt keeps that belt's heading.
+        --Only for a ONE-step join: the tile the first step lands on already carries a laid run of this flow,
+        --so the output merges into it with one belt.  Freeing every first heading let early outputs wander
+        --and fenced in two copper-plate demands (BP_R_NO_PATH), measured the same day.
+        local source_any_heading = false
+        if first and not search.demand.source.perimeter
+            and work.segments_by_cell[coordinate_key(current.x, current.y)] == nil then
+            local landing = work.segments_by_cell[coordinate_key(nx, ny)]
+            source_any_heading = landing ~= nil and not landing.underground and not landing.splitter
+                and segment_has_flow(landing, search.demand.flow_id)
+        end
         --A splitter body outputs ONLY in front of the tiles it covers.  A search that turns while it is
         --inside the body plans a belt the splitter never feeds, so the body is committed to the trunk's
         --heading for exactly the one tile it spans.  Mode 2 is that commitment, and it is the same shape of
         --rule as `surfaced` above.
         local in_body = current.mode == 2 and current.direction ~= nil and current.direction ~= direction
         if not surfaced and not reversed and not in_body
-            and (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction)
+            and (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction
+                or source_any_heading)
             and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction
                 or sink_any_approach) then
             local leaving = work.segments_by_cell[coordinate_key(current.x, current.y)]
