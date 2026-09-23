@@ -177,12 +177,14 @@ for _, shape in ipairs(H.shapes()) do
         --meets a foreign flow head-on now dives under it instead of converting that cell into a splitter
         --that turns, which no splitter does.  Belt count and splitter count are unchanged, so this is the
         --crossing being paid for honestly and nothing else moved.
-        H.equal(counts.entities, 93, "RX1 entity count")
+        --RE-MEASURED 2026-09-23 on legalcopilot-dev after straight-feed pricing and all-exit crossing scan:
+        --95 entities = 88 belts + 6 underground endpoints + 1 splitter, with no overlaps.
+        H.equal(counts.entities, 95, "RX1 entity count")
         --85 to 84 and 0 to 1 splitter on 2026-09-22, legalcopilot-dev: a trunk may now run straight through
         --a sink's own empty port tile, so continuation reaches further and the one demand that still has to
         --leave the trunk forks.  Entity total is unchanged at 93.
-        H.equal(counts.belts, 84, "RX1 belt count")
-        H.equal(counts.undergrounds, 8, "RX1 underground endpoint count")
+        H.equal(counts.belts, 88, "RX1 belt count")
+        H.equal(counts.undergrounds, 6, "RX1 underground endpoint count")
         H.equal(counts.splitters, 1, "RX1 splitter count")
         assert_no_overlap(result, "RX1")
     end)

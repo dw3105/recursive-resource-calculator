@@ -204,7 +204,10 @@ for _, shape in ipairs(H.shapes()) do
         --93 transport entities.  On the player's own sheet the same change took transport from 297 to 232.
         --The ceiling is ONE fork, never a free hand: a second one means continuation stopped working.
         H.equal(geometry.splitters <= 1, true, "28.8 forks at most once, where the trunk must be left")
-        H.equal(geometry.surface <= 85, true, "surface belts stay at or below the measured 85")
+        --RE-MEASURED 2026-09-23 on legalcopilot-dev after penalizing side-fed dives and scanning every legal
+        --crossing exit: 88 surface belts, 6 underground endpoints, 1 splitter. The straight-feeding route
+        --adds three surface tiles while keeping the underground count within its existing ceiling.
+        H.equal(geometry.surface <= 88, true, "surface belts stay at or below the measured 88")
         --The 6-to-8 raise was made on 2026-09-22 to accept a dive the player then rejected in game.
         --A splitter never turns flow and a foreign flow may never be merged into, so a run that meets a
         --belt of another flow head-on has exactly one legal answer: dive under it.  Measured here as
@@ -212,8 +215,8 @@ for _, shape in ipairs(H.shapes()) do
         --its endpoints at (15,2) input and (13,2) output.  Before the splitter could not turn, the router
         --converted that cell instead and published a factory whose items never crossed.
         H.equal(geometry.underground <= 6, true, "underground endpoints stay at or below the measured 6")
-        H.equal(geometry.surface + geometry.underground + geometry.splitters <= 93, true,
-            "total transport stays at or below the measured 93")
+        H.equal(geometry.surface + geometry.underground + geometry.splitters <= 95, true,
+            "total transport stays at or below the measured 95")
     end)
 
     H.test(shape .. " RC5 forced-on frozen candidate keeps continuation geometry", function()
@@ -254,7 +257,8 @@ for _, shape in ipairs(H.shapes()) do
         if not state.ok then return end
         local geometry = measure(shape .. " RC8", state)
         H.equal(state.work.multi_flow_hands, false, "the seam forces multi-flow hands off")
-        H.equal(geometry.surface, 84, "forced-off surface belts stay at the measured 84")
+        --RE-MEASURED 2026-09-23: straight-fed crossing search now publishes 88 surface belts.
+        H.equal(geometry.surface, 88, "forced-off surface belts stay at the measured 88")
         --Same measurement as RC2: the foreign-flow crossing at (14,2) is dived under, never split through.
         H.equal(geometry.underground, 6, "forced-off underground endpoints stay at the measured 6")
         H.equal(geometry.splitters <= 1, true, "forced-off geometry forks at most once")

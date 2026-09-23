@@ -39,6 +39,8 @@ local SEEDED_SINK_LAST = 0
 --splitter body costs two belts' worth of commitment and forces the branch to jog one tile, so it is priced
 --above the plain turn it replaces and a continuation keeps winning wherever one exists.
 local SPLITTER_BODY_COST = 4
+--A side-fed dive blocks one lane; retain it only after straight routes, including a splitter, lose.
+local SIDELOAD_UNDERGROUND_COST = 8
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 local DIRECTION_ORDERS = {
     DIRECTIONS,
@@ -1317,6 +1319,20 @@ local function route_chain_tiles(work, source, flow_id)
     return tiles
 end
 
+local function search_root(search, key)
+    while search.parent[key] do key = search.parent[key] end
+    return search.points[key]
+end
+
+local function downstream_reaches_root(work, search, from_key, x, y)
+    local root = search_root(search, from_key)
+    if not root then return false end
+    local _, tiles = route_chain_walk(work, {x = x, y = y}, nil, search.demand.flow_id)
+    local wanted = coordinate_key(root.x, root.y)
+    for _, key in ipairs(tiles) do if key == wanted then return true end end
+    return false
+end
+
 --The search path is also the router's own directed witness.  A path that merely visited the sink is not a
 --route to it, and a newly added branch must not break an earlier binding that shared its trunk.
 local function route_chain_reaches_sink(work, demand, path)
@@ -1546,6 +1562,11 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     if segment then
+        --An underground input consumes its feed into the pair; stepping onto it from the side cannot continue.
+        if segment.underground and segment.underground_entry_key == coordinate_key(x, y) then
+            search.saw_blocked = true
+            return false
+        end
         local splitter_continuation = segment.splitter and segment.splitter_second_key == coordinate_key(x, y)
             and (is_target or segment.splitter_direction == move_direction)
         if segment.splitter and segment.splitter_second_key == coordinate_key(x, y) and not splitter_continuation then
@@ -1749,31 +1770,33 @@ end
 --One scratch table, reused: the probe below runs on the hot path and a fresh table per tile is pure garbage.
 local PROBE = {}
 
-local function crossing_target(work, demand, search, current, direction, amount)
+local function crossing_targets(work, demand, search, current, direction, amount)
     local reach = underground_reach(work, demand)
-    if reach < 2 then return nil end
+    if reach < 2 then return {} end
     local current_key = coordinate_key(current.x, current.y)
-    if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return nil end
+    if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return {} end
     local dx, dy = Grid.dir_vector(direction)
+    local targets, blocked_middle = {}, false
     for distance = 2, reach do
         local middle_x, middle_y = current.x + dx * (distance - 1), current.y + dy * (distance - 1)
-        if not inside_grid(work, middle_x, middle_y) then return nil end
+        if not inside_grid(work, middle_x, middle_y) then break end
         --A pair may not run under another pair of its own family: in the engine the two would connect to each
         --other instead of passing.
-        if work.underground_cells[coordinate_key(middle_x, middle_y)] then return nil end
-        --Only tiles the search cannot walk are worth diving under. The moment one of them is walkable, walking
-        --it is shorter and costs no entities, so the dive stops there.
-        if path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, PROBE) then return nil end
+        if work.underground_cells[coordinate_key(middle_x, middle_y)] then break end
+        --Free middles do not end a possible longer crossing; a crossing must cover at least one blocked tile.
+        if not path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, PROBE) then
+            blocked_middle = true
+        end
         local x, y = current.x + dx * distance, current.y + dy * distance
-        if not inside_grid(work, x, y) then return nil end
+        if not inside_grid(work, x, y) then break end
         local key = coordinate_key(x, y)
         local underground_key = state_key(x, y, direction, demand.kind, 1)
-        if not search.best[underground_key] and not work.segments_by_cell[key] and not work.underground_cells[key]
+        if blocked_middle and not search.best[underground_key] and not work.segments_by_cell[key] and not work.underground_cells[key]
             and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
-            return {x = x, y = y}
+            targets[#targets + 1] = {x = x, y = y, distance = distance}
         end
     end
-    return nil
+    return targets
 end
 
 local function transition_cost(work, demand, x, y, direction, previous_direction, mode, distance, amount)
@@ -1783,6 +1806,13 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
     end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     local cost = 1
+    local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+    if reserved and reserved["flow:" .. tostring(demand.flow_id)] then
+        for owner, _ in pairs(reserved._port_owners or {}) do
+            local owner_id = type(owner) == "table" and (owner.port_id or owner.id) or owner
+            if owner_id ~= demand.sink.port_id then cost = 0.5; break end
+        end
+    end
     if segment and segment_has_flow(segment, demand.flow_id)
         and segment.kind == demand.kind
         and segment_total(segment) + amount <= segment.capacity_per_second + tolerance(segment.capacity_per_second) then
@@ -1795,6 +1825,12 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
     end
     if previous_direction ~= nil and previous_direction ~= 0 and previous_direction ~= direction then cost = cost + 1 end
     if segment and segment.direction ~= direction then cost = cost + 2 end
+    if segment and segment.underground and segment.underground_exit_key == coordinate_key(x, y)
+        and (segment.direction ~= direction or (previous_direction ~= nil and previous_direction ~= 0
+            and previous_direction ~= direction)) then
+        --A side entry onto an underground output or a belt aimed into its side blocks one lane; keep it last.
+        cost = cost + SIDELOAD_UNDERGROUND_COST
+    end
     return cost
 end
 
@@ -1805,6 +1841,11 @@ local function search_step(work, search)
     if search.best[current.key] ~= current.cost then return "continue" end
     search.closed[current.key] = true
     if current.x == search.demand.sink.x and current.y == search.demand.sink.y then
+        --The second copper branch once pointed back into its own seeded trunk, closing a 14-tile belt ring.
+        local dx, dy = Grid.dir_vector(current.direction)
+        if dx and downstream_reaches_root(work, search, current.key, current.x + dx, current.y + dy) then
+            return "continue"
+        end
         return reconstruct(search, current.key)
     end
     for _, direction in ipairs(search.directions) do
@@ -1895,9 +1936,12 @@ local function search_step(work, search)
                     current.direction, 0, 0, search.amount) + SPLITTER_BODY_COST
                 enqueue_state(search, nx, ny, leaving.direction, 2, current.key, cost)
             elseif free and merge then
-                local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
-                    current.direction, 0, 0, search.amount)
-                enqueue_state(search, nx, ny, entering.direction, 2, current.key, cost)
+                --A same-flow merge must not reconnect this branch to its own root and close a directed ring.
+                if not downstream_reaches_root(work, search, current.key, nx, ny) then
+                    local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
+                        current.direction, 0, 0, search.amount)
+                    enqueue_state(search, nx, ny, entering.direction, 2, current.key, cost)
+                end
             elseif free then
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
@@ -1915,12 +1959,13 @@ local function search_step(work, search)
                 --furnace fed.  Diving under that trunk is what the player's own factory does.  A MACHINE
                 --port keeps the old rule: its source tile is the tile an inserter drops onto, and that tile
                 --stays a plain belt.
-                local crossing = crossing_target(work, search.demand, search, current, direction, search.amount)
-                if crossing then
+                local crossings = crossing_targets(work, search.demand, search, current, direction, search.amount)
+                for _, crossing in ipairs(crossings) do
                     local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
                     if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
                         local cost = current.cost + transition_cost(work, search.demand, crossing.x, crossing.y, direction,
-                            current.direction, 1, underground_distance(current, crossing), search.amount)
+                            current.direction, 1, crossing.distance, search.amount)
+                        if current.direction ~= direction then cost = cost + SIDELOAD_UNDERGROUND_COST end
                         enqueue_state(search, crossing.x, crossing.y, direction, 1, current.key, cost)
                     end
                 end
