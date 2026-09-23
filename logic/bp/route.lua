@@ -485,6 +485,7 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         step_id = port.step_id or block_step_id(block),
         role = role,
         flow_id = port_flow_id(port),
+        flow_ids = port.flow_ids,
         kind = port.kind or (port.is_fluid and "fluid" or "item"),
         rate_per_second = finite(port.rate_per_second, finite(port.rate, 0)),
         x = x, y = y,
@@ -1673,7 +1674,7 @@ local function append_normal_path(work, demand, path, amount)
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
     if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
-        work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
+        work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
             sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id, rate_per_second = amount}
     end
     --debug-disabled
@@ -1777,7 +1778,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
                     search.saw_blocked = true
                     return false
                 end
-                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) then
+                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) and not search.merge_target then
                     search.saw_blocked = true
                     return false
                 end
@@ -2053,6 +2054,10 @@ local function search_step(work, search)
         local dx, dy = Grid.dir_vector(direction)
         local nx, ny = current.x + dx, current.y + dy
         local target = nx == search.demand.sink.x and ny == search.demand.sink.y
+        if search.merge_target then
+            target = nx == search.merge_target.x and ny == search.merge_target.y
+                and current.x == search.merge_target.from_x and current.y == search.merge_target.from_y
+        end
         local first = current.x == search.demand.source.x and current.y == search.demand.source.y
         --An underground exit IS the underground entity, and it delivers onto the one tile it faces.  A search
         --that turns the moment it surfaces plans a belt no chain can walk: measured 2026-09-22 on the frozen
@@ -2431,6 +2436,13 @@ end
 local function normalize_input(input)
     input = input or {}
     local placements, blocks = map_placements(input), map_blocks(input)
+    local input_entities = {}
+    for _, entity in ipairs(input.entities or {}) do input_entities[#input_entities+1]=entity end
+    for _, block in ipairs(blocks) do
+        for _, field in ipairs({"entities","placed_entities","inserters"}) do
+            for _, entity in ipairs(block[field] or {}) do input_entities[#input_entities+1]=entity end
+        end
+    end
     local work = {
         input_belt_capacity = finite(input.belt_capacity), input_pipe_capacity = finite(input.pipe_capacity),
         input_belt_name = input.belt_name, input_pipe_name = input.pipe_name,
@@ -2438,6 +2450,7 @@ local function normalize_input(input)
         belt = input.belt or (input.catalog and input.catalog.belt) or {},
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
         belt_runs = input.belt_runs or {},
+        input_entities = input_entities,
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         --Ids were derived from the arrays' LENGTH.  merge_splitter_footprint folds a side segment out
@@ -2462,6 +2475,10 @@ local function normalize_input(input)
                 work.endpoint_by_id[endpoint.port_id] = endpoint
                 work.endpoint_index[endpoint.flow_id] = work.endpoint_index[endpoint.flow_id] or {["in"] = {}, ["out"] = {}}
                 work.endpoint_index[endpoint.flow_id][endpoint.role][#work.endpoint_index[endpoint.flow_id][endpoint.role] + 1] = endpoint
+            elseif endpoint and port.rear and port.port_id == "row:in:rear" then
+                -- Keep the multi-flow rear door out of first-pass demand indexing, but make
+                -- its physical location available to the improve pass.
+                work.endpoint_by_id[endpoint.port_id] = endpoint
             end
         end
     end
@@ -2694,7 +2711,7 @@ end
 --shows one allocation; and a branch laid from a seed on the trunk records nothing upstream of that seed,
 --so a trunk four paths ride looked like one path's.  Measured 2026-09-23 on legalcopilot-dev: the first
 --version lifted the whole 31-tile iron-plate trunk and orphaned three furnaces.
-local function lift_binding(work, binding)
+local function lift_binding(work, binding, allow_fixed)
     local mine = binding_path(work, binding)
     if not mine then return nil end
     local others = {}
@@ -2706,8 +2723,10 @@ local function lift_binding(work, binding)
     local owned_ids, count = {}, 0
     for _, key in ipairs(mine) do
         local segment = work.segments_by_cell[key]
-        if segment and segment.fixed then return nil end
-        if segment and not others[key] then
+        -- Ordinary improve trials refuse a path that touches a fixed run. A paired rear trial may lift its
+        -- connector while retaining every fixed tile and allocation in place.
+        if segment and segment.fixed and not allow_fixed then return nil end
+        if segment and not segment.fixed and not others[key] then
             if segment.splitter then return nil end
             if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
         end
@@ -2758,6 +2777,68 @@ end
 
 local function route_weight(work)
     return #work.entities + SIDELOAD_UNDERGROUND_COST * side_fed_inputs(work)
+end
+
+--The source inserter deposits on the far R lane. Curves preserve that lane. At a side entry, validator's
+--physical walk puts the entering flow on the lane nearest its approach side; prove that it is L before keeping.
+local function merge_lane_witness(work, path, candidate, flow_a, a_lane)
+    local target_index
+    for i, cell in ipairs(path or {}) do
+        if cell.x == candidate.x and cell.y == candidate.y then target_index=i; break end
+    end
+    if not target_index then return false end
+    local target_segment=work.segments_by_cell[coordinate_key(candidate.x,candidate.y)]
+    if not target_segment or target_segment.direction==nil then return false end
+    if target_index < 2 then return false end
+    local adx,ady=Grid.dir_vector(target_segment.direction)
+    local behind=path[target_index-1]
+    if not adx or behind.x~=candidate.x-adx or behind.y~=candidate.y-ady then return false end
+    local behind_segment=work.segments_by_cell[coordinate_key(behind.x,behind.y)]
+    if not behind_segment or behind_segment.direction~=target_segment.direction then return false end
+    local rx,ry=Grid.dir_vector(Grid.rotate_dir(target_segment.direction,4))
+    if not rx then return false end
+    local entering_dot=candidate.dx*rx+candidate.dy*ry
+    local b_lane=entering_dot>0 and "R" or "L"
+    if b_lane==a_lane then return false end
+    for i=1,#path do
+        local cell=path[i]
+        local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+        if not segment or segment.underground or segment.splitter then return false end
+        if i < target_index and (not segment_has_flow(segment,flow_a) or segment_flow_count(segment) ~= 1) then return false end
+        if i >= target_index and segment_flow_count(segment) > 2 then return false end
+    end
+    return true
+end
+
+local function source_lane(work, endpoint, flow_id)
+    local function same_id(a,b)
+        a,b=tostring(a or ""),tostring(b or "")
+        return a==b or a:gsub("^m:","")==b:gsub("^m:","")
+    end
+    for _,run in ipairs(work.belt_runs or {}) do
+        if run.role=="out" then
+            local carries=false
+            for _,id in ipairs(run.flows or {}) do if id==flow_id then carries=true end end
+            if carries then
+                for _,hand_id in ipairs(run.hand_ids or {}) do
+                    for _,hand in ipairs(work.input_entities or {}) do
+                        if same_id(hand.id,hand_id) and (hand.role=="output" or hand.direction=="output") then
+                            local drop=hand.drop_position or hand.drop
+                            local hx,hy=finite(hand.x),finite(hand.y)
+                            local tx,ty=finite(drop and drop.x),finite(drop and drop.y)
+                            if hx and hy and tx and ty then
+                                local rx,ry=Grid.dir_vector(Grid.rotate_dir(run.dir,4))
+                                local dot=(hx-tx)*rx+(hy-ty)*ry
+                                return dot>0 and "L" or "R", true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    -- A source without a represented hand follows the row contract's far-lane drop convention.
+    return "R", false
 end
 
 --The player placed v4 on 2026-09-23 and boxed two belts: "Why these bends?".  Grouping fixes each hand's
@@ -2897,6 +2978,46 @@ local function improve_step(work, st, ops)
             if not wanted then
                 reanchor_bindings(work)
                 work.counters.routes_improved = st.improved
+                -- Rear merge trials run after the ordinary reroutes have reached their fixed point.
+                if not st.merges then
+                    st.merges, st.merge_index = {}, 1
+                    st.merge_baseline = route_snapshot(work)
+                    local seen = {}
+                    for _, rear in pairs(work.endpoint_by_id or {}) do
+                        if rear.port_id == "row:in:rear" then
+                            local feeds_by_flow = {}
+                            for _, binding in ipairs(work.bindings or {}) do
+                                if binding.sink_port_id ~= rear.port_id then
+                                    local ep = work.endpoint_by_id[binding.sink_port_id]
+                                    if ep and ep.row_port and ep.role == "in" and ep.block_id == rear.block_id then
+                                        feeds_by_flow[ep.flow_id] = feeds_by_flow[ep.flow_id] or {}
+                                        feeds_by_flow[ep.flow_id][#feeds_by_flow[ep.flow_id] + 1] = binding
+                                    end
+                                end
+                            end
+                            local flow_a, flow_b = rear.flow_ids and rear.flow_ids[1], rear.flow_ids and rear.flow_ids[2]
+                            local feeds_a, feeds_b = feeds_by_flow[flow_a] or {}, feeds_by_flow[flow_b] or {}
+                            if feeds_a[1] and feeds_b[1] then
+                                local a, b = feeds_a[1], feeds_b[1]
+                                local source_a, source_b = work.endpoint_by_id[a.source_port_id], work.endpoint_by_id[b.source_port_id]
+                                local dx,dy=Grid.dir_vector(rear.travel_dir)
+                                local ahead_a=source_a and (source_a.x-rear.x)*dx+(source_a.y-rear.y)*dy
+                                local ahead_b=source_b and (source_b.x-rear.x)*dx+(source_b.y-rear.y)*dy
+                                local rx,ry=Grid.dir_vector(Grid.rotate_dir(rear.travel_dir,4))
+                                local side_a=source_a and (source_a.x-rear.x)*rx+(source_a.y-rear.y)*ry
+                                local side_b=source_b and (source_b.x-rear.x)*rx+(source_b.y-rear.y)*ry
+                                --The trial is for two sources approaching the rear door from behind it, on one side
+                                --of the row. A source already beyond the door cannot make the player's belt shape.
+                                if ahead_a and ahead_b and ahead_a<0 and ahead_b<0 and side_a*side_b>=0 then
+                                    local first=#st.merges+1
+                                    st.merges[#st.merges + 1] = {rear=rear, a=a, b=b,group_start=first,group_end=first+1}
+                                    st.merges[#st.merges + 1] = {rear=rear, a=b, b=a,group_start=first,group_end=first+1}
+                                end
+                            end
+                        end
+                    end
+                    if #st.merges > 0 then st.stage = "merge_start"; break end
+                end
                 return used, true
             end
             local demand
@@ -2958,6 +3079,170 @@ local function improve_step(work, st, ops)
             st.snapshot, st.trial = nil, nil
             st.stage = "next"
             used = used + IMPROVE_TRIAL_OPS
+        elseif st.stage == "merge_start" then
+            local pair = st.merges[st.merge_index]
+            if not pair then
+                reanchor_bindings(work)
+                work.counters.routes_improved = st.improved
+                return used, true
+            end
+            if st.active_group ~= pair.group_start then
+                st.active_group=pair.group_start
+                st.pair_base=route_snapshot(work)
+                st.pair_best=nil
+                st.pair_best_weight=math.huge
+            end
+            st.snapshot = route_snapshot(work)
+            local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second}),
+                find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second})
+            st.pair, st.accepted = pair, false
+            local lifted_a, lifted_b = ba and lift_binding(work, ba, true), bb and lift_binding(work, bb, true)
+            if ba and bb and lifted_a and lifted_b then
+                local da, db
+                for _, d in ipairs(work.demands or {}) do
+                    if d.source.port_id == pair.a.source_port_id then da = da or d end
+                    if d.source.port_id == pair.b.source_port_id then db = db or d end
+                end
+                if da and db then
+                    st.da, st.db = {}, {}
+                    for k,v in pairs(da) do st.da[k]=v end
+                    for k,v in pairs(db) do st.db[k]=v end
+                    st.da.sink, st.da.sink_port_id = pair.rear, pair.rear.port_id
+                    st.da.binding_sink_port_id = pair.rear.port_id
+                    st.merge_search = begin_search(work, st.da, pair.a.rate_per_second, 1)
+                    st.merge_phase, st.merge_steps = "a", 0
+                    work.free_source_heading, work.allow_bury = true, true
+                else st.merge_phase = "failed" end
+            else st.merge_phase = "failed" end
+            st.stage = "merge_run"
+            used = used + IMPROVE_TRIAL_OPS
+        elseif st.stage == "merge_run" then
+            local phase = st.merge_phase
+            if phase == "a" or phase == "b" then
+                local outcome = search_step(work, st.merge_search)
+                used = used + 1; st.merge_steps = st.merge_steps + 1
+                if type(outcome) == "table" then
+                    if phase == "a" then
+                        if append_normal_path(work, st.da, outcome, st.pair.a.rate_per_second) then
+                            st.a_path = outcome
+                            local candidates = {}
+                            for _, cell in ipairs(outcome) do
+                                local seg = work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+                                local reserved = work.port_cells[coordinate_key(cell.x,cell.y)]
+                                local merge_reserved = reserved == nil or reserved["flow:"..tostring(st.da.flow_id)]
+                                    or reserved["flow:"..tostring(st.db.flow_id)] or reserved[st.pair.rear.port_id]
+                                for _, endpoint in pairs(work.endpoint_by_id or {}) do
+                                    if endpoint.x == cell.x and endpoint.y == cell.y then merge_reserved = false; break end
+                                end
+                                if seg and not seg.underground and not seg.splitter and not seg.fixed and merge_reserved then
+                                    for _, side in ipairs({Grid.rotate_dir(seg.direction, 4),Grid.rotate_dir(seg.direction, 12)}) do
+                                        local dx,dy=Grid.dir_vector(side)
+                                        local near = side == Grid.rotate_dir(seg.direction,4)
+                                        -- Source-side feeds occupy the far lane; the opposite side is the open near lane.
+                                        local far_side = Grid.rotate_dir(seg.direction,4)
+                                        candidates[#candidates+1]={x=cell.x,y=cell.y,dx=dx,dy=dy}
+                                    end
+                                end
+                            end
+                            st.candidates, st.candidate_index = candidates, 1
+                            st.merge_phase = "bstart"
+                        else st.merge_phase = "failed" end
+                    else
+                        st.merge_b_path = outcome
+                        if append_normal_path(work, st.db_trial, outcome, st.pair.b.rate_per_second) then
+                            local target_index
+                            for i, cell in ipairs(st.a_path or {}) do
+                                if cell.x == st.db_trial.sink.x and cell.y == st.db_trial.sink.y then target_index=i; break end
+                            end
+                            local ok = target_index ~= nil
+                            for i=target_index or 1,#(st.a_path or {}) do
+                                local cell=st.a_path[i]
+                                local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+                                if not segment or segment.underground or segment.splitter
+                                    or (i>target_index and segment_total(segment)+st.pair.b.rate_per_second > segment.capacity_per_second+tolerance(segment.capacity_per_second)) then
+                                    ok=false; break
+                                end
+                            end
+                            local a_source=work.endpoint_by_id[st.pair.a.source_port_id]
+                            local a_lane,a_lane_known=source_lane(work,a_source,st.da.flow_id)
+                            io.stderr:write("RRM ",tostring(a_lane)," known=",tostring(a_lane_known)," srcdir=",tostring(a_source and a_source.travel_dir)," reardir=",tostring(st.pair.rear.travel_dir),"\n")
+                            if ok and merge_lane_witness(work,st.a_path,st.active_candidate,st.da.flow_id,a_lane) then
+                                local sink=sink_key(st.pair.rear,work,st.pair.rear.port_id)
+                                for i=target_index+1,#st.a_path do
+                                    local cell=st.a_path[i]
+                                    local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
+                                    register_segment_flow(segment,st.db.flow_id)
+                                    add_allocation(segment,st.db.flow_id,sink,st.pair.b.rate_per_second)
+                                end
+                                -- The side entry rides A's trunk from the merge tile to the rear door.
+                                for _,binding in ipairs(work.bindings) do
+                                    if binding.source_port_id==st.pair.b.source_port_id and binding.sink_port_id==st.pair.rear.port_id then
+                                        binding.segment_id=work.segments_by_cell[coordinate_key(st.db_trial.sink.x,st.db_trial.sink.y)].segment_id
+                                    end
+                                end
+                                st.merge_phase="finish"
+                            else
+                                restore_route_snapshot(work, st.trial_snapshot)
+                                st.candidate_index=st.candidate_index+1
+                                st.merge_phase=st.candidate_index<=#st.candidates and "bstart" or "failed"
+                            end
+                        else
+                            restore_route_snapshot(work, st.trial_snapshot)
+                            st.candidate_index = st.candidate_index + 1
+                            st.merge_phase = "bstart"
+                        end
+                    end
+                elseif outcome == "failed" or st.merge_steps > IMPROVE_MAX_STEPS then
+                    if phase == "b" then
+                        st.candidate_index = st.candidate_index + 1
+                        st.merge_phase = st.candidate_index <= #(st.candidates or {}) and "bstart" or "failed"
+                    else st.merge_phase = "failed" end
+                end
+            elseif phase == "bstart" then
+                local c = st.candidates[st.candidate_index]
+                if not c then st.merge_phase = "failed"
+                else
+                    st.trial_snapshot = route_snapshot(work)
+                    st.active_candidate=c
+                    local virtual = {x=c.x,y=c.y,port_id=st.pair.rear.port_id,role="in",flow_id=st.db.flow_id,travel_dir=nil}
+                    local db = {}; for k,v in pairs(st.db) do db[k]=v end
+                    db.sink, db.sink_port_id, db.binding_sink_port_id = virtual, st.pair.rear.port_id, st.pair.rear.port_id
+                    st.db_trial=db
+                    -- Force the final step to enter the chosen A tile from its open side.
+                    st.merge_search=begin_search(work, db, st.pair.b.rate_per_second, 1)
+                    st.merge_search.merge_target={x=c.x,y=c.y,from_x=c.x+c.dx,from_y=c.y+c.dy}
+                    st.merge_search.target_override=true
+                    st.merge_phase="b"
+                end
+            elseif phase == "finish" then
+                work.free_source_heading, work.allow_bury = nil, nil
+                if all_bindings_reach_sinks(work) and #work.entities < #st.snapshot.entities then
+                    local weight=route_weight(work)
+                    if weight<st.pair_best_weight then
+                        st.pair_best=route_snapshot(work)
+                        st.pair_best_weight=weight
+                    end
+                else st.merge_phase="failed" end
+                restore_route_snapshot(work,st.pair_base)
+                st.merge_index=st.merge_index+1
+                if st.merge_index>st.pair.group_end then
+                    if st.pair_best and #st.pair_best.entities<#st.pair_base.entities then
+                        restore_route_snapshot(work,st.pair_best)
+                    else restore_route_snapshot(work,st.pair_base) end
+                    st.active_group=nil; st.pair_base=nil; st.pair_best=nil
+                end
+                st.snapshot=nil; st.stage="merge_start"
+            else
+                work.free_source_heading, work.allow_bury = nil, nil
+                restore_route_snapshot(work, st.pair_base)
+                st.merge_index=st.merge_index+1; st.snapshot=nil; st.stage="merge_start"
+                if st.merge_index>st.pair.group_end then
+                    if st.pair_best and #st.pair_best.entities<#st.pair_base.entities then
+                        restore_route_snapshot(work,st.pair_best)
+                    end
+                    st.active_group=nil; st.pair_base=nil; st.pair_best=nil
+                end
+            end
         end
     end
     return used, false

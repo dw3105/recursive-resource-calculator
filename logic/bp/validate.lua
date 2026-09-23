@@ -1465,9 +1465,16 @@ local function check_transport_shapes(work)
     for key, tile in pairs(tiles) do
         if tile.kind == "belt" and not fed[key] then
             local declared = declared_flow_ids(tile.info)
-            for _, flow_id in ipairs(declared) do
-                local tag = #declared > 1 and (tostring(flow_id) .. "?") or flow_id
-                add(key, "L", tag); add(key, "R", tag)
+            local hand_fed = false
+            for _, hand in ipairs(work.inserters or {}) do
+                local _, _, dx, dy = transfer_cells(hand, work)
+                if dx == tile.x and dy == tile.y then hand_fed = true; break end
+            end
+            if not hand_fed then
+                for _, flow_id in ipairs(declared) do
+                    local tag = #declared > 1 and (tostring(flow_id) .. "?") or flow_id
+                    add(key, "L", tag); add(key, "R", tag)
+                end
             end
         end
     end
@@ -2269,6 +2276,13 @@ local function check_ports(work)
         local external = is_external_port(port)
         local must_source = (role == "out" and not external) or (role == "in" and external)
         local must_sink = (role == "in" and not external) or (role == "out" and external)
+        if role == "in" and port.row_port and port.port_id ~= "row:in:rear" then
+            local rear_bound = false
+            for _, binding in ipairs(work.bindings) do
+                if binding.sink_port_id == "row:in:rear" then rear_bound = true; break end
+            end
+            if rear_bound then must_sink = false end
+        end
         if rate > tolerance(rate) and ((must_source and not bound_source[port.port_id])
             or (must_sink and not bound_sink[port.port_id])) then
             error_record(work.errors, "BP_V_PORT_UNREACHABLE", {tostring(port.port_id)},
