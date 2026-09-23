@@ -406,6 +406,10 @@ local function block_map(blocks)
 end
 
 local function manhattan(a, b) return math.abs(a.x - b.x) + math.abs(a.y - b.y) end
+local function partner_id(entry)
+    if type(entry) == "table" then return entry.step_id or entry.block_id or entry.id or entry.owner_id end
+    return entry
+end
 
 -- Pick each row run independently. The partner locations come from the flow graph; external
 -- partners sit on the same perimeter edge used later to make router terminals.
@@ -414,7 +418,14 @@ local function choose_row_runs(block, placement, all_blocks, all_placements, gri
     local placed_by_id = {}
     for index, other in ipairs(all_blocks or {}) do
         local p = all_placements[index]
-        if p then placed_by_id[other.id or other.block_id] = {block = other, placement = p} end
+        if p then
+            local entry = {block = other, placement = p}
+            placed_by_id[other.id or other.block_id] = entry
+            --Plan flows name partners by step id; a block holds the machines of its steps.
+            for _, machine in ipairs(other.machines or {}) do
+                if machine.step_id ~= nil and placed_by_id[machine.step_id] == nil then placed_by_id[machine.step_id] = entry end
+            end
+        end
     end
     local result = block
     local function port_point(candidate, port)
@@ -427,7 +438,7 @@ local function choose_row_runs(block, placement, all_blocks, all_placements, gri
         local entries = f and (role == "out" and f.consumers or f.producers) or {}
         local points = {}
         for _, entry in ipairs(entries or {}) do
-            local id = entry_id(entry)
+            local id = partner_id(entry)
             if id == "$external" then
                 local edge = role == "out" and output_edge or input_edge
                 local axis_x = edge == "left" and 0 or edge == "right" and grid.w - 1
