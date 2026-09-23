@@ -148,3 +148,4 @@
 | `161` | `rrc/agent` | route: a dive is fed straight, one pair where one reaches, and no belt ring | 2026-09-23 |
 | `162` | `rrc/agent` | doors: a door sits at the END of its consumers, never the middle | 2026-09-23 |
 | `163` | `rrc/agent` | guards: validator and byte auditor refuse side-load, back-to-back and ring | 2026-09-23 |
+| `164` | `rrc/agent` | route: bury a straight laid run instead of diving the new path, and unbury any pair that covers nothing | 2026-09-23 |
