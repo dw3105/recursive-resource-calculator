@@ -794,8 +794,26 @@ end
 
 local function slot_cost(slot, consumers)
     local cost = 0
-    for _, point in ipairs(consumers) do
-        cost = cost + math.abs(slot.x - point.x) + math.abs(slot.y - point.y)
+    local x, y = slot.x, slot.y
+    local visited = {}
+    --On the measured copper-ore row, summing distances tied (0,24) through (0,28) and picked (0,25),
+    --between the two consumers. Price the single one-way run instead.
+    for _ = 1, #consumers do
+        local nearest_index, nearest_distance
+        for index, point in ipairs(consumers) do
+            if not visited[index] then
+                local distance = math.abs(x - point.x) + math.abs(y - point.y)
+                if nearest_index == nil or distance < nearest_distance
+                    or (distance == nearest_distance and (point.y < consumers[nearest_index].y
+                        or (point.y == consumers[nearest_index].y and point.x < consumers[nearest_index].x))) then
+                    nearest_index, nearest_distance = index, distance
+                end
+            end
+        end
+        local point = consumers[nearest_index]
+        cost = cost + nearest_distance
+        x, y = point.x, point.y
+        visited[nearest_index] = true
     end
     return cost
 end

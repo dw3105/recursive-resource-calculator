@@ -55,7 +55,7 @@ end
 
 --Exercise the private generated-port path through Search.  This is deliberately the first case: the lane's
 --named mutation replaces the production sizing call, and must make this assertion fail.
-local function generated(rate, capacity, ports_override, flows_override, sink_ports)
+local function generated(rate, capacity, ports_override, flows_override, sink_ports, grid_override)
     local originals = {
         groups_begin = Groups.begin, groups_step = Groups.step, materialize = Groups.materialize,
         pack_begin = Pack.begin, pack_step = Pack.step, route_begin = Route.begin, route_step = Route.step,
@@ -96,7 +96,8 @@ local function generated(rate, capacity, ports_override, flows_override, sink_po
 
     local port = input_port(rate, capacity)
     local state = Search.begin({plan_result = {ports = ports_override or {port}, flows = flows_override or {input_flow(rate, "in", 1)}},
-        grids = {{w = 8, h = 8}}, include_roboports = false, settings = {input_edge = "left", output_edge = "top"}})
+        grids = {grid_override or {w = 8, h = 8}}, include_roboports = false,
+        settings = {input_edge = "left", output_edge = "top"}})
     local ticks = 0
     while not state.done and ticks < 100 do
         ticks = ticks + 1
@@ -113,6 +114,35 @@ local function generated(rate, capacity, ports_override, flows_override, sink_po
 end
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " DT-END1 stacked consumers put door at an end", function()
+        local copper = input_port(1); copper.flow_id = "item/copper-ore"; copper.port_id = "copper"
+        local blocker = input_port(1); blocker.flow_id = "item/a-blocker"; blocker.port_id = "blocker"
+        local flows = {{flow_id = "item/a-blocker", producers = {{step_id = "$external"}}, consumers = {{step_id = "blocker"}}},
+            {flow_id = "item/copper-ore", producers = {{step_id = "$external"}},
+            consumers = {{step_id = "upper"}, {step_id = "lower"}}}}
+        local sinks = {
+            {flow_id = "item/a-blocker", role = "in", step_id = "blocker", x = 2, y = 24},
+            {flow_id = "item/copper-ore", role = "in", step_id = "upper", x = 2, y = 24},
+            {flow_id = "item/copper-ore", role = "in", step_id = "lower", x = 2, y = 28},
+        }
+        local _, doors = generated(1, nil, {blocker, copper}, flows, sinks, {w = 8, h = 32})
+        local copper_door
+        for _, door in ipairs(doors) do if door.flow_id == "item/copper-ore" then copper_door = door end end
+        H.equal(copper_door.y <= 24 or copper_door.y >= 28, true, "door must sit outside the two consumers")
+    end)
+
+    H.test(shape .. " DT-END2 same-row consumers put door at near end", function()
+        local copper = input_port(1); copper.flow_id = "item/copper-ore"; copper.port_id = "copper"
+        local flows = {{flow_id = "item/copper-ore", producers = {{step_id = "$external"}},
+            consumers = {{step_id = "near"}, {step_id = "far"}}}}
+        local sinks = {
+            {flow_id = "item/copper-ore", role = "in", step_id = "near", x = 2, y = 10},
+            {flow_id = "item/copper-ore", role = "in", step_id = "far", x = 2, y = 14},
+        }
+        local _, doors = generated(1, nil, {copper}, flows, sinks, {w = 8, h = 32})
+        H.equal(doors[1].y, 10, "near end has the shortest one-way run")
+    end)
+
     H.test(shape .. " DT nearest generated door follows its own sink", function()
         local copper = input_port(1, nil); copper.flow_id = "item/copper-ore"; copper.port_id = "copper"
         local iron = input_port(1, nil); iron.flow_id = "item/iron-ore"; iron.port_id = "iron"
