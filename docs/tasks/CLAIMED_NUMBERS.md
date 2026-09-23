@@ -150,3 +150,7 @@
 | `163` | `rrc/agent` | guards: validator and byte auditor refuse side-load, back-to-back and ring | 2026-09-23 |
 | `164` | `rrc/agent` | route: bury a straight laid run instead of diving the new path, and unbury any pair that covers nothing | 2026-09-23 |
 | `165` | `rrc/agent` | slide: a hand moves along its machine face so its belt ends straight | 2026-09-23 |
+| `166` | `rrc/agent` | pack: a pack step yields within its ops and scans by index, not by list | 2026-09-23 |
+| `167` | `rrc/agent` | route: route.begin and the re-route pass split across ticks | 2026-09-23 |
+| `168` | `rrc/agent` | search: stop when the incumbent stops improving; groups.begin resumable | 2026-09-23 |
+| `169` | `rrc/agent` | power: pole placement in far fewer ops | 2026-09-23 |
