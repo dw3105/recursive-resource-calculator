@@ -405,12 +405,102 @@ local function block_map(blocks)
     return result
 end
 
+local function manhattan(a, b) return math.abs(a.x - b.x) + math.abs(a.y - b.y) end
+
+-- Pick each row run independently. The partner locations come from the flow graph; external
+-- partners sit on the same perimeter edge used later to make router terminals.
+local function choose_row_runs(block, placement, all_blocks, all_placements, grid, flows, input_edge, output_edge)
+    if not block.row then return block end
+    local placed_by_id = {}
+    for index, other in ipairs(all_blocks or {}) do
+        local p = all_placements[index]
+        if p then placed_by_id[other.id or other.block_id] = {block = other, placement = p} end
+    end
+    local result = block
+    local function port_point(candidate, port)
+        local q = Grid.place_port(candidate, placement, port)
+        return {x = q.x, y = q.y}
+    end
+    local function partners(role, flow_id)
+        local f
+        for _, candidate in ipairs(flows or {}) do if (candidate.flow_id or candidate.id) == flow_id then f = candidate; break end end
+        local entries = f and (role == "out" and f.consumers or f.producers) or {}
+        local points = {}
+        for _, entry in ipairs(entries or {}) do
+            local id = entry_id(entry)
+            if id == "$external" then
+                local edge = role == "out" and output_edge or input_edge
+                local axis_x = edge == "left" and 0 or edge == "right" and grid.w - 1
+                local axis_y = edge == "top" and 0 or edge == "bottom" and grid.h - 1
+                if axis_x then points[#points+1] = {x=axis_x,y=math.max(0,math.min(grid.h-1, placement.y))}
+                else points[#points+1] = {x=math.max(0,math.min(grid.w-1, placement.x)),y=axis_y or 0} end
+            else
+                local found = placed_by_id[id]
+                if found then points[#points+1] = {x=found.placement.x+found.block.w/2,y=found.placement.y+found.block.h/2} end
+            end
+        end
+        return points
+    end
+    for _, role in ipairs({"in", "out"}) do
+        local original_port, original_run
+        for _, p in ipairs(result.ports or {}) do
+            if p.row_port and p.role == role and (role ~= "out" or tostring(p.port_id):find("row:out:",1,true)) then original_port = p; break end
+        end
+        for _, run in ipairs(result.belt_runs or {}) do if run.role == role then original_run = run; break end end
+        if original_port and original_run then
+            local flow_ids = original_run.flows or {}
+            local targets = {}
+            for _, fid in ipairs(flow_ids) do for _, point in ipairs(partners(role, fid)) do targets[#targets+1] = point end end
+            if role == "in" and original_port.rear ~= true then
+                local feeds = original_run.feeds or {}
+                if #feeds > 0 then
+                    local x,y=0,0; for _, feed in ipairs(feeds) do x=x+feed.side_tile.x; y=y+feed.side_tile.y end
+                    original_port = {attach_dx=x/#feeds,attach_dy=y/#feeds,normal_dir=Grid.WEST}
+                end
+            end
+            if #targets > 0 then
+                local reversed = Groups.reverse_run(result, role)
+                if reversed then
+                    local rp
+                    for _, p in ipairs(reversed.ports or {}) do if p.row_port and p.role == role and (role ~= "out" or tostring(p.port_id):find("row:out:",1,true)) then rp=p; break end end
+                    if rp then
+                        local a,b=port_point(result,original_port),port_point(reversed,rp)
+                        local da,db=math.huge,math.huge
+                        for _, target in ipairs(targets) do da=math.min(da,manhattan(a,target)); db=math.min(db,manhattan(b,target)) end
+                        local valid=true
+                        for _, p in ipairs(reversed.ports or {}) do
+                            if p.row_port and p.role == role then
+                                local q=Grid.place_port(reversed,placement,p)
+                                local vx,vy=Grid.dir_vector(q.dir)
+                                for _, tile in ipairs({{x=q.x,y=q.y},{x=q.x+vx,y=q.y+vy}}) do
+                                    if tile.x < 1 or tile.y < 1 or tile.x >= grid.w-1 or tile.y >= grid.h-1 then valid=false end
+                                    for _, other in ipairs(all_blocks or {}) do
+                                        local op=placed_by_id[other.id or other.block_id]
+                                        if op and other ~= block and tile.x>=op.placement.x and tile.y>=op.placement.y and tile.x<op.placement.x+other.w and tile.y<op.placement.y+other.h then valid=false end
+                                    end
+                                end
+                            end
+                        end
+                        if valid and db < da then result=reversed end
+                    end
+                end
+            end
+        end
+    end
+    return result
+end
+
 local function materialize_candidate(state, candidate, placements)
     local by_id = block_map(candidate.blocks)
     local blocks, entities, ports = {}, {}, {}
+    local placement_by_id = {}
+    for _, p in ipairs(placements or {}) do placement_by_id[p.block_id or p.id] = p end
     for _, placement in ipairs(placements or {}) do
         local block = by_id[placement.block_id or placement.id]
         if block then
+            block = choose_row_runs(block, placement, candidate.blocks, (function() local r={} for _, b in ipairs(candidate.blocks or {}) do r[#r+1]=placement_by_id[b.id or b.block_id] end return r end)(), state.work.grid, state.work.plan_result.flows,
+                (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left",
+                (state.work.input.settings or {}).output_edge or state.work.input.output_edge or "top")
             local placed = Groups.materialize(block, placement)
             blocks[#blocks + 1] = {
                 block_id = block.id or block.block_id, id = block.id or block.block_id,
@@ -423,6 +513,8 @@ local function materialize_candidate(state, candidate, placements)
     end
     return blocks, entities, ports
 end
+
+Search._choose_row_runs = choose_row_runs
 
 --`materialized.ports` and each `blocks[i].ports` hold separate copies of one port (append_all copies), and
 --Route reads the block copies.  A slide must reach every copy.
