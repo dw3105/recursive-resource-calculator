@@ -2703,7 +2703,7 @@ end
 --shows one allocation; and a branch laid from a seed on the trunk records nothing upstream of that seed,
 --so a trunk four paths ride looked like one path's.  Measured 2026-09-23 on legalcopilot-dev: the first
 --version lifted the whole 31-tile iron-plate trunk and orphaned three furnaces.
-local function lift_binding(work, binding)
+local function lift_binding(work, binding, allow_fixed)
     local mine = binding_path(work, binding)
     if not mine then return nil end
     local others = {}
@@ -2715,11 +2715,9 @@ local function lift_binding(work, binding)
     local owned_ids, count = {}, 0
     for _, key in ipairs(mine) do
         local segment = work.segments_by_cell[key]
-        -- Fixed row runs stay in place; only ordinary connector tiles are lifted.
-        if segment and segment.fixed then
-            -- The binding's path includes the row's head run. It is the stable endpoint
-            -- shared by the original and rear-feed layouts, so leave it claimed.
-        end
+        -- Ordinary improve trials refuse a path that touches a fixed run. A paired rear trial may lift its
+        -- connector while retaining every fixed tile and allocation in place.
+        if segment and segment.fixed and not allow_fixed then return nil end
         if segment and not segment.fixed and not others[key] then
             if segment.splitter then return nil end
             if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
@@ -2936,19 +2934,27 @@ local function improve_step(work, st, ops)
                 -- Rear merge trials run after the ordinary reroutes have reached their fixed point.
                 if not st.merges then
                     st.merges, st.merge_index = {}, 1
+                    st.merge_baseline = route_snapshot(work)
                     local seen = {}
                     for _, rear in pairs(work.endpoint_by_id or {}) do
                         if rear.port_id == "row:in:rear" then
-                            local feeds = {}
+                            local feeds_by_flow = {}
                             for _, binding in ipairs(work.bindings or {}) do
                                 if binding.sink_port_id ~= rear.port_id then
                                     local ep = work.endpoint_by_id[binding.sink_port_id]
                                     if ep and ep.row_port and ep.role == "in" and ep.block_id == rear.block_id then
-                                        feeds[#feeds + 1] = binding
+                                        feeds_by_flow[ep.flow_id] = feeds_by_flow[ep.flow_id] or {}
+                                        feeds_by_flow[ep.flow_id][#feeds_by_flow[ep.flow_id] + 1] = binding
                                     end
                                 end
                             end
-                            if #feeds >= 2 then st.merges[#st.merges + 1] = {rear=rear, a=feeds[1], b=feeds[2]} end
+                            local flow_a, flow_b = rear.flow_ids and rear.flow_ids[1], rear.flow_ids and rear.flow_ids[2]
+                            local feeds_a, feeds_b = feeds_by_flow[flow_a] or {}, feeds_by_flow[flow_b] or {}
+                            if feeds_a[1] and feeds_b[1] then
+                                local a, b = feeds_a[1], feeds_b[1]
+                                st.merges[#st.merges + 1] = {rear=rear, a=a, b=b}
+                                st.merges[#st.merges + 1] = {rear=rear, a=b, b=a}
+                            end
                         end
                     end
                     if #st.merges > 0 then st.stage = "merge_start"; break end
@@ -3017,6 +3023,9 @@ local function improve_step(work, st, ops)
         elseif st.stage == "merge_start" then
             local pair = st.merges[st.merge_index]
             if not pair then
+                if st.merge_baseline and #work.entities >= #st.merge_baseline.entities then
+                    restore_route_snapshot(work, st.merge_baseline)
+                end
                 reanchor_bindings(work)
                 work.counters.routes_improved = st.improved
                 return used, true
@@ -3025,7 +3034,7 @@ local function improve_step(work, st, ops)
             local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second}),
                 find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second})
             st.pair, st.accepted = pair, false
-            local lifted_a, lifted_b = ba and lift_binding(work, ba), bb and lift_binding(work, bb)
+            local lifted_a, lifted_b = ba and lift_binding(work, ba, true), bb and lift_binding(work, bb, true)
             if ba and bb and lifted_a and lifted_b then
                 local da, db
                 for _, d in ipairs(work.demands or {}) do
