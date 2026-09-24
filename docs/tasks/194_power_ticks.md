@@ -1,7 +1,7 @@
 # 194 power: same poles, no long tick
 
 Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-194`, branch `lane/194`,
-base tag `round-30-delivered`, merge target `int/r30b`. Host `legalcopilot-dev`.
+base tag `round-30b-base`, merge target `int/r30b`. Host `legalcopilot-dev`.
 
 This task is complete in itself. It names no other lane and no other branch.
 
@@ -68,7 +68,7 @@ Commit on `lane/194` with both power worst ticks in the message. **Run the check
 ## What done mean
 
 ```checks
-{"name": "lane194-tests", "command": "git diff --name-only round-30-delivered HEAD | grep -v '^docs/tasks/194' | grep -Ev '^(logic/bp/power\\.lua|tests/test_power_ticks\\.lua|tests/test_power_budget\\.lua|tests/test_power_ops\\.lua)$' | ( ! grep . ) && ! git diff round-30-delivered HEAD -- logic | grep -q '^+.*coroutine' && for t in test_power_ticks test_power test_power_make_room test_power_budget test_power_ops test_power_demand test_power_semantics test_power_wires; do timeout 120 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane194-tests-ok", "expect_exit": 0, "expect_regex": "lane194-tests-ok", "timeout_s": 900}
+{"name": "lane194-tests", "command": "git diff --name-only round-30b-base HEAD | grep -v '^docs/tasks/194' | grep -Ev '^(logic/bp/power\\.lua|tests/test_power_ticks\\.lua|tests/test_power_budget\\.lua|tests/test_power_ops\\.lua)$' | ( ! grep . ) && ! git diff round-30b-base HEAD -- logic | grep -q '^+.*coroutine' && for t in test_power_ticks test_power test_power_make_room test_power_budget test_power_ops test_power_demand test_power_semantics test_power_wires; do timeout 120 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane194-tests-ok", "expect_exit": 0, "expect_regex": "lane194-tests-ok", "timeout_s": 900}
 {"name": "lane194-same-and-fast", "command": "sh tools/bytes_hash.sh player-red-science-1s > /tmp/r194.txt && sh tools/bytes_hash.sh player-green-science-1s >> /tmp/r194.txt && diff tests/fixtures/bytes_round30.txt /tmp/r194.txt && for c in player-red-science-1s player-green-science-1s; do sh tools/tick_profile.sh $c | awk '$1 == \"power\" {print; exit !($NF <= 0.10)}' || { echo SLOW $c; exit 1; }; done && echo lane194-ok", "expect_exit": 0, "expect_regex": "lane194-ok", "timeout_s": 900}
 ```
 

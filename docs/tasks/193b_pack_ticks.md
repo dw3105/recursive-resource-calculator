@@ -1,7 +1,7 @@
 # 193b pack: same bytes, less work, no long tick
 
 Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-193b`, branch `lane/193b`,
-base tag `round-30-delivered`, merge target `int/r30b`. Host `legalcopilot-dev`.
+base tag `round-30b-base`, merge target `int/r30b`. Host `legalcopilot-dev`.
 
 This task is complete in itself. It names no other lane and no other branch.
 
@@ -76,7 +76,7 @@ Commit on `lane/193b` with PACK-CPU and both pack worst ticks in the message. **
 ## What done mean
 
 ```checks
-{"name": "lane193b-tests", "command": "git diff --name-only round-30-delivered HEAD | grep -v '^docs/tasks/193b' | grep -Ev '^(logic/bp/pack\\.lua|tests/test_pack_ticks\\.lua|tests/test_pack_budget\\.lua)$' | ( ! grep . ) && ! git diff round-30-delivered HEAD -- logic | grep -q '^+.*coroutine' && for t in test_pack_ticks test_pack test_pack_budget test_pack_buffer test_pack_links test_pack_zone_blockers; do timeout 120 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane193b-tests-ok", "expect_exit": 0, "expect_regex": "lane193b-tests-ok", "timeout_s": 900}
+{"name": "lane193b-tests", "command": "git diff --name-only round-30b-base HEAD | grep -v '^docs/tasks/193b' | grep -Ev '^(logic/bp/pack\\.lua|tests/test_pack_ticks\\.lua|tests/test_pack_budget\\.lua)$' | ( ! grep . ) && ! git diff round-30b-base HEAD -- logic | grep -q '^+.*coroutine' && for t in test_pack_ticks test_pack test_pack_budget test_pack_buffer test_pack_links test_pack_zone_blockers; do timeout 120 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane193b-tests-ok", "expect_exit": 0, "expect_regex": "lane193b-tests-ok", "timeout_s": 900}
 {"name": "lane193b-same-and-fast", "command": "sh tools/bytes_hash.sh player-red-science-1s > /tmp/r193b.txt && sh tools/bytes_hash.sh player-green-science-1s >> /tmp/r193b.txt && diff tests/fixtures/bytes_round30.txt /tmp/r193b.txt && lua5.2 tools/pack_placements.lua tests/golden/cases/player-green-science-1s/prepared_input.json | tail -1 | awk '{exit !($2 <= 2.0)}' && for c in player-red-science-1s player-green-science-1s; do sh tools/tick_profile.sh $c | awk '$1 == \"pack\" {print; exit !($NF <= 0.10)}' || { echo SLOW $c; exit 1; }; done && echo lane193b-ok", "expect_exit": 0, "expect_regex": "lane193b-ok", "timeout_s": 900}
 ```
 
