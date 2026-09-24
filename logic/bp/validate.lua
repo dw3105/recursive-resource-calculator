@@ -1560,6 +1560,8 @@ local function check_transport_shapes(work)
         local from = tiles[key]
         for _, next_key in ipairs(outputs(key)) do
             local to = next_key and tiles[next_key]
+            --An underground exit takes items only from its own entrance, never from a surface belt behind it.
+            if to and to.ug == "output" and from.ug ~= "input" then to = nil end
             if to then
                 if from.ug == "input" or from.d == to.d then
                     add(next_key, lane, flow_id)

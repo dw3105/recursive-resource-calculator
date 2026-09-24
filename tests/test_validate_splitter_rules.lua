@@ -302,11 +302,16 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.ok, false, "a belt facing another belt head-on is rejected")
     end)
 
-    H.test(shape .. " VS5 two declared flows are witnessed through one splitter", function()
+    --Game rule: a splitter sends every input lane to BOTH outputs; a single-flow output belt fed the other flow
+    --bleeds (player, green v2, 2026-09-24).  This row asserted the opposite until round 32.
+    H.test(shape .. " VS5 two flows through one splitter bleed into single-flow outputs", function()
         local input, built_plan, geometry = candidate("VS5", Grid.EAST, "anchor", false)
         report_row("VS5", geometry)
         local state = finish(input, built_plan)
-        H.equal(state.ok, true, "both flows leave their splitter lanes: " .. table.concat(codes(state), ","))
+        H.equal(state.ok, false, "splitter mixes both flows onto each output")
+        local found = false
+        for _, code in ipairs(codes(state)) do if code == "BP_V_BELT_BLEED" then found = true end end
+        H.equal(found, true, "bleed named: " .. table.concat(codes(state), ","))
     end)
 
     H.test(shape .. " VS6 a missing splitter continuation is named as route discontinuous", function()
