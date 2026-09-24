@@ -79,7 +79,7 @@ local function set_phase(state, phase)
     state.progress.phase = PHASES[phase] or phase
     state.progress.stage = phase == "plan" and "prepare" or state.progress.phase
     state.progress.stage_done, state.progress.stage_total = 0, 1
-    state.progress.attempt = math.max(1, state.work.attempt or 1)
+    state.progress.attempt = (state.work.attempt or 0) + 1  --work.attempt counts retries from 0
     state.progress.attempts = 3
 end
 
@@ -543,6 +543,21 @@ local function occupied_rects(entities, roboports, obstacles)
     return result
 end
 
+--Power may bury a belt or slide a hand to make room for a pole; it asks through this callback.  A function is never
+--saved in storage (the blueprint job lives there between ticks), so the callback is attached only while power
+--steps and removed after (round 33: the job record was deep-copied every tick until then, which hid it).
+local function power_make_room(state)
+    return function(x, y)
+        if Route.free_cell(state.work.route_state or state.work.route, x, y) then return true end
+        return Hands.free_cell(state.work.materialized, x, y)
+    end
+end
+
+local function power_room(state, attach)
+    local work = state.work.power and state.work.power._work
+    if type(work) == "table" then work.make_room = attach and power_make_room(state) or nil end
+end
+
 local function make_power_input(state, grid, entities, roboports, obstacles)
     local input = stage_input(state, {
         grid_w = grid.w, grid_h = grid.h,
@@ -550,10 +565,6 @@ local function make_power_input(state, grid, entities, roboports, obstacles)
         occupied = occupied_rects(entities, roboports, obstacles),
     })
     input.grid = {w = grid.w, h = grid.h}
-    input.make_room = function(x, y)
-        if Route.free_cell(state.work.route_state or state.work.route, x, y) then return true end
-        return Hands.free_cell(state.work.materialized, x, y)
-    end
     if input.pole == nil then
         input.pole = (state.work.input.catalog and state.work.input.catalog.pole)
             or (state.work.input.settings and state.work.input.settings.pole)
@@ -1594,7 +1605,9 @@ function Search.step(container, budget)
                 end
             end
         elseif state.phase == "power" then
+            power_room(state, true)
             run_stage(state, "power", Power, budget)
+            power_room(state, false)
             if stage_done(state.work.power) then
                 if not state.work.power.ok then
                     record_rejection(state, state.work.power.errors, "power")

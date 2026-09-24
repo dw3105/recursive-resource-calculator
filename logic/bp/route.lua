@@ -2886,6 +2886,13 @@ function Route.tidy_step(state, budget)
         work.improve_state = work.improve_state or improve_begin(work)
         local used, finished = improve_step(work, work.improve_state, ops)
         ops = math.max(0, ops - used)
+        --Progress for the bar (round 33): bindings tried so far plus the share of the current binding's trials.
+        local st = work.improve_state
+        if st and st.order then
+            local within = st.options and #st.options > 0 and math.min(1, (st.option_index or 1) / #st.options) or 0
+            state.progress.total_units = #st.order + 1
+            state.progress.done_units = math.min(#st.order, math.max(0, (st.index or 0) - 1 + within))
+        end
         if finished then work.improved, work.improve_state = true, nil end
     end
     if work.improved then

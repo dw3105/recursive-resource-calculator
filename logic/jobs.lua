@@ -193,11 +193,12 @@ end
 local function store_job(data, job)
     job = normalize_job(job)
     if not job then return end
-    --A stepper is allowed to return a fresh state table. Copying before this assignment keeps unsafe values out of
-    --the saved job even when the stepper was written by another lane.
-    local safe_job = copy_plain(job)
-    if not safe_job then return end
-    safe_job = normalize_job(safe_job)
+    --The job is stored as the stepper left it: plain data (no functions, no metatables), which Factorio's storage
+    --saves with shared tables intact.  Until round 33 it was deep-copied here on EVERY tick: measured 2026-09-24 on
+    --legalcopilot-dev, a red science blueprint job took 461 s for 1549 ticks (0.3 s per tick, generate.lua needs
+    --~4 s CPU in all), and `copy_plain` drops every table reached twice, so the copied search state lost shared
+    --tables and the red job ended in failure where the same search alone delivers.
+    local safe_job = job
     if safe_job.kind == "blueprint" then
         data.blueprint_job = safe_job
     else

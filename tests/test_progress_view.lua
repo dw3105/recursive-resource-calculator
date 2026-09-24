@@ -2,44 +2,63 @@
 local H = require "tests.harness"
 
 for _, shape in ipairs(H.shapes()) do
+    --Player, 2026-09-24: the bar must move forward only and say what it does. A real red science job on a real
+    --sheet (a job for a missing sheet is cancelled on its first tick and proves nothing).
     H.test(shape .. " PV-00 red science blueprint job progress is forward only until its record is done", function()
-        local world=H.new_world(shape); world.add_player(1); world.init()
+        local world=H.new_world(shape); world.add_default_infrastructure(); world.add_blueprint_item(); world.add_player(1); world.init()
+        require "control"; world.handlers.on_init()
+        local pane, sheet = H.fill_sheet({}); storage[1].sheet_section = {sheet_pane = pane}
+        local sid = sheet.tags.hxrrc_sheet_id
+        storage[1].sheet_revision, storage[1].config_revision = {[sid] = 0}, 0
+        require("logic.registry").calculation = {get = function() return nil end}
         local f=assert(io.open("tests/golden/cases/player-red-science-1s/prepared_input.json","r"))
         local prepared=helpers.json_to_table(f:read("*a")); f:close()
-        local Jobs=require "logic.jobs"; local Generation=require "logic.bp.generation"
-        storage[1].sheet_revision={red=0}; storage[1].config_revision=0
-        local id,err=Generation.start{player_index=1,sheet_id="red",prepared_input=prepared}
+        prepared.snapshot = prepared.snapshot or {}; prepared.snapshot.sheet_id = sid
+        prepared.revisions = {sheet = 0, config = 0}
+        local Generation=require "logic.bp.generation"
+        local id=Generation.start{player_index=1,sheet_id=sid,prepared_input=prepared}
         H.equal(id~=nil,true,"the captured red science input starts")
-        local last=0; local keys={}; local finished=false
-        for tick=1,20000 do
-            world.advance_tick(1); Jobs.on_tick({tick=world.tick})
-            local view=require("logic.progress_view").of(1,"red")
+        local ProgressView=require "logic.progress_view"
+        local last=0; local keys={}; local views=0; local ended=false
+        for _=1,20000 do
+            H.run_ticks(world, 1)
             local job=storage[1].blueprint_job
+            local view=ProgressView.of(1,sid)
+            if job and views % 50 == 0 then
+                --Factorio saves the job between ticks: no function, no metatable may live in it (round 33).
+                local seen={}
+                local function scan(v, path)
+                    local t=type(v)
+                    H.equal(t~="function" and t~="userdata" and t~="thread",true,path.." is saveable")
+                    if t~="table" or seen[v] then return end
+                    seen[v]=true
+                    H.equal(getmetatable(v)==nil,true,path.." has no metatable")
+                    for k,c in pairs(v) do scan(c, path.."."..tostring(k)) end
+                end
+                scan(job,"job")
+            end
             if view then
+                views=views+1
                 H.equal(view.fraction>=last,true,"the fraction never moves backwards")
                 H.equal(view.fraction<1 or job.done,true,"a live job never reaches one")
                 last=view.fraction; keys[view.stage_key]=true
             end
-            if not job then
-                local status=Generation.status(1,id)
-                if status and status.state~="pending" then finished=true; break end
-            end
-            if job and job.done then finished=true; break end
+            if not job or job.done then ended=true; break end
         end
-        H.equal(finished or (storage[1].blueprint_job and storage[1].blueprint_job.done),true,"the real job reaches its terminal record")
-        storage[1].blueprint_job={kind="blueprint",sheet_id="red",done=true,progress={stage="done",shown=last}}
-        local done=require("logic.progress_view").of(1,"red")
-        H.equal(done.fraction,1,"done is exactly one")
-        keys[done.stage_key]=true
+        H.equal(ended,true,"the real job reaches its terminal record")
+        H.equal(views>100,true,"the job ran for many ticks, not one")
+        for _, stage in ipairs({"pack","route","tidy","validate"}) do H.equal(keys[stage],true,"stage "..stage.." was shown") end
+        H.equal(last>0.5,true,"a full attempt moves the bar past half")
+        local f2=assert(io.open("locale/en/locale.cfg","r")); local locale=f2:read("*a"); f2:close()
         for key in pairs(keys) do
-            local f=assert(io.open("locale/en/locale.cfg","r")); local locale=f:read("*a"); f:close()
             H.equal(locale:find("progress_stage_"..key.."=",1,true)~=nil,true,"stage "..key.." has a locale entry")
         end
     end)
     H.test(shape .. " PV-01 blueprint job progress has stage, elapsed time and a stable fraction", function()
         local ProgressView = require "logic.progress_view"
         storage = {[1] = {blueprint_job = {kind = "blueprint", sheet_id = "main", started_tick = 10,
-            progress = {stage = "pack", stage_done = 4, stage_total = 8, attempt = 1, attempts = 2, shown = 0.2}}}}
+            view = {shown = 0.2},
+            progress = {stage = "pack", stage_done = 4, stage_total = 8, attempt = 1, attempts = 2}}}}
         game = {tick = 30}
         local view = ProgressView.of(1, "main")
         H.equal(view.kind, "blueprint", "kind comes from the job")
