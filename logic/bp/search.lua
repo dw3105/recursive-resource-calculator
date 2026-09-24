@@ -817,6 +817,10 @@ local function slot_cost(slot, consumers)
         end
         local point = consumers[nearest_index]
         cost = cost + nearest_distance
+        --An exit one tile beside its port is off the port's travel line in general, and route lays a port's first
+        --belt along that line, so it cannot turn into the exit: BP_R_NO_PATH, measured 2026-09-24 (gear output at
+        --(12,1), exit (12,0)). Two tiles away is always reachable.
+        if nearest_distance == 1 then cost = cost + 2 end
         x, y = point.x, point.y
         visited[nearest_index] = true
     end

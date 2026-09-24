@@ -118,10 +118,12 @@ local function default_counts()
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " FF4 default grouping remains eleven machines and twenty-six hands", function()
+    --Round 29 (docs/contracts/pipeline_r29.md C4): one group per machine kind, every multi-machine step a row with
+    --one paired input hand and one output hand per machine: 22 hands, the count in the player's v9 bytes.
+    H.test(shape .. " FF4 default grouping remains eleven machines and twenty-two hands", function()
         local machines, hands = default_counts()
         H.equal(machines, 11, "default grouping keeps all eleven machines")
-        H.equal(hands, 26, "default grouping keeps the measured twenty-six hands")
+        H.equal(hands, 22, "one group per machine kind gives twenty-two hands")
     end)
 end
 
