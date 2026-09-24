@@ -18,9 +18,9 @@ local Buffer = require "logic.bp.buffer"
 
 local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 --An origin with ports evaluates multiple attachment cells and route approaches. Account for that bounded
---inner work so one module call stays short even when the search budget is large. 128 charged ops per linked
---origin keeps the expensive candidate batch below 0.1 s on the measured sheets.
-local PORT_ORIGIN_OPS = 16
+--inner work so one module call stays short even when the search budget is large. Eighteen charged ops per
+--linked origin keeps expensive candidate batches below 0.06 s while retaining roughly 8 us per op.
+local PORT_ORIGIN_OPS = 18
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
