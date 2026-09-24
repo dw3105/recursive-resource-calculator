@@ -864,6 +864,123 @@ local function build_demands(work, flows)
     return demands
 end
 
+--Resumable counterpart used by the tick runner. One producer row is scored per route call;
+--the stable scan order and comparisons are the same as build_demands above.
+local function begin_flow_demand_build(work, flow)
+    local id = flow_id_of(flow)
+    if not id then return {flow = flow, done = true} end
+    local producers, consumers = {}, {}
+    if per_port_demands then
+        for _, entry in ipairs(flow.producers or {}) do
+            append_port_demands(work, producers, id, step_id_of(entry) == "$external" and "in" or "out", entry,
+                share_of(entry), "producer")
+        end
+        for _, entry in ipairs(flow.consumers or {}) do
+            append_port_demands(work, consumers, id, step_id_of(entry) == "$external" and "out" or "in", entry,
+                share_of(entry), "consumer")
+        end
+    else
+        for _, entry in ipairs(flow.producers or {}) do
+            local candidates = demand_endpoint_candidates(work, id, step_id_of(entry) == "$external" and "in" or "out", entry)
+            producers[#producers + 1] = {endpoint = candidates[1], candidates = candidates, remaining = share_of(entry),
+                explicit_port_id = entry and (entry.port_id or entry.port)}
+        end
+        for _, entry in ipairs(flow.consumers or {}) do
+            local candidates = demand_endpoint_candidates(work, id, step_id_of(entry) == "$external" and "out" or "in", entry)
+            consumers[#consumers + 1] = {endpoint = candidates[1], candidates = candidates, remaining = share_of(entry),
+                explicit_port_id = entry and (entry.port_id or entry.port)}
+        end
+    end
+    if #producers == 0 and #consumers == 0 then
+        for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id].out or {}) do
+            producers[#producers + 1] = {endpoint = endpoint, candidates = {endpoint}, remaining = endpoint.rate_per_second}
+        end
+        for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["in"] or {}) do
+            consumers[#consumers + 1] = {endpoint = endpoint, candidates = {endpoint}, remaining = endpoint.rate_per_second}
+        end
+    end
+    return {flow = flow, id = id, producers = producers, consumers = consumers,
+        producer_index = 1, consumer_index = 1, best = nil, done = false,
+        demand_start_index = #work.demands + 1}
+end
+
+local function advance_flow_demand_build(work, context)
+    if context.done then return true end
+    local producers, consumers, flow = context.producers, context.consumers, context.flow
+    local producer = producers[context.producer_index]
+    if producer then
+        local consumer = consumers[context.consumer_index]
+        if not consumer then
+            context.producer_index, context.consumer_index = context.producer_index + 1, 1
+            return false
+        end
+        if producer.endpoint and producer.remaining > tolerance(producer.remaining) then
+            if consumer.endpoint and consumer.remaining > tolerance(consumer.remaining) then
+                    local route_cost, chosen_source, chosen_sink = math.huge, nil, nil
+                    for _, source_candidate in ipairs(producer.candidates or {}) do
+                        for _, sink_candidate in ipairs(consumer.candidates or {}) do
+                            local candidate_cost = pairing_route_cost(work, source_candidate, sink_candidate)
+                            if candidate_cost < route_cost then route_cost, chosen_source, chosen_sink = candidate_cost, source_candidate, sink_candidate end
+                        end
+                    end
+                    chosen_source, chosen_sink = chosen_source or producer.endpoint, chosen_sink or consumer.endpoint
+                    local amount = math.min(producer.remaining, consumer.remaining)
+                    local flow_capacity = capacity_for(work, flow)
+                    local score = route_cost - math.min(amount, flow_capacity) * 1e-6
+                    local entry = {producer = producer, consumer = consumer, producer_index = context.producer_index,
+                        consumer_index = context.consumer_index, source = chosen_source, sink = chosen_sink,
+                        route_cost = route_cost, score = score, amount = amount}
+                    local best = context.best
+                    if not best or entry.score < best.score
+                        or (entry.score == best.score and tostring(entry.source.port_id) < tostring(best.source.port_id))
+                        or (entry.score == best.score and tostring(entry.source.port_id) == tostring(best.source.port_id)
+                            and tostring(entry.sink.port_id) < tostring(best.sink.port_id)) then context.best = entry end
+            end
+        end
+        context.consumer_index = context.consumer_index + 1
+        return false
+    end
+    local best = context.best
+    if best and best.amount > tolerance(best.amount) then
+        work.demands[#work.demands + 1] = {flow = flow, flow_id = context.id, source = best.source, sink = best.sink,
+            source_candidates = candidate_first(prioritized_candidates(best.producer.candidates, best.sink), best.source),
+            sink_candidates = candidate_first(prioritized_candidates(best.consumer.candidates, best.source), best.sink),
+            source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
+            pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id}
+        best.producer.remaining = best.producer.remaining - best.amount
+        best.consumer.remaining = best.consumer.remaining - best.amount
+        context.producer_index, context.consumer_index, context.best = 1, 1, nil
+        return false
+    end
+    for _, entry in ipairs(producers) do
+        if entry.remaining > tolerance(entry.remaining) then
+            work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = context.id, detail = "producer port is not bound"}
+            break
+        end
+    end
+    if not work.initial_error then
+        for _, entry in ipairs(consumers) do
+            if entry.remaining > tolerance(entry.remaining) then
+                work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = context.id, detail = "consumer port is not bound"}
+                break
+            end
+        end
+    end
+    local flow_demands = {}
+    for index = context.demand_start_index, #work.demands do
+        local demand = work.demands[index]
+        demand._build_order = index - context.demand_start_index + 1
+        flow_demands[#flow_demands + 1] = demand
+    end
+    table.sort(flow_demands, function(left, right)
+        if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end
+        return left._build_order < right._build_order
+    end)
+    for index, demand in ipairs(flow_demands) do work.demands[context.demand_start_index + index - 1] = demand end
+    context.done = true
+    return true
+end
+
 local function segment_total(segment)
     local total = 0
     for _, allocation in ipairs(segment.allocations or {}) do total = total + allocation.rate_per_second end
@@ -2538,7 +2655,7 @@ local function normalize_input(input)
         end
     end
     work.flows = flow_list(input)
-    work.expansion_limit_input = {limits = input.limits, max_expansions = input.max_expansions}
+    work.expansion_limit_input = {grid = input.grid, limits = input.limits, max_expansions = input.max_expansions}
     work.max_expansions = finite(input.limits and input.limits.max_expansions,
         finite(input.max_expansions, default_expansion_limit(input, #work.flows)))
     -- Demand pairing contains obstacle floods for every producer/consumer candidate pair. Keep the
@@ -3370,6 +3487,7 @@ function Route.step(state, budget)
     local ops = finite(budget.ops, 1)
     if ops < 0 then ops = 0 end
     local work = state.work
+    local demand_build_ops = 0
     -- Demand construction is ordered exactly as the original one-shot builder, but one flow is
     -- materialized per operation so large plans do not hide pairing work in Route.begin.
     while ops > 0 and not work.demand_build_done do
@@ -3381,12 +3499,24 @@ function Route.step(state, budget)
             state.progress.total_units = #work.demands
             break
         end
-        local built = build_demands(work, {flow})
-        for _, demand in ipairs(built) do work.demands[#work.demands + 1] = demand end
-        work.demand_build_index = work.demand_build_index + 1
-        state.cursor.flow_index = work.demand_build_index
-        state.progress.done_units = state.progress.done_units + 1
+        work.demand_build_context = work.demand_build_context or begin_flow_demand_build(work, flow)
+        local flow_done = advance_flow_demand_build(work, work.demand_build_context)
         ops = ops - 1
+        demand_build_ops = demand_build_ops + 1
+        if flow_done then
+            work.demand_build_context = nil
+            work.demand_build_index = work.demand_build_index + 1
+            state.cursor.flow_index = work.demand_build_index
+            state.progress.done_units = state.progress.done_units + 1
+        end
+        --One candidate producer row is a bounded scheduling unit when more rows remain. Small flows can
+        --finish their demand setup and continue into routing in this same call.
+        if demand_build_ops >= 8 or (not flow_done and work.demand_build_context
+            and #work.demand_build_context.producers > 1
+            and work.demand_build_context.producer_index <= #work.demand_build_context.producers) then
+            budget.ops = ops
+            return state
+        end
     end
     if not work.demand_build_done then budget.ops = ops; return state end
     if work.initial_error then

@@ -6,17 +6,23 @@ local Route = require "logic.bp.route"
 local function input()
     local value = {grid = Grid.new(22, 24), catalog = {belt = {belt = "basic-belt", underground = "basic-underground",
         items_per_second = 10, lane_items_per_second = 5, underground_max_distance = 5}}, blocks = {}, flows = {}}
-    for i = 1, 10 do
-        local y = 1 + (i - 1) * 2
-        local flow = "item/" .. i
-        value.blocks[#value.blocks + 1] = {block_id = "s" .. i, machines = {{step_id = "s" .. i}}, x = 1, y = y,
-            w = 1, h = 1, ports = {{port_id = "so" .. i, role = "out", kind = "item", flow_id = flow,
-                rate_per_second = 1, attach_dx = 1, attach_dy = 0, normal_dir = Grid.WEST, travel_dir = Grid.EAST}}}
-        value.blocks[#value.blocks + 1] = {block_id = "c" .. i, machines = {{step_id = "c" .. i}}, x = 8, y = y,
-            w = 1, h = 1, ports = {{port_id = "ci" .. i, role = "in", kind = "item", flow_id = flow,
-                rate_per_second = 1, attach_dx = -1, attach_dy = 0, normal_dir = Grid.EAST, travel_dir = Grid.EAST}}}
-        value.flows[#value.flows + 1] = {flow_id = flow, producers = {{step_id = "s" .. i, share_per_second = 1}},
-            consumers = {{step_id = "c" .. i, share_per_second = 1}}}
+    for group = 1, 5 do
+        local sy, cy = 1 + (group - 1) * 4, 1 + (group - 1) * 4
+        local source_ports, consumer_ports = {}, {}
+        local source_id, consumer_id = "s" .. group, "c" .. group
+        for lane = 0, 3 do
+            local flow = "item/" .. ((group - 1) * 4 + lane + 1)
+            source_ports[#source_ports + 1] = {port_id = "so" .. flow, role = "out", kind = "item", flow_id = flow,
+                rate_per_second = 1, attach_dx = 1, attach_dy = lane, normal_dir = Grid.WEST, travel_dir = Grid.EAST}
+            consumer_ports[#consumer_ports + 1] = {port_id = "ci" .. flow, role = "in", kind = "item", flow_id = flow,
+                rate_per_second = 1, attach_dx = -1, attach_dy = lane, normal_dir = Grid.EAST, travel_dir = Grid.EAST}
+            value.flows[#value.flows + 1] = {flow_id = flow, producers = {{step_id = source_id, share_per_second = 1}},
+                consumers = {{step_id = consumer_id, share_per_second = 1}}}
+        end
+        value.blocks[#value.blocks + 1] = {block_id = source_id, machines = {{step_id = source_id}}, x = 1, y = sy,
+            w = 1, h = 4, ports = source_ports}
+        value.blocks[#value.blocks + 1] = {block_id = consumer_id, machines = {{step_id = consumer_id}}, x = 8, y = cy,
+            w = 1, h = 4, ports = consumer_ports}
     end
     return value
 end
