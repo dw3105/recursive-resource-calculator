@@ -76,17 +76,11 @@ H.test("RI3 row ports sit on the block boundary with inward normals, except the 
     H.equal(interior, 1, "exactly one interior head feed")
 end)
 
-H.test("RI4 row candidates come first, and every pre-row candidate still follows", function()
+H.test("RI4 grouping emits exactly the row candidate", function()
     local list = candidates()
-    H.equal(#list >= 2, true, "row and legacy candidates")
-    H.equal(tostring(list[1].id):sub(1, 5), "rows:", "first candidate is a row candidate")
-    local legacy = false
-    for _, c in ipairs(list) do
-        local any_row = false
-        for _, b in ipairs(c.blocks) do if b.row then any_row = true end end
-        if not any_row then legacy = true end
-    end
-    H.equal(legacy, true, "a candidate without rows remains")
+    H.equal(#list, 1, "one candidate")
+    H.equal(list[1] and list[1].id, "one", "stable candidate id")
+    H.equal(list[1] and list[1].blocks[1].row ~= nil, true, "eligible machines use a row")
 end)
 
 H.test("RI5 pack keeps a row's ports and their approach tiles off the grid's outer ring", function()

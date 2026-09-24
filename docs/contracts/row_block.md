@@ -79,3 +79,13 @@ way; `block` is untouched. Mirror about the centre line `x' = first_x + last_x -
 reversed), head, feeds and port; its `dir` and every EAST/WEST port heading flip; every port whose id starts
 `row:<role>:` moves with it (attach_dx mirrored, normal/travel flipped). Reversing twice gives the block back. Nil when
 the block is no symmetric row. Ports stay on the boundary: -1 <-> w.
+
+## Far belt
+
+Rows with three or four distinct item inputs have a second input run one tile behind the near input run. Each machine
+uses a long-handed inserter on a different column of its input face; its pickup is on the far run and its drop is
+inside the machine. Rows with five or six inputs instead place the far run beyond the output run and read it with a
+long-handed inserter on the output face. The far run uses the normal `belt_runs` shape and sets `far = true`.
+Long inserter prototype name and offsets come from `catalog.long_inserter`; absent facts use
+`long-handed-inserter`, pickup `{x=0,y=2}` and drop `{x=0,y=-2}`. Rows with more than six item inputs fail as
+`BP_P_NO_FIT` / `row-inputs`.
