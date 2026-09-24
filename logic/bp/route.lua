@@ -3335,8 +3335,8 @@ improve_step = function(work, st, ops)
                     and candidate.sink.port_id == wanted[2] then demand = candidate; break end
             end
             if demand and find_binding(work, wanted) then
-                --Option 1 keeps both hands; each further option slides one hand one tile.  A hand slides only
-                --when this path is the only one on its port, so no other belt loses its end tile.
+                --Option 1 keeps both hands; then try the offered slides and hops for each hand.  A hand may move
+                --only when this path is the only one on its port, so no other belt loses its end tile.
                 local options = {false}
                 for _, endpoint in ipairs({demand.sink, demand.source}) do
                     if endpoint.slide_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
