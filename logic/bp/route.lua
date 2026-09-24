@@ -483,7 +483,8 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         row_port = port.row_port == true or nil,
         --A one-flow rear port may be entered by a curve: its belt faces the port's heading into the row head, and
         --with nothing behind it that belt is a curve, not a side-load (round 28, the player's v8 U-turn).
-        rear_curve = (port.rear == true and port_flow_id(port) ~= nil and #(port.flow_ids or {port_flow_id(port)}) <= 2) or nil,
+        rear_curve = (port.rear == true and ((port.flow_ids and #port.flow_ids > 0 and #port.flow_ids <= 2)
+            or (port_flow_id(port) ~= nil and port.flow_ids == nil))) or nil,
         block_id = block.block_id or block.id,
         step_id = port.step_id or block_step_id(block),
         role = role,
