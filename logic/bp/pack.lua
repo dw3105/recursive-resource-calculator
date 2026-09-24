@@ -108,7 +108,8 @@ end
 local function zones_avoid_blockers(state, zones)
     for _, zone in ipairs(zones) do
         for _, blocker in ipairs(state.zone_blockers) do
-            if Grid.intersects(zone.rect, blocker) then return false end
+            --The whole ring, not only the machine footprint (docs/contracts/pipeline_r29.md C2).
+            if Grid.intersects(Buffer.zone(zone.rect, zone.ring), blocker) then return false end
         end
     end
     return true

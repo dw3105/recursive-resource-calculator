@@ -101,9 +101,11 @@ end
 local function roboport_input()
     return input_for(one_step_plan(), {
         include_roboports = true,
-        grids = {{w = 6, h = 4, roboports = {
+        --Roboports stay outside every machine buffer zone (docs/contracts/pipeline_r29.md C2): both sit in one
+        --corner, within connection distance 3 of each other, on a grid with room for a ring-2 zone clear of them.
+        grids = {{w = 16, h = 12, roboports = {
             {x = 0, y = 0, w = 1, h = 1},
-            {x = 2, y = 2, w = 1, h = 1},
+            {x = 3, y = 0, w = 1, h = 1},
         }}},
     })
 end
