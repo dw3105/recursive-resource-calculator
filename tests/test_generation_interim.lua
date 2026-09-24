@@ -57,6 +57,8 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(pending.phase, "improving", "first interim marks the improving phase")
         H.equal(world.cursors[1].stack.name, "blueprint", "first interim reaches the cursor")
         H.run_ticks(world, 1)
+        --The sheet panel refreshes on its tenth-tick poll, not from every job slice.
+        Registry.progress_refresh()
         local offer = find(pane, "hxrrc_deliver_better_layout")
         H.equal(offer ~= nil, true, "later interim is offered in the panel")
         H.equal(world.cursors[1].stack.entities[1].position.x, 0,

@@ -248,11 +248,12 @@ function Jobs.request_sheet(player_index, sheet_id, context)
     local sheet_revision, config_revision = revisions_for(data, sheet_id, safe_context)
     local revisions = {sheet = sheet_revision, config = config_revision}
 
-    if tombstone_matches(data, sheet_id, revisions) then return nil end
     clear_tombstone_if_newer(data, sheet_id, revisions)
     if is_plain_table(data.job_invalidations) then data.job_invalidations[sheet_id] = nil end
 
     local job = make_job(player_index, sheet_id, safe_context)
+    data.next_job_token = nonnegative_integer(data.next_job_token, 0) + 1
+    job.job_token = data.next_job_token
     if job.kind == "blueprint" then
         data.blueprint_job = copy_plain(job) or {}
     else
@@ -419,7 +420,11 @@ local function service_one(player_index, kind, budget)
         if job.ok == nil then job.ok = true end
         local spec = steppers[job.kind]
         local current_data = player_data(player_index, false)
-        if current_data and revision_matches(current_data, job) then
+        local canceled = current_data and is_plain_table(current_data.job_cancellations)
+            and current_data.job_cancellations[job.sheet_id]
+        local is_canceled_job = is_plain_table(canceled) and canceled.job_token ~= nil
+            and canceled.job_token == job.job_token
+        if current_data and revision_matches(current_data, job) and not is_canceled_job then
             if spec and spec.publish then pcall(spec.publish, job) end
         end
     elseif job then
@@ -479,8 +484,6 @@ end
 --every tick, so load order stops mattering.
 function Jobs.on_tick(event)
     service_tick(event)
-    local refresh = Registry.progress_refresh
-    if type(refresh) == "function" then refresh() end
 end
 
 --Stops a job now: within two ticks of the handler that asked, and without publishing a partial result.
@@ -489,12 +492,17 @@ function Jobs.cancel(player_index, sheet_id)
     if not data then return false end
     ensure_job_tables(data)
     local sheet_revision, config_revision = current_revisions(data, sheet_id)
-    if not is_plain_table(data.job_cancellations) then data.job_cancellations = {} end
-    data.job_cancellations[sheet_id] = {sheet = sheet_revision, config = config_revision, tick = current_tick}
-
     local removed = false
-    if data.calc_jobs and data.calc_jobs[sheet_id] then data.calc_jobs[sheet_id] = nil; removed = true end
-    if data.blueprint_job and data.blueprint_job.sheet_id == sheet_id then data.blueprint_job = nil; removed = true end
+    local job
+    if data.calc_jobs and data.calc_jobs[sheet_id] then job = data.calc_jobs[sheet_id]; data.calc_jobs[sheet_id] = nil; removed = true end
+    if data.blueprint_job and data.blueprint_job.sheet_id == sheet_id then job = data.blueprint_job; data.blueprint_job = nil; removed = true end
+    if removed then
+        if not is_plain_table(data.job_cancellations) then data.job_cancellations = {} end
+        data.job_cancellations[sheet_id] = {sheet = sheet_revision, config = config_revision,
+            tick = current_tick, job_token = job and job.job_token}
+        local spec = job and steppers[job.kind]
+        if spec and type(spec.cancel) == "function" then pcall(spec.cancel, job) end
+    end
     return removed
 end
 

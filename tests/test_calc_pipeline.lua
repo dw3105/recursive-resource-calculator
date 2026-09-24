@@ -263,6 +263,8 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(Sheet.cancel_button_of(sheet_flow).visible, true, "Cancel is visible while the job runs")
 
         wait_for(world, sheet_id)
+        --The panel polls every tenth tick; Jobs.on_tick no longer performs a GUI refresh for every job slice.
+        require("logic.registry").progress_refresh()
         H.equal(Sheet.progressbar_of(sheet_flow).visible, false, "the progress bar hides after publish")
         H.equal(Sheet.cancel_button_of(sheet_flow).visible, false, "Cancel hides after publish")
         H.equal(report_signature(H.parse_report(sheet_flow.output_flow)).rows["item/plate"].rate, 4, "the queued input is eventually published")

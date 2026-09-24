@@ -133,7 +133,8 @@ local function handle_from_record(record)
     local job_id = integer(record.job_id, nil)
     if not job_id or record.player_index == nil or record.sheet_id == nil then return nil end
     local state = record.state
-    if state ~= "success" and state ~= "failure" and state ~= "cancelled" and state ~= "pending" then
+    if state == "cancelled" then state = "canceled" end --older saves
+    if state ~= "success" and state ~= "failure" and state ~= "canceled" and state ~= "pending" then
         state = "pending"
     end
     local handle = {
@@ -203,7 +204,7 @@ local function index_handle(handle)
 end
 
 local function attempt_state(state)
-    return state == "pending" or state == "success" or state == "failure" or state == "cancelled"
+    return state == "pending" or state == "success" or state == "failure" or state == "canceled" or state == "cancelled"
 end
 
 local function latest_handle(player_index, sheet_id)
@@ -846,7 +847,7 @@ local function terminal_failure(handle, job)
     local report = Registry.generation_failure
     if type(report) == "function" then
         pcall(report, handle.player_index, {
-            job_id = handle.job_id, state = "failure", phase = handle.phase, stage = handle.phase,
+            job_id = handle.job_id, sheet_id = handle.sheet_id, state = "failure", phase = handle.phase, stage = handle.phase,
             progress = result_progress(handle.progress), reason_codes = copy_plain(code_list) or {},
             reason_details = copy_plain(handle.reason_details) or {},
         })
@@ -855,7 +856,7 @@ end
 
 local function terminal_cancel(handle, phase)
     if not handle or handle.state ~= "pending" then return end
-    handle.state = "cancelled"
+    handle.state = "canceled"
     handle.phase = phase or "cancelled"
     handle.progress = result_progress(handle.progress)
     update_capture(handle, nil, "cancelled", nil, handle.phase)
@@ -1284,7 +1285,10 @@ end
 function Generation.register()
     rebind_handles()
     if registered then return true end
-    Jobs.register("blueprint", {begin = begin, step = step, publish = publish})
+    Jobs.register("blueprint", {begin = begin, step = step, publish = publish, cancel = function(job)
+        local handle = handle_for(job)
+        if handle then terminal_cancel(handle, "cancelled") end
+    end})
     registered = true
     return true
 end
@@ -1335,7 +1339,7 @@ end
 
 local function public_status(handle)
     local result = {
-        job_id = handle.job_id, state = handle.state, phase = handle.phase,
+        job_id = handle.job_id, sheet_id = handle.sheet_id, state = handle.state, phase = handle.phase,
         progress = result_progress(handle.progress),
         grid_spacing = copy_plain(handle.grid_spacing),
     }

@@ -148,16 +148,16 @@ for _, shape in ipairs(H.shapes()) do
         local first = Generation.start{player_index = 1, sheet_id = sheet_id, prepared_input = prepared(sheet_id)}
         H.equal(Generation.cancel(1, first), true, "cancel accepts the pending generation")
         local result = Generation.status(1, first)
-        H.equal(result.state, "cancelled", "cancel is terminal")
+        H.equal(result.state, "canceled", "cancel is terminal")
         tick(world, Jobs, 3)
-        H.equal(Generation.status(1, first).state, "cancelled", "cancel cannot be overwritten by a later tick")
+        H.equal(Generation.status(1, first).state, "canceled", "cancel cannot be overwritten by a later tick")
     end)
 
     H.test(shape .. " unit case: supersession by a second start on one sheet cancels the first", function()
         local _, _, _, _, Generation, _, _, sheet_id = fixture(shape)
         local first = Generation.start{player_index = 1, sheet_id = sheet_id, prepared_input = prepared(sheet_id)}
         local second = Generation.start{player_index = 1, sheet_id = sheet_id, prepared_input = prepared(sheet_id)}
-        H.equal(Generation.status(1, first).state, "cancelled", "the older request is terminal")
+        H.equal(Generation.status(1, first).state, "canceled", "the older request is terminal")
         H.equal(Generation.status(1, first).phase, "superseded", "the older request says why")
         H.equal(Generation.status(1, second).state, "pending", "the newer request owns the sheet")
     end)
@@ -168,7 +168,7 @@ for _, shape in ipairs(H.shapes()) do
         pane.tabs[1].content.valid = false
         tick(world, Jobs)
         local result = Generation.status(1, first)
-        H.equal(result.state, "cancelled", "deleted preparation is cancellation")
+        H.equal(result.state, "canceled", "deleted preparation is cancellation")
         H.equal(result.phase, "cancelled", "deleted preparation has a cancellation phase")
         H.equal(Generation.capture(1, first), nil, "a deleted sheet has no prepared capture")
     end)

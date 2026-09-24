@@ -414,6 +414,13 @@ event_handlers.on_gui_click["hxrrc_cancel_button"] = function(event)
     local sheet_id = Sheet.id_of(sheet_flow)
     local player_data = storage[event.player_index]
     local running = player_data and player_data.calc_jobs and player_data.calc_jobs[sheet_id]
+    local blueprint = player_data and player_data.blueprint_job
+    if blueprint and blueprint.sheet_id == sheet_id then
+        local input = blueprint.state and blueprint.state.input
+        local job_id = input and input.generation_job_id
+        if job_id and Registry.generation then Registry.generation.cancel(event.player_index, job_id) end
+        ProgressPanel.set_offer(sheet_flow, nil, nil)
+    end
     if running and Registry.calc_pipeline then
         --The panel owns the visible cancel UX; the calculation pipeline also tears down staging and marks the
         --last published report stale before the panel hides itself and adds its canceled label.
