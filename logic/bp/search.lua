@@ -151,17 +151,10 @@ local function search_limits(input)
     return limits, maximum
 end
 
-local CANDIDATE_ALLOWANCE = 4
-local NO_IMPROVEMENT_LIMIT, MAX_LAYOUTS, MAX_FLIP_TRIALS = 1, 1, 0
--- The player replay's winning layout is found early; allow two later validated misses to
--- guard against ordering noise while bounding work by complete validated layouts.
-
 local function grid_trial_limit(input, limits, grid_count)
     local maximum = input.max_search_grids or input.max_grid_trials
         or limits.max_search_grids or limits.max_grid_trials
-    --The default breadth is the same declared allowance used for improvement work.  A caller may deliberately
-    --raise it, but an implicit 12-grid cap over a 49-grid ladder must not contradict the job's other bound.
-    maximum = integer(maximum, CANDIDATE_ALLOWANCE)
+    maximum = integer(maximum, grid_count)
     return math.max(1, math.min(grid_count, maximum))
 end
 
@@ -316,13 +309,13 @@ local function stage_input(state, extra)
     return result
 end
 
---`port_flow_id` is defined below, next to the other port helpers, but connectivity_ordering reads it. A Lua local
+--`port_flow_id` is defined below, next to the other port helpers, but greedy_block_order reads it. A Lua local
 --is invisible above its own declaration, so the call at interface_weight resolved to a nil GLOBAL and the real
 --player case died with "attempt to call global 'port_flow_id' (a nil value)" inside search.lua:320. The lane's
 --focused tests never drove prepare_candidate down that path, so nothing caught it before the merge.
 local port_flow_id
 
-local function connectivity_ordering(state, candidate)
+local function greedy_block_order(state, candidate)
     local natural = list_copy(candidate.blocks)
     local result = {}
         local function interface_weight(left, right)
@@ -360,8 +353,8 @@ local function connectivity_ordering(state, candidate)
             end
             if differs then result[#result + 1] = {blocks = connected} end
         end
-    if #result == 0 then result[1] = {blocks = natural} end
-    return result
+    if #result == 0 then return natural end
+    return result[1].blocks
 end
 
 local function block_map(blocks)
@@ -518,13 +511,29 @@ local function occupied_rects(entities, roboports, obstacles)
     for _, entry in ipairs(obstacles or {}) do result[#result + 1] = copy(entry) end
     for _, entity in ipairs(entities or {}) do
         local position = entity.position or {}
+        local name = lower_name(entity.name or entity.entity or entity.prototype)
+        local kind = lower_name(entity.kind or entity.etype)
+        if kind == "transport" or kind == "powered-transport" then
+            if name:find("underground", 1, true) then kind = "underground"
+            elseif name:find("splitter", 1, true) then kind = "splitter"
+            elseif name:find("pipe", 1, true) then kind = "pipe"
+            else kind = "belt" end
+        elseif kind == "" then
+            if name:find("inserter", 1, true) then kind = "inserter"
+            elseif name:find("roboport", 1, true) then kind = "roboport"
+            elseif name:find("underground", 1, true) then kind = "underground"
+            elseif name:find("splitter", 1, true) then kind = "splitter"
+            elseif name:find("pipe", 1, true) then kind = "pipe"
+            elseif name:find("belt", 1, true) then kind = "belt"
+            elseif electrical_kind(entity, {}) == "machine" then kind = "machine" end
+        end
         result[#result + 1] = {rect = {
             x = finite(entity.x, finite(position.x, 0) - 0.5), y = finite(entity.y, finite(position.y, 0) - 0.5),
             w = finite(entity.w, 1), h = finite(entity.h, 1),
-        }, owner = entity.id, kind = electrical_kind(entity, {}) or (entity.kind == "belt" and "belt")}
+        }, owner = entity.id, kind = kind ~= "" and kind or nil}
     end
     for _, entity in ipairs(roboports or {}) do
-        result[#result + 1] = {rect = {x = entity.x, y = entity.y, w = entity.w, h = entity.h}, owner = entity.id}
+        result[#result + 1] = {rect = {x = entity.x, y = entity.y, w = entity.w, h = entity.h}, owner = entity.id, kind = "roboport"}
     end
     return result
 end
@@ -1172,10 +1181,10 @@ local function start_grid(state)
     state.work.roboports = roboports
     state.work.groups = Groups.begin(stage_input(state, {plan = state.work.plan_result, grid = grid, ring_bump = state.work.attempt or 0}))
     state.work.candidate = nil
-    state.work.orderings = nil
-    state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
-    state.work.discarded_discarded_flip_count, state.work.discarded_flip_count, state.work.discarded_flip_active = {}, 0, false
-    state.cursor.candidate_index, state.cursor.order_index = 1, 1
+    state.work.pack, state.work.route, state.work.route_state, state.work.power, state.work.validate = nil, nil, nil, nil, nil
+    state.work.materialized, state.work.hand_entities, state.work.validate_candidate = nil, nil, nil
+    state.work.post_tidy_power = false
+    state.cursor.candidate_index = 1
     set_phase(state, "groups")
     return true
 end
@@ -1213,7 +1222,7 @@ local function record_discarded_attempt(state, score, reason)
     if work.attempt_recorded then return end
     local record = {
         kind = "candidate", candidate_id = candidate_label(work.candidate), grid = grid_record(state),
-        order_index = state.cursor.order_index, reason = reason or "rejected",
+        reason = reason or "rejected",
     }
     if type(score) == "table" then record.score = copy(score) end
     local start = work.candidate_rejection_start or (#(work.rejections or {}) + 1)
@@ -1231,7 +1240,7 @@ local function record_valid_attempt(state, score)
     local work = state.work
     local record = {
         kind = "candidate", candidate_id = candidate_label(work.candidate), grid = grid_record(state),
-        order_index = state.cursor.order_index, score = copy(score), chosen = false,
+        score = copy(score), chosen = false,
     }
     work.valid_alternatives[#work.valid_alternatives + 1] = record
     return record
@@ -1333,18 +1342,6 @@ local function stop_no_improvement(state, reason)
     return true
 end
 
-local function flip_trial_stops_search(state)
-    return not state.work.discarded_flip_active
-        and false
-end
-Search._flip_trial_stops_search = flip_trial_stops_search
-
-local function removed_interim_publisher(state)
-    local serial = Serialize.begin(state.incumbent.candidate)
-    while not serial.done do Serialize.step(serial, {ops = 1000000000}) end
-    state.interim = {sequence = (state.interim and state.interim.sequence or 0) + 1,
-        result = copy(serial.result), entities = #(serial.result.entities or {})}
-end
 
 local function finish_search_budget(state)
     if state.incumbent then
@@ -1367,12 +1364,12 @@ function Search.begin(input)
     input = copy(type(input) == "table" and input or {}) or {}
     local limits, max_ops = search_limits(input)
     local state = {
-        done = false, ok = nil, phase = "plan", cursor = {phase = "plan", grid_index = 1, candidate_index = 1, order_index = 1},
+        done = false, ok = nil, phase = "plan", cursor = {phase = "plan", grid_index = 1, candidate_index = 1},
         incumbent = nil, result = nil, errors = nil, ops_used = 0, max_ops = max_ops, grid_spacing = nil,
         revisions = copy(input.revisions) or {sheet = 0, config = 0}, current_revisions = copy(input.current_revisions),
         progress = {phase = "planning", done_units = 0, total_units = nil},
         work = {input = input, limits = limits, grid_specs = ordered_grid_specs(input), plan_state = nil,
-            plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil, orderings = nil,
+            plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil,
             pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
             grid_trials = 0, grid_trial_limit = 0, grid_limit_hit = false, generated_perimeter_ports = false,
             publication_reserved = false, power_bound_hit = false, grid_spacing = nil, route_input_error = nil,
@@ -1380,7 +1377,7 @@ function Search.begin(input)
             candidate_rejection_start = 1, incumbent_record = nil, search_bound_recorded = false, bound_reason = nil,
             allowance_derived = max_ops == nil, allowance_declared = false, feasibility_limit = nil,
             improvement_budget = nil, improvement_started = false, improvement_start_ops = nil,
-            discarded_discarded_flip_count = {}, discarded_flip_count = 0, discarded_flip_active = false},
+            attempt = 0},
     }
     state.work.grid_trial_limit = grid_trial_limit(input, limits, #state.work.grid_specs)
     state.initial_revisions = copy(state.revisions)
@@ -1400,34 +1397,12 @@ local function finish_grid_or_search(state)
     if next_grid(state) then return end
     if state.work.grid_limit_hit then finish_search_bound(state, "BP_FAIL_GRID_LIMIT"); return end
     if state.incumbent then begin_serialization(state)
-    else failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", {reason_details = rejection_details(state)}) end
+    else failure(state, "BP_FAIL_NO_LAYOUT", {reason_details = rejection_details(state)}) end
 end
 
 --A grid too small to hold the blocks and the rows their ports need can never produce a layout, and packing it
 --anyway costs a full pack plus a full route before it says so. The area check is exact about what it counts and
 --cheap: the five-step fixture spends its whole budget on such grids without it.
-local function candidate_fits_grid(state, candidate)
-    local grid = state.work.grid
-    if type(grid) ~= "table" or type(grid.w) ~= "number" or type(grid.h) ~= "number" then return true end
-    local needed, widest, tallest = 0, 0, 0
-    for _, block in ipairs(candidate.blocks or {}) do
-        local sides = type(block.port_sides) == "table" and block.port_sides or {}
-        local w = (block.w or 0) + (sides.left and 1 or 0) + (sides.right and 1 or 0)
-        local h = (block.h or 0) + (sides.top and 1 or 0) + (sides.bottom and 1 or 0)
-        needed = needed + w * h
-        widest = math.max(widest, math.min(w, h))
-        tallest = math.max(tallest, math.max(w, h))
-    end
-    local fits = needed <= grid.w * grid.h
-    --A block fits in one orientation or the other, so its shorter side must fit the shorter side of the grid.
-    fits = fits and widest <= math.min(grid.w, grid.h) and tallest <= math.max(grid.w, grid.h)
-    if not fits then
-        record_rejection(state, {{code = "BP_P_NO_FIT", detail = "candidate does not fit this grid",
-            candidate_size = {area = needed, width = widest, height = tallest},
-            grid_size = {w = grid.w, h = grid.h}}}, "fit")
-    end
-    return fits
-end
 
 local function candidate_links(state, candidate)
     local links, port_by_step_flow = {}, {}
@@ -1466,41 +1441,21 @@ local function candidate_links(state, candidate)
 end
 
 local function prepare_candidate(state)
-    local candidate
-    if state.work.discarded_flip_active then candidate = state.work.candidate
-    elseif #(state.work.discarded_discarded_flip_count or {}) > 0 then
-        candidate = table.remove(state.work.discarded_discarded_flip_count, 1)
-        state.work.discarded_flip_count = (state.work.discarded_flip_count or 0) + 1
-        state.work.discarded_flip_active = true
-    else candidate = state.work.groups.result.candidates[state.cursor.candidate_index] end
-    if not candidate then
-        finish_grid_or_search(state)
-        return false
-    end
+    local candidate = state.work.groups and state.work.groups.result and state.work.groups.result.candidates
+        and state.work.groups.result.candidates[1]
+    if not candidate then finish_grid_or_search(state); return false end
     state.work.candidate = candidate
     state.work.pack_links = candidate_links(state, candidate)
     state.work.candidate_rejection_start = #(state.work.rejections or {}) + 1
     state.work.attempt_recorded = false
-    if not candidate_fits_grid(state, candidate) then
-        record_discarded_attempt(state, nil, "grid_fit")
-        state.cursor.candidate_index = state.cursor.candidate_index + 1
-        state.cursor.order_index = 1
-        return prepare_candidate(state)
-    end
-    state.work.orderings = connectivity_ordering(state, candidate)
-    if not state.work.orderings[state.cursor.order_index] then
-        state.cursor.candidate_index = state.cursor.candidate_index + 1
-        state.cursor.order_index = 1
-        return prepare_candidate(state)
-    end
-    local ordering = state.work.orderings[state.cursor.order_index]
+    local block_order = greedy_block_order(state, candidate)
     local obstacles = bare_rects(state.work.robo_obstacles)
     append_all(obstacles, bare_rects(state.work.input.obstacles))
     append_all(obstacles, bare_rects(state.work.input.occupied))
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
-        zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links or {},
-        blocks = ordering.blocks, limits = state.work.input.limits or {}})
+        zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links,
+        blocks = block_order, limits = state.work.input.limits or {}})
     set_phase(state, "pack")
     return true
 end
@@ -1517,7 +1472,7 @@ local function discard_candidate(state)
         start_grid(state)
         return
     end
-    failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", {reason_details = rejection_details(state)})
+    failure(state, "BP_FAIL_NO_LAYOUT", {reason_details = rejection_details(state)})
     return
 
 end
@@ -1568,9 +1523,10 @@ function Search.step(container, budget)
             else
                 declare_allowance(state)
                 if state.work.groups.ok == false and not (state.work.groups.result and state.work.groups.result.candidates) then
-                    if not next_grid(state) then finish_grid_or_search(state) end
+                    record_rejection(state, state.work.groups.errors or state.work.groups.result.failures, "groups")
+                    discard_candidate(state)
                 else
-                    state.cursor.candidate_index, state.cursor.order_index = 1, 1
+                    state.cursor.candidate_index = 1
                     prepare_candidate(state)
                 end
             end
@@ -1579,7 +1535,9 @@ function Search.step(container, budget)
             if stage_done(state.work.pack) then
                 if not state.work.pack.ok then
                     record_rejection(state, state.work.pack.errors, "pack")
-                    if next_grid(state) then -- a no-fit pack rejection grows this attempt's grid
+                    local no_fit = false
+                    for _, e in ipairs(state.work.pack.errors or {}) do if e.code == "BP_P_NO_FIT" then no_fit = true end end
+                    if no_fit and next_grid(state) then -- a no-fit pack rejection grows this attempt's grid
                     else discard_candidate(state) end
                 else
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
@@ -1623,6 +1581,16 @@ function Search.step(container, budget)
                         discard_candidate(state)
                     end
                 else
+                    if state.work.post_tidy_power then
+                        state.work.post_tidy_power = false
+                        state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
+                            state.work.materialized.entities, state.work.materialized.ports,
+                            state.work.route_state.result or state.work.route.result,
+                            state.work.power.result, state.work.roboports)
+                        state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
+                            plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
+                        set_phase(state, "validate")
+                    else
                     local poles = {}
                     for _, e in ipairs(state.work.power.result and state.work.power.result.entities or {}) do
                         if e.kind == "pole" or e.type == "pole" then poles[#poles + 1] = {x=e.x,y=e.y,w=e.w or 1,h=e.h or 1} end
@@ -1642,6 +1610,7 @@ function Search.step(container, budget)
                     for _, block in ipairs(state.work.materialized.blocks or {}) do for _, port in ipairs(block.ports or {}) do filter_port(port) end end
                     state.work.route_state = Route.tidy_begin(state.work.route, {obstacles = poles})
                     set_phase(state, "tidy")
+                    end
                 end
             end
         elseif state.phase == "hands" then
@@ -1658,13 +1627,24 @@ function Search.step(container, budget)
             state.ops_used = state.ops_used + spent
             state.progress.done_units = state.progress.done_units + spent
             if stage_done(state.work.route_state) then
-                state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
-                    state.work.materialized.entities, state.work.materialized.ports,
-                    state.work.route_state.result or state.work.route.result,
-                    state.work.power.result, state.work.roboports)
-                state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
-                    plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
-                set_phase(state, "validate")
+                local before = #(state.work.route_state.result and state.work.route_state.result.port_slides or {})
+                Hands.place(state.work.materialized, state.work.route_state.result or {})
+                if before > 0 then
+                    state.work.post_tidy_power = true
+                    local all = list_copy(state.work.materialized.entities)
+                    append_all(all, state.work.route_state.result.entities)
+                    state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
+                        state.work.roboports, state.work.robo_obstacles))
+                    set_phase(state, "power")
+                else
+                    state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
+                        state.work.materialized.entities, state.work.materialized.ports,
+                        state.work.route_state.result or state.work.route.result,
+                        state.work.power.result, state.work.roboports)
+                    state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
+                        plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
+                    set_phase(state, "validate")
+                end
             end
         elseif state.phase == "validate" then
             run_stage(state, "validate", Validate, budget)
@@ -1678,59 +1658,12 @@ function Search.step(container, budget)
                 else
                     local score = state.work.validate.result and state.work.validate.result.score or {}
                     local record = record_valid_attempt(state, score)
-                    local improves = state.incumbent == nil or Validate.compare(score, state.incumbent.score) < 0
-                    if improves then
-                        local first_incumbent = state.incumbent == nil
-                        if state.work.incumbent_record then
-                            state.work.incumbent_record.chosen = false
-                            state.work.incumbent_record.reason = "outscored"
-                        end
-                        record.chosen = true
-                        state.work.incumbent_record = record
-                        state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
-                            source_candidate = copy(state.work.candidate),
-                            validation = copy(state.work.validate.result)}
-                        --The layout-count stop decides when to stop; the declared improvement allowance stays as a finite
-                        --safety net (tests/test_search_allowance.lua), sized from the grid area, never a fixed op count.
-                        if first_incumbent and state.work.allowance_derived then
-                            state.max_ops = state.ops_used + math.max(1, state.work.improvement_budget or 1)
-                        elseif first_incumbent then
-                            state.max_ops = nil
-                        end
-                        state.work.incumbent_location = {grid_index = state.cursor.grid_index,
-                            candidate_index = state.cursor.candidate_index, ordering_index = state.cursor.order_index}
-                        state.work.no_improvement_attempts = 0
-                        removed_interim_publisher(state)
-                    elseif not state.work.discarded_flip_active then
-                        state.work.no_improvement_attempts = (state.work.no_improvement_attempts or 0) + 1
-                    end
-                    if not state.work.discarded_flip_active then
-                        state.work.validated_layouts = (state.work.validated_layouts or 0) + 1
-                    end
+                    record.chosen = true
+                    state.work.incumbent_record = record
+                    state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
+                        source_candidate = copy(state.work.candidate), validation = copy(state.work.validate.result)}
                     state.work.attempt_recorded = true
-                    if state.work.discarded_flip_active then
-                        state.work.discarded_flip_active = false
-                        state.work.candidate = nil
-                        if #(state.work.discarded_discarded_flip_count or {}) == 0 and not improves
-                            and (state.work.no_improvement_attempts or 0) >= NO_IMPROVEMENT_LIMIT then
-                            stop_no_improvement(state, "validated alternatives did not improve the incumbent")
-                        elseif #(state.work.discarded_discarded_flip_count or {}) == 0
-                            and (state.work.validated_layouts or 0) >= MAX_LAYOUTS then
-                            state.work.stop_reason = "max_layouts"
-                            record_search_bound(state, "max_layouts", "maximum validated layouts reached")
-                            begin_serialization(state)
-                        else
-                            prepare_candidate(state)
-                        end
-                    elseif not improves and flip_trial_stops_search(state) then
-                        stop_no_improvement(state, "validated alternatives did not improve the incumbent")
-                    elseif state.work.validated_layouts >= MAX_LAYOUTS and #(state.work.discarded_discarded_flip_count or {}) == 0 then
-                        state.work.stop_reason = "max_layouts"
-                        record_search_bound(state, "max_layouts", "maximum validated layouts reached")
-                        begin_serialization(state)
-                    else
-                        discard_candidate(state)
-                    end
+                    begin_serialization(state)
                 end
             end
         elseif state.phase == "serialize" then

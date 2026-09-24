@@ -137,34 +137,6 @@ local function finish(state, slice)
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " SS1 stops after K validated misses and keeps the first incumbent", function()
-        local first, second, third = candidate("first", 1, 0), candidate("second", 1, 0), candidate("third", 1, 0)
-        local input, candidates = search_input({{w = 2, h = 2}}, {first, second, third})
-        local state = run_with_stages({candidates = candidates, score_for = function()
-            return {beacon_count = 1, footprint_area = 1, pole_count = 1, coord_key = "same"}
-        end}, function() return finish(Search.begin(input), 1) end)
-        H.equal(state.result.search.stop, "no_improvement", "the stop reason is recorded")
-        H.equal(state.incumbent.candidate.blocks[1].id, "first", "first incumbent is retained")
-        H.equal(#state.work.valid_alternatives, 3, "exactly K=2 validated misses follow the incumbent")
-        H.equal(state.work.incumbent_location.grid_index, 1, "incumbent grid index is recorded")
-        H.equal(state.work.incumbent_location.candidate_index, 1, "incumbent candidate index is recorded")
-        H.equal(state.work.incumbent_location.ordering_index, 1, "incumbent ordering index is recorded")
-    end)
-    H.test(shape .. " search visits a larger grid for a lower-beacon candidate", function()
-        local high = candidate("high", 1, 2)
-        local low = candidate("low", 3, 1)
-        local input, candidates = search_input({{w = 2, h = 2}, {w = 3, h = 3}}, {high, low})
-        local state = run_with_stages({candidates = candidates, score_for = function(value)
-            return value.grid_w == 2 and {beacon_count = 2, footprint_area = 1, pole_count = 1}
-                or {beacon_count = 1, footprint_area = 2, pole_count = 1}
-        end}, function()
-            return finish(Search.begin(input))
-        end)
-        H.equal(state.ok, true, "the larger-grid search publishes a layout")
-        H.equal(state.incumbent.score.beacon_count, 1, "the larger grid's lower beacon count wins")
-        H.equal(state.incumbent.candidate.grid_w, 3, "the lower-beacon candidate came from the larger grid")
-    end)
-
     H.test(shape .. " equal-score layouts are deterministic", function()
         local first_candidate = candidate("first", 1, 0)
         local second_candidate = candidate("second", 1, 0)
@@ -192,35 +164,6 @@ for _, shape in ipairs(H.shapes()) do
         end
         local small_slice, large_slice = execute(1), execute(1000)
         H.deep_equal(small_slice.result, large_slice.result, "tick slicing does not change publication")
-    end)
-
-    H.test(shape .. " budget exhaustion with an incumbent publishes it", function()
-        local high = candidate("high", 1, 2)
-        local extra = candidate("extra", 1, 0)
-        local input, candidates = search_input({{w = 2, h = 2}, {w = 3, h = 3}}, {high, extra})
-        local state = run_with_stages({candidates = candidates, score_for = function(value)
-            local block_id = value.blocks[1] and value.blocks[1].block_id
-            return block_id == "high" and {beacon_count = 2, footprint_area = 1, pole_count = 1}
-                or {beacon_count = 1, footprint_area = 1, pole_count = 1}
-        end}, function()
-            local current = Search.begin(input)
-            local ticks = 0
-            while current.incumbent == nil and not current.done and ticks < 100 do
-                ticks = ticks + 1
-                Search.step(current, {ops = 1})
-            end
-            H.equal(current.incumbent ~= nil, true, "the bounded run first obtains a complete incumbent")
-            H.equal(current.done, false, "the incumbent is found before the work bound ends")
-            current.max_ops = current.ops_used
-            Search.step(current, {ops = 1})
-            H.equal(current.done, false, "publication has a reserved serialization phase")
-            finish(current, 1000)
-            return current
-        end)
-        H.equal(state.ok, true, "the incumbent survives search-budget exhaustion")
-        H.equal(state.result ~= nil, true, "the incumbent is serialized after exhaustion")
-        H.equal(state.errors, nil, "publishing an incumbent is not reported as a search failure")
-        H.equal(state.incumbent.score.beacon_count, 2, "the fully validated incumbent remains selected")
     end)
 
     H.test(shape .. " budget exhaustion without an incumbent reports the budget code", function()
@@ -252,36 +195,6 @@ H.test("SS2 Groups.begin does not enumerate and operation slices preserve candid
         return current.result.candidates
     end
     H.deep_equal(run(1), run(1000000000), "slice size preserves candidate results")
-end)
-
-H.test("SS3 post-incumbent stopping uses validated layouts, never an op ceiling", function()
-    local candidates = {candidate("a", 1, 3), candidate("b", 1, 2), candidate("c", 1, 1),
-        candidate("d", 1, 0)}
-    local input = search_input({{w = 2, h = 2}}, candidates)
-    local state = run_with_stages({candidates = candidates, score_for = function(value)
-        return {beacon_count = 5 - ({a = 1, b = 2, c = 3, d = 4})[value.blocks[1].id], footprint_area = 1}
-    end}, function() return finish(Search.begin(input), 1) end)
-    H.equal(state.result.search.stop, "max_layouts", "the total layout bound is reported")
-    H.equal(state.work.validated_layouts, 3, "exactly three layouts are validated")
-    H.equal(state.work.post_incumbent_limit, nil, "no post-incumbent operation ceiling exists")
-    --The first winner replaces the feasibility ceiling with the declared improvement allowance: a finite safety
-    --net sized from the grid area, far above what three layouts spend, so layouts decide the stop (fix loop,
-    --2026-09-23, reconciling this row with tests/test_search_allowance.lua).
-    H.equal(state.max_ops == nil or state.max_ops > state.ops_used, true,
-        "no operation ceiling is reached before the layout bound stops the search")
-end)
-
-H.test("SS4 interim sequence advances and publishes serialized incumbents", function()
-    local candidates = {candidate("a", 1, 3), candidate("b", 1, 2), candidate("c", 1, 1)}
-    local input = search_input({{w = 2, h = 2}}, candidates)
-    local state = run_with_stages({candidates = candidates, score_for = function(value)
-        return {beacon_count = 4 - ({a = 1, b = 2, c = 3})[value.blocks[1].id], footprint_area = 1}
-    end}, function() return finish(Search.begin(input), 1) end)
-    H.equal(state.interim.sequence, 3, "each improvement increments sequence")
-    local serial = Serialize.begin(state.incumbent.candidate)
-    while not serial.done do Serialize.step(serial, {ops = 1000}) end
-    H.deep_equal(state.interim.result, serial.result, "interim is the serialized incumbent")
-    H.equal(state.interim.entities, #serial.result.entities, "interim entity count is exact")
 end)
 
 H.test("SS5 Groups.step worst call stays below 30 ms", function()

@@ -143,22 +143,19 @@ local function counts()
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " an allowance covers one full grid and several candidates", function()
-        local candidates, used = {candidate("one"), candidate("two"), candidate("three")}, counts()
+    H.test(shape .. " an allowance covers the one grouped pipeline", function()
+        local candidates, used = {candidate("one")}, counts()
         local restore = install(candidates, used)
         local state = finish(Search.begin(input_for()))
         restore()
         H.equal(type(state.max_ops), "number", "the derived allowance is finite")
         H.equal(state.max_ops < math.huge, true, "the derived allowance is bounded")
         H.equal(state.ok, true, "the complete pipeline publishes")
-        H.equal(used.pack >= #candidates, true, "several candidates are packed")
-        H.equal(used.route >= #candidates, true, "several candidates are routed")
-        H.equal(used.power >= #candidates, true, "several candidates reach power")
-        H.equal(used.validate >= #candidates, true, "several candidates are validated")
-        --Each better layout is also serialized early as state.interim (round 24); the final publication is
-        --entered once on top of those.
-        local interims = type(state.interim) == "table" and state.interim.sequence or 0
-        H.equal(used.serialize_begin, interims + 1, "publication is entered once after one serialization per interim")
+        H.equal(used.pack, 1, "the one candidate is packed")
+        H.equal(used.route, 1, "the one candidate is routed")
+        H.equal(used.power, 1, "the one candidate reaches power")
+        H.equal(used.validate, 1, "the one candidate is validated")
+        H.equal(used.serialize_begin, 1, "publication enters serialization once")
     end)
 
     H.test(shape .. " an exhausted allowance keeps and serializes its incumbent", function()

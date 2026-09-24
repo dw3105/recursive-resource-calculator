@@ -61,9 +61,17 @@ end
 
 --Move each hand the route kept a slide for, with its port tile and pickup/drop points.
 function Hands.place(materialized, route_result)
+    local function inserters()
+        local result = {}
+        for _, entity in ipairs(materialized.entities or {}) do
+            if entity.kind == "inserter" or entity.type == "inserter"
+                or tostring(entity.name or ""):find("inserter", 1, true) then result[#result + 1] = entity end
+        end
+        return result
+    end
     local by_port = {}
     for _, slide in ipairs(route_result and route_result.port_slides or {}) do by_port[tostring(slide.port_id)] = slide end
-    if next(by_port) == nil then return {} end
+    if next(by_port) == nil then return inserters() end
     local by_id = {}
     for _, entity in ipairs(materialized.entities or {}) do by_id[tostring(entity.id)] = entity end
     local ports = every_port_copy(materialized)
@@ -96,42 +104,66 @@ function Hands.place(materialized, route_result)
             end
         end
     end
-    local hands = {}
-    for _, entity in ipairs(materialized.entities or {}) do
-        if entity.kind == "inserter" or entity.type == "inserter" or tostring(entity.name or ""):find("inserter", 1, true) then hands[#hands + 1] = entity end
-    end
-    return hands
+    return inserters()
 end
 
 
 function Hands.free_cell(materialized, x, y)
-    local hands, ports = materialized.entities or {}, materialized.ports or {}
-    for _, hand in ipairs(hands) do
+    local entities, ports = materialized.entities or {}, materialized.ports or {}
+    local by_id = {}
+    for _, entity in ipairs(entities) do by_id[tostring(entity.id)] = entity end
+    local function same_run(px, py, port)
+        px, py = math.floor(px or -999), math.floor(py or -999)
+        for _, block in ipairs(materialized.blocks or {}) do
+            for _, run in ipairs(block.belt_runs or {}) do
+                local belongs = false
+                for _, tile in ipairs(run.tiles or {}) do
+                    if tile.x == px and tile.y == py then belongs = true; break end
+                end
+                if belongs and (not port.flow_id or not run.flows or #run.flows == 0) then return true end
+                if belongs then for _, flow in ipairs(run.flows or {}) do
+                    if flow == port.flow_id then return true end
+                end end
+            end
+        end
+        return false
+    end
+    for _, hand in ipairs(entities) do
         if hand.x == x and hand.y == y then
-            for _, port in ipairs(ports) do
-                if tostring(port.inserter_id) == tostring(hand.id):gsub("^m:", "") then
-                    local machine
-                    for _, e in ipairs(hands) do if tostring(e.id)==tostring(hand.machine_id) then machine=e end end
-                    if not machine then return false end
-                    local dx,dy=port.x-hand.x,port.y-hand.y
-                    local steps=dx~=0 and {{0,-1},{0,1}} or {{-1,0},{1,0}}
-                    for _,d in ipairs(steps) do
-                        local nx,ny=x+d[1],y+d[2]
-                        local occupied=false
-                        for _,e in ipairs(hands) do if e~=hand and e.x==nx and e.y==ny then occupied=true end end
-                        local pickup=hand.pickup_position or {}; local drop=hand.drop_position or {}
-                        if not occupied and pickup.x and drop.x then
-                            local shiftx,shifty=nx-x,ny-y
-                            hand.x,hand.y=nx,ny; hand.position={x=nx+0.5,y=ny+0.5}
-                            hand.pickup_position={x=pickup.x+shiftx,y=pickup.y+shifty}; hand.drop_position={x=drop.x+shiftx,y=drop.y+shifty}
-                            port.x=port.x+shiftx; port.y=port.y+shifty
-                            return true
-                        end
-                    end
+            local port
+            for _, value in ipairs(ports) do
+                if tostring(value.inserter_id) == tostring(hand.id):gsub("^m:", "") then port = value; break end
+            end
+            local machine = port and by_id[tostring(hand.machine_id)]
+            if not port or not machine then return false end
+            local nx, ny = port.x - hand.x, port.y - hand.y
+            if math.abs(nx) + math.abs(ny) ~= 1 then return false end
+            local pickup, drop = hand.pickup_position or {}, hand.drop_position or {}
+            local steps = nx ~= 0 and {{0, -1}, {0, 1}} or {{-1, 0}, {1, 0}}
+            for _, delta in ipairs(steps) do
+                local tx, ty = x + delta[1], y + delta[2]
+                local occupied = false
+                for _, entity in ipairs(entities) do
+                    if entity ~= hand and tx >= (entity.x or math.huge) and tx < (entity.x or 0) + finite(entity.w, 1)
+                        and ty >= (entity.y or math.huge) and ty < (entity.y or 0) + finite(entity.h, 1) then occupied = true end
+                end
+                local dx, dy = tx - x, ty - y
+                local new_pickup = {x = (pickup.x or -999) + dx, y = (pickup.y or -999) + dy}
+                local new_drop = {x = (drop.x or -999) + dx, y = (drop.y or -999) + dy}
+                local drop_inside = new_drop.x >= machine.x and new_drop.x < machine.x + finite(machine.w, 1)
+                    and new_drop.y >= machine.y and new_drop.y < machine.y + finite(machine.h, 1)
+                if not occupied and same_run(new_pickup.x, new_pickup.y, port) and drop_inside then
+                    hand.x, hand.y = tx, ty
+                    hand.position = {x = tx + 0.5, y = ty + 0.5}
+                    if pickup.x then hand.pickup_position = new_pickup end
+                    if drop.x then hand.drop_position = new_drop end
+                    port.x, port.y = port.x + dx, port.y + dy
+                    return true
                 end
             end
         end
     end
     return false
 end
+
 return Hands
