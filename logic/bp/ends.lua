@@ -8,7 +8,7 @@ local function kind(e)
     local n = tostring(e.name or e.kind or e.type or "")
     if n:find("splitter", 1, true) then return "splitter" end
     if n:find("underground", 1, true) or e.ug_role then return "underground" end
-    if n:find("transport%-belt") or n == "belt" then return "belt" end
+    if n:find("transport-belt", 1, true) or n == "belt" then return "belt" end
 end
 local function tile(e)
     local x, y = e.x, e.y
@@ -69,7 +69,8 @@ function Ends.turn_heads(route_result)
         if kind(e)=="belt" and not e.ug_role then
             local d=direction(e); local x,y=tile(e); local need=flows(e)
             if d ~= nil and x ~= nil and tile_accepts(entities,x+DX[d],y+DY[d],d,need) then
-                local candidates={(d+4)%16,(d+12)%16}
+                -- Grid directions increase clockwise (north, east, south, west).
+                local candidates={(d+12)%16,(d+4)%16}
                 for _, h in ipairs(candidates) do
                     local fx,fy=x+DX[h],y+DY[h]
                     local bad=tile_accepts(entities,fx,fy,h,need)
@@ -77,13 +78,13 @@ function Ends.turn_heads(route_result)
                         -- Preserve all current feeders, and do not create a new foreign side feed.
                         for _, f in ipairs(entities) do
                             local fk=kind(f)
-                            if f ~= e and fronts(f,d,x,y) then
+                            if f ~= e and fronts(f,direction(f),x,y) then
                                 local fx,fy=tile(f)
                                 -- A feeder may not sit immediately in front of the rotated belt and point
                                 -- into its head; it would be a head-on feed after the turn.
                                 if fx == x+DX[h] and fy == y+DY[h] then bad=true; break end
                             end
-                            if f ~= e and fk and fronts(f,h,x,y) and not includes(flows(f),need) then bad=true; break end
+                            if f ~= e and fk and fronts(f,direction(f),x,y) and not includes(flows(f),need) then bad=true; break end
                         end
                     end
                     if not bad then
