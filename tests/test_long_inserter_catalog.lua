@@ -11,7 +11,7 @@ local function candidate(mode)
         entities[#entities + 1] = {id=id, kind="belt", name="transport-belt", x=x, y=y, w=1, h=1, dir=dir, flow_ids=flow_ids}
     end
     for x=0,11 do belt("run-"..x, 10+x, 10, Grid.EAST) end
-    if mode == "long" or mode == "plain" then
+    if mode == "long" or mode == "plain" or mode == "long_nofacts" then
         for _, x in ipairs({12, 15, 18, 21}) do
             -- The hand must reach this far input belt; its near belt tile is deliberately absent.
             belt("far-"..x, x, 9, Grid.EAST, {RowFixture.COPPER, RowFixture.GEAR})
@@ -38,8 +38,8 @@ local function candidate(mode)
         end
     end
     for _, hand in ipairs(row.inserters) do
-        if (mode == "long" or mode == "plain") and hand.role == "input" then
-            hand.name = mode == "long" and "long-handed-inserter" or "inserter"
+        if (mode == "long" or mode == "plain" or mode == "long_nofacts") and hand.role == "input" then
+            hand.name = mode == "plain" and "inserter" or "long-handed-inserter"
         end
         entities[#entities + 1] = hand
     end
@@ -77,6 +77,9 @@ local function geometry_errors(state)
 end
 H.test("LI1 long inserter reads a belt two tiles out and drops two tiles in", function()
     H.equal(#geometry_errors(candidate("long")), 0, "captured long reach resolves both endpoints")
+end)
+H.test("LI1b with no captured long facts a long-handed hand reaches twice the plain hand", function()
+    H.equal(#geometry_errors(candidate("long_nofacts")), 0, "doubled plain reach resolves both endpoints")
 end)
 H.test("LI2 the same far transfer fails when its entity is treated as a plain inserter", function()
     H.equal(#geometry_errors(candidate("plain")) > 0, true, "plain reach cannot reach far belt")

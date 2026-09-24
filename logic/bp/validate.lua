@@ -1356,7 +1356,16 @@ local function transfer_cells(info, work)
     local inserter = info.spec or {}
     local catalog = work and work.catalog or {}
     local family = catalog.inserter or {}
-    if catalog.long_inserter and entity.name == catalog.long_inserter.name then family = catalog.long_inserter end
+    if catalog.long_inserter and entity.name == catalog.long_inserter.name then family = catalog.long_inserter
+    elseif not catalog.long_inserter and (entity.long == true or entity.name == "long-handed-inserter") then
+        --No captured long-hand facts (an older capture): the long hand reaches twice as far as the plain one, the
+        --same fallback groups.lua uses (docs/contracts/row_block.md §Far belt).
+        local function doubled(offset)
+            return offset and {x = (finite(offset.x) or 0) * 2, y = (finite(offset.y) or 0) * 2} or nil
+        end
+        family = {pickup_offset = doubled(family.pickup_offset),
+            drop_offset = doubled(family.drop_offset or family.drop_position)}
+    end
     local pickup_offset = inserter.pickup_offset or family.pickup_offset
     local drop_offset = inserter.drop_offset or inserter.drop_position or family.drop_offset or family.drop_position
     local pickup_x, pickup_y, drop_x, drop_y
