@@ -1196,7 +1196,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
     --A row starts flush at x=0 so it is mirror-symmetric about its machines' centre line: its head sits one tile
-    --before the first pickup and its output port one tile past the run's end, so Groups.reverse_run can flip either
+    --before the first pickup and its output port one tile past the run's end, so legacy run reversal could flip either
     --run and every port still lands on the block boundary (docs/contracts/row_block.md §Reversal).
     local machine_x0 = row_layout and 0 or (face_layout and 1 or 0)
     for _, row in ipairs(beacon_row_specs) do

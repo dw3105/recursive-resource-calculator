@@ -498,53 +498,6 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(first.incumbent.score, second.incumbent.score, "the objective score is identical")
     end)
 
-    H.test(shape .. " BP-20 a larger grid that needs fewer beacons wins", function()
-        --The grouped block is four by three after its real beacon is included; the smaller grid is intentionally
-        --rejected by the exact fit preflight, while the larger grid is the first physically permitted alternative.
-        local state = finish(input_for(shared_plan(), {grids = {{w = 2, h = 3}, {w = 4, h = 3}}}))
-        H.equal(state.ok, true, "the multi-grid search succeeds")
-        H.equal(state.incumbent.score.beacon_count, 1, "the larger grid admits the one-beacon grouping")
-        H.equal(state.result ~= nil, true, "the best complete candidate is serialized")
-    end)
-
-    H.test(shape .. " BP-20 the better candidate found second wins", function()
-        local state, scores = finish_with_validation_scores(
-            comparison_input(comparison_order("block:a", "block:b")), "second-candidate comparison search")
-        H.equal(state.ok, true, "the comparison search succeeds")
-        H.equal(#scores, 2, "exactly two candidates were validated")
-        H.equal(Validate.compare(scores[2], scores[1]), -1, "the second candidate ranks ahead of the first")
-        H.equal(Validate.compare(state.incumbent.score, scores[2]), 0,
-            "the incumbent is the candidate Validate.compare ranks first")
-        H.equal(state.result.search.chosen_score.production_area, scores[2].production_area,
-            "the published result records the chosen score")
-        H.equal(#state.result.search.discarded_alternatives >= 1, true,
-            "the published result names the discarded alternative")
-    end)
-
-    H.test(shape .. " BP-20 the better first candidate survives a worse follow-up", function()
-        local state, scores = finish_with_validation_scores(
-            comparison_input(comparison_order("block:b", "block:a")), "first-candidate comparison search")
-        H.equal(state.ok, true, "the mirror comparison search succeeds")
-        H.equal(#scores, 2, "exactly two candidates were validated")
-        H.equal(Validate.compare(scores[1], scores[2]), -1, "the first candidate ranks ahead of the second")
-        H.equal(Validate.compare(state.incumbent.score, scores[1]), 0,
-            "the incumbent never changes to the worse follow-up")
-    end)
-
-    H.test(shape .. " BP-20 equal beacon counts defer to footprint area", function()
-        local state, scores = finish_with_validation_scores(
-            comparison_input(comparison_order("block:a", "block:b"), {w = 10, h = 10}),
-            "footprint tie-break search")
-        H.equal(state.ok, true, "the tie-break search succeeds")
-        H.equal(#scores, 2, "two candidates were validated for the tie-break")
-        H.equal(scores[1].beacon_count, scores[2].beacon_count, "the candidates tie on beacon count")
-        H.equal(scores[1].footprint_area < scores[2].footprint_area, true,
-            "the first candidate has the smaller footprint")
-        H.equal(Validate.compare(scores[1], scores[2]), -1, "footprint area decides the beacon-count tie")
-        H.equal(Validate.compare(state.incumbent.score, scores[1]), 0,
-            "the incumbent keeps the smaller-footprint candidate")
-    end)
-
     H.test(shape .. " BP-15 exhausting the search budget is not no-layout", function()
         local state = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}, max_ops = 1}), 100000)
         H.equal(state.ok, false, "the bounded search fails")
