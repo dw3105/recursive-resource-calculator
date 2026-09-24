@@ -628,7 +628,7 @@ local function row_hand_groups(step, flows)
     for _, port in ipairs(step.inputs or {}) do
         if not flow_is_fluid(port, flows) then inputs[#inputs + 1] = port end
     end
-    if #inputs > 6 then return nil end
+    if #inputs > 3 then return nil end
     if #inputs > 0 then
         --Three or more inputs: the plain hand reads the near belt, which carries the first two flows in flow-id
         --order; the rest ride far belts read by long hands (docs/contracts/row_block.md §Far belt).
@@ -1049,17 +1049,16 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, step in ipairs(steps) do machine_total = machine_total + step.machine_count end
     local face_layout = face_per_flow and has_item_port and machine_total <= 2
     local logical_face_layout = face_per_flow and has_item_port
-    local row_layout, too_many_row_inputs = machine_total >= 2, false
+    --A row takes at most three item inputs: two on the near belt, one on a far belt read by long hands.
+    --Four or more stay unsupported, as before round 29: a far belt with two side-fed flows lost one of them in
+    --route (tests/golden/long_hand_probe.lua 2, 2026-09-24), and single-machine blocks run out of faces.
+    local row_layout = machine_total >= 2
     for _, step in ipairs(steps) do
         if item_port_count(step, "outputs", flows) > 1 then row_layout = false end
-        if item_port_count(step, "inputs", flows) > 6 then too_many_row_inputs = true; row_layout = false end
+        if item_port_count(step, "inputs", flows) > 3 then row_layout = false end
     end
     --A row is one horizontal line of touching machines; the one/two machine vertical face stack never applies.
     if row_layout then face_layout = false end
-    if machine_total >= 2 and too_many_row_inputs then
-        block.failure = {code = "BP_P_NO_FIT", name = "row-inputs"}
-        return block
-    end
     local machine_specs = {}
     local machine_specs_by_id = {}
     local machines_by_id = {}
@@ -1772,10 +1771,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for _, p in ipairs(steps[1].inputs or {}) do if not flow_is_fluid(p, flows) then flows_in[#flows_in+1] = p.flow_id or p.full_name end end
         for _, p in ipairs(steps[1].outputs or {}) do if not flow_is_fluid(p, flows) then flows_out[#flows_out+1] = p.flow_id or p.full_name end end
         table.sort(flows_in); table.sort(flows_out)
-        --Near belt: the first two input flows. Far belts: flows 3-4 above the near belt, 5-6 below the output belt.
-        local far_in, far_out = {}, {}
-        for i = 3, math.min(4, #flows_in) do far_in[#far_in + 1] = flows_in[i] end
-        for i = 5, math.min(6, #flows_in) do far_out[#far_out + 1] = flows_in[i] end
+        --Near belt: the first two input flows. Far belt above the near belt: the third.
+        local far_in = {}
+        if flows_in[3] then far_in[1] = flows_in[3] end
         if #flows_in > 2 then flows_in = {flows_in[1], flows_in[2]} end
         local pickup_y, drop_y = machine_y - 2, machine_y + max_machine_h + 1
         local first_x = block.machines[1].x + math.floor(block.machines[1].w / 2)
@@ -1881,7 +1879,6 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             far_w = math.max(far_w, head_x + 2)
         end
         add_far(far_in, true)
-        add_far(far_out, false)
         --A far belt head right of the row widens the block; the output run must still end on the block edge
         --(its port lies on the boundary, attach_dx == w).
         if far_w > row_w then
@@ -1893,7 +1890,6 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             end
             row_w = far_w
         end
-        if #far_out > 0 then block.h = math.max(block.h, drop_y + 3) end
         block.row.machines = #block.machines
         block.row.first_x, block.row.last_x = first_x, last_x
         block.w = math.max(row_w, far_w); block.h = math.max(block.h,drop_y+1)
@@ -2077,9 +2073,10 @@ local function make_candidates_once(input)
         end
         local distinct = 0
         for _ in pairs(item_flows) do distinct = distinct + 1 end
-        local item_outputs = 0
+        local item_inputs, item_outputs = 0, 0
+        for _, p in ipairs(step.inputs or {}) do if not flow_is_fluid(p, flows) then item_inputs = item_inputs + 1 end end
         for _, p in ipairs(step.outputs or {}) do if not flow_is_fluid(p, flows) then item_outputs = item_outputs + 1 end end
-        local row_possible = item_outputs <= 1
+        local row_possible = item_outputs <= 1 and item_inputs <= 3
         if distinct > 2 and step.machine_count > 1 and not row_possible then
             for ordinal = 1, step.machine_count do
                 local fragment = copy(step)

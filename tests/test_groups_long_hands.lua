@@ -51,14 +51,14 @@ H.test("3 inputs: near belt 2 flows, far belt 1 flow, long hands reach it, nothi
  no_overlap(b)
  local placed=Groups.materialize(b,{x=0,y=0,dir=G.EAST}); H.equal(#placed.belt_runs,#b.belt_runs,"materializes far run")
 end)
-H.test("4 inputs: far belt split by side feeds; 5 inputs: far belt under output belt; 7 fail; fallback names",function()
- local b4=run(4,true).blocks[1]; local far=far_runs(b4); H.equal(#far,1,"one far run"); H.deep_equal(far[1].flows,{"i3","i4"},"far flows"); H.equal(#far[1].feeds,2,"two side feeds")
- no_overlap(b4)
- local b5=run(5,false).blocks[1]; far=far_runs(b5); H.equal(#far,2,"two far runs")
- local below; for _,r in ipairs(far) do if r.tiles[1].y>b5.machines[1].y then below=r end end
- H.equal(below~=nil and below.role=="in",true,"far input run below the row"); H.deep_equal(below.flows,{"i5"},"below flows"); H.equal(check_long(b5,below),3,"bottom long hands")
- no_overlap(b5)
- for _,h in ipairs(b5.inserters) do if h.long then H.equal(h.name,"long-handed-inserter","fallback name"); H.equal(h.pickup_offset.y,2,"fallback pickup"); H.equal(h.drop_offset.y,-2,"fallback drop") end end
- local seven,failures=run(7,false); H.equal(seven,nil,"no candidate for row input limit"); H.equal(failures[1].code,"BP_P_NO_FIT","failure code"); H.equal(failures[1].name,"row-inputs","failure name")
+H.test("4+ inputs: never a row with far belts (unsupported, as before round 29); fallback long-hand facts at 3", function()
+ for _,n in ipairs({4,5}) do
+  local c=run(n,true)
+  for _,b in ipairs(c and c.blocks or {}) do H.equal(#far_runs(b),0,n.." inputs: no far belt") end
+ end
+ local b3=run(3,false).blocks[1]
+ local found=false
+ for _,h in ipairs(b3.inserters) do if h.long then found=true; H.equal(h.name,"long-handed-inserter","fallback name"); H.equal(h.pickup_offset.y,2,"fallback pickup"); H.equal(h.drop_offset.y,-2,"fallback drop") end end
+ H.equal(found,true,"3 inputs: long hands with fallback facts")
 end)
 H.done("test_groups_long_hands")
