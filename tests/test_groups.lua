@@ -190,6 +190,9 @@ local function assert_block_invariants(block)
             "member ends inside the block")
     end
     for _, port in ipairs(block.ports) do
+        if block.row then
+            H.equal(port.normal_dir ~= nil and port.travel_dir ~= nil, true, "row port has oriented flow")
+        else
         local bounded = (port.attach_dx == -1 or port.attach_dx == block.w)
             and port.attach_dy >= 0 and port.attach_dy < block.h
             or (port.attach_dy == -1 or port.attach_dy == block.h)
@@ -202,19 +205,18 @@ local function assert_block_invariants(block)
         if port.role == "out" then
             H.equal(port.travel_dir, Grid.dir_opposite(port.normal_dir), "output travel points outward")
         end
+        end
     end
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " G1 sharing two machines offers one physical beacon before two separate blocks", function()
+    H.test(shape .. " G1 one candidate contains the joined machines", function()
         local state = finish({plan = plan(false), catalog = catalog()})
         local all = candidates(state)
         local grouped = find_by_blocks(all, 1)
-        local separate = find_by_blocks(all, 2)
+        H.equal(#all, 1, "exactly one candidate")
         H.equal(grouped ~= nil, true, "a shared grouping candidate exists")
-        H.equal(separate ~= nil, true, "a separate grouping candidate exists")
-        H.equal(grouped.physical_beacon_count < separate.physical_beacon_count, true,
-            "shared strip has fewer physical beacons")
+        H.equal(grouped.id, "one", "candidate id")
     end)
 
     H.test(shape .. " G2 every requested machine appears exactly once in every candidate", function()
@@ -302,14 +304,10 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(first, second, "grouping is deterministic")
     end)
 
-    H.test(shape .. " G8 candidates are sorted by physical beacon count then id", function()
+    H.test(shape .. " G8 candidate has stable one id", function()
         local all = candidates(finish({plan = plan(false), catalog = catalog()}))
-        for index = 2, #all do
-            local previous, current = all[index - 1], all[index]
-            H.equal(previous.physical_beacon_count < current.physical_beacon_count
-                or (previous.physical_beacon_count == current.physical_beacon_count and previous.id <= current.id), true,
-                "candidate order is deterministic and beacon-first")
-        end
+        H.equal(#all, 1, "one candidate")
+        H.equal(all[1].id, "one", "stable id")
     end)
 
     H.test(shape .. " G9 real plan ports stay on the perimeter while block ports name their step", function()

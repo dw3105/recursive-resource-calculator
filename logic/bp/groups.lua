@@ -265,6 +265,8 @@ local function step_can_join(a, b)
     -- A physical block has one recipe and one machine setup.  Buffer sharing is permitted only
     -- between machines of that exact pair, so distinct steps cannot share a block across either.
     if a.recipe ~= b.recipe or a.machine ~= b.machine then return false end
+    -- Older plan fixtures may omit recipe; without a recipe identity those distinct steps cannot safely share.
+    if a.recipe == nil and a.step_id ~= b.step_id then return false end
     if a.forbids_speed_beacon ~= b.forbids_speed_beacon then return false end
     if a.interface_signature ~= nil and b.interface_signature ~= nil
         and tostring(a.interface_signature) ~= tostring(b.interface_signature) then
@@ -282,6 +284,12 @@ local function step_can_join(a, b)
         if a_signatures[key] ~= b_signatures[key] then return false end
     end
     return true
+end
+
+local function item_port_count(step, role, flows)
+    local n = 0
+    for _, p in ipairs(step[role] or {}) do if not flow_is_fluid(p, flows) then n = n + 1 end end
+    return n
 end
 
 local function member_id(kind, step_id, number, role)
@@ -514,10 +522,7 @@ local function forced_multi_flow_hands(input)
 end
 
 local multi_flow_hands = Flags.multi_flow_hands
---Round 26: while true, a step of two or more same-recipe machines is built as one row block
---(docs/contracts/row_block.md). make_candidates runs once with rows and once without, so a sheet the row
---layout cannot route still gets every candidate it had before rows.
-local rows_enabled = false
+--Rows are the single physical form for eligible machine groups (docs/contracts/row_block.md).
 
 local function flow_entry_rate(entry)
     return math.max(0, finite(entry and entry.share_per_second,
@@ -623,8 +628,10 @@ local function row_hand_groups(step, flows)
     for _, port in ipairs(step.inputs or {}) do
         if not flow_is_fluid(port, flows) then inputs[#inputs + 1] = port end
     end
-    if #inputs > 2 then return nil end
-    if #inputs > 0 then groups[#groups + 1] = hand_group("input", inputs, machine_count) end
+    if #inputs > 6 then return nil end
+    if #inputs > 0 then
+        groups[#groups + 1] = hand_group("input", #inputs <= 2 and inputs or {inputs[1]}, machine_count)
+    end
     local outs = 0
     for _, port in ipairs(step.outputs or {}) do
         if not flow_is_fluid(port, flows) then
@@ -632,7 +639,7 @@ local function row_hand_groups(step, flows)
             groups[#groups + 1] = hand_group("output", {port}, machine_count)
         end
     end
-    if outs > 1 or #groups == 0 then return nil end
+    if outs > 1 then return nil end
     return groups
 end
 
@@ -1039,12 +1046,17 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, step in ipairs(steps) do machine_total = machine_total + step.machine_count end
     local face_layout = face_per_flow and has_item_port and machine_total <= 2
     local logical_face_layout = face_per_flow and has_item_port
-    local row_layout = false
-    if rows_enabled and machine_total >= 2 and #steps == 1 then
-        row_layout = row_hand_groups(steps[1], flows) ~= nil
+    local row_layout, too_many_row_inputs = machine_total >= 2, false
+    for _, step in ipairs(steps) do
+        if item_port_count(step, "outputs", flows) > 1 then row_layout = false end
+        if item_port_count(step, "inputs", flows) > 6 then too_many_row_inputs = true; row_layout = false end
     end
     --A row is one horizontal line of touching machines; the one/two machine vertical face stack never applies.
     if row_layout then face_layout = false end
+    if machine_total >= 2 and too_many_row_inputs then
+        block.failure = {code = "BP_P_NO_FIT", name = "row-inputs"}
+        return block
+    end
     local machine_specs = {}
     local machine_specs_by_id = {}
     local machines_by_id = {}
@@ -1141,7 +1153,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --candidates reaching validate. The inset is owed to every block that puts a hand on a face, not only
     --to the one and two machine cases that face_layout covers.
     if (face_layout or logical_face_layout) and beacon_rows_h == 0 then machine_y = 1 end
-    if row_layout and beacon_rows_h == 0 then machine_y = 2 end
+    if row_layout and beacon_rows_h == 0 then
+        machine_y = item_port_count(steps[1], "inputs", flows) >= 3
+            and item_port_count(steps[1], "inputs", flows) <= 4 and 4 or 2
+    end
     if beacon_rows_h > 0 then
         -- Keep the established spacer when the collision box still reaches the row, but remove it when the
         -- actual y extent would leave a gap.  This is deliberately a world-box test, not a centre comparison.
@@ -1792,6 +1807,42 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             {role="in",flows=flows_in,tiles=tiles_in,dir=EAST,head={x=first_x-1,y=pickup_y},feeds=feeds,hand_ids=(function() local a={} for _,h in ipairs(in_hands) do a[#a+1]=h.id end return a end)()},
             {role="out",flows=flows_out,tiles=tiles_out,dir=EAST,port={x=row_w,y=drop_y,travel_dir=EAST},hand_ids=(function() local a={} for _,h in ipairs(out_hands) do a[#a+1]=h.id end return a end)()},
         }
+        local input_count = #flows_in
+        if input_count >= 3 then
+            local far_input = input_count <= 4
+            local far_y = far_input and pickup_y - 2 or drop_y + 2
+            local far_tiles = {}
+            for x = first_x - 1, last_x + 1 do far_tiles[#far_tiles + 1] = {x=x,y=far_y} end
+            local far_feeds = {}
+            if far_input then
+                for _, feed in ipairs(feeds) do
+                    far_feeds[#far_feeds + 1] = {flow_id=feed.flow_id,
+                        side_tile={x=feed.side_tile.x,y=feed.side_tile.y-2},travel_dir=feed.travel_dir}
+                end
+            end
+            local long_facts = catalog and catalog.long_inserter or {}
+            local long_name = long_facts.name or "long-handed-inserter"
+            block.belt_runs[#block.belt_runs + 1] = {role=far_input and "in" or "out",flows=far_input and flows_in or flows_out,tiles=far_tiles,dir=EAST,
+                head={x=first_x-1,y=far_y},feeds=far_feeds,far=true,hand_ids={}}
+            for index, machine in ipairs(block.machines) do
+                local hx = machine.x + math.min(machine.w - 1, math.floor((machine.w - 1) / 2) + 1)
+                local hy = far_input and machine.y - 2 or machine.y + machine.h + 1
+                local hid = member_id("inserter", machine.step_id, index, "input:long")
+                local pickup = {x=hx+0.5,y=far_y+0.5}
+                local drop = far_input and {x=hx+0.5,y=machine.y+0.5} or {x=hx+0.5,y=machine.y+machine.h-0.5}
+                local hand = {id=hid,kind="inserter",type="inserter",name=long_name,step_id=machine.step_id,
+                    machine_id=machine.id,role="input",long=true,flow_ids=list_copy(flows_in),
+                    port_id="row:in:"..tostring(flows_in[math.min(3,#flows_in)]),
+                    x=hx,y=hy,w=1,h=1,dir=far_input and SOUTH or NORTH,pickup_position=pickup,drop_position=drop,
+                    pickup_offset=point(long_facts.pickup_offset) or {x=0,y=2},
+                    drop_offset=point(long_facts.drop_offset) or {x=0,y=-2},
+                    port_bound=true,hand_ids={},flow_entries={}}
+                block.inserters[#block.inserters+1] = hand
+                block.belt_runs[#block.belt_runs].hand_ids[#block.belt_runs[#block.belt_runs].hand_ids+1] = hid
+            end
+            block.h = math.max(block.h, far_y + 1)
+            block.w = math.max(block.w, row_w)
+        end
         block.row.machines = #block.machines
         block.row.first_x, block.row.last_x = first_x, last_x
         block.w = row_w; block.h = math.max(block.h,drop_y+1)
@@ -1854,7 +1905,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         if step then
             block.buffer_zones[#block.buffer_zones + 1] = {
                 x = machine.x, y = machine.y, w = machine.w, h = machine.h,
-                ring = Buffer.ring(catalog, step.recipe),
+                ring = Buffer.ring(catalog, step.recipe) + math.max(0, math.floor(finite(input and input.ring_bump, 0))),
                 key = Buffer.key(machine.name, step.recipe),
             }
         end
@@ -1872,44 +1923,6 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
     end
     return block
-end
-
-local function partition_specs(steps, limit)
-    local result, buckets = {}, {}
-    local function emit()
-        local groups = {}
-        for index, bucket in ipairs(buckets) do
-            local ids = {}
-            for _, step in ipairs(bucket) do
-                ids[#ids + 1] = tostring(step.step_id)
-                    .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal)) or "")
-            end
-            groups[#groups + 1] = {steps = list_copy(bucket), id = table.concat(ids, "+"), ordinal = index}
-        end
-        result[#result + 1] = groups
-    end
-    local function visit(index)
-        if #result >= limit then return end
-        if index > #steps then emit() return end
-        local step = steps[index]
-        for bucket_index = 1, #buckets do
-            local bucket = buckets[bucket_index]
-            local allowed = true
-            for _, other in ipairs(bucket) do
-                if not step_can_join(step, other) then allowed = false break end
-            end
-            if allowed then
-                bucket[#bucket + 1] = step
-                visit(index + 1)
-                bucket[#bucket] = nil
-            end
-        end
-        buckets[#buckets + 1] = {step}
-        visit(index + 1)
-        buckets[#buckets] = nil
-    end
-    visit(1)
-    return result
 end
 
 local function relevant_ports(block_steps, ports, flows)
@@ -1995,7 +2008,7 @@ local function make_candidates_once(input)
     if forced ~= nil then multi_flow_hands = forced == true and forced_multi_flow_hands(input) end
     -- Row blocks own the two-lane belt contract, so eligible grouped steps must construct paired hands even
     -- while the legacy multi-flow switch remains off for all other layouts.
-    if forced == nil and rows_enabled then multi_flow_hands = true end
+    if forced == nil then multi_flow_hands = true end
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
     -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a
@@ -2013,10 +2026,9 @@ local function make_candidates_once(input)
         end
         local distinct = 0
         for _ in pairs(item_flows) do distinct = distinct + 1 end
-        local item_inputs, item_outputs = 0, 0
-        for _, p in ipairs(step.inputs or {}) do if not flow_is_fluid(p, flows) then item_inputs = item_inputs + 1 end end
+        local item_outputs = 0
         for _, p in ipairs(step.outputs or {}) do if not flow_is_fluid(p, flows) then item_outputs = item_outputs + 1 end end
-        local row_possible = rows_enabled and multi_flow_hands and item_inputs <= 2 and item_outputs <= 1
+        local row_possible = item_outputs <= 1
         if distinct > 2 and step.machine_count > 1 and not row_possible then
             for ordinal = 1, step.machine_count do
                 local fragment = copy(step)
@@ -2032,80 +2044,37 @@ local function make_candidates_once(input)
             layout_steps[#layout_steps + 1] = physical
         end
     end
-    local limits = input and input.limits or {}
-    local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
-    local specs = partition_specs(layout_steps, max_candidates * 2)
-    local candidates, failures = {}, {}
-    local seen = {}
-    for _, spec in ipairs(specs) do
-        local blocks = {}
-        local valid = true
-        for _, group in ipairs(spec) do
-            local block_id = "block:" .. group.id
-            local block = build_block(group.steps, catalog, relevant_ports(group.steps, ports, flows), flows, input, block_id)
-            if block.invalid_coverage or block.failure then
-                valid = false
-                failures[#failures + 1] = block.failure or {
-                    name = "beacon-split", code = "BP_P_NO_FIT", detail = "configured beacon coverage cannot be split",
-                }
-                break
-            end
-            blocks[#blocks + 1] = block
+    local buckets = {}
+    for _, step in ipairs(layout_steps) do
+        local target
+        for _, bucket in ipairs(buckets) do
+            if step_can_join(step, bucket[1]) then target = bucket; break end
         end
-        if valid then
-            table.sort(blocks, function(a, b) return a.id < b.id end)
-            local ids = {}
-            local beacon_count = 0
-            for _, block in ipairs(blocks) do
-                ids[#ids + 1] = block.id
-                beacon_count = beacon_count + block.physical_beacon_count
-            end
-            local id = table.concat(ids, "|")
-            if not seen[id] then
-                seen[id] = true
-                candidates[#candidates + 1] = {
-                    id = id, candidate_id = id, blocks = blocks,
-                    physical_beacon_count = beacon_count, beacon_count = beacon_count,
-                }
-            end
-        end
-        if #candidates >= max_candidates then break end
+        if target then target[#target + 1] = step else buckets[#buckets + 1] = {step} end
     end
-    table.sort(candidates, function(a, b)
-        if a.physical_beacon_count == b.physical_beacon_count then return a.id < b.id end
-        return a.physical_beacon_count < b.physical_beacon_count
-    end)
+    local blocks, failures = {}, {}
+    for _, group in ipairs(buckets) do
+        local ids = {}
+        for _, step in ipairs(group) do
+            ids[#ids + 1] = tostring(step.step_id) .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal)) or "")
+        end
+        local block = build_block(group, catalog, relevant_ports(group, ports, flows), flows, input, "block:" .. table.concat(ids, "+"))
+        if block.invalid_coverage or block.failure then
+            failures[#failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}
+        else blocks[#blocks + 1] = block end
+    end
+    local candidates = {}
+    if #failures == 0 then
+        local beacon_count = 0
+        for _, block in ipairs(blocks) do beacon_count = beacon_count + block.physical_beacon_count end
+        candidates[1] = {id="one",candidate_id="one",blocks=blocks,physical_beacon_count=beacon_count,beacon_count=beacon_count}
+    end
     multi_flow_hands = previous_multi_flow_hands
     return candidates, failures
 end
 
---Row candidates first (fewer blocks, so the first valid layout comes sooner), then every candidate the sheet
---had before rows. A row candidate's id is prefixed so it never collides with its legacy twin.
 local function make_candidates(input)
-    rows_enabled = true
-    local ok, rows, row_failures = pcall(make_candidates_once, input)
-    rows_enabled = false
-    if not ok then error(rows, 0) end
-    local legacy, failures = make_candidates_once(input)
-    local candidates, seen = {}, {}
-    for _, candidate in ipairs(rows) do
-        local has_row = false
-        for _, block in ipairs(candidate.blocks) do if block.row then has_row = true; break end end
-        if has_row then
-            candidate.id = "rows:" .. candidate.id
-            candidate.candidate_id = candidate.id
-            candidates[#candidates + 1] = candidate
-            seen[candidate.id] = true
-        end
-    end
-    for _, candidate in ipairs(legacy) do
-        if not seen[candidate.id] then candidates[#candidates + 1] = candidate end
-    end
-    local limits = input and input.limits or {}
-    local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or (input and input.max_candidates), 128)))
-    while #candidates > max_candidates do table.remove(candidates) end
-    for _, failure in ipairs(row_failures or {}) do failures[#failures + 1] = failure end
-    return candidates, failures
+    return make_candidates_once(input)
 end
 
 function Groups.begin(input)

@@ -221,18 +221,9 @@ for _, shape in ipairs(H.shapes()) do
             {step_id = "target", machine = "machine", machine_count = 1,
                 inputs = {{flow_id = "item/part", source_id = "machine:source:1"}}, outputs = {}},
         }, flows = {}}
-        local block = block_for({plan = p, catalog = c})
-        local machines = members(block, "machine")
-        local source, target = machines[1], machines[2]
-        for _, inserter in ipairs(members(block, "inserter")) do
-            if inserter.role == "output" then
-                H.equal(inside(source, inserter.pickup_position), true, "producer is the pickup machine")
-                H.equal(inside(target, inserter.drop_position), true, "consumer is the drop machine")
-            else
-                H.equal(inside(source, inserter.pickup_position), true, "consumer pickup reaches producer")
-                H.equal(inside(target, inserter.drop_position), true, "consumer drop reaches consumer")
-            end
-        end
+        local s = Groups.begin({plan=p,catalog=c}); while not s.done do Groups.step(s,{ops=100}) end
+        H.equal(#s.result.candidates,1,"one candidate")
+        H.equal(#s.result.candidates[1].blocks,2,"different recipes/unknown recipe identities stay in separate groups")
     end)
 end
 
