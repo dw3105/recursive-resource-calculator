@@ -1767,7 +1767,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         end
         local splitter_continuation = segment.splitter and segment.splitter_second_key == coordinate_key(x, y)
             and (is_target or segment.splitter_direction == move_direction)
-        if segment.splitter and not splitter_continuation then
+        if segment.splitter and not splitter_continuation and move_direction ~= segment.direction then
             search.saw_blocked = true
             return false
         end
