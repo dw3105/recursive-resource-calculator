@@ -47,4 +47,48 @@ H.test("RC1 ore arriving from below curves onto the rear port: no U-turn", funct
     H.equal(at_port and at_port.dir, Grid.EAST, "the rear port belt faces into the head: a curve")
     for _, b in ipairs(belts) do H.equal(b.x == 8, false, "nothing west of the port column (no U-turn)") end
 end)
+H.test("RC2 two-flow rear port uses a side curve when its rear approach is free", function()
+    local input = make_input()
+    local rear = input.blocks[1].ports[1]
+    rear.flow_ids = {ORE, "item/copper-plate"}
+    local curved = finish(input)
+    H.equal(curved.ok, true, "two-flow rear route succeeds")
+    local belts = belts_off_run(curved)
+    local at_port
+    for _, b in ipairs(belts) do if b.x == rear.x and b.y == rear.y then at_port = b end end
+    H.equal(at_port ~= nil, true, "curve belt occupies rear port")
+    H.equal(at_port and at_port.dir, rear.travel_dir, "last belt faces port travel direction")
+    local dx, dy = Grid.dir_vector(rear.travel_dir)
+    local behind = false
+    for _, b in ipairs(belts) do if b.x == rear.x - dx and b.y == rear.y - dy then behind = true end end
+    H.equal(behind, false, "curve is fed from its side, with rear tile free")
+
+    local straight_input = make_input()
+    local straight_rear = straight_input.blocks[1].ports[1]
+    --Baseline: a non-rear row port in first routing only. A row feed port gets the same curve in the improve pass
+    --(round 30), so the baseline runs without it.
+    straight_rear.rear = false
+    straight_input.tidy = false
+    straight_rear.flow_ids = {ORE, "item/copper-plate"}
+    local straight = finish(straight_input)
+    H.equal(straight.ok, true, "behind approach route succeeds")
+    H.equal(#(curved.result.entities or {}) < #(straight.result.entities or {}), true,
+        "curve uses fewer belts than the behind approach")
+end)
+H.test("RC3 a row side-feed port is entered by a curve in the improve pass only (player's v10 fix at (7,2))", function()
+    local first_input = make_input()
+    first_input.blocks[1].ports[1].rear = false
+    first_input.tidy = false
+    local first = finish(first_input)
+    H.equal(first.ok, true, "first routing succeeds")
+    local improved_input = make_input()
+    improved_input.blocks[1].ports[1].rear = false
+    local improved = finish(improved_input)
+    H.equal(improved.ok, true, "improved routing succeeds")
+    local belts = belts_off_run(improved)
+    H.equal(#belts < #belts_off_run(first), true, "the improve pass keeps the shorter curve")
+    local at_port
+    for _, b in ipairs(belts) do if b.x == 9 and b.y == 10 then at_port = b end end
+    H.equal(at_port and at_port.dir, Grid.EAST, "the feed belt still faces the port heading")
+end)
 H.done("test_route_rear_curve")

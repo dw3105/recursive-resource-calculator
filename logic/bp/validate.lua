@@ -513,7 +513,10 @@ end
 
 local function entity_tile_rect(info)
     local entity = info.entity or {}
-    local width = math.max(1, math.floor(finite(entity.w, finite(info.spec.tile_w, 1))))
+    --A player's captured catalog lists machines only (green science sheet, 2026-09-24: no `splitter` spec), so a
+    --splitter fell back to one tile and its second output was never walked. A splitter is two tiles wide.
+    local fallback_w = tostring(entity.name or ""):find("splitter", 1, true) and 2 or 1
+    local width = math.max(1, math.floor(finite(entity.w, finite(info.spec.tile_w, fallback_w))))
     local height = math.max(1, math.floor(finite(entity.h, finite(info.spec.tile_h, 1))))
     --A catalog footprint is the NORTH one, so a body facing east or west is a quarter turn round and its tile
     --extents SWAP.  The splitter spec is `tile_w = 2, tile_h = 1` (logic/catalog.lua:8) and a routed splitter
@@ -578,9 +581,21 @@ end
 
 local function transport_neighbors(work, info, wanted_flow)
     local result, seen = {}, {}
+    local kind = transport_kind(info)
     local function add_at(x, y)
         for _, next_info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}) do
+            local next_entity = next_info.entity or {}
+            local next_kind = transport_kind(next_info)
+            local next_name = tostring(name_of(next_entity) or ""):lower()
+            local is_splitter = next_entity.type == "splitter" or next_entity.kind == "splitter"
+                or next_name:find("splitter", 1, true) ~= nil
+            local current_direction = entity_direction(info)
+            local next_direction = entity_direction(next_info)
+            local opposed = current_direction ~= nil and next_direction ~= nil
+                and next_direction == Grid.dir_opposite(current_direction)
             if next_info ~= info and transport_accepts_flow(next_info, wanted_flow)
+                and (kind == "pipe" or (not is_splitter or current_direction == next_direction))
+                and (kind == "pipe" or next_kind ~= "belt" or not opposed)
                 and not seen[next_info.id] then
                 seen[next_info.id] = true
                 result[#result + 1] = next_info
@@ -594,7 +609,6 @@ local function transport_neighbors(work, info, wanted_flow)
         seen[pair.id] = true
         result[#result + 1] = pair
     end
-    local kind = transport_kind(info)
     if kind == "pipe" then
         local x, y = transport_tile(info)
         for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do add_at(x + delta[1], y + delta[2]) end

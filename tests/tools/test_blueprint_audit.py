@@ -287,7 +287,9 @@ class BlueprintAuditTest(unittest.TestCase):
                               capture_output=True, text=True)
         self.assertEqual(done.returncode, 1)
         counts = json.loads(done.stdout)
-        self.assertEqual(counts["invalid_inserters"], 11)
+        #11 until 2026-09-24: two hands beside an electromagnetic plant were judged against a 3x3 footprint; the
+        #plant is 4x4 (catalog tile_w 4), so they are valid. The delivery stays rejected on its other counts.
+        self.assertEqual(counts["invalid_inserters"], 9)
         self.assertEqual(counts["unpairable_pipe_to_ground"], 12)
         #4 to 0 on 2026-09-23, legalcopilot-dev.  All four were one shape: a same-axis pair with an
         #underground of the OTHER axis sitting in its span -- (5.5,2.5) S to (5.5,5.5) S across (5.5,3.5) W, and
@@ -298,7 +300,8 @@ class BlueprintAuditTest(unittest.TestCase):
         #working hand-built factory as unused, so its count here was inflated too. 51 belt entities of 224
         #genuinely reach no sink or are reached by no source.
         self.assertEqual(counts["unused_belt_tiles"], 51)
-        self.assertEqual(counts["unused_pipe_tiles"], 35)
+        #35 until 2026-09-24: the electromagnetic plant's 4x4 footprint (was judged 3x3) reaches 11 more pipe tiles.
+        self.assertEqual(counts["unused_pipe_tiles"], 24)
         self.assertEqual(counts["wires"], 0)
         self.assertEqual({k: counts[k] for k in ("sideload", "sideload_blocked", "back_to_back", "cycles")},
                          {"sideload": 14, "sideload_blocked": 6, "back_to_back": 0, "cycles": 1})

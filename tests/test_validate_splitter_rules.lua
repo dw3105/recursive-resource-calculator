@@ -40,7 +40,7 @@ end
 
 local function splitter_geometry(facing, branch)
     local anchor, second
-    if facing == Grid.EAST then
+    if facing == Grid.EAST or facing == Grid.WEST then
         anchor, second = {x = 9, y = 4}, {x = 9, y = 5}
     elseif facing == Grid.SOUTH then
         anchor, second = {x = 8, y = 5}, {x = 9, y = 5}
@@ -253,11 +253,53 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.ok, true, "the EAST splitter run uses its implied north-south footprint: " .. table.concat(codes(state), ","))
     end)
 
+    H.test(shape .. " V1 east facing splitter walks its second output", function()
+        local input, built_plan = candidate("VS2", Grid.EAST, "second", false)
+        local state = finish(input, built_plan)
+        H.equal(state.ok, true, "east second-tile output remains connected: " .. table.concat(codes(state), ","))
+    end)
+
     H.test(shape .. " VS4 SOUTH splitter keeps the already-correct north-south registration", function()
         local input, built_plan, geometry = candidate("VS4", Grid.SOUTH, "anchor", false)
         report_row("VS4", geometry)
         local state = finish(input, built_plan)
         H.equal(state.ok, true, "the SOUTH splitter run validates: " .. table.concat(codes(state), ","))
+    end)
+
+    H.test(shape .. " V1 south facing splitter walks its second output", function()
+        local input, built_plan = candidate("VS2", Grid.SOUTH, "second", false)
+        local state = finish(input, built_plan)
+        H.equal(state.ok, true, "south second-tile output remains connected: " .. table.concat(codes(state), ","))
+    end)
+
+    H.test(shape .. " V1 west facing splitter accepts its back feed and output", function()
+        local input, built_plan, geometry = candidate("VS1", Grid.WEST, "anchor", false)
+        local state = finish(input, built_plan)
+        H.equal(state.ok, true, "west splitter connects from behind and exits forward: " .. table.concat(codes(state), ","))
+    end)
+
+    H.test(shape .. " V1 west facing splitter walks its second output", function()
+        local input, built_plan = candidate("VS2", Grid.WEST, "second", false)
+        local state = finish(input, built_plan)
+        H.equal(state.ok, true, "west second-tile output remains connected: " .. table.concat(codes(state), ","))
+    end)
+
+    H.test(shape .. " V1 side fed splitter is discontinuous", function()
+        local input, built_plan = candidate("VS1", Grid.EAST, "anchor", false)
+        for _, entity in ipairs(input.entities) do
+            if entity.id == "out-pre-a" then entity.dir = Grid.NORTH end
+        end
+        local state = finish(input, built_plan)
+        rejects(state, "BP_V_ROUTE_DISCONTINUOUS", "side-fed splitter")
+    end)
+
+    H.test(shape .. " V1 head-on belt connection is discontinuous", function()
+        local input, built_plan = candidate("VS1", Grid.EAST, "anchor", false)
+        for _, entity in ipairs(input.entities) do
+            if entity.id == "out-2-a" then entity.dir = Grid.WEST end
+        end
+        local state = finish(input, built_plan)
+        H.equal(state.ok, false, "a belt facing another belt head-on is rejected")
     end)
 
     H.test(shape .. " VS5 two declared flows are witnessed through one splitter", function()
@@ -289,4 +331,4 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
-H.done("test_validate_splitter")
+H.done("test_validate_splitter_rules")
