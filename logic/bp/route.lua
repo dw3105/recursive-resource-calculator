@@ -1412,7 +1412,7 @@ local function all_bindings_reach_sinks(work)
     return true
 end
 
-local function bury_candidate(work, x, y, cross_direction)
+local function bury_candidate(work, x, y, cross_direction, allow_port_adjacent)
     local dx, dy = Grid.dir_vector(cross_direction)
     local rdx, rdy = Grid.dir_vector(Grid.rotate_dir(cross_direction, 12))
     if not rdx then return nil end
@@ -1438,9 +1438,11 @@ local function bury_candidate(work, x, y, cross_direction)
     local function port_or_obstacle(px, py)
         local key = coordinate_key(px, py)
         if work.port_cells and work.port_cells[key] ~= nil then return true end
-        for _, demand in ipairs(work.demands or {}) do
-            for _, endpoint in ipairs({demand.source, demand.sink}) do
-                if endpoint and math.abs(endpoint.x - px) + math.abs(endpoint.y - py) <= 2 then return true end
+        if not allow_port_adjacent then
+            for _, demand in ipairs(work.demands or {}) do
+                for _, endpoint in ipairs({demand.source, demand.sink}) do
+                    if endpoint and math.abs(endpoint.x - px) + math.abs(endpoint.y - py) <= 2 then return true end
+                end
             end
         end
         return static_owner(work, px, py) ~= nil
@@ -1476,8 +1478,8 @@ local function bury_candidate(work, x, y, cross_direction)
         source_ids={b.segment_id,c.segment_id,a.segment_id},cross_direction=cross_direction}
 end
 
-local function apply_bury(work, candidate)
-    local fresh = bury_candidate(work, candidate.x, candidate.y, candidate.cross_direction)
+local function apply_bury(work, candidate, allow_port_adjacent)
+    local fresh = bury_candidate(work, candidate.x, candidate.y, candidate.cross_direction, allow_port_adjacent)
     if not fresh then return false end
     local b = work.segments_by_cell[coordinate_key(fresh.entry_x,fresh.entry_y)]
     local c = work.segments_by_cell[coordinate_key(fresh.x,fresh.y)]
@@ -2650,11 +2652,68 @@ local function fail_demand(state, work, demand, code, detail)
     return true
 end
 
+local improve_begin, improve_step
+
 function Route.begin(input)
     local work = normalize_input(input or {})
-    return {done = false, ok = nil, cursor = {flow_index = 1, demand_index = 1, phase = "routing"},
+    return {done = false, ok = nil, tidy = not (type(input) == "table" and input.tidy == false), cursor = {flow_index = 1, demand_index = 1, phase = "routing"},
         progress = {phase = "routing", done_units = 0, total_units = #work.demands},
         counters = work.counters, work = work}
+end
+
+function Route.tidy_begin(done_state, options)
+    options = type(options) == "table" and options or {}
+    local work = done_state and done_state.work
+    if type(work) ~= "table" or not done_state.done or not done_state.ok then
+        return {done = true, ok = false, errors = {{code = "BP_R_NO_PATH"}}}
+    end
+    for index, obstacle in ipairs(options.obstacles or {}) do
+        local rect = copy_rect(obstacle.rect or obstacle)
+        if rect then add_rect_cells(work.obstacles, rect, obstacle.owner or obstacle.kind or ("tidy:" .. tostring(index))) end
+    end
+    local state = {done = false, ok = nil, work = work, counters = work.counters,
+        cursor = {demand_index = #work.demands + 1}, progress = {phase = "tidy", done_units = 0, total_units = #work.bindings + 1}}
+    state._tidy = true
+    return state
+end
+
+function Route.tidy_step(state, budget)
+    if type(state) ~= "table" or state.done then return state end
+    budget = budget or {ops = 1}
+    local ops = math.max(0, finite(budget.ops, 1))
+    local work = state.work
+    if not work.improved then
+        work.improve_state = work.improve_state or improve_begin(work)
+        local used, finished = improve_step(work, work.improve_state, ops)
+        ops = math.max(0, ops - used)
+        if finished then work.improved, work.improve_state = true, nil end
+    end
+    if work.improved then
+        unbury_empty_pairs(work)
+        state.result, state.done, state.ok = result_for(work), true, true
+        state.progress.phase = "done"
+    end
+    budget.ops = ops
+    return state
+end
+
+function Route.free_cell(state, x, y)
+    if type(state) ~= "table" or not state.done or not state.ok or type(state.work) ~= "table" then return false end
+    local work = state.work
+    local segment = work.segments_by_cell[coordinate_key(x, y)]
+    if not segment or segment.kind ~= "belt" or segment.underground or segment.splitter then return false end
+    for _, cross in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
+        local candidate = bury_candidate(work, x, y, cross, true)
+        if candidate and apply_bury(work, candidate, true) then
+            local refreshed = result_for(work)
+            local result = state.result or {}
+            for key in pairs(result) do result[key] = nil end
+            for key, value in pairs(refreshed) do result[key] = value end
+            state.result = result
+            return true
+        end
+    end
+    return false
 end
 
 function Route.cancel(state)
@@ -2967,7 +3026,7 @@ local function reanchor_bindings(work)
     end
 end
 
-local function improve_begin(work)
+improve_begin = function(work)
     --Bindings are named by fields, never held by reference: a restored snapshot replaces every table.
     local order = {}
     for _, binding in ipairs(work.bindings or {}) do
@@ -2979,7 +3038,7 @@ end
 
 --Advance the improve pass by at most about `ops` ops; returns ops used and whether the pass finished.  The trials
 --and their order are exactly those of the one-shot pass, so the kept layout does not depend on the budget.
-local function improve_step(work, st, ops)
+improve_step = function(work, st, ops)
     local used = 0
     while used < ops do
         if st.stage == "next" then
@@ -3277,14 +3336,18 @@ function Route.step(state, budget)
     while ops > 0 and not state.done do
         local demand = work.demands[state.cursor.demand_index]
         if not demand then
-            if not work.improved then
+            if state.tidy == false then
+                state.result, state.done, state.ok = result_for(work), true, true
+                state.progress.phase = "done"
+                break
+            elseif not work.improved then
                 work.improve_state = work.improve_state or improve_begin(work)
                 local used, finished = improve_step(work, work.improve_state, ops)
                 ops = math.max(0, ops - used)
                 if finished then work.improved, work.improve_state = true, nil end
             end
             if not work.improved then break end
-            unbury_empty_pairs(work)
+            if state.tidy ~= false then unbury_empty_pairs(work) end
             state.result, state.done, state.ok = result_for(work), true, true
             state.progress.phase = "done"
             break
