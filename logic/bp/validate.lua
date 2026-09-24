@@ -907,6 +907,18 @@ local function check_geometry(work, index)
     return index >= #work.infos
 end
 
+-- One geometry op is one entity-pair comparison.  Keeping the two indices in the
+-- validation cursor prevents a large blueprint from doing its quadratic collision
+-- scan in a single game tick.
+local function check_geometry_pair(work, index, other_index)
+    local info, other = work.infos[index], work.infos[other_index]
+    if not info or not other then return end
+    local world, other_world = box_world(info), box_world(other)
+    if masks_collide(info.mask, other.mask) and boxes_overlap(world, other_world) then
+        error_record(work.errors, "BP_V_COLLISION", {tostring(info.id), tostring(other.id)}, {box_a = world, box_b = other_world})
+    end
+end
+
 --The buffer rule is independent of collision geometry: it is checked once, after the
 --incremental geometry pass, using the shared rule module and a stable entity order.
 local function check_buffer_zones(work)
@@ -2482,7 +2494,7 @@ end
 
 function Validate.begin(input)
     local work = make_work(input)
-    return {done = false, ok = nil, cursor = {phase = "geometry", index = 1}, progress = {phase = "validating", done_units = 0, total_units = math.max(1, #work.infos + #work.wires + #work.segments + #work.flows)}, result = nil, errors = nil, ops_used = 0, _work = work}
+    return {done = false, ok = nil, cursor = {phase = "geometry", index = 1, other_index = 2}, progress = {phase = "validating", done_units = 0, total_units = math.max(1, #work.infos + #work.wires + #work.segments + #work.flows)}, result = nil, errors = nil, ops_used = 0, _work = work}
 end
 
 function Validate.step(state, budget)
@@ -2491,8 +2503,25 @@ function Validate.step(state, budget)
     while ops > 0 and not state.done do
         local phase = state.cursor.phase
         if phase == "geometry" then
-            local index = state.cursor.index; check_geometry(work, index); state.cursor.index = index + 1
-            if index >= #work.infos then check_buffer_zones(work); state.cursor.phase, state.cursor.index = "robo", 1 end
+            local index, other_index = state.cursor.index, state.cursor.other_index or 2
+            if index <= #work.infos then
+                if other_index == 2 then
+                    local info = work.infos[index]
+                    if info then
+                        local world = box_world(info)
+                        if work.grid_w and (world.left < -EPSILON or world.right > work.grid_w + EPSILON or world.top < -EPSILON or world.bottom > work.grid_h + EPSILON) then
+                            error_record(work.errors, "BP_V_OUT_OF_GRID", {tostring(info.id)}, {box = world, grid_w = work.grid_w, grid_h = work.grid_h})
+                        end
+                    end
+                end
+                if other_index <= #work.infos then
+                    if other_index > index then check_geometry_pair(work, index, other_index) end
+                    state.cursor.other_index = other_index + 1
+                else
+                    state.cursor.index, state.cursor.other_index = index + 1, 2
+                end
+            end
+            if state.cursor.index > #work.infos then check_buffer_zones(work); state.cursor.phase, state.cursor.index = "robo", 1 end
         elseif phase == "robo" then check_robo(work); state.cursor.phase = "beacon"
         elseif phase == "beacon" then check_beacons(work); state.cursor.phase = "power_coverage"
         elseif phase == "power_coverage" then check_power_coverage(work); state.cursor.phase = "wire_legality"
