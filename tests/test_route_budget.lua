@@ -51,9 +51,10 @@ for _, shape in ipairs(H.shapes()) do
         local state, spent = run(input, 1000000)
         H.equal(state.ok, true, "frozen candidate routes")
         H.equal(state.counters ~= nil, true, "route exposes deterministic counters")
-        --Measured replay is 10644 operations on the lane host; this bound leaves room for harmless ordering
-        --changes while detecting a return to the multi-million-operation sweep.
-        H.equal(spent <= 20000, true, "frozen candidate stays within the measured operation bound")
+        --Measured replay was 10644 operations at one op per expansion. Since 2026-09-24 an expansion is charged
+        --EXPANSION_OPS = 10 and a pairing flood 4 per cell (honest ~8 us ops, logic/bp/route.lua): measured 185712
+        --ops for 12450 expansions on legalcopilot-dev. The bound still detects a return to the multi-million sweep.
+        H.equal(spent <= 400000, true, "frozen candidate stays within the measured operation bound")
         H.equal(state.counters.expansions <= state.work.max_expansions, true,
             "frozen expansion counter stays within the run budget")
         H.equal(state.counters.expansions, state.work.expansions, "work and public expansion counters agree")

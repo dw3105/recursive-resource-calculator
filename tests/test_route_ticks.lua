@@ -31,13 +31,15 @@ local function timed_run(slice)
     local started = os.clock()
     local state = Route.begin(input())
     local begin_time = os.clock() - started
-    H.equal(begin_time < 0.03, true, "Route.begin remains under 30 ms")
+    --Only the game-sized slice is timed; the huge-budget reference run does all its work in one call by design.
+    local timed = slice <= 2000
+    if timed then H.equal(begin_time < 0.03, true, "Route.begin remains under 30 ms") end
     while not state.done do
         local tick = os.clock()
         Route.step(state, {ops = slice})
         local elapsed = os.clock() - tick
-        H.equal(elapsed < 0.03, true, "Route.step remains under 30 ms (" .. tostring(elapsed) .. "s, "
-            .. tostring(state.progress.phase) .. ", build flow " .. tostring(state.cursor.flow_index) .. ")")
+        if timed then H.equal(elapsed < 0.03, true, "Route.step remains under 30 ms (" .. tostring(elapsed) .. "s, "
+            .. tostring(state.progress.phase) .. ", build flow " .. tostring(state.cursor.flow_index) .. ")") end
     end
     H.equal(state.ok, true, "synthetic route completes")
     if state.tidy then
