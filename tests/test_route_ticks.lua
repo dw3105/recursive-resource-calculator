@@ -35,7 +35,9 @@ local function timed_run(slice)
     while not state.done do
         local tick = os.clock()
         Route.step(state, {ops = slice})
-        H.equal(os.clock() - tick < 0.03, true, "Route.step remains under 30 ms")
+        local elapsed = os.clock() - tick
+        H.equal(elapsed < 0.03, true, "Route.step remains under 30 ms (" .. tostring(elapsed) .. "s, "
+            .. tostring(state.progress.phase) .. ", build flow " .. tostring(state.cursor.flow_index) .. ")")
     end
     H.equal(state.ok, true, "synthetic route completes")
     if state.tidy then

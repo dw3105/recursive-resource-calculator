@@ -3497,7 +3497,8 @@ function Route.step(state, budget)
             state.cursor.phase = "routing"
             state.progress.phase = "routing"
             state.progress.total_units = #work.demands
-            break
+            budget.ops = ops
+            return state
         end
         work.demand_build_context = work.demand_build_context or begin_flow_demand_build(work, flow)
         local flow_done = advance_flow_demand_build(work, work.demand_build_context)
