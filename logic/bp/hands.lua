@@ -18,7 +18,10 @@ function Hands.offer_slides(materialized, grid)
     local by_id, taken, served = {}, {}, {}
     for _, entity in ipairs(materialized.entities or {}) do
         by_id[tostring(entity.id)] = entity
-        if entity.x ~= nil and entity.y ~= nil then
+        local kind = tostring(entity.kind or entity.type or "")
+        local name = tostring(entity.name or "")
+        local is_hand = kind == "inserter" or name:find("inserter", 1, true) ~= nil
+        if not is_hand and entity.x ~= nil and entity.y ~= nil then
             for x = entity.x, entity.x + finite(entity.w, 1) - 1 do
                 for y = entity.y, entity.y + finite(entity.h, 1) - 1 do taken[x .. ":" .. y] = true end
             end
@@ -87,14 +90,15 @@ function Hands.offer_slides(materialized, grid)
                 local function free(x,y)
                     --The search's roboport grid carries no `cells` (Grid.robo_grid); `taken` already holds every entity.
                     return x >= 0 and y >= 0 and x < grid.w and y < grid.h and not taken[x .. ":" .. y]
-                        and (grid.cells == nil or grid.cells[y * grid.w + x + 1] == nil)
+                        and (grid.cells == nil or grid.cells[y * grid.w + x + 1] == nil
+                            or grid.cells[y * grid.w + x + 1] == 0)
                 end
                 for _, face in ipairs(faces) do
                     if face.x0 then
                         for hx=face.x0,face.x1 do
                             local hy=face.y
                             local px,py=hx+face.dx,hy+face.dy
-                            if not (hx==hand.x and hy==hand.y) and not slide_tiles[hx .. ":" .. hy]
+                            if not (hx==hand.x and hy==hand.y)
                                 and free(hx,hy) and free(px,py) then
                                 candidates[#candidates+1]={hand_x=hx,hand_y=hy,port_x=px,port_y=py,
                                     turns=((face.dir-current_dir)%16)/4}
@@ -104,7 +108,7 @@ function Hands.offer_slides(materialized, grid)
                         for hy=face.y0,face.y1 do
                             local hx=face.x
                             local px,py=hx+face.dx,hy+face.dy
-                            if not (hx==hand.x and hy==hand.y) and not slide_tiles[hx .. ":" .. hy]
+                            if not (hx==hand.x and hy==hand.y)
                                 and free(hx,hy) and free(px,py) then
                                 candidates[#candidates+1]={hand_x=hx,hand_y=hy,port_x=px,port_y=py,
                                     turns=((face.dir-current_dir)%16)/4}
@@ -118,7 +122,6 @@ function Hands.offer_slides(materialized, grid)
                     if a.hand_y~=b.hand_y then return a.hand_y<b.hand_y end
                     return a.hand_x<b.hand_x
                 end)
-                while #candidates>16 do candidates[#candidates]=nil end
                 for _, twin in ipairs(every_port_copy(materialized)) do
                     if twin.port_id==port.port_id then twin.hop_options,twin.hand_x,twin.hand_y=candidates,hand.x,hand.y end
                 end

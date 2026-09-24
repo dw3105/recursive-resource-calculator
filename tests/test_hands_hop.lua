@@ -45,6 +45,22 @@ H.test("hop options cover other faces, skip corners and occupied cells, and sort
     H.equal(port.hand_x,1); H.equal(port.hand_y,3)
 end)
 
+H.test("other hands do not hide face tiles, and every tile on a large machine is offered", function()
+    local m,port,_,grid=offers()
+    m.entities[#m.entities+1]={id="m:other",kind="inserter",name="inserter",x=3,y=1,w=1,h=1,machine_id="m"}
+    m.entities[2].w,m.entities[2].h=5,5
+    m.entities[2].x,m.entities[2].y=2,2
+    grid=Grid.new(12,12)
+    Grid.fill(grid,{x=2,y=2,w=5,h=5},1)
+    -- Move the attached hand and port to the west face of the enlarged machine.
+    m.entities[1].x,m.entities[1].y=1,4; port.x,port.y=0,4
+    Hands.offer_slides(m,grid)
+    local seen={}
+    for _,o in ipairs(port.hop_options or {}) do seen[o.hand_x..":"..o.hand_y]=true end
+    H.equal(seen["3:1"],true,"face tile held by another hand is offered")
+    H.equal(#(port.hop_options or {}),19,"all other face tiles are offered, including more than 16")
+end)
+
 H.test("row ports receive no hops", function()
     local m,port,_,grid=offers(); port.row_port=true
     Hands.offer_slides(m,grid)
