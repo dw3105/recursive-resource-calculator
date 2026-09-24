@@ -18,7 +18,6 @@ local LAST_VALUE_TAG = "hxrrc_progress_value"
 local OFFER_NAME = "hxrrc_better_layout_offer"
 local OFFER_BUTTON = "hxrrc_deliver_better_layout"
 local BEST_NAME = "hxrrc_progress_best"
-local refreshed_tick, last_game_tick, refresh_sequence
 
 --Sheet requires this module to install its handlers, so the edge back is late: Factorio refuses require inside a
 --handler, and both modules load while control.lua is parsed.
@@ -240,37 +239,6 @@ local function refresh_all()
     if not game or not game.players or not storage then
         return
     end
-    local observed=game.tick
-    if observed ~= last_game_tick then
-        refresh_sequence=finite_nonnegative_integer(observed)
-        last_game_tick=observed
-    else
-        refresh_sequence=(refresh_sequence or 0)+1
-    end
-    local tick=refresh_sequence or observed or 0
-    if tick % 10 ~= 0 then
-        --Jobs.on_tick still calls the registry hook in this branch. Keep that path cheap: only settle controls
-        --for a job that finished between tenth-tick refreshes; live progress is read and written every ten ticks.
-        local sheet = Sheet()
-        for player_index, _ in pairs(game.players) do
-            local data=storage[player_index]
-            local pane=data and data.sheet_section and data.sheet_section.sheet_pane
-            for _, tab in ipairs(pane and pane.tabs or {}) do
-                local flow=tab.content
-                if flow and Sheet().progressbar_of(flow) and Sheet().progressbar_of(flow).visible then
-                    local sid=sheet.id_of(flow)
-                    if not ProgressView.of(player_index,sid) then
-                        ProgressPanel.hide(flow)
-                        ProgressPanel.set_best(flow,nil)
-                        ProgressPanel.set_offer(flow,nil,nil)
-                    end
-                end
-            end
-        end
-        return
-    end
-    if refreshed_tick == tick then return end
-    refreshed_tick = tick
     local sheet = Sheet()
     local jobs = Jobs()
     for player_index, _ in pairs(game.players) do

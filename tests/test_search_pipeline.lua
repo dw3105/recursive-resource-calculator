@@ -16,7 +16,9 @@ H.test("SP2 pack gets zone_blockers and links; route first pass is tidy=false; p
     H.equal(#log.pack[1].links > 0, true, "an external input flow links its consumer port to the input edge")
     H.equal(log.pack[1].links[1].b.edge, "left", "default input edge")
     H.equal(log.route[1].tidy, false, "first routing stops before tidy")
-    H.equal(type(log.power[1].make_room), "function", "power may ask for room")
+    --Round 33: the job is saved between ticks and a function cannot be saved; search attaches make_room to power's
+    --work only while power steps (logic/bp/search.lua power_room), so power's input never carries it.
+    H.equal(log.power[1].make_room, nil, "power input stays saveable")
     H.equal(type(log.tidy[1].obstacles), "table", "tidy receives pole obstacles")
 end)
 H.test("SP3 roboport footprints are the pack zone_blockers", function()
