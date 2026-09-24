@@ -17,13 +17,18 @@ for _, shape in ipairs(H.shapes()) do
         local state=Groups.begin({catalog=catalog,plan=plan})
         for _=1,100 do if state.done then break end; Groups.step(state,{ops=10}) end
         H.equal(state.done,true,"grouping finishes")
-        local found=false
+        local found, fluid_count, members = false, 0, {}
         for _,c in ipairs(state.result.candidates or {}) do for _,b in ipairs(c.blocks) do
             for _,p in ipairs(b.ports or {}) do if p.kind=="fluid" and p.flow_id=="fluid/molten-iron" then
-                found=true; H.equal(p.connection~=nil,true,"fluid port has pipe connection")
+                found=true; fluid_count=fluid_count+1; members[p.member_id]=true
+                H.equal(p.connection~=nil,true,"fluid port has pipe connection")
+                H.equal(p.attach_dx~=nil and p.attach_dy~=nil,true,"fluid port has a routable attachment tile")
             end end
         end end
         H.equal(found,true,"route can bind the molten iron fluid input")
+        H.equal(fluid_count,2,"each foundry has its own physical fluid port")
+        local member_count=0; for _ in pairs(members) do member_count=member_count+1 end
+        H.equal(member_count,2,"the fluid ports attach to both foundries")
     end)
 end
 H.done("test_groups_fluid_row")

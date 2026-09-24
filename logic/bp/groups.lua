@@ -784,7 +784,7 @@ local function append_multi_flow_inserters(block, step, machine, catalog, input,
                 or ((hand.role == "input" and "in:" or "out:")
                     .. tostring(hand.port.port_id or hand.port.flow_id or hand.port.full_name)),
             flow_id = shared and nil or hand.flow_ids[1], flow_ids = flow_ids, flow_shares = flow_shares,
-            rate_per_second = hand.rate_per_second,
+            rate_per_second = hand.rate_per_second_per_machine,
             x = placement.x, y = placement.y, w = iw, h = ih, dir = placement.dir,
             pickup_position = placement.pickup_position, drop_position = placement.drop_position,
             flow_entries = shared and list_copy(hand.ports) or nil,
@@ -852,11 +852,15 @@ local function block_ports(block, steps, ports, flows)
         if step_id and members_by_step[step_id] then
             local is_fluid = port.kind == "fluid" or port.is_fluid == true
             if is_fluid then
-                -- Fluid boxes have no item hand. Keep one physical pipe port for the step, preserving the old
-                -- connection placement while item ports below are expanded per actual inserter.
-                selected[#selected + 1] = {
-                    port = port, flow_id = flow_id, step_id = step_id, member_id = members_by_step[step_id][1].id,
-                }
+                -- Every replicated machine has its own fluid box. Preserve one pipe endpoint per machine so
+                -- validation and routing can witness the physical connection on every member.
+                for _, machine in ipairs(members_by_step[step_id]) do
+                    local machine_port = copy(port)
+                    machine_port.port_id = tostring(port.port_id) .. ":" .. tostring(machine.id)
+                    selected[#selected + 1] = {
+                        port = machine_port, flow_id = flow_id, step_id = step_id, member_id = machine.id,
+                    }
+                end
             else
                 for _, inserter in ipairs(block.inserters or {}) do
                     local wanted_role = port.role == "out" and "output" or "input"
@@ -2118,8 +2122,20 @@ local function make_candidates_once(input, work)
         local item_inputs, item_outputs = 0, 0
         for _, p in ipairs(step.inputs or {}) do if not flow_is_fluid(p, flows) then item_inputs = item_inputs + 1 end end
         for _, p in ipairs(step.outputs or {}) do if not flow_is_fluid(p, flows) then item_outputs = item_outputs + 1 end end
+        local hand_capacity = finite(catalog and catalog.inserter and catalog.inserter.items_per_second)
+        local needs_individual_blocks = false
+        if hand_capacity and hand_capacity > 0 and step.machine_count > 1 then
+            for _, role in ipairs({"inputs", "outputs"}) do
+                for _, entry in ipairs(step[role] or {}) do
+                    if not flow_is_fluid(entry, flows)
+                        and math.ceil(flow_entry_rate(entry) / step.machine_count / hand_capacity - 1e-9) > 1 then
+                        needs_individual_blocks = true
+                    end
+                end
+            end
+        end
         local row_possible = item_outputs <= 1 and item_inputs <= 3
-        if distinct > 2 and step.machine_count > 1 and not row_possible then
+        if step.machine_count > 1 and (needs_individual_blocks or (distinct > 2 and not row_possible)) then
             for ordinal = 1, step.machine_count do
                 local fragment = copy(step)
                 fragment.machine_count = 1
