@@ -86,8 +86,19 @@ class PreparedInputTest(unittest.TestCase):
         """A reconstruction that does not say WHAT it invented is indistinguishable from a capture."""
         _, prepared, _ = self.build()
         named = prepared["provenance"]["reconstructed_facts"]
-        for key in ("catalog.belt", "catalog.pipe", "catalog.inserter", "catalog.pole", "catalog.roboport"):
+        for key in ("catalog.belt", "catalog.pipe", "catalog.inserter", "catalog.pole", "catalog.robo"):
             self.assertIn(key, named)
+
+    def test_PE11_infrastructure_facts_match_the_live_capture(self):
+        """Measured 2026-09-24: supply 7 and roboport logistic_radius 50 doubled the green grid to 101x101."""
+        _, prepared, _ = self.build()
+        catalog = prepared["catalog"]
+        self.assertEqual(catalog["pole"]["supply_w"], 3.5)
+        self.assertEqual(catalog["robo"]["logistic_radius"], 25)
+        self.assertEqual(catalog["robo"]["tile_w"], 4)
+        for name in ("splitter", "medium-electric-pole", "transport-belt", "roboport"):
+            self.assertIn(name, catalog["entity"])
+            self.assertIn(f"catalog.entity.{name}", prepared["provenance"]["reconstructed_facts"])
 
     def test_PE8_the_inserter_carries_real_offsets(self):
         """The stored player capture has these as EMPTY tables, which is why its inserters all reject."""

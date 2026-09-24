@@ -1,0 +1,10 @@
+logic/bp/validate.lua
+tests/test_validate_ticks.lua
+tests/test_validate.lua
+tests/test_validate_splitter.lua
+tests/test_validate_splitter_rules.lua
+tests/test_validate_transport_shapes.lua
+tests/test_validate_rows.lua
+tests/test_validate_buffer.lua
+tests/test_validate_roboport_zone.lua
+tests/test_validated_candidate.lua

@@ -319,12 +319,36 @@ local function supplied_connector_id(input, name)
     return connector_id(name)
 end
 
-local function consume(budget)
+local function consume(budget, cost)
     if type(budget) ~= "table" then return false end
     local ops = integer(budget.ops, 0)
+    cost = math.max(1, integer(cost, 1))
     if ops <= 0 then return false end
-    budget.ops = ops - 1
+    --Legacy callers may deliberately provide one-op slices. They still make
+    --one unit of progress; larger slices pay the full mode-specific charge.
+    budget.ops = ops - math.min(ops, cost)
     return true
+end
+
+--One scheduler op is not the same amount of work in every mode.  These
+--charges approximate the inner loops that a mode performs; in particular,
+--candidate scans and selection score many records while a connect step tests
+--one pole pair.  This keeps a 2000-op game tick bounded without changing the
+--order or outcome of any decision.
+local function operation_cost(state)
+    local phase, work = state.cursor.phase, state._work
+    if phase == "candidate_position" then return 4 end
+    if phase == "candidate_coverage" or phase == "candidate_commit" then return 2 end
+    if phase == "candidate_index" then
+        local builder = work.index_builder
+        if builder and (builder.mode == "consumer_position" or builder.mode == "finalize"
+            or builder.mode == "lattice_position") then return 2 end
+    end
+    if phase == "greedy" then return 4 end
+    if phase == "make_room" then return 4 end
+    if phase == "repair_check" then return 1 end
+    if phase == "prune" or phase == "publish_sort" then return 2 end
+    return 1
 end
 
 local function candidate_rect(spec, x, y)
@@ -513,7 +537,7 @@ local function advance_candidate_index(state)
     elseif builder.mode == "finalize" then
         local key, item = next(builder.by_key, builder.finalize_key)
         if key == nil then
-            builder.mode = "collect"
+            builder.mode = "sort_start"
         else
             builder.finalize_key = key
             local covers = {}
@@ -522,11 +546,49 @@ local function advance_candidate_index(state)
             item.covers = covers
             if #covers > 0 or item.lattice then builder.positions[#builder.positions + 1] = item end
         end
+    elseif builder.mode == "sort_start" then
+        local count = #builder.positions
+        if count < 2 then
+            builder.mode = "collect"
+        else
+            builder.sort_source, builder.sort_target = builder.positions, {}
+            builder.sort_width, builder.sort_left, builder.mode = 1, 1, "sort_pass"
+        end
+    elseif builder.mode == "sort_pass" then
+        local count, left = #builder.sort_source, builder.sort_left
+        if left > count then
+            if builder.sort_width >= count then
+                builder.positions = builder.sort_source
+                builder.sort_source, builder.sort_target = nil, nil
+                builder.mode = "collect"
+            else
+                builder.sort_source, builder.sort_target = builder.sort_target, {}
+                builder.sort_width, builder.sort_left = builder.sort_width * 2, 1
+            end
+        else
+            local middle, right = math.min(left + builder.sort_width, count + 1),
+                math.min(left + builder.sort_width * 2, count + 1)
+            builder.sort_i, builder.sort_j, builder.sort_k = left, middle, left
+            builder.sort_middle, builder.sort_right, builder.mode = middle, right, "sort_merge"
+        end
+    elseif builder.mode == "sort_merge" then
+        if builder.sort_k >= builder.sort_right then
+            builder.sort_left, builder.mode = builder.sort_right, "sort_pass"
+        else
+            local source, target = builder.sort_source, builder.sort_target
+            local i, j, middle, right = builder.sort_i, builder.sort_j, builder.sort_middle, builder.sort_right
+            local take_left
+            if i >= middle then take_left = false
+            elseif j >= right then take_left = true
+            else
+                local a, b = source[i], source[j]
+                take_left = a.y < b.y or (a.y == b.y and a.x <= b.x)
+            end
+            if take_left then target[builder.sort_k], builder.sort_i = source[i], i + 1
+            else target[builder.sort_k], builder.sort_j = source[j], j + 1 end
+            builder.sort_k = builder.sort_k + 1
+        end
     elseif builder.mode == "collect" then
-        table.sort(builder.positions, function(a, b)
-            if a.y ~= b.y then return a.y < b.y end
-            return a.x < b.x
-        end)
         if builder.positions then
             work.positions_by_spec[builder.spec_index] = builder.positions
             builder.spec_index, builder.mode = builder.spec_index + 1, "spec_start"
@@ -847,8 +909,17 @@ function Power.step(state, budget)
     if type(budget) ~= "table" then return state end
     local work = state._work
 
-    while not state.done and consume(budget) do
-        state.ops_used = state.ops_used + 1
+    while not state.done do
+        local cost, available = operation_cost(state), integer(budget.ops, 0)
+        -- Publishing is the stage boundary where Search may otherwise continue
+        -- into validation in this same game tick. Reserve the remainder here
+        -- so the next stage starts on the next scheduler slice.
+        --Capped at one game tick (Jobs.OPS_PER_TICK): a caller with a larger slice would otherwise lose it all
+        --here and trip the search allowance (test_search BP-15, 2026-09-24).
+        if state.cursor.phase == "publish_finish" then cost = math.min(available, 2000) end
+        if not consume(budget, cost) then break end
+        -- ops_used records charged work, not state-machine transitions.
+        state.ops_used = state.ops_used + math.min(cost, available)
         local phase, cursor = state.cursor.phase, state.cursor
 
         if phase == "candidate_index" then

@@ -1,0 +1,2 @@
+BYTES player-red-science-1s 7fbb04a223c7c367f7d1113ff4db63ea5d9e3e424f6074dc0d8979fb138af5f0
+BYTES player-green-science-1s cf13e90f2dbd1e960ecc66cea7f0263dfe36421a1a24df41d462caef88160f0c

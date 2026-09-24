@@ -1479,11 +1479,14 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     -- inserter-reach failure rather than being relabelled by this layout guard.
     if not block.failure and not face_layout then
         local _, inserter_w = inserter_size(catalog, input and input.inserter)
-        for _, machine in ipairs(block.machines) do
-            local bound = 0
-            for _, inserter in ipairs(block.inserters) do
-                if inserter.machine_id == machine.id and inserter.port_bound then bound = bound + 1 end
+        local bound_by_machine = {}
+        for _, inserter in ipairs(block.inserters) do
+            if inserter.port_bound then
+                bound_by_machine[inserter.machine_id] = (bound_by_machine[inserter.machine_id] or 0) + 1
             end
+        end
+        for _, machine in ipairs(block.machines) do
+            local bound = bound_by_machine[machine.id] or 0
             local face_columns = math.floor(machine.w / math.max(1, inserter_w))
             if bound > face_columns then
                 block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
@@ -2043,7 +2046,7 @@ local function step_ports(steps, catalog, flows)
     return ports
 end
 
-local function make_candidates_once(input)
+local function make_candidates_once(input, work)
     --TRI-STATE, and that is load-bearing: `nil` means "use the production switch", `true` forces the feature
     --on, `false` forces it OFF.  The `and ... or previous` form below could only ever force it ON, so once
     --the production flag was on, HE1 in tests/test_hand_economy.lua asked for "switch off", read the global
@@ -2056,6 +2059,8 @@ local function make_candidates_once(input)
     -- Row blocks own the two-lane belt contract, so eligible grouped steps must construct paired hands even
     -- while the legacy multi-flow switch remains off for all other layouts.
     if forced == nil then multi_flow_hands = true end
+    local prepared = work ~= nil
+    if not work then
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
     -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a
@@ -2100,25 +2105,37 @@ local function make_candidates_once(input)
         end
         if target then target[#target + 1] = step else buckets[#buckets + 1] = {step} end
     end
-    local blocks, failures = {}, {}
-    for _, group in ipairs(buckets) do
+    work = {catalog = catalog, flows = flows, ports = ports, buckets = buckets,
+        bucket_index = 1, blocks = {}, failures = {}}
+    end
+    if not prepared then
+        multi_flow_hands = previous_multi_flow_hands
+        return nil, nil, work
+    end
+    local group = work.buckets[work.bucket_index]
+    if group then
         local ids = {}
         for _, step in ipairs(group) do
             ids[#ids + 1] = tostring(step.step_id) .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal)) or "")
         end
-        local block = build_block(group, catalog, relevant_ports(group, ports, flows), flows, input, "block:" .. table.concat(ids, "+"))
+        local block = build_block(group, work.catalog, relevant_ports(group, work.ports, work.flows), work.flows, input, "block:" .. table.concat(ids, "+"))
         if block.invalid_coverage or block.failure then
-            failures[#failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}
-        else blocks[#blocks + 1] = block end
+            work.failures[#work.failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}
+        else work.blocks[#work.blocks + 1] = block end
+        work.bucket_index = work.bucket_index + 1
+    end
+    if work.bucket_index <= #work.buckets then
+        multi_flow_hands = previous_multi_flow_hands
+        return nil, nil, work
     end
     local candidates = {}
-    if #failures == 0 then
+    if #work.failures == 0 then
         local beacon_count = 0
-        for _, block in ipairs(blocks) do beacon_count = beacon_count + block.physical_beacon_count end
-        candidates[1] = {id="one",candidate_id="one",blocks=blocks,physical_beacon_count=beacon_count,beacon_count=beacon_count}
+        for _, block in ipairs(work.blocks) do beacon_count = beacon_count + block.physical_beacon_count end
+        candidates[1] = {id="one",candidate_id="one",blocks=work.blocks,physical_beacon_count=beacon_count,beacon_count=beacon_count}
     end
     multi_flow_hands = previous_multi_flow_hands
-    return candidates, failures
+    return candidates, work.failures, nil
 end
 
 local function make_candidates(input)
@@ -2131,7 +2148,7 @@ function Groups.begin(input)
         progress = {phase = "grouping", done_units = 0, total_units = nil},
         -- Search already crosses a data-only copy boundary before this call. Retaining this immutable input
         -- reference keeps begin constant-time; candidate construction and its copy costs belong in step.
-        work = {input = input or {}, candidates = nil, failures = nil, emitted = {},
+        work = {input = input or {}, candidates = nil, failures = nil, emitted = {}, build = nil,
             candidate_enumerations = 0},
     }
 end
@@ -2143,11 +2160,14 @@ function Groups.step(state, budget)
     -- Candidate construction is deferred until the budgeted step. Keep the counter on the plain-data
     -- state so callers can verify begin did not enumerate candidates.
     if ops > 0 and state.work.candidates == nil then
-        local candidates, failures = make_candidates(state.work.input)
-        state.work.candidates, state.work.failures = candidates, failures
-        state.work.candidate_enumerations = #candidates
-        state.progress.total_units = #candidates
-        state.cursor.phase = "emit"
+        local candidates, failures, build = make_candidates_once(state.work.input, state.work.build)
+        state.work.build = build
+        if candidates then
+            state.work.candidates, state.work.failures = candidates, failures
+            state.work.candidate_enumerations = #candidates
+            state.progress.total_units = #candidates
+            state.cursor.phase = "emit"
+        end
         ops = ops - 1
     end
     while ops > 0 and state.work.candidates and state.cursor.candidate_index <= #state.work.candidates do

@@ -55,5 +55,6 @@ return {
     --700 until round 26: the pre-row pass has no candidate here (beacon coverage cannot be split) and failed at
     --once; the row pass now offers one honest attempt that also fails, measured 748 ticks on legalcopilot-dev
     --2026-09-23. 900 is capture_case's own default runaway bound.
-    max_ticks = 900,
+    --Round 30: stages charge honest ~8 us ops, so one generation spans more, shorter ticks.
+    max_ticks = 3000,
 }

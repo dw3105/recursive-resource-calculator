@@ -52,15 +52,24 @@ VANILLA_2_0_77 = {
         "drop_offset": {"x": 0, "y": -1},
         "drop_position": {"x": 0, "y": -1},
     },
+    #The generator reads `supply_w/h` as HALF extents and the roboport as `catalog.robo` (logic/bp/search.lua
+    #grid_model): the live capture of the player's own save says supply 3.5, 1x1 pole; robo logistic_radius 25,
+    #construction_radius 55, 4x4. The old values (supply 7, `roboport` with logistic_radius 50, no size) doubled the
+    #green-science grid to 101x101 (measured 2026-09-24, legalcopilot-dev).
     "pole": {
         "name": "medium-electric-pole", "quality": "normal",
-        "supply_w": 7, "supply_h": 7, "wire_reach": 9,
+        "supply_w": 3.5, "supply_h": 3.5, "tile_w": 1, "tile_h": 1, "wire_reach": 9,
     },
-    "roboport": {
+    "robo": {
         "name": "roboport", "quality": "normal",
-        "logistic_radius": 50, "construction_radius": 55,
+        "logistic_radius": 25, "construction_radius": 55, "tile_w": 4, "tile_h": 4,
     },
 }
+
+#Infrastructure entity prototypes (size, collision, etype) from the live capture of 2.0.77 in
+#tests/golden/cases/player-red-science-1s. An export that lists machines only would otherwise leave the artifact
+#check unable to tell a pole is a pole, and a splitter 1 tile wide.
+VANILLA_INFRA_ENTITIES = json.loads((Path(__file__).resolve().parent / "vanilla_infra_entities.json").read_text())
 
 DEFAULT_SETTINGS = {
     "belt": {"name": "transport-belt", "quality": "normal", "splitter": "splitter",
@@ -159,9 +168,16 @@ def build_reconstructed(export: Dict[str, Any], surface: str) -> Dict[str, Any]:
     #Copy the infrastructure keys too, or a build that DOES capture them has its real facts silently replaced
     #by the vanilla table below -- the exact substitution contract 26.7 forbids. Caught by PE9, not by review.
     for key in ("entity", "item", "fluid", "module", "recipe", "beacon", "quality",
-                "belt", "pipe", "inserter", "pole", "roboport"):
+                "belt", "pipe", "inserter", "pole", "robo"):
         if key in prototypes:
             catalog[key] = prototypes[key]
+    if "robo" not in catalog and isinstance(prototypes.get("roboport"), dict) and prototypes["roboport"].get("tile_w"):
+        catalog["robo"] = prototypes["roboport"]
+    entities = catalog.setdefault("entity", {})
+    for name, spec in VANILLA_INFRA_ENTITIES.items():
+        if name not in entities:
+            entities[name] = json.loads(json.dumps(spec))
+            reconstructed.append(f"catalog.entity.{name}")
     for key, facts in VANILLA_2_0_77.items():
         if key not in catalog:
             catalog[key] = dict(facts)
