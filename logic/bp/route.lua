@@ -3209,12 +3209,31 @@ local IMPROVE_MAX_STEPS = 200000
 
 local function trial_start(work, wanted, demand, option)
     local trial = {option = option, steps = 0, done = false}
+    if option and option.multi_bindings then
+        trial.multi, trial.index, trial.demands = true, 1, {}
+        for _, spec in ipairs(option.multi_bindings) do
+            local binding = find_binding(work, spec)
+            local d
+            for _, candidate in ipairs(work.demands or {}) do
+                if candidate.source.port_id == spec[1] and candidate.sink.port_id == spec[2] then d = candidate; break end
+            end
+            if not binding or not d or not lift_binding(work, binding) then trial.done = true; return trial end
+            trial.demands[#trial.demands + 1] = d
+        end
+        if option.hop then trial.hop = hop_endpoint(work, option.endpoint, option.hop)
+        else trial.slide = slide_endpoint(work, option.endpoint, option.dx, option.dy) end
+        if not trial.slide and not trial.hop then trial.done = true; return trial end
+        work.free_source_heading, work.allow_bury = true, true
+        trial.amount = trial.demands[1].rate_per_second
+        trial.search = begin_search(work, trial.demands[1], trial.demands[1].rate_per_second, 1)
+        return trial
+    end
     local binding = find_binding(work, wanted)
     if not binding or not lift_binding(work, binding) then trial.done = true; return trial end
     if option then
         if option.hop then trial.hop = hop_endpoint(work, option.endpoint, option.hop)
         else trial.slide = slide_endpoint(work, option.endpoint, option.dx, option.dy) end
-        if not trial.slide and not trial.hop then trial.done = true; return trial end
+        if not trial.slide and not trial.hop then trial.refused = true; trial.done = true; return trial end
     end
     trial.amount = binding.rate_per_second
     work.free_source_heading, work.allow_bury = true, true
@@ -3228,7 +3247,19 @@ local function trial_run(work, trial, ops)
         if trial.steps >= IMPROVE_MAX_STEPS then trial.done = true; break end
         trial.steps, used = trial.steps + 1, used + EXPANSION_OPS
         local outcome = search_step(work, trial.search)
-        if type(outcome) == "table" then trial.path, trial.done = outcome, true
+        if type(outcome) == "table" then
+            if trial.multi then
+                local d = trial.demands[trial.index]
+                if not append_normal_path(work, d, outcome, d.rate_per_second) then trial.done = true
+                else
+                    trial.index = trial.index + 1
+                    if trial.index > #trial.demands then trial.done = true
+                    else
+                        d = trial.demands[trial.index]
+                        trial.search = begin_search(work, d, d.rate_per_second, 1)
+                    end
+                end
+            else trial.path, trial.done = outcome, true end
         elseif outcome == "failed" then trial.done = true end
     end
     return used
@@ -3239,6 +3270,10 @@ end
 --because it broke something, so it never counts.
 local function trial_finish(work, trial, demand)
     work.free_source_heading, work.allow_bury = nil, nil
+    if trial.multi then
+        if trial.done and trial.index > #trial.demands and all_bindings_reach_sinks(work) then return route_weight(work) end
+        return nil
+    end
     if trial.path and append_normal_path(work, demand, trial.path, trial.amount) and all_bindings_reach_sinks(work) then
         return route_weight(work)
     end
@@ -3272,7 +3307,7 @@ improve_begin = function(work)
         order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second}
     end
     work.port_slides = work.port_slides or {}
-    return {order = order, index = 0, stage = "next", improved = 0}
+    return {order = order, index = 0, stage = "next", improved = 0, refused = {}}
 end
 
 --Advance the improve pass by at most about `ops` ops; returns ops used and whether the pass finished.  The trials
@@ -3285,6 +3320,12 @@ improve_step = function(work, st, ops)
             st.index = st.index + 1
             local wanted = st.order[st.index]
             if not wanted then
+                if not st.retrying and st.improved > 0 and #st.refused > 0 then
+                    st.order, st.index, st.retrying = st.refused, 0, true
+                    st.refused = {}
+                    used = used + 1
+                    break
+                end
                 reanchor_bindings(work)
                 work.counters.routes_improved = st.improved
                 -- Rear merge trials run after the ordinary reroutes have reached their fixed point.
@@ -3339,14 +3380,24 @@ improve_step = function(work, st, ops)
                 --only when this path is the only one on its port, so no other belt loses its end tile.
                 local options = {false}
                 for _, endpoint in ipairs({demand.sink, demand.source}) do
-                    if endpoint.slide_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
-                        for _, slide in ipairs(endpoint.slide_options) do
-                            options[#options + 1] = {endpoint = endpoint, dx = slide.dx, dy = slide.dy}
+                    local port_bindings = {}
+                    for _, b in ipairs(work.bindings or {}) do
+                        if b.source_port_id == endpoint.port_id or b.sink_port_id == endpoint.port_id then
+                            port_bindings[#port_bindings + 1] = {b.source_port_id,b.sink_port_id,b.rate_per_second}
                         end
                     end
-                    if endpoint.hop_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
+                    local function add_option(option)
+                        if #port_bindings > 1 then option.multi_bindings = port_bindings end
+                        options[#options + 1] = option
+                    end
+                    if endpoint.slide_options and not endpoint.perimeter then
+                        for _, slide in ipairs(endpoint.slide_options) do
+                            add_option({endpoint = endpoint, dx = slide.dx, dy = slide.dy})
+                        end
+                    end
+                    if endpoint.hop_options and not endpoint.perimeter then
                         for _, hop in ipairs(endpoint.hop_options) do
-                            options[#options + 1] = {endpoint = endpoint, hop = hop}
+                            add_option({endpoint = endpoint, hop = hop})
                         end
                     end
                 end
@@ -3365,6 +3416,9 @@ improve_step = function(work, st, ops)
             used = used + trial_run(work, st.trial, ops - used)
             if st.trial.done then st.stage = st.stage == "trial_run" and "trial_end" or "commit_end" end
         elseif st.stage == "trial_end" then
+            if st.trial.refused then
+                st.refused[#st.refused + 1] = st.wanted
+            end
             local weight = trial_finish(work, st.trial, st.demand)
             if weight and weight < st.best_weight then st.best, st.best_weight = st.option_index, weight end
             restore_route_snapshot(work, st.snapshot)
