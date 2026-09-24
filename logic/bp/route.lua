@@ -3224,8 +3224,9 @@ local function trial_start(work, wanted, demand, option)
         else trial.slide = slide_endpoint(work, option.endpoint, option.dx, option.dy) end
         if not trial.slide and not trial.hop then trial.done = true; return trial end
         work.free_source_heading, work.allow_bury = true, true
-        trial.amount = trial.demands[1].rate_per_second
-        trial.search = begin_search(work, trial.demands[1], trial.demands[1].rate_per_second, 1)
+        --A route demand carries `amount`; a binding carries `rate_per_second`.
+        trial.amount = trial.demands[1].amount
+        trial.search = begin_search(work, trial.demands[1], trial.amount, 1)
         return trial
     end
     local binding = find_binding(work, wanted)
@@ -3250,13 +3251,13 @@ local function trial_run(work, trial, ops)
         if type(outcome) == "table" then
             if trial.multi then
                 local d = trial.demands[trial.index]
-                if not append_normal_path(work, d, outcome, d.rate_per_second) then trial.done = true
+                if not append_normal_path(work, d, outcome, d.amount) then trial.done = true
                 else
                     trial.index = trial.index + 1
                     if trial.index > #trial.demands then trial.done = true
                     else
                         d = trial.demands[trial.index]
-                        trial.search = begin_search(work, d, d.rate_per_second, 1)
+                        trial.search = begin_search(work, d, d.amount, 1)
                     end
                 end
             else trial.path, trial.done = outcome, true end
