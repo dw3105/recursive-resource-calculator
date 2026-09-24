@@ -768,6 +768,16 @@ local function terminal_networks(state)
     return result
 end
 
+local function port_first_belt(port)
+    local x, y = finite(port.x), finite(port.y)
+    local direction = finite(port.travel_dir)
+    if x == nil or y == nil or direction == nil then return nil end
+    local dx, dy = Grid.dir_vector(direction)
+    if dx == nil then return nil end
+    local sign = port.role == "in" and -1 or 1
+    return {x = x + sign * dx, y = y + sign * dy}
+end
+
 local function terminal_consumers(state, network)
     local flow = network.flow or {}
     local sinks = network.role == "in" and flow.consumers or flow.producers
@@ -790,7 +800,10 @@ local function terminal_consumers(state, network)
                         dir = finite(block.dir, Grid.NORTH)}, port)
                     x, y = placed.x, placed.y
                 end
-                if x ~= nil and y ~= nil then result[#result + 1] = {x = x, y = y} end
+                if x ~= nil and y ~= nil then
+                    local point = port_first_belt(port) or {x = x, y = y}
+                    result[#result + 1] = point
+                end
             end
         end
     end
@@ -817,10 +830,6 @@ local function slot_cost(slot, consumers)
         end
         local point = consumers[nearest_index]
         cost = cost + nearest_distance
-        --An exit one tile beside its port is off the port's travel line in general, and route lays a port's first
-        --belt along that line, so it cannot turn into the exit: BP_R_NO_PATH, measured 2026-09-24 (gear output at
-        --(12,1), exit (12,0)). Two tiles away is always reachable.
-        if nearest_distance == 1 then cost = cost + 2 end
         x, y = point.x, point.y
         visited[nearest_index] = true
     end
@@ -1728,5 +1737,8 @@ function Search.progress(container)
     if fraction >= 1 then fraction = 0.999999999 end
     return fraction, progress.phase or PHASES[state.phase] or "planning"
 end
+
+Search._slot_cost = slot_cost
+Search._port_first_belt = port_first_belt
 
 return Search
