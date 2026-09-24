@@ -1196,7 +1196,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
     --A row starts flush at x=0 so it is mirror-symmetric about its machines' centre line: its head sits one tile
-    --before the first pickup and its output port one tile past the run's end, so Groups.reverse_run can flip either
+    --before the first pickup and its output port one tile past the run's end, so legacy run reversal could flip either
     --run and every port still lands on the block boundary (docs/contracts/row_block.md §Reversal).
     local machine_x0 = row_layout and 0 or (face_layout and 1 or 0)
     for _, row in ipairs(beacon_row_specs) do
@@ -2154,54 +2154,6 @@ function Groups.step(state, budget)
     return state
 end
 
---Round 26 row reversal (docs/contracts/row_block.md §Reversal). Returns a copy of `block` whose `role` run ("in" or
---"out") flows the other way: its tiles, head, feeds and port are mirrored about the machines' centre line
---x' = first_x + last_x - x, its direction and every horizontal port heading flip, and that run's row ports move with
---it. Nil when the block is no symmetric row (then the caller keeps the block as built). Pure: `block` is untouched.
-function Groups.reverse_run(block, role)
-    local row = block and block.row
-    if not row or row.first_x == nil or row.last_x == nil then return nil end
-    local axis = row.first_x + row.last_x
-    if axis + 1 ~= block.w then return nil end
-    local result = copy(block)
-    local function mirror_x(x) return axis - x end
-    local function flip(d)
-        if d == EAST then return WEST elseif d == WEST then return EAST end
-        return d
-    end
-    local found = false
-    for _, run in ipairs(result.belt_runs or {}) do
-        if run.role == role then
-            found = true
-            local tiles = {}
-            for index = #run.tiles, 1, -1 do
-                local t = run.tiles[index]
-                tiles[#tiles + 1] = {x = mirror_x(t.x), y = t.y}
-            end
-            run.tiles, run.dir = tiles, flip(run.dir)
-            if run.head then run.head = {x = mirror_x(run.head.x), y = run.head.y} end
-            for _, feed in ipairs(run.feeds or {}) do
-                feed.side_tile = {x = mirror_x(feed.side_tile.x), y = feed.side_tile.y}
-                feed.travel_dir = flip(feed.travel_dir)
-            end
-            if run.port then
-                run.port = {x = mirror_x(run.port.x), y = run.port.y, travel_dir = flip(run.port.travel_dir)}
-            end
-            run.reversed = not run.reversed
-        end
-    end
-    if not found then return nil end
-    local prefix = "row:" .. role .. ":"
-    for _, port in ipairs(result.ports or {}) do
-        if port.row_port and tostring(port.port_id):sub(1, #prefix) == prefix then
-            port.attach_dx = mirror_x(port.attach_dx)
-            port.normal_dir, port.travel_dir = flip(port.normal_dir), flip(port.travel_dir)
-        end
-    end
-    return result
-end
-
---A placed block's entities, ids prefixed "m:", rotated through Grid.place_member and Grid.place_port only
 function Groups.materialize(block, placement)
     placement = placement or {x = 0, y = 0, dir = NORTH}
     local px, py, dir = finite(placement.x, 0), finite(placement.y, 0), placement.dir or NORTH
