@@ -483,7 +483,7 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         row_port = port.row_port == true or nil,
         --A one-flow rear port may be entered by a curve: its belt faces the port's heading into the row head, and
         --with nothing behind it that belt is a curve, not a side-load (round 28, the player's v8 U-turn).
-        rear_curve = (port.rear == true and port_flow_id(port) ~= nil and #(port.flow_ids or {port_flow_id(port)}) <= 1) or nil,
+        rear_curve = (port.rear == true and port_flow_id(port) ~= nil and #(port.flow_ids or {port_flow_id(port)}) <= 2) or nil,
         block_id = block.block_id or block.id,
         step_id = port.step_id or block_step_id(block),
         role = role,
@@ -986,6 +986,18 @@ local function splitter_can_absorb(segment)
     return segment ~= nil and segment.kind == "belt" and not segment.underground and not segment.splitter
 end
 
+--A laid tile is a splitter anchor only when its physical feed is straight.  Source
+--ports are the sole exception: an inserter can feed an otherwise isolated first tile.
+local function splitter_straight_fed(work, x, y, segment, flow_id, source)
+    if not segment or segment.kind ~= "belt" or segment.underground or segment.splitter then return false end
+    local dx, dy = Grid.dir_vector(segment.direction)
+    if dx == nil then return false end
+    local feeder = work.segments_by_cell[coordinate_key(x - dx, y - dy)]
+    if feeder and segment_has_flow(feeder, flow_id) and feeder.direction == segment.direction
+        and (feeder.kind == "belt" or feeder.underground or feeder.splitter) then return true end
+    return source ~= nil and source.x == x and source.y == y and feeder == nil
+end
+
 local function merged_segment_total(left, right)
     local rates = {}
     for _, allocation in ipairs(left and left.allocations or {}) do
@@ -1019,14 +1031,6 @@ local function splitter_cell_allowed(work, demand, x, y, segment, search)
         end
     end
     if work.splitter_blocked_cells[coordinate_key(x, y)] then return blocked("underground") end
-    --The published splitter box is wider than its anchor/side index.  Check the adjacent cells that the
-    --materialized footprint covers as well, so a reserved underground endpoint cannot be hidden just outside
-    --the logical second tile.
-    for _, offset in ipairs({{-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {-1, 1}, {1, -1}, {1, 1}}) do
-        if work.splitter_blocked_cells[coordinate_key(x + offset[1], y + offset[2])] then
-            return blocked("underground")
-        end
-    end
     local occupant = work.segments_by_cell[coordinate_key(x, y)]
     if occupant ~= nil and occupant ~= segment then
         local same_flow = segment_has_flow(occupant, demand.flow_id)
@@ -1612,6 +1616,7 @@ local function append_normal_path(work, demand, path, amount)
                 --allocation may still share the segment, but its published pair keeps the direction it was built
                 --for.  Surface belts retain their existing splitter behaviour.
                     if not splitter_can_absorb(segment)
+                        or not splitter_straight_fed(work, cell.x, cell.y, segment, demand.flow_id, demand.source)
                         or not splitter_branch_allowed(work, demand, cell.x, cell.y, outgoing, segment) then
                         work.last_route_rejection = work.last_route_rejection or {}
                         work.last_route_rejection.x, work.last_route_rejection.y = cell.x, cell.y
@@ -1636,6 +1641,8 @@ local function append_normal_path(work, demand, path, amount)
                     local second_key = coordinate_key(second_x, second_y)
                     local side_segment = work.segments_by_cell[second_key]
                     if not merge_splitter_footprint(work, segment, second_key, demand) then
+                        work.last_route_rejection = work.last_route_rejection or {}
+                        work.last_route_rejection.x, work.last_route_rejection.y = cell.x, cell.y
                         return reject("splitter-footprint")
                     end
                     if first_segment == side_segment then first_segment = segment end
@@ -1759,7 +1766,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         end
         local splitter_continuation = segment.splitter and segment.splitter_second_key == coordinate_key(x, y)
             and (is_target or segment.splitter_direction == move_direction)
-        if segment.splitter and segment.splitter_second_key == coordinate_key(x, y) and not splitter_continuation then
+        if segment.splitter and not splitter_continuation then
             search.saw_blocked = true
             return false
         end
@@ -2099,7 +2106,11 @@ local function search_step(work, search)
         if target and search.demand.sink.rear_curve and search.demand.sink.travel_dir ~= nil
             and direction ~= Grid.dir_opposite(search.demand.sink.travel_dir)
             and work.segments_by_cell[coordinate_key(nx, ny)] == nil then
-            sink_any_approach = true
+            local sx, sy = Grid.dir_vector(search.demand.sink.travel_dir)
+            local approach = sx and work.segments_by_cell[coordinate_key(search.demand.sink.x - sx,
+                search.demand.sink.y - sy)]
+            sink_any_approach = not (approach and segment_has_flow(approach, search.demand.flow_id)
+                and approach.direction == search.demand.sink.travel_dir)
         end
         if target and not search.demand.sink.perimeter and not search.demand.sink.row_port
             and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
@@ -2157,6 +2168,7 @@ local function search_step(work, search)
                     and search.demand.crossing_blocked[coordinate_key(current.x, current.y)])
                 and segment_allows(work, leaving, search.demand, search.amount)
                 and splitter_can_absorb(leaving)
+                and splitter_straight_fed(work, current.x, current.y, leaving, search.demand.flow_id, search.demand.source)
                 and splitter_branch_allowed(work, search.demand, current.x, current.y, direction, leaving, nil) then
                 body_jump = true
             end
@@ -2170,6 +2182,9 @@ local function search_step(work, search)
                 and direction ~= Grid.dir_opposite(entering.direction)
             local free = path_cell_free(work, search.demand, nx, ny,
                 body_jump and leaving.direction or direction, target, search.amount, search)
+            local refused_body = leaving ~= nil and splitter_can_absorb(leaving)
+                and current.direction ~= nil and leaving.direction == current.direction
+                and direction ~= current.direction and work.belt and work.belt.splitter and not body_jump
             if free and body_jump then
                 --A splitter costs two belts' worth of commitment and forces the branch to jog a tile, so it
                 --is priced above the plain turn it replaces.  Contract 28.8 wants a continuation to win
@@ -2185,7 +2200,7 @@ local function search_step(work, search)
                         current.direction, 0, 0, search.amount)
                     enqueue_state(search, nx, ny, entering.direction, 2, current.key, cost)
                 end
-            elseif free then
+            elseif free and not refused_body then
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
