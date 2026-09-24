@@ -630,7 +630,10 @@ local function row_hand_groups(step, flows)
     end
     if #inputs > 6 then return nil end
     if #inputs > 0 then
-        groups[#groups + 1] = hand_group("input", #inputs <= 2 and inputs or {inputs[1]}, machine_count)
+        --Three or more inputs: the plain hand reads the near belt, which carries the first two flows in flow-id
+        --order; the rest ride far belts read by long hands (docs/contracts/row_block.md §Far belt).
+        table.sort(inputs, function(a, b) return tostring(a.flow_id or a.full_name) < tostring(b.flow_id or b.full_name) end)
+        groups[#groups + 1] = hand_group("input", #inputs <= 2 and inputs or {inputs[1], inputs[2]}, machine_count)
     end
     local outs = 0
     for _, port in ipairs(step.outputs or {}) do
@@ -1154,8 +1157,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --to the one and two machine cases that face_layout covers.
     if (face_layout or logical_face_layout) and beacon_rows_h == 0 then machine_y = 1 end
     if row_layout and beacon_rows_h == 0 then
-        machine_y = item_port_count(steps[1], "inputs", flows) >= 3
-            and item_port_count(steps[1], "inputs", flows) <= 4 and 4 or 2
+        --A far belt above the row needs two more rows: the belt and its top side feed.
+        machine_y = item_port_count(steps[1], "inputs", flows) >= 3 and 4 or 2
     end
     if beacon_rows_h > 0 then
         -- Keep the established spacer when the collision box still reaches the row, but remove it when the
@@ -1769,6 +1772,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for _, p in ipairs(steps[1].inputs or {}) do if not flow_is_fluid(p, flows) then flows_in[#flows_in+1] = p.flow_id or p.full_name end end
         for _, p in ipairs(steps[1].outputs or {}) do if not flow_is_fluid(p, flows) then flows_out[#flows_out+1] = p.flow_id or p.full_name end end
         table.sort(flows_in); table.sort(flows_out)
+        --Near belt: the first two input flows. Far belts: flows 3-4 above the near belt, 5-6 below the output belt.
+        local far_in, far_out = {}, {}
+        for i = 3, math.min(4, #flows_in) do far_in[#far_in + 1] = flows_in[i] end
+        for i = 5, math.min(6, #flows_in) do far_out[#far_out + 1] = flows_in[i] end
+        if #flows_in > 2 then flows_in = {flows_in[1], flows_in[2]} end
         local pickup_y, drop_y = machine_y - 2, machine_y + max_machine_h + 1
         local first_x = block.machines[1].x + math.floor(block.machines[1].w / 2)
         local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
@@ -1807,45 +1815,74 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             {role="in",flows=flows_in,tiles=tiles_in,dir=EAST,head={x=first_x-1,y=pickup_y},feeds=feeds,hand_ids=(function() local a={} for _,h in ipairs(in_hands) do a[#a+1]=h.id end return a end)()},
             {role="out",flows=flows_out,tiles=tiles_out,dir=EAST,port={x=row_w,y=drop_y,travel_dir=EAST},hand_ids=(function() local a={} for _,h in ipairs(out_hands) do a[#a+1]=h.id end return a end)()},
         }
-        local input_count = #flows_in
-        if input_count >= 3 then
-            local far_input = input_count <= 4
-            local far_y = far_input and pickup_y - 2 or drop_y + 2
-            local far_tiles = {}
-            for x = first_x - 1, last_x + 1 do far_tiles[#far_tiles + 1] = {x=x,y=far_y} end
+        --Far belts (docs/contracts/row_block.md §Far belt). A long hand stands in the same hand row as the plain
+        --hand, one column to its right, and reaches two tiles: over the near belt to the far belt, and two tiles
+        --into its machine. The far belt above the row travels WEST so its head and side feeds sit right of the
+        --row, clear of the near belt's own feeds; the far belt below the output belt travels EAST from the left.
+        local long_facts = catalog and catalog.long_inserter or {}
+        local long_name = long_facts.name or "long-handed-inserter"
+        local far_w = 0
+        local function add_far(far_flows, above)
+            if #far_flows == 0 then return end
+            local far_y = above and pickup_y - 1 or drop_y + 1
+            local long_x = {}
+            for _, machine in ipairs(block.machines) do
+                long_x[#long_x + 1] = machine.x + math.min(machine.w - 1, math.floor((machine.w - 1) / 2) + 1)
+            end
+            local travel = above and WEST or EAST
+            local head_x = above and long_x[#long_x] + 1 or first_x - 1
+            local tiles = {}
+            if above then
+                for x = head_x, long_x[1], -1 do tiles[#tiles + 1] = {x = x, y = far_y} end
+            else
+                for x = head_x, long_x[#long_x] do tiles[#tiles + 1] = {x = x, y = far_y} end
+            end
             local far_feeds = {}
-            if far_input then
-                for _, feed in ipairs(feeds) do
-                    far_feeds[#far_feeds + 1] = {flow_id=feed.flow_id,
-                        side_tile={x=feed.side_tile.x,y=feed.side_tile.y-2},travel_dir=feed.travel_dir}
+            local run = {role = "in", far = true, flows = list_copy(far_flows), tiles = tiles, dir = travel,
+                head = {x = head_x, y = far_y}, feeds = far_feeds, hand_ids = {}}
+            if #far_flows == 1 then
+                local fid = far_flows[1]
+                block.ports[#block.ports + 1] = {port_id = "row:in:" .. fid, row_port = true, rear = true, far = true,
+                    role = "in", kind = "item", flow_id = fid, flow_ids = {fid}, step_id = steps[1].step_id,
+                    attach_dx = above and head_x + 1 or head_x - 1, attach_dy = far_y,
+                    normal_dir = travel, travel_dir = travel, member_id = block.machines[1].id}
+            else
+                for i, fid in ipairs(far_flows) do
+                    --feeds[1] comes from the left of travel: north of an EAST belt, south of a WEST belt.
+                    local side = (i == 1) == (travel == EAST) and -1 or 1
+                    local into = side == -1 and SOUTH or NORTH
+                    far_feeds[#far_feeds + 1] = {flow_id = fid, side_tile = {x = head_x, y = far_y + side}, travel_dir = into}
+                    block.ports[#block.ports + 1] = {port_id = "row:in:" .. fid, row_port = true, far = true, role = "in",
+                        kind = "item", flow_id = fid, step_id = steps[1].step_id, attach_dx = head_x,
+                        attach_dy = far_y + side, normal_dir = into, travel_dir = into, member_id = block.machines[1].id}
                 end
             end
-            local long_facts = catalog and catalog.long_inserter or {}
-            local long_name = long_facts.name or "long-handed-inserter"
-            block.belt_runs[#block.belt_runs + 1] = {role=far_input and "in" or "out",flows=far_input and flows_in or flows_out,tiles=far_tiles,dir=EAST,
-                head={x=first_x-1,y=far_y},feeds=far_feeds,far=true,hand_ids={}}
             for index, machine in ipairs(block.machines) do
-                local hx = machine.x + math.min(machine.w - 1, math.floor((machine.w - 1) / 2) + 1)
-                local hy = far_input and machine.y - 2 or machine.y + machine.h + 1
-                local hid = member_id("inserter", machine.step_id, index, "input:long")
-                local pickup = {x=hx+0.5,y=far_y+0.5}
-                local drop = far_input and {x=hx+0.5,y=machine.y+0.5} or {x=hx+0.5,y=machine.y+machine.h-0.5}
-                local hand = {id=hid,kind="inserter",type="inserter",name=long_name,step_id=machine.step_id,
-                    machine_id=machine.id,role="input",long=true,flow_ids=list_copy(flows_in),
-                    port_id="row:in:"..tostring(flows_in[math.min(3,#flows_in)]),
-                    x=hx,y=hy,w=1,h=1,dir=far_input and SOUTH or NORTH,pickup_position=pickup,drop_position=drop,
-                    pickup_offset=point(long_facts.pickup_offset) or {x=0,y=2},
-                    drop_offset=point(long_facts.drop_offset) or {x=0,y=-2},
-                    port_bound=true,hand_ids={},flow_entries={}}
-                block.inserters[#block.inserters+1] = hand
-                block.belt_runs[#block.belt_runs].hand_ids[#block.belt_runs[#block.belt_runs].hand_ids+1] = hid
+                local hx = long_x[index]
+                local hy = above and machine.y - 1 or machine.y + machine.h
+                local hid = member_id("inserter", machine.step_id, machine.ordinal or index,
+                    "input:long:" .. (above and "top" or "bottom"))
+                block.inserters[#block.inserters + 1] = {id = hid, kind = "inserter", type = "inserter", name = long_name,
+                    step_id = machine.step_id, machine_id = machine.id, role = "input", long = true,
+                    flow_ids = list_copy(far_flows), flow_id = #far_flows == 1 and far_flows[1] or nil,
+                    port_id = "row:in:" .. tostring(far_flows[1]), x = hx, y = hy, w = 1, h = 1,
+                    dir = above and SOUTH or NORTH,
+                    pickup_position = {x = hx + 0.5, y = far_y + 0.5},
+                    drop_position = {x = hx + 0.5, y = (above and machine.y + 1 or machine.y + machine.h - 2) + 0.5},
+                    pickup_offset = point(long_facts.pickup_offset) or {x = 0, y = 2},
+                    drop_offset = point(long_facts.drop_offset) or {x = 0, y = -2},
+                    port_bound = true, flow_entries = {}}
+                run.hand_ids[#run.hand_ids + 1] = hid
             end
-            block.h = math.max(block.h, far_y + 1)
-            block.w = math.max(block.w, row_w)
+            block.belt_runs[#block.belt_runs + 1] = run
+            far_w = math.max(far_w, head_x + 2)
         end
+        add_far(far_in, true)
+        add_far(far_out, false)
+        if #far_out > 0 then block.h = math.max(block.h, drop_y + 3) end
         block.row.machines = #block.machines
         block.row.first_x, block.row.last_x = first_x, last_x
-        block.w = row_w; block.h = math.max(block.h,drop_y+1)
+        block.w = math.max(row_w, far_w); block.h = math.max(block.h,drop_y+1)
         block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
     end
 

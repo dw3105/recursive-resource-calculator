@@ -80,12 +80,18 @@ reversed), head, feeds and port; its `dir` and every EAST/WEST port heading flip
 `row:<role>:` moves with it (attach_dx mirrored, normal/travel flipped). Reversing twice gives the block back. Nil when
 the block is no symmetric row. Ports stay on the boundary: -1 <-> w.
 
-## Far belt
+## Far belt (round 29, 2026-09-24)
 
-Rows with three or four distinct item inputs have a second input run one tile behind the near input run. Each machine
-uses a long-handed inserter on a different column of its input face; its pickup is on the far run and its drop is
-inside the machine. Rows with five or six inputs instead place the far run beyond the output run and read it with a
-long-handed inserter on the output face. The far run uses the normal `belt_runs` shape and sets `far = true`.
-Long inserter prototype name and offsets come from `catalog.long_inserter`; absent facts use
-`long-handed-inserter`, pickup `{x=0,y=2}` and drop `{x=0,y=-2}`. Rows with more than six item inputs fail as
-`BP_P_NO_FIT` / `row-inputs`.
+Input flows sorted by flow id. The near input run carries flows 1-2 (the plain input hand takes those two). Flows
+3-4 ride a far run one tile above the near run; flows 5-6 ride a far run one tile below the output run. 7+ fail as
+`BP_P_NO_FIT` / `row-inputs`. Machines start at `y = 4` whenever a far run sits above.
+
+- Each machine gets one long hand per far run, in the same hand row as the plain hand (above: `machine.y - 1`;
+  below: `machine.y + h`), one column right of the plain hand. It picks up two tiles out (on the far run) and drops
+  two tiles in (inside its machine). `long = true`, name from `catalog.long_inserter` (fallback
+  `long-handed-inserter`, offsets pickup `{x=0,y=2}`, drop `{x=0,y=-2}`).
+- The far run above travels WEST, head one tile right of the last long hand column, so its head and feeds sit
+  clear of the near run's head and feeds at the left. The far run below travels EAST from `first_x - 1`.
+- Two far flows: side feeds at the head, `feeds[1]` from the left of travel (south of a WEST belt, north of an EAST
+  belt). One far flow: a rear port one tile behind the head (`rear = true`), entered straight or by curve.
+- Far runs use the `belt_runs` shape with `far = true`; their ports carry `far = true`.
