@@ -2538,17 +2538,13 @@ local function normalize_input(input)
         end
     end
     work.flows = flow_list(input)
-    work.demands = build_demands(work, work.flows)
+    work.expansion_limit_input = {limits = input.limits, max_expansions = input.max_expansions}
     work.max_expansions = finite(input.limits and input.limits.max_expansions,
-        finite(input.max_expansions, default_expansion_limit(input, #work.demands)))
+        finite(input.max_expansions, default_expansion_limit(input, #work.flows)))
+    -- Demand pairing contains obstacle floods for every producer/consumer candidate pair. Keep the
+    -- normalized inputs here; Route.step builds one flow's demands at a time under its op budget.
+    work.demands, work.demand_build_index = {}, 1
     work.demand_order, work.demands_by_key = {}, {}
-    for index, demand in ipairs(work.demands) do
-        demand.order_key = index
-        work.demand_order[index] = demand
-        work.demands_by_key[index] = demand
-    end
-    work.port_cells = reserve_port_cells(work)
-    lay_belt_runs(work)
     return work
 end
 
@@ -2680,10 +2676,33 @@ end
 
 local improve_begin, improve_step
 
+local function finish_demand_build(work)
+    -- `build_demands` has already applied its stable route-cost ordering per flow. The old sort
+    -- was global; preserve that exact ordering across flows by applying its same comparator once.
+    for index, demand in ipairs(work.demands) do demand._build_order = index end
+    table.sort(work.demands, function(left, right)
+        if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end
+        return left._build_order < right._build_order
+    end)
+    local limits = work.expansion_limit_input or {}
+    work.max_expansions = finite(limits.limits and limits.limits.max_expansions,
+        finite(limits.max_expansions, default_expansion_limit(limits, #work.demands)))
+    work.demand_order, work.demands_by_key = {}, {}
+    for index, demand in ipairs(work.demands) do
+        demand.order_key = index
+        work.demand_order[index], work.demands_by_key[index] = demand, demand
+    end
+    work.port_cells = reserve_port_cells(work)
+    lay_belt_runs(work)
+    work.demand_build_done = true
+    work.expansion_limit_input = nil
+end
+
 function Route.begin(input)
+    input = input or {}
     local work = normalize_input(input or {})
-    return {done = false, ok = nil, tidy = not (type(input) == "table" and input.tidy == false), cursor = {flow_index = 1, demand_index = 1, phase = "routing"},
-        progress = {phase = "routing", done_units = 0, total_units = #work.demands},
+    return {done = false, ok = nil, tidy = not (type(input) == "table" and input.tidy == false), cursor = {flow_index = 1, demand_index = 1, phase = "demand_build"},
+        progress = {phase = "demand_build", done_units = 0, total_units = #work.flows},
         counters = work.counters, work = work}
 end
 
@@ -2710,7 +2729,7 @@ function Route.tidy_step(state, budget)
     local work = state.work
     if not work.improved then
         work.improve_state = work.improve_state or improve_begin(work)
-        local used, finished = improve_step(work, work.improve_state, ops)
+        local used, finished = improve_step(work, work.improve_state, math.min(ops, 4))
         ops = math.max(0, ops - used)
         if finished then work.improved, work.improve_state = true, nil end
     end
@@ -3351,6 +3370,25 @@ function Route.step(state, budget)
     local ops = finite(budget.ops, 1)
     if ops < 0 then ops = 0 end
     local work = state.work
+    -- Demand construction is ordered exactly as the original one-shot builder, but one flow is
+    -- materialized per operation so large plans do not hide pairing work in Route.begin.
+    while ops > 0 and not work.demand_build_done do
+        local flow = work.flows[work.demand_build_index]
+        if not flow then
+            finish_demand_build(work)
+            state.cursor.phase = "routing"
+            state.progress.phase = "routing"
+            state.progress.total_units = #work.demands
+            break
+        end
+        local built = build_demands(work, {flow})
+        for _, demand in ipairs(built) do work.demands[#work.demands + 1] = demand end
+        work.demand_build_index = work.demand_build_index + 1
+        state.cursor.flow_index = work.demand_build_index
+        state.progress.done_units = state.progress.done_units + 1
+        ops = ops - 1
+    end
+    if not work.demand_build_done then budget.ops = ops; return state end
     if work.initial_error then
         if ops > 0 then
             state.errors, state.done, state.ok = {work.initial_error}, true, false
@@ -3368,7 +3406,7 @@ function Route.step(state, budget)
                 break
             elseif not work.improved then
                 work.improve_state = work.improve_state or improve_begin(work)
-                local used, finished = improve_step(work, work.improve_state, ops)
+                local used, finished = improve_step(work, work.improve_state, math.min(ops, 4))
                 ops = math.max(0, ops - used)
                 if finished then work.improved, work.improve_state = true, nil end
             end
