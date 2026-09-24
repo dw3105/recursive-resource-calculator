@@ -616,6 +616,35 @@ local function hand_groups_for(block, step, machine, catalog, input, flows)
         end
     end
     for _, port in ipairs(outputs) do groups[#groups + 1] = hand_group("output", {port}, machine_count) end
+    -- A hand has a finite transfer rate. Split each single-flow obligation into independent
+    -- hands so every hand and every routed port has an honest per-hand rate.
+    local capacity = finite(catalog and catalog.inserter and catalog.inserter.items_per_second)
+    if capacity and capacity > 0 then
+        local expanded = {}
+        for _, hand in ipairs(groups) do
+            local count = 1
+            if #hand.flow_ids == 1 then
+                count = math.max(1, math.ceil(hand.rate_per_second_per_machine / capacity - 1e-9))
+            end
+            for ordinal = 1, count do
+                local part = copy(hand)
+                if count > 1 then
+                    local id = hand.flow_ids[1]
+                    part.key = hand.key .. ":hand:" .. tostring(ordinal)
+                    part.rate_per_second = hand.rate_per_second / count
+                    part.rate_per_second_per_machine = hand.rate_per_second_per_machine / count
+                    part.flow_shares[id] = (part.flow_shares[id] or 0) / count
+                    part.flow_shares_per_machine[id] = (part.flow_shares_per_machine[id] or 0) / count
+                    part.port = copy(hand.port)
+                    part.port.port_id = tostring(hand.port.port_id or id) .. ":hand:" .. tostring(ordinal)
+                    part.port.rate_per_second = (flow_entry_rate(hand.port) / count)
+                    part.ports = {part.port}
+                end
+                expanded[#expanded + 1] = part
+            end
+        end
+        groups = expanded
+    end
     return groups
 end
 
@@ -783,10 +812,13 @@ local function append_inserters(block, step, machine, catalog, input, flows)
 end
 
 local function port_for_hand(inserter, fallback)
-    if not (inserter and type(inserter.flow_ids) == "table" and #inserter.flow_ids > 1) then
-        return fallback
-    end
+    if not inserter then return fallback end
     local source = copy(fallback or {})
+    if inserter.rate_per_second ~= nil then source.rate_per_second = inserter.rate_per_second end
+    if not (type(inserter.flow_ids) == "table" and #inserter.flow_ids > 1) then
+        source.port_id = inserter.port_id or source.port_id
+        return source
+    end
     source.flow_id, source.full_name = nil, nil
     source.flow_ids = list_copy(inserter.flow_ids)
     source.flow_shares = {}
@@ -820,11 +852,15 @@ local function block_ports(block, steps, ports, flows)
         if step_id and members_by_step[step_id] then
             local is_fluid = port.kind == "fluid" or port.is_fluid == true
             if is_fluid then
-                -- Fluid boxes have no item hand. Keep one physical pipe port for the step, preserving the old
-                -- connection placement while item ports below are expanded per actual inserter.
-                selected[#selected + 1] = {
-                    port = port, flow_id = flow_id, step_id = step_id, member_id = members_by_step[step_id][1].id,
-                }
+                -- Every replicated machine has its own fluid box. Preserve one pipe endpoint per machine so
+                -- validation and routing can witness the physical connection on every member.
+                for _, machine in ipairs(members_by_step[step_id]) do
+                    local machine_port = copy(port)
+                    machine_port.port_id = tostring(port.port_id) .. ":" .. tostring(machine.id)
+                    selected[#selected + 1] = {
+                        port = machine_port, flow_id = flow_id, step_id = step_id, member_id = machine.id,
+                    }
+                end
             else
                 for _, inserter in ipairs(block.inserters or {}) do
                     local wanted_role = port.role == "out" and "output" or "input"
@@ -1054,6 +1090,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --route (tests/golden/long_hand_probe.lua 2, 2026-09-24), and single-machine blocks run out of faces.
     local row_layout = machine_total >= 2
     for _, step in ipairs(steps) do
+        for _, role in ipairs({"inputs", "outputs"}) do
+            for _, entry in ipairs(step[role] or {}) do
+                if flow_is_fluid(entry, flows) then row_layout = false end
+            end
+        end
         if item_port_count(step, "outputs", flows) > 1 then row_layout = false end
         if item_port_count(step, "inputs", flows) > 3 then row_layout = false end
     end
@@ -2081,8 +2122,20 @@ local function make_candidates_once(input, work)
         local item_inputs, item_outputs = 0, 0
         for _, p in ipairs(step.inputs or {}) do if not flow_is_fluid(p, flows) then item_inputs = item_inputs + 1 end end
         for _, p in ipairs(step.outputs or {}) do if not flow_is_fluid(p, flows) then item_outputs = item_outputs + 1 end end
+        local hand_capacity = finite(catalog and catalog.inserter and catalog.inserter.items_per_second)
+        local needs_individual_blocks = false
+        if hand_capacity and hand_capacity > 0 and step.machine_count > 1 then
+            for _, role in ipairs({"inputs", "outputs"}) do
+                for _, entry in ipairs(step[role] or {}) do
+                    if not flow_is_fluid(entry, flows)
+                        and math.ceil(flow_entry_rate(entry) / step.machine_count / hand_capacity - 1e-9) > 1 then
+                        needs_individual_blocks = true
+                    end
+                end
+            end
+        end
         local row_possible = item_outputs <= 1 and item_inputs <= 3
-        if distinct > 2 and step.machine_count > 1 and not row_possible then
+        if step.machine_count > 1 and (needs_individual_blocks or (distinct > 2 and not row_possible)) then
             for ordinal = 1, step.machine_count do
                 local fragment = copy(step)
                 fragment.machine_count = 1

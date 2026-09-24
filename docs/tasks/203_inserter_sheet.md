@@ -65,3 +65,18 @@ Commit on `lane/203_inserter_sheet`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3600s
+
+## Built
+
+- Fluid input or output keeps a multi-machine step out of row layout, so the normal block port builder carries the fluid connection into routing.
+- Item flows are split into `ceil(rate / inserter.items_per_second)` individual hands. Each gets its own port id and rate share; port placement uses that hand's captured face position.
+- Added fluid-row and hand-count coverage across all harness API shapes.
+
+## Left
+
+`sh tools/measure_sheet.sh player-inserter-10s` still returns `BP_FAIL_NO_LAYOUT`. The first remaining external
+blocker is `BP_R_FLUID_MIX` ×2 at `logic/bp/route.lua:3807` (item paths are refused after meeting a pipe network).
+The subsequent validation attempt reports `BP_V_FLUID_DISCONNECTED` ×6 at `logic/bp/validate.lua:2078` and
+`:2156`: the packed pipe paths do not reach each foundry's fluid connection. Both failures are beyond the owned
+`groups.lua`/`pack.lua` boundary. Red and green measurements pass at 169 and 322 entities respectively, with
+`mixed=0 starved=0 bleed=0`.
