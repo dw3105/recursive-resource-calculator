@@ -255,7 +255,7 @@ end
 
 local function begin_make_room(state)
     local work = state._work
-    if type(work.make_room) ~= "function" or work.room_started then return false end
+    if type(work.make_room) ~= "function" or work.room_started or #work.selected >= work.max_poles then return false end
     work.room_started = true
     work.blocked_candidates = work.blocked_candidates or {}
     work.room = {consumer_index = 1, candidate_index = 1, tried = 0, candidates = {}, scan_index = 1,
@@ -996,7 +996,8 @@ function Power.step(state, budget)
 
         elseif phase == "make_room" then
             local room = work.room
-            while room.consumer_index <= #work.consumers and work.covered[room.consumer_index] do
+            while room.consumer_index <= #work.consumers and (work.covered[room.consumer_index]
+                or #work.selected >= work.max_poles) do
                 room.consumer_index = room.consumer_index + 1
                 room.candidate_index, room.tried, room.candidates, room.scan_index = 1, 0, {}, 1
                 room.scanning, room.attempt_index = true, 1
@@ -1051,12 +1052,13 @@ function Power.step(state, budget)
                     local freed = blockers ~= nil and #blockers > 0
                     if freed then
                         for _, blocked in ipairs(blockers) do
+                            if not freed then break end
                             local ok = true
                             local r = blocked.rect
                             for y = math.floor(r.y), math.ceil(r.y+r.h)-1 do for x = math.floor(r.x), math.ceil(r.x+r.w)-1 do
                                 if x >= math.floor(candidate.rect.x) and x < math.ceil(candidate.rect.x+candidate.rect.w)
                                     and y >= math.floor(candidate.rect.y) and y < math.ceil(candidate.rect.y+candidate.rect.h) then
-                                    if not work.make_room(x,y) then ok=false end
+                                    if ok and not work.make_room(x,y) then ok=false end
                                 end
                             end end
                             if not ok then freed = false; break end

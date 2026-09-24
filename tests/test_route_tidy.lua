@@ -11,6 +11,11 @@ local function finish(s, tidy)
     local n=0; while not s.done and n<20000 do n=n+1; if tidy then Route.tidy_step(s,{ops=100000}) else Route.step(s,{ops=100000}) end end
     return s
 end
+local function signature(result)
+    local parts={}
+    for _,e in ipairs(result.entities) do parts[#parts+1]=table.concat({tostring(e.name),tostring(e.position.x),tostring(e.position.y),tostring(e.direction)},":") end
+    table.sort(parts); return table.concat(parts,"|")
+end
 for _,shape in ipairs(H.shapes()) do
  H.test(shape.." route tidy can be a separate step",function()
     local first=finish(Route.begin(input())); local separated
@@ -28,6 +33,7 @@ for _,shape in ipairs(H.shapes()) do
     local original=finish(Route.begin(initial))
     local state=finish(Route.tidy_begin(original,{obstacles={{x=4,y=2,w=1,h=1}}}),true)
     H.equal(state.ok,true,"tidy completes")
+    H.equal(signature(state.result),signature(original.result),"obstacle blocks the cheaper trial so the old route stays")
     local hit=false; for _,e in ipairs(state.result.entities) do if math.floor(e.position.x)==4 and math.floor(e.position.y)==2 then hit=true end end
     H.equal(hit,false,"tidy route avoids obstacle")
  end)
