@@ -85,8 +85,9 @@ function Hands.offer_slides(materialized, grid)
                     {dir=4, dx=1, dy=0, y0=machine.y, y1=machine.y + finite(machine.h,1)-1, x=machine.x+finite(machine.w,1)},
                 }
                 local function free(x,y)
+                    --The search's roboport grid carries no `cells` (Grid.robo_grid); `taken` already holds every entity.
                     return x >= 0 and y >= 0 and x < grid.w and y < grid.h and not taken[x .. ":" .. y]
-                        and grid.cells and grid.cells[y * grid.w + x + 1] == nil
+                        and (grid.cells == nil or grid.cells[y * grid.w + x + 1] == nil)
                 end
                 for _, face in ipairs(faces) do
                     if face.x0 then
@@ -171,12 +172,11 @@ function Hands.place(materialized, route_result)
                 local hop=slide.hop
                 dx,dy=hop.hand_x-hand.x,hop.hand_y-hand.y
                 hand.x,hand.y=hop.hand_x,hop.hand_y
-                hand.dir=(hand.dir+4*hop.turns)%16
+                if hand.dir ~= nil then hand.dir=(hand.dir+4*hop.turns)%16 end
+                if hand.direction ~= nil then hand.direction=(hand.direction+4*hop.turns)%16 end
                 hand.position={x=hand.x+0.5,y=hand.y+0.5}
-                local outward_x,outward_y
-                local direction=port.normal_dir
-                if direction==0 then outward_x,outward_y=0,-1 elseif direction==4 then outward_x,outward_y=1,0
-                elseif direction==8 then outward_x,outward_y=0,1 else outward_x,outward_y=-1,0 end
+                --The machine tile is the hand's mirror of its port tile: no guess about what normal_dir points at.
+                local outward_x,outward_y=hop.port_x-hop.hand_x,hop.port_y-hop.hand_y
                 local machine_x,machine_y=hand.x-outward_x,hand.y-outward_y
                 local port_point={x=port.x+0.5,y=port.y+0.5}
                 local machine_point={x=machine_x+0.5,y=machine_y+0.5}

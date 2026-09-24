@@ -78,4 +78,11 @@ H.test("output hop reverses pickup and drop", function()
     H.equal(hand.drop_position.x,3.5); H.equal(hand.drop_position.y,.5)
 end)
 
+
+H.test("hops are offered on the search's roboport grid, which has no cells (Grid.robo_grid)", function()
+    local m,port = offers()
+    Hands.offer_slides(m,{w=10,h=10})
+    H.equal(type(port.hop_options),"table","hop options exist")
+    H.equal(#port.hop_options > 0,true,"at least one hop on a cell-less grid")
+end)
 H.done("test_hands_hop")
