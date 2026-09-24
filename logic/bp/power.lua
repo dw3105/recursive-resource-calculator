@@ -233,14 +233,15 @@ end
 local function normalize_occupied(input)
     local result = {}
     for index, entry in ipairs(input.occupied or {}) do
-        local rect, owner
+        local rect, owner, kind
         if type(entry) == "table" then
             rect = entry.rect or entry[1]
             owner = entry.owner or entry[2]
+            kind = entry.kind
             if rect == nil and entry.x ~= nil then rect = entry end
         end
         rect = copy_rect(rect)
-        if rect then result[#result + 1] = {rect = rect, owner = plain_scalar(owner, tostring(index))} end
+        if rect then result[#result + 1] = {rect = rect, owner = plain_scalar(owner, tostring(index)), kind = kind} end
     end
     table.sort(result, function(a, b)
         if a.rect.y ~= b.rect.y then return a.rect.y < b.rect.y end
@@ -250,6 +251,17 @@ local function normalize_occupied(input)
         return tostring(a.owner) < tostring(b.owner)
     end)
     return result
+end
+
+local function begin_make_room(state)
+    local work = state._work
+    if type(work.make_room) ~= "function" or work.room_started or #work.selected >= work.max_poles then return false end
+    work.room_started = true
+    work.blocked_candidates = work.blocked_candidates or {}
+    work.room = {consumer_index = 1, candidate_index = 1, tried = 0, candidates = {}, scan_index = 1,
+        scanning = true, attempt_index = 1}
+    state.cursor.phase = "make_room"
+    return true
 end
 
 local function occupied_cell_index(occupied)
@@ -803,7 +815,8 @@ function Power.begin(input)
         result = nil, errors = nil, ops_used = 0,
         _work = {
             grid_w = grid_w, grid_h = grid_h, specs = specs, consumers = consumers, occupied = occupied,
-            occupied_cells = occupied_cell_index(occupied),
+            occupied_cells = occupied_cell_index(occupied), make_room = input.make_room,
+            blocked_candidates = {},
             positions_by_spec = {}, index_builder = {spec_index = 1, mode = "spec_start"},
             max_poles = math.max(0, max_poles), candidate_limit = candidate_limit,
             search_limit = search_limit, candidates = {}, candidate_keys = {}, candidate_index_by_key = {},
@@ -858,7 +871,14 @@ function Power.step(state, budget)
                         consumer_index = #work.consumers + 1, blocked = blocked}
                     -- The cell index above already performed exact intersection tests.  Rewalking
                     -- every occupied rectangle here charged one op per unrelated building.
-                    if blocked then work.candidate_eval = nil; cursor.phase = "candidate_position"
+                    if blocked then
+                        local covers = {}
+                        for ci, consumer in ipairs(work.consumers) do
+                            if consumer_covered(candidate, consumer) then covers[#covers + 1] = ci end
+                        end
+                        candidate.covers = covers
+                        if #covers > 0 then work.blocked_candidates[#work.blocked_candidates + 1] = candidate end
+                        work.candidate_eval = nil; cursor.phase = "candidate_position"
                     else cursor.phase = "candidate_coverage" end
                 end
             end
@@ -900,15 +920,18 @@ function Power.step(state, budget)
             local greedy = work.greedy
             if greedy.mode ~= "add" and greedy.mode ~= "add_coverage"
                 and (#work.selected >= work.max_poles or work.covered_count >= #work.consumers) then
-                work.connect = {add_position = 1, compare_position = 1, parent = {}, size = {},
+                if begin_make_room(state) then
+                    -- optional post-greedy attempt to clear transport and hand tiles
+                else work.connect = {add_position = 1, compare_position = 1, parent = {}, size = {},
                     components = 0, edges = {}}
-                cursor.phase = "connect"
+                cursor.phase = "connect" end
             elseif greedy.mode == "candidate" then
                 if greedy.candidate_index > #work.candidates then
                     if greedy.best == nil then
-                        work.connect = {add_position = 1, compare_position = 1, parent = {}, size = {},
+                        if begin_make_room(state) then
+                        else work.connect = {add_position = 1, compare_position = 1, parent = {}, size = {},
                             components = 0, edges = {}}
-                        cursor.phase = "connect"
+                        cursor.phase = "connect" end
                     else
                         greedy.mode = "add"
                     end
@@ -969,6 +992,92 @@ function Power.step(state, budget)
                 end
                 greedy.best, greedy.best_gain, greedy.best_total = nil, -1, -1
                 greedy.candidate_index, greedy.mode = 1, "candidate"
+            end
+
+        elseif phase == "make_room" then
+            local room = work.room
+            while room.consumer_index <= #work.consumers and (work.covered[room.consumer_index]
+                or #work.selected >= work.max_poles) do
+                room.consumer_index = room.consumer_index + 1
+                room.candidate_index, room.tried, room.candidates, room.scan_index = 1, 0, {}, 1
+                room.scanning, room.attempt_index = true, 1
+            end
+            if room.consumer_index > #work.consumers then
+                work.connect = {add_position = 1, compare_position = 1, parent = {}, size = {}, components = 0, edges = {}}
+                cursor.phase = "connect"
+            else
+                if room.scanning and room.scan_index <= #work.blocked_candidates then
+                    local candidate = work.blocked_candidates[room.scan_index]
+                    room.scan_index = room.scan_index + 1
+                    local gain, covers_target = 0, false
+                    for _, ci in ipairs(candidate.covers) do
+                        if not work.covered[ci] then gain = gain + 1 end
+                        if ci == room.consumer_index then covers_target = true end
+                    end
+                    if gain > 0 and covers_target then
+                        local entry = {candidate = candidate, gain = gain}
+                        local at = #room.candidates + 1
+                        for i, old in ipairs(room.candidates) do
+                            if gain > old.gain or (gain == old.gain and (candidate.rect.y < old.candidate.rect.y
+                                or (candidate.rect.y == old.candidate.rect.y and candidate.rect.x < old.candidate.rect.x))) then
+                                at = i; break
+                            end
+                        end
+                        table.insert(room.candidates, at, entry)
+                        if #room.candidates > 8 then room.candidates[9] = nil end
+                    end
+                elseif room.scanning then
+                    room.scanning = false
+                else
+                local entry = room.candidates[room.attempt_index]
+                if not entry or room.tried >= 8 then
+                    room.consumer_index = room.consumer_index + 1
+                    room.candidate_index, room.tried, room.candidates, room.scan_index = 1, 0, {}, 1
+                    room.scanning, room.attempt_index = true, 1
+                else
+                    room.candidate_index, room.tried, room.attempt_index = room.candidate_index + 1, room.tried + 1, room.attempt_index + 1
+                    local candidate, blockers = entry.candidate, {}
+                    for _, selected_index in ipairs(work.selected) do
+                        if rect_intersects(candidate.rect, work.candidates[selected_index].rect) then blockers = nil; break end
+                    end
+                    for oi, occupied in ipairs(work.occupied) do
+                        if blockers == nil then break end
+                        if rect_intersects(candidate.rect, occupied.rect) then
+                            if occupied.kind ~= "belt" and occupied.kind ~= "underground" and occupied.kind ~= "pipe" and occupied.kind ~= "inserter" then
+                                blockers = nil; break
+                            end
+                            blockers[#blockers + 1] = occupied
+                        end
+                    end
+                    local freed = blockers ~= nil and #blockers > 0
+                    if freed then
+                        for _, blocked in ipairs(blockers) do
+                            if not freed then break end
+                            local ok = true
+                            local r = blocked.rect
+                            for y = math.floor(r.y), math.ceil(r.y+r.h)-1 do for x = math.floor(r.x), math.ceil(r.x+r.w)-1 do
+                                if x >= math.floor(candidate.rect.x) and x < math.ceil(candidate.rect.x+candidate.rect.w)
+                                    and y >= math.floor(candidate.rect.y) and y < math.ceil(candidate.rect.y+candidate.rect.h) then
+                                    if ok and not work.make_room(x,y) then ok=false end
+                                end
+                            end end
+                            if not ok then freed = false; break end
+                        end
+                    end
+                    if freed then
+                        local keep = {}
+                        for _, occupied in ipairs(work.occupied) do
+                            local hit = false
+                            for _, blocked in ipairs(blockers) do if occupied == blocked then hit = true end end
+                            if not hit then keep[#keep+1] = occupied end
+                        end
+                        work.occupied, work.occupied_cells = keep, occupied_cell_index(keep)
+                        local index = append_candidate(work, candidate)
+                        work.selected[#work.selected+1], work.selected_set[index] = index, true
+                        for _, ci in ipairs(candidate.covers) do if not work.covered[ci] then work.covered[ci]=true; work.covered_count=work.covered_count+1 end end
+                    end
+                end
+                end
             end
 
         elseif phase == "connect" then
