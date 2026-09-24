@@ -3440,10 +3440,17 @@ improve_step = function(work, st, ops)
                         local hop = option.hop
                         work.port_slides[port_id] = {hop = {hand_x = hop.hand_x, hand_y = hop.hand_y,
                             port_x = hop.port_x, port_y = hop.port_y, turns = hop.turns}}
-                        option.endpoint.hop_options = nil
+                        --Slides run along the hand's first face; on the new face they would pull it off the machine.
+                        option.endpoint.hop_options, option.endpoint.slide_options = nil, nil
                     else
                         local slide = work.port_slides[port_id] or {dx = 0, dy = 0}
-                        work.port_slides[port_id] = {dx = slide.dx + option.dx, dy = slide.dy + option.dy}
+                        if slide.hop then
+                            local hop = slide.hop
+                            work.port_slides[port_id] = {hop = {hand_x = hop.hand_x + option.dx, hand_y = hop.hand_y + option.dy,
+                                port_x = hop.port_x + option.dx, port_y = hop.port_y + option.dy, turns = hop.turns}}
+                        else
+                            work.port_slides[port_id] = {dx = slide.dx + option.dx, dy = slide.dy + option.dy}
+                        end
                         option.endpoint.slide_options = nil
                     end
                 end
