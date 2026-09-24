@@ -69,7 +69,8 @@ for _, shape in ipairs(H.shapes()) do
         ProgressPanel.update(sheet_flow, {phase = "reading", done_units = 3, total_units = nil})
         H.equal(bar.value > first, true, "unknown-total progress rises")
         H.equal(bar.value < 1, true, "unknown-total progress stays below one")
-        H.equal(bar.tooltip[4], "?", "unknown total is shown as unknown")
+        H.equal(bar.tooltip[1], "hxrrc.progress_tooltip", "tooltip shows timing even when no ETA is known")
+        H.equal(bar.tooltip[3], "?", "unknown progress has no fabricated ETA")
     end)
 
     H.test(shape .. " PP-04 the bar stays below one until completion is reported", function()
@@ -211,6 +212,7 @@ for _, shape in ipairs(H.shapes()) do
         local bar=require("gui.sheet").progressbar_of(sheet_flow)
         H.equal(bar.caption[1], "hxrrc.progress_caption", "caption uses the descriptive key")
         H.equal(bar.caption[5][1], "hxrrc.progress_stage_pack", "caption names current stage")
+        ProgressPanel.set_best(sheet_flow, 57)
         H.equal(child_named(sheet_flow, "hxrrc_progress_best").caption[1], "hxrrc.progress_best", "best-so-far has its own line")
         ProgressPanel.set_note(sheet_flow, {"hxrrc.calc_canceled"})
         H.equal(child_named(sheet_flow, "hxrrc_job_note") ~= nil, true, "note is a child of the sheet")
