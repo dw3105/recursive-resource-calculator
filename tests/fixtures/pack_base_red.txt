@@ -1,0 +1,5 @@
+PLACE block:automation-science-pack x=7 y=3 dir=0 w=12 h=7 slots=0,-1,8;0,1,0;-1,0,4;12,6,4
+PLACE block:copper-plate x=3 y=14 dir=0 w=6 h=7 slots=-1,0,4;6,6,4
+PLACE block:iron-gear-wheel x=13 y=14 dir=0 w=5 h=4 slots=-1,1,4;5,1,4
+PLACE block:iron-plate x=3 y=23 dir=0 w=12 h=7 slots=-1,0,4;12,6,4
+PACK-CPU 3.96 origins=27589 ok=true

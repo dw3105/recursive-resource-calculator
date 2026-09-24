@@ -1,0 +1,7 @@
+logic/bp/route.lua
+tests/test_route_splitter_straight.lua
+tests/test_route_rear_curve.lua
+tests/test_route_splitter_physics.lua
+tests/test_route_footprints.lua
+tests/test_route_collision.lua
+tests/test_route_chain.lua

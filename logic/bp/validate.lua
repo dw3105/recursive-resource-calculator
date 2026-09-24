@@ -513,7 +513,10 @@ end
 
 local function entity_tile_rect(info)
     local entity = info.entity or {}
-    local width = math.max(1, math.floor(finite(entity.w, finite(info.spec.tile_w, 1))))
+    --A player's captured catalog lists machines only (green science sheet, 2026-09-24: no `splitter` spec), so a
+    --splitter fell back to one tile and its second output was never walked. A splitter is two tiles wide.
+    local fallback_w = tostring(entity.name or ""):find("splitter", 1, true) and 2 or 1
+    local width = math.max(1, math.floor(finite(entity.w, finite(info.spec.tile_w, fallback_w))))
     local height = math.max(1, math.floor(finite(entity.h, finite(info.spec.tile_h, 1))))
     --A catalog footprint is the NORTH one, so a body facing east or west is a quarter turn round and its tile
     --extents SWAP.  The splitter spec is `tile_w = 2, tile_h = 1` (logic/catalog.lua:8) and a routed splitter

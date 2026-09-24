@@ -189,8 +189,12 @@ local function candidate(row, facing, branch, negative)
     }, plan(outputs), geometry
 end
 
-local function finish(input, built_plan)
-    local state = Validate.begin({candidate = input, plan = built_plan, catalog = catalog()})
+local function finish(input, built_plan, no_splitter_spec)
+    local cat = catalog()
+    --The player's captured catalog lists machines only: no `splitter` entity spec (green science sheet,
+    --2026-09-24). A splitter is still two tiles wide.
+    if no_splitter_spec then cat.entity.splitter = nil end
+    local state = Validate.begin({candidate = input, plan = built_plan, catalog = cat})
     local ticks = 0
     while not state.done do
         ticks = ticks + 1
@@ -268,6 +272,20 @@ for _, shape in ipairs(H.shapes()) do
         report_row("VS6", geometry)
         local state = finish(input, built_plan)
         rejects(state, "BP_V_ROUTE_DISCONTINUOUS", "VS6 missing splitter continuation")
+    end)
+
+    H.test(shape .. " VS7 second-tile output is walked when the catalog has no splitter spec", function()
+        local input, built_plan, geometry = candidate("VS7", Grid.NORTH, "second", false)
+        report_row("VS7", geometry)
+        local state = finish(input, built_plan, true)
+        H.equal(state.ok, true, "a splitter is two tiles wide without a catalog spec: " .. table.concat(codes(state), ","))
+    end)
+
+    H.test(shape .. " VS8 EAST splitter footprint without a catalog spec", function()
+        local input, built_plan, geometry = candidate("VS8", Grid.EAST, "anchor", false)
+        report_row("VS8", geometry)
+        local state = finish(input, built_plan, true)
+        H.equal(state.ok, true, "the EAST splitter covers its north-south pair without a catalog spec: " .. table.concat(codes(state), ","))
     end)
 end
 

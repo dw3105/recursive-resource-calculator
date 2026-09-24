@@ -1,0 +1,8 @@
+logic/bp/pack.lua
+logic/bp/power.lua
+tests/test_pack_same_answer.lua
+tests/test_pack_speed.lua
+tests/fixtures/pack_green_input.lua
+tests/test_pack_budget.lua
+tests/test_power_budget.lua
+tests/test_power_ops.lua
