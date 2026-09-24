@@ -35,8 +35,9 @@ function ProgressView.of(player_index, sheet_id)
     end
     p.shown=math.max(finite(p.shown,0),fraction)
     if job.done then p.shown=1 end
-    if p.started_tick == nil then p.started_tick=finite(game and game.tick,0) end
-    local elapsed=math.max(0,finite(game and game.tick,0)-finite(p.started_tick,0))
+    local started=finite(job.started_tick,finite(p.started_tick,finite(game and game.tick,0)))
+    if p.started_tick == nil then p.started_tick=started end
+    local elapsed=math.max(0,finite(game and game.tick,0)-started)
     local f=p.shown
     return {kind=kind,stage_key=stage,attempt=math.max(1,finite(p.attempt,1)),attempts=math.max(1,finite(p.attempts,1)),fraction=f,
         elapsed_ticks=elapsed,eta_ticks=f>=0.05 and elapsed*(1-f)/f or nil,best_entities=job.best_entities}

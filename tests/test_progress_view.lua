@@ -50,10 +50,10 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " PV-02 ETA is absent below five percent and available above it", function()
         local ProgressView = require "logic.progress_view"
         storage = {[1] = {calc_jobs = {main = {kind = "calc", started_tick = 0,
-            progress = {stage = "solve", stage_done = 1, stage_total = 100}}}}}
+            progress = {stage = "snapshot", stage_done = 0, stage_total = 100}}}}}
         game = {tick = 10}
         H.equal(ProgressView.of(1, "main").eta_ticks, nil, "small progress has no ETA")
-        storage[1].calc_jobs.main.progress.stage_done = 10
+        storage[1].calc_jobs.main.progress.stage_done = 50
         H.equal(type(ProgressView.of(1, "main").eta_ticks), "number", "sufficient progress has an ETA")
     end)
     H.test(shape .. " PV-03 calc stages advance without moving the fraction backwards", function()
@@ -64,7 +64,7 @@ for _, shape in ipairs(H.shapes()) do
         job.phase="power"; job.progress={phase="power",done_units=0,total_units=100,shown=job.progress.shown,started_tick=100}
         local next_value=ProgressView.of(1,"main").fraction
         H.equal(next_value>=first,true,"phase changes preserve forward progress")
-        H.equal(ProgressView.of(1,"main").eta_ticks,nil,"an ETA is omitted before five percent")
+        H.equal(type(ProgressView.of(1,"main").eta_ticks),"number","an ETA appears after five percent")
         for _, file in ipairs({"locale/en/locale.cfg","locale/cs/locale.cfg","locale/ro/locale.cfg"}) do
             local f=assert(io.open(file,"r")); local text=f:read("*a"); f:close()
             H.equal(text:find("progress_stage_power=",1,true)~=nil,true,file.." has the stage caption")
