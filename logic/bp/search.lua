@@ -19,10 +19,11 @@ local Route = require "logic.bp.route"
 local Power = require "logic.bp.power"
 local Validate = require "logic.bp.validate"
 local Serialize = require "logic.bp.serialize"
+local Hands = require "logic.bp.hands"
 
 local PHASES = {
     plan = "planning", preflight = "preflight", groups = "grouping", pack = "packing", route = "routing",
-    power = "power", validate = "validating", serialize = "serializing", done = "done", failed = "failed",
+    hands = "hands", power = "power", tidy = "tidying", validate = "validating", serialize = "serializing", done = "done", failed = "failed",
 }
 
 local function finite(value, fallback)
@@ -151,11 +152,9 @@ local function search_limits(input)
 end
 
 local CANDIDATE_ALLOWANCE = 4
+local NO_IMPROVEMENT_LIMIT, MAX_LAYOUTS, MAX_FLIP_TRIALS = 1, 1, 0
 -- The player replay's winning layout is found early; allow two later validated misses to
 -- guard against ordering noise while bounding work by complete validated layouts.
-local NO_IMPROVEMENT_LIMIT = 2
-local MAX_LAYOUTS = 3
-local MAX_FLIP_TRIALS = 8
 
 local function grid_trial_limit(input, limits, grid_count)
     local maximum = input.max_search_grids or input.max_grid_trials
@@ -437,102 +436,7 @@ end
 
 --`materialized.ports` and each `blocks[i].ports` hold separate copies of one port (append_all copies), and
 --Route reads the block copies.  A slide must reach every copy.
-local function every_port_copy(materialized)
-    local result = {}
-    for _, port in ipairs(materialized.ports or {}) do result[#result + 1] = port end
-    for _, block in ipairs(materialized.blocks or {}) do
-        for _, port in ipairs(block.ports or {}) do result[#result + 1] = port end
-    end
-    return result
-end
-
---The player placed v4 on 2026-09-23 and boxed two belts that bent only to reach a hand grouping had fixed
---before any belt existed.  Each hand that serves one port may move one tile along its machine face; route.lua
---improve_routes tries the move and keeps it only when the layout gets smaller.  Only unrotated placements
---carry world port tiles (Groups.materialize), so only those are offered.
-local function offer_hand_slides(materialized, grid)
-    local by_id, taken, served = {}, {}, {}
-    for _, entity in ipairs(materialized.entities or {}) do
-        by_id[tostring(entity.id)] = entity
-        if entity.x ~= nil and entity.y ~= nil then
-            for x = entity.x, entity.x + finite(entity.w, 1) - 1 do
-                for y = entity.y, entity.y + finite(entity.h, 1) - 1 do taken[x .. ":" .. y] = true end
-            end
-        end
-    end
-    local function hand_of(port)
-        if port.inserter_id == nil then return nil end
-        return by_id["m:" .. tostring(port.inserter_id)] or by_id[tostring(port.inserter_id)]
-    end
-    for _, port in ipairs(materialized.ports or {}) do
-        local hand = hand_of(port)
-        if hand then served[hand] = (served[hand] or 0) + 1 end
-    end
-    for _, port in ipairs(materialized.ports or {}) do
-        local hand = hand_of(port)
-        local machine = hand and by_id[tostring(hand.machine_id)]
-        if hand and machine and served[hand] == 1 and port.x ~= nil and port.y ~= nil and port.attach_dx ~= nil
-            and hand.x ~= nil and machine.x ~= nil and finite(hand.w, 1) == 1 and finite(hand.h, 1) == 1 then
-            local nx, ny = port.x - hand.x, port.y - hand.y
-            if math.abs(nx) + math.abs(ny) == 1 then
-                local options = {}
-                for _, step in ipairs(nx ~= 0 and {{0, -1}, {0, 1}} or {{-1, 0}, {1, 0}}) do
-                    local hx, hy = hand.x + step[1], hand.y + step[2]
-                    local reach_x, reach_y = hx - nx, hy - ny
-                    local on_face = reach_x >= machine.x and reach_x < machine.x + finite(machine.w, 1)
-                        and reach_y >= machine.y and reach_y < machine.y + finite(machine.h, 1)
-                    if on_face and not taken[hx .. ":" .. hy] and hx >= 0 and hy >= 0 and hx < grid.w and hy < grid.h then
-                        options[#options + 1] = {dx = step[1], dy = step[2]}
-                    end
-                end
-                if #options > 0 then
-                    for _, twin in ipairs(every_port_copy(materialized)) do
-                        if twin.port_id == port.port_id then twin.slide_options, twin.hand_x, twin.hand_y = options, hand.x, hand.y end
-                    end
-                end
-            end
-        end
-    end
-end
-
---Move each hand the route kept a slide for, with its port tile and pickup/drop points.
-local function apply_hand_slides(materialized, route_result)
-    local by_port = {}
-    for _, slide in ipairs(route_result and route_result.port_slides or {}) do by_port[tostring(slide.port_id)] = slide end
-    if next(by_port) == nil then return end
-    local by_id = {}
-    for _, entity in ipairs(materialized.entities or {}) do by_id[tostring(entity.id)] = entity end
-    local ports = every_port_copy(materialized)
-    for _, port in ipairs(ports) do
-        local slide = by_port[tostring(port.port_id or port.id)]
-        if slide then
-            port.x, port.y = port.x + slide.dx, port.y + slide.dy
-            port.attach_dx, port.attach_dy = port.attach_dx + slide.dx, port.attach_dy + slide.dy
-            port.slide_options = nil
-        end
-    end
-    for _, port in ipairs(materialized.ports or {}) do
-        local slide = by_port[tostring(port.port_id or port.id)]
-        local hand = slide and port.inserter_id ~= nil
-            and (by_id["m:" .. tostring(port.inserter_id)] or by_id[tostring(port.inserter_id)])
-        if hand then
-            local dx, dy = slide.dx, slide.dy
-            local old_x, old_y = hand.x, hand.y
-            hand.x, hand.y = hand.x + dx, hand.y + dy
-            for _, field in ipairs({"position", "pickup_position", "drop_position"}) do
-                local point = hand[field]
-                if type(point) == "table" and point.x ~= nil then hand[field] = {x = point.x + dx, y = point.y + dy} end
-            end
-            for _, other in ipairs(ports) do
-                for _, rect in ipairs(other._occupied or {}) do
-                    if rect.x == old_x and rect.y == old_y and finite(rect.w, 1) == 1 and finite(rect.h, 1) == 1 then
-                        rect.x, rect.y = rect.x + dx, rect.y + dy
-                    end
-                end
-            end
-        end
-    end
-end
+local Hands = require "logic.bp.hands"
 
 local function lower_name(value)
     return type(value) == "string" and value:lower() or ""
@@ -1119,6 +1023,7 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
         end)(),
     })
     input.ports = ports
+    input.tidy = false
     return input
 end
 
@@ -1296,7 +1201,7 @@ local function start_grid(state)
     state.grid_spacing = copy(grid.grid_spacing)
     state.work.robo_obstacles = robo_obstacles
     state.work.roboports = roboports
-    state.work.groups = Groups.begin(stage_input(state, {plan = state.work.plan_result, grid = grid}))
+    state.work.groups = Groups.begin(stage_input(state, {plan = state.work.plan_result, grid = grid, ring_bump = state.work.attempt or 0}))
     state.work.candidate = nil
     state.work.orderings = nil
     state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
@@ -1461,8 +1366,7 @@ end
 
 local function flip_trial_stops_search(state)
     return not state.work.active_flip
-        and (state.work.no_improvement_attempts or 0) >= NO_IMPROVEMENT_LIMIT
-        and #(state.work.flip_queue or {}) == 0
+        and false
 end
 Search._flip_trial_stops_search = flip_trial_stops_search
 
@@ -1558,7 +1462,7 @@ end
 
 local function queue_candidate_flips(state, source)
     local work = state.work
-    if not source or (work.flip_trials or 0) + #work.flip_queue >= MAX_FLIP_TRIALS then return end
+    if not source then return end
     local variants = {}
     for _, block in ipairs(source.blocks or {}) do
         local id = block.id or block.block_id
@@ -1581,7 +1485,7 @@ local function queue_candidate_flips(state, source)
         end
     end
     for _, variant in ipairs(variants) do
-        if (work.flip_trials or 0) + #work.flip_queue >= MAX_FLIP_TRIALS then break end
+        if #work.flip_queue >= 0 then break end
         work.flip_queue[#work.flip_queue + 1] = variant
     end
 end
@@ -1620,6 +1524,7 @@ local function prepare_candidate(state)
     append_all(obstacles, bare_rects(state.work.input.occupied))
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
+        zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links or {},
         blocks = ordering.blocks, limits = state.work.input.limits or {}})
     set_phase(state, "pack")
     return true
@@ -1630,21 +1535,16 @@ local function discard_candidate(state)
         local score = state.work.validate and state.work.validate.result and state.work.validate.result.score
         record_discarded_attempt(state, score, score and "lower_score" or "rejected")
     end
-    state.work.pack, state.work.route, state.work.power, state.work.validate = nil, nil, nil, nil
-    if state.work.active_flip then
-        state.work.active_flip = false
-        state.work.candidate = nil
-        prepare_candidate(state)
+    state.work.pack, state.work.route, state.work.power, state.work.validate, state.work.tidy = nil, nil, nil, nil, nil
+    if (state.work.attempt or 0) < 2 then
+        state.work.attempt = (state.work.attempt or 0) + 1
+        state.cursor.grid_index = 1
+        start_grid(state)
         return
     end
-    state.cursor.order_index = state.cursor.order_index + 1
-    if state.work.orderings and state.cursor.order_index <= #state.work.orderings then
-        prepare_candidate(state)
-    else
-        state.cursor.candidate_index = state.cursor.candidate_index + 1
-        state.cursor.order_index = 1
-        prepare_candidate(state)
-    end
+    failure(state, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", {reason_details = rejection_details(state)})
+    return
+
 end
 
 function Search.step(container, budget)
@@ -1704,12 +1604,13 @@ function Search.step(container, budget)
             if stage_done(state.work.pack) then
                 if not state.work.pack.ok then
                     record_rejection(state, state.work.pack.errors, "pack")
-                    discard_candidate(state)
+                    if next_grid(state) then -- a no-fit pack rejection grows this attempt's grid
+                    else discard_candidate(state) end
                 else
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
                         state.work.pack.result and state.work.pack.result.placements)
                     state.work.materialized = {blocks = blocks, entities = entities, ports = ports}
-                    offer_hand_slides(state.work.materialized, state.work.grid)
+                    Hands.offer_slides(state.work.materialized, state.work.grid)
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input then
                         state.work.route = Route.begin(route_input)
@@ -1727,12 +1628,11 @@ function Search.step(container, budget)
                     record_rejection(state, state.work.route.errors, "route")
                     discard_candidate(state)
                 else
-                    apply_hand_slides(state.work.materialized, state.work.route.result)
+                    Hands.place(state.work.materialized, state.work.route.result)
                     local power_entities = list_copy(state.work.materialized.entities)
                     append_all(power_entities, state.work.route.result and state.work.route.result.entities)
-                    state.work.power = Power.begin(make_power_input(state, state.work.grid, power_entities,
-                        state.work.roboports, state.work.robo_obstacles))
-                    set_phase(state, "power")
+                    state.work.hand_entities = power_entities
+                    set_phase(state, "hands")
                 end
             end
         elseif state.phase == "power" then
@@ -1749,15 +1649,35 @@ function Search.step(container, budget)
                         discard_candidate(state)
                     end
                 else
-                    local route_result = state.work.route.result or {}
-                    local power_result = state.work.power.result or {}
-                    state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
-                        state.work.materialized.entities, state.work.materialized.ports, route_result, power_result,
-                        state.work.roboports)
-                    state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
-                        plan = state.work.plan_result, catalog = state.work.input.catalog})
-                    set_phase(state, "validate")
+                    local poles = {}
+                    for _, e in ipairs(state.work.power.result and state.work.power.result.entities or {}) do
+                        if e.kind == "pole" or e.type == "pole" then poles[#poles + 1] = {x=e.x,y=e.y,w=e.w or 1,h=e.h or 1} end
+                    end
+                    state.work.route_state = Route.tidy_begin(state.work.route, {obstacles = poles})
+                    set_phase(state, "tidy")
                 end
+            end
+        elseif state.phase == "hands" then
+            local all = list_copy(state.work.materialized.entities)
+            append_all(all, state.work.route.result and state.work.route.result.entities)
+            state.work.hand_entities = all
+            state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
+                state.work.roboports, state.work.robo_obstacles))
+            set_phase(state, "power")
+        elseif state.phase == "tidy" then
+            local before = budget.ops
+            Route.tidy_step(state.work.route_state, budget)
+            local spent = math.max(0, before - budget.ops)
+            state.ops_used = state.ops_used + spent
+            state.progress.done_units = state.progress.done_units + spent
+            if stage_done(state.work.route_state) then
+                state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
+                    state.work.materialized.entities, state.work.materialized.ports,
+                    state.work.route_state.result or state.work.route.result,
+                    state.work.power.result, state.work.roboports)
+                state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
+                    plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
+                set_phase(state, "validate")
             end
         elseif state.phase == "validate" then
             run_stage(state, "validate", Validate, budget)
