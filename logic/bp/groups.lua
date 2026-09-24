@@ -265,6 +265,8 @@ local function step_can_join(a, b)
     -- A physical block has one recipe and one machine setup.  Buffer sharing is permitted only
     -- between machines of that exact pair, so distinct steps cannot share a block across either.
     if a.recipe ~= b.recipe or a.machine ~= b.machine then return false end
+    -- Older plan fixtures may omit recipe; without a recipe identity those distinct steps cannot safely share.
+    if a.recipe == nil and a.step_id ~= b.step_id then return false end
     if a.forbids_speed_beacon ~= b.forbids_speed_beacon then return false end
     if a.interface_signature ~= nil and b.interface_signature ~= nil
         and tostring(a.interface_signature) ~= tostring(b.interface_signature) then
@@ -282,6 +284,12 @@ local function step_can_join(a, b)
         if a_signatures[key] ~= b_signatures[key] then return false end
     end
     return true
+end
+
+local function item_port_count(step, role, flows)
+    local n = 0
+    for _, p in ipairs(step[role] or {}) do if not flow_is_fluid(p, flows) then n = n + 1 end end
+    return n
 end
 
 local function member_id(kind, step_id, number, role)
@@ -514,10 +522,7 @@ local function forced_multi_flow_hands(input)
 end
 
 local multi_flow_hands = Flags.multi_flow_hands
---Round 26: while true, a step of two or more same-recipe machines is built as one row block
---(docs/contracts/row_block.md). make_candidates runs once with rows and once without, so a sheet the row
---layout cannot route still gets every candidate it had before rows.
-local rows_enabled = false
+--Rows are the single physical form for eligible machine groups (docs/contracts/row_block.md).
 
 local function flow_entry_rate(entry)
     return math.max(0, finite(entry and entry.share_per_second,
@@ -623,8 +628,13 @@ local function row_hand_groups(step, flows)
     for _, port in ipairs(step.inputs or {}) do
         if not flow_is_fluid(port, flows) then inputs[#inputs + 1] = port end
     end
-    if #inputs > 2 then return nil end
-    if #inputs > 0 then groups[#groups + 1] = hand_group("input", inputs, machine_count) end
+    if #inputs > 3 then return nil end
+    if #inputs > 0 then
+        --Three or more inputs: the plain hand reads the near belt, which carries the first two flows in flow-id
+        --order; the rest ride far belts read by long hands (docs/contracts/row_block.md §Far belt).
+        table.sort(inputs, function(a, b) return tostring(a.flow_id or a.full_name) < tostring(b.flow_id or b.full_name) end)
+        groups[#groups + 1] = hand_group("input", #inputs <= 2 and inputs or {inputs[1], inputs[2]}, machine_count)
+    end
     local outs = 0
     for _, port in ipairs(step.outputs or {}) do
         if not flow_is_fluid(port, flows) then
@@ -632,7 +642,7 @@ local function row_hand_groups(step, flows)
             groups[#groups + 1] = hand_group("output", {port}, machine_count)
         end
     end
-    if outs > 1 or #groups == 0 then return nil end
+    if outs > 1 then return nil end
     return groups
 end
 
@@ -1039,9 +1049,13 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, step in ipairs(steps) do machine_total = machine_total + step.machine_count end
     local face_layout = face_per_flow and has_item_port and machine_total <= 2
     local logical_face_layout = face_per_flow and has_item_port
-    local row_layout = false
-    if rows_enabled and machine_total >= 2 and #steps == 1 then
-        row_layout = row_hand_groups(steps[1], flows) ~= nil
+    --A row takes at most three item inputs: two on the near belt, one on a far belt read by long hands.
+    --Four or more stay unsupported, as before round 29: a far belt with two side-fed flows lost one of them in
+    --route (tests/golden/long_hand_probe.lua 2, 2026-09-24), and single-machine blocks run out of faces.
+    local row_layout = machine_total >= 2
+    for _, step in ipairs(steps) do
+        if item_port_count(step, "outputs", flows) > 1 then row_layout = false end
+        if item_port_count(step, "inputs", flows) > 3 then row_layout = false end
     end
     --A row is one horizontal line of touching machines; the one/two machine vertical face stack never applies.
     if row_layout then face_layout = false end
@@ -1141,7 +1155,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --candidates reaching validate. The inset is owed to every block that puts a hand on a face, not only
     --to the one and two machine cases that face_layout covers.
     if (face_layout or logical_face_layout) and beacon_rows_h == 0 then machine_y = 1 end
-    if row_layout and beacon_rows_h == 0 then machine_y = 2 end
+    if row_layout and beacon_rows_h == 0 then
+        --A far belt above the row needs two more rows: the belt and its top side feed.
+        machine_y = item_port_count(steps[1], "inputs", flows) >= 3 and 4 or 2
+    end
     if beacon_rows_h > 0 then
         -- Keep the established spacer when the collision box still reaches the row, but remove it when the
         -- actual y extent would leave a gap.  This is deliberately a world-box test, not a centre comparison.
@@ -1178,7 +1195,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
     --A row starts flush at x=0 so it is mirror-symmetric about its machines' centre line: its head sits one tile
-    --before the first pickup and its output port one tile past the run's end, so Groups.reverse_run can flip either
+    --before the first pickup and its output port one tile past the run's end, so legacy run reversal could flip either
     --run and every port still lands on the block boundary (docs/contracts/row_block.md §Reversal).
     local machine_x0 = row_layout and 0 or (face_layout and 1 or 0)
     for _, row in ipairs(beacon_row_specs) do
@@ -1754,6 +1771,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for _, p in ipairs(steps[1].inputs or {}) do if not flow_is_fluid(p, flows) then flows_in[#flows_in+1] = p.flow_id or p.full_name end end
         for _, p in ipairs(steps[1].outputs or {}) do if not flow_is_fluid(p, flows) then flows_out[#flows_out+1] = p.flow_id or p.full_name end end
         table.sort(flows_in); table.sort(flows_out)
+        --Near belt: the first two input flows. Far belt above the near belt: the third.
+        local far_in = {}
+        if flows_in[3] then far_in[1] = flows_in[3] end
+        if #flows_in > 2 then flows_in = {flows_in[1], flows_in[2]} end
         local pickup_y, drop_y = machine_y - 2, machine_y + max_machine_h + 1
         local first_x = block.machines[1].x + math.floor(block.machines[1].w / 2)
         local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
@@ -1792,9 +1813,86 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             {role="in",flows=flows_in,tiles=tiles_in,dir=EAST,head={x=first_x-1,y=pickup_y},feeds=feeds,hand_ids=(function() local a={} for _,h in ipairs(in_hands) do a[#a+1]=h.id end return a end)()},
             {role="out",flows=flows_out,tiles=tiles_out,dir=EAST,port={x=row_w,y=drop_y,travel_dir=EAST},hand_ids=(function() local a={} for _,h in ipairs(out_hands) do a[#a+1]=h.id end return a end)()},
         }
+        --Far belts (docs/contracts/row_block.md §Far belt). A long hand stands in the same hand row as the plain
+        --hand, one column to its right, and reaches two tiles: over the near belt to the far belt, and two tiles
+        --into its machine. The far belt above the row travels WEST so its head and side feeds sit right of the
+        --row, clear of the near belt's own feeds; the far belt below the output belt travels EAST from the left.
+        local long_facts = catalog and catalog.long_inserter or {}
+        local long_name = long_facts.name or "long-handed-inserter"
+        local far_w = 0
+        local function add_far(far_flows, above)
+            if #far_flows == 0 then return end
+            local far_y = above and pickup_y - 1 or drop_y + 1
+            local long_x = {}
+            for _, machine in ipairs(block.machines) do
+                long_x[#long_x + 1] = machine.x + math.min(machine.w - 1, math.floor((machine.w - 1) / 2) + 1)
+            end
+            local travel = above and WEST or EAST
+            local head_x = above and long_x[#long_x] + 1 or first_x - 1
+            local tiles = {}
+            if above then
+                for x = head_x, long_x[1], -1 do tiles[#tiles + 1] = {x = x, y = far_y} end
+            else
+                for x = head_x, long_x[#long_x] do tiles[#tiles + 1] = {x = x, y = far_y} end
+            end
+            local far_feeds = {}
+            local run = {role = "in", far = true, flows = list_copy(far_flows), tiles = tiles, dir = travel,
+                head = {x = head_x, y = far_y}, feeds = far_feeds, hand_ids = {}}
+            if #far_flows == 1 then
+                local fid = far_flows[1]
+                block.ports[#block.ports + 1] = {port_id = "row:in:" .. fid, row_port = true, rear = true, far = true,
+                    role = "in", kind = "item", flow_id = fid, flow_ids = {fid}, step_id = steps[1].step_id,
+                    attach_dx = above and head_x + 1 or head_x - 1, attach_dy = far_y,
+                    normal_dir = travel, travel_dir = travel, member_id = block.machines[1].id}
+            else
+                for i, fid in ipairs(far_flows) do
+                    --feeds[1] comes from the left of travel: north of an EAST belt, south of a WEST belt.
+                    local side = (i == 1) == (travel == EAST) and -1 or 1
+                    local into = side == -1 and SOUTH or NORTH
+                    far_feeds[#far_feeds + 1] = {flow_id = fid, side_tile = {x = head_x, y = far_y + side}, travel_dir = into}
+                    block.ports[#block.ports + 1] = {port_id = "row:in:" .. fid, row_port = true, far = true, role = "in",
+                        kind = "item", flow_id = fid, step_id = steps[1].step_id, attach_dx = head_x,
+                        attach_dy = far_y + side, normal_dir = into, travel_dir = into, member_id = block.machines[1].id}
+                end
+            end
+            for index, machine in ipairs(block.machines) do
+                local hx = long_x[index]
+                local hy = above and machine.y - 1 or machine.y + machine.h
+                local hid = member_id("inserter", machine.step_id, machine.ordinal or index,
+                    "input:long:" .. (above and "top" or "bottom"))
+                block.inserters[#block.inserters + 1] = {id = hid, kind = "inserter", type = "inserter", name = long_name,
+                    step_id = machine.step_id, machine_id = machine.id, role = "input", long = true,
+                    flow_ids = list_copy(far_flows), flow_id = #far_flows == 1 and far_flows[1] or nil,
+                    port_id = "row:in:" .. tostring(far_flows[1]), x = hx, y = hy, w = 1, h = 1,
+                    dir = above and SOUTH or NORTH,
+                    pickup_position = {x = hx + 0.5, y = far_y + 0.5},
+                    drop_position = {x = hx + 0.5, y = (above and machine.y + 1 or machine.y + machine.h - 2) + 0.5},
+                    pickup_offset = point(long_facts.pickup_offset) or {x = 0, y = 2},
+                    drop_offset = point(long_facts.drop_offset) or {x = 0, y = -2},
+                    port_bound = true, flow_entries = {}}
+                --Groups.materialize places block.members, not block.inserters: a hand missing here never
+                --reaches the layout (the synthetic 3-input sheet lost all four long hands, 2026-09-24).
+                block.members[#block.members + 1] = block.inserters[#block.inserters]
+                run.hand_ids[#run.hand_ids + 1] = hid
+            end
+            block.belt_runs[#block.belt_runs + 1] = run
+            far_w = math.max(far_w, head_x + 2)
+        end
+        add_far(far_in, true)
+        --A far belt head right of the row widens the block; the output run must still end on the block edge
+        --(its port lies on the boundary, attach_dx == w).
+        if far_w > row_w then
+            local out_run = block.belt_runs[2]
+            for x = row_w, far_w - 1 do out_run.tiles[#out_run.tiles + 1] = {x = x, y = drop_y} end
+            out_run.port = {x = far_w, y = drop_y, travel_dir = EAST}
+            for _, port in ipairs(block.ports) do
+                if port.role == "out" and port.row_port then port.attach_dx = far_w end
+            end
+            row_w = far_w
+        end
         block.row.machines = #block.machines
         block.row.first_x, block.row.last_x = first_x, last_x
-        block.w = row_w; block.h = math.max(block.h,drop_y+1)
+        block.w = math.max(row_w, far_w); block.h = math.max(block.h,drop_y+1)
         block.envelope = {x = 0, y = 0, w = block.w, h = block.h}
     end
 
@@ -1854,7 +1952,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         if step then
             block.buffer_zones[#block.buffer_zones + 1] = {
                 x = machine.x, y = machine.y, w = machine.w, h = machine.h,
-                ring = Buffer.ring(catalog, step.recipe),
+                ring = Buffer.ring(catalog, step.recipe) + math.max(0, math.floor(finite(input and input.ring_bump, 0))),
                 key = Buffer.key(machine.name, step.recipe),
             }
         end
@@ -1872,44 +1970,6 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
     end
     return block
-end
-
-local function partition_specs(steps, limit)
-    local result, buckets = {}, {}
-    local function emit()
-        local groups = {}
-        for index, bucket in ipairs(buckets) do
-            local ids = {}
-            for _, step in ipairs(bucket) do
-                ids[#ids + 1] = tostring(step.step_id)
-                    .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal)) or "")
-            end
-            groups[#groups + 1] = {steps = list_copy(bucket), id = table.concat(ids, "+"), ordinal = index}
-        end
-        result[#result + 1] = groups
-    end
-    local function visit(index)
-        if #result >= limit then return end
-        if index > #steps then emit() return end
-        local step = steps[index]
-        for bucket_index = 1, #buckets do
-            local bucket = buckets[bucket_index]
-            local allowed = true
-            for _, other in ipairs(bucket) do
-                if not step_can_join(step, other) then allowed = false break end
-            end
-            if allowed then
-                bucket[#bucket + 1] = step
-                visit(index + 1)
-                bucket[#bucket] = nil
-            end
-        end
-        buckets[#buckets + 1] = {step}
-        visit(index + 1)
-        buckets[#buckets] = nil
-    end
-    visit(1)
-    return result
 end
 
 local function relevant_ports(block_steps, ports, flows)
@@ -1995,7 +2055,7 @@ local function make_candidates_once(input)
     if forced ~= nil then multi_flow_hands = forced == true and forced_multi_flow_hands(input) end
     -- Row blocks own the two-lane belt contract, so eligible grouped steps must construct paired hands even
     -- while the legacy multi-flow switch remains off for all other layouts.
-    if forced == nil and rows_enabled then multi_flow_hands = true end
+    if forced == nil then multi_flow_hands = true end
     local _, catalog, steps, flows = normalize_plan(input)
     local ports = step_ports(steps, catalog, flows)
     -- A multi-machine step with three or more distinct item flows cannot expose every machine's hand on a
@@ -2016,7 +2076,7 @@ local function make_candidates_once(input)
         local item_inputs, item_outputs = 0, 0
         for _, p in ipairs(step.inputs or {}) do if not flow_is_fluid(p, flows) then item_inputs = item_inputs + 1 end end
         for _, p in ipairs(step.outputs or {}) do if not flow_is_fluid(p, flows) then item_outputs = item_outputs + 1 end end
-        local row_possible = rows_enabled and multi_flow_hands and item_inputs <= 2 and item_outputs <= 1
+        local row_possible = item_outputs <= 1 and item_inputs <= 3
         if distinct > 2 and step.machine_count > 1 and not row_possible then
             for ordinal = 1, step.machine_count do
                 local fragment = copy(step)
@@ -2032,80 +2092,37 @@ local function make_candidates_once(input)
             layout_steps[#layout_steps + 1] = physical
         end
     end
-    local limits = input and input.limits or {}
-    local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or input.max_candidates, 128)))
-    local specs = partition_specs(layout_steps, max_candidates * 2)
-    local candidates, failures = {}, {}
-    local seen = {}
-    for _, spec in ipairs(specs) do
-        local blocks = {}
-        local valid = true
-        for _, group in ipairs(spec) do
-            local block_id = "block:" .. group.id
-            local block = build_block(group.steps, catalog, relevant_ports(group.steps, ports, flows), flows, input, block_id)
-            if block.invalid_coverage or block.failure then
-                valid = false
-                failures[#failures + 1] = block.failure or {
-                    name = "beacon-split", code = "BP_P_NO_FIT", detail = "configured beacon coverage cannot be split",
-                }
-                break
-            end
-            blocks[#blocks + 1] = block
+    local buckets = {}
+    for _, step in ipairs(layout_steps) do
+        local target
+        for _, bucket in ipairs(buckets) do
+            if step_can_join(step, bucket[1]) then target = bucket; break end
         end
-        if valid then
-            table.sort(blocks, function(a, b) return a.id < b.id end)
-            local ids = {}
-            local beacon_count = 0
-            for _, block in ipairs(blocks) do
-                ids[#ids + 1] = block.id
-                beacon_count = beacon_count + block.physical_beacon_count
-            end
-            local id = table.concat(ids, "|")
-            if not seen[id] then
-                seen[id] = true
-                candidates[#candidates + 1] = {
-                    id = id, candidate_id = id, blocks = blocks,
-                    physical_beacon_count = beacon_count, beacon_count = beacon_count,
-                }
-            end
-        end
-        if #candidates >= max_candidates then break end
+        if target then target[#target + 1] = step else buckets[#buckets + 1] = {step} end
     end
-    table.sort(candidates, function(a, b)
-        if a.physical_beacon_count == b.physical_beacon_count then return a.id < b.id end
-        return a.physical_beacon_count < b.physical_beacon_count
-    end)
+    local blocks, failures = {}, {}
+    for _, group in ipairs(buckets) do
+        local ids = {}
+        for _, step in ipairs(group) do
+            ids[#ids + 1] = tostring(step.step_id) .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal)) or "")
+        end
+        local block = build_block(group, catalog, relevant_ports(group, ports, flows), flows, input, "block:" .. table.concat(ids, "+"))
+        if block.invalid_coverage or block.failure then
+            failures[#failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}
+        else blocks[#blocks + 1] = block end
+    end
+    local candidates = {}
+    if #failures == 0 then
+        local beacon_count = 0
+        for _, block in ipairs(blocks) do beacon_count = beacon_count + block.physical_beacon_count end
+        candidates[1] = {id="one",candidate_id="one",blocks=blocks,physical_beacon_count=beacon_count,beacon_count=beacon_count}
+    end
     multi_flow_hands = previous_multi_flow_hands
     return candidates, failures
 end
 
---Row candidates first (fewer blocks, so the first valid layout comes sooner), then every candidate the sheet
---had before rows. A row candidate's id is prefixed so it never collides with its legacy twin.
 local function make_candidates(input)
-    rows_enabled = true
-    local ok, rows, row_failures = pcall(make_candidates_once, input)
-    rows_enabled = false
-    if not ok then error(rows, 0) end
-    local legacy, failures = make_candidates_once(input)
-    local candidates, seen = {}, {}
-    for _, candidate in ipairs(rows) do
-        local has_row = false
-        for _, block in ipairs(candidate.blocks) do if block.row then has_row = true; break end end
-        if has_row then
-            candidate.id = "rows:" .. candidate.id
-            candidate.candidate_id = candidate.id
-            candidates[#candidates + 1] = candidate
-            seen[candidate.id] = true
-        end
-    end
-    for _, candidate in ipairs(legacy) do
-        if not seen[candidate.id] then candidates[#candidates + 1] = candidate end
-    end
-    local limits = input and input.limits or {}
-    local max_candidates = math.max(1, math.floor(finite(limits.max_candidates or (input and input.max_candidates), 128)))
-    while #candidates > max_candidates do table.remove(candidates) end
-    for _, failure in ipairs(row_failures or {}) do failures[#failures + 1] = failure end
-    return candidates, failures
+    return make_candidates_once(input)
 end
 
 function Groups.begin(input)
@@ -2148,54 +2165,6 @@ function Groups.step(state, budget)
     return state
 end
 
---Round 26 row reversal (docs/contracts/row_block.md §Reversal). Returns a copy of `block` whose `role` run ("in" or
---"out") flows the other way: its tiles, head, feeds and port are mirrored about the machines' centre line
---x' = first_x + last_x - x, its direction and every horizontal port heading flip, and that run's row ports move with
---it. Nil when the block is no symmetric row (then the caller keeps the block as built). Pure: `block` is untouched.
-function Groups.reverse_run(block, role)
-    local row = block and block.row
-    if not row or row.first_x == nil or row.last_x == nil then return nil end
-    local axis = row.first_x + row.last_x
-    if axis + 1 ~= block.w then return nil end
-    local result = copy(block)
-    local function mirror_x(x) return axis - x end
-    local function flip(d)
-        if d == EAST then return WEST elseif d == WEST then return EAST end
-        return d
-    end
-    local found = false
-    for _, run in ipairs(result.belt_runs or {}) do
-        if run.role == role then
-            found = true
-            local tiles = {}
-            for index = #run.tiles, 1, -1 do
-                local t = run.tiles[index]
-                tiles[#tiles + 1] = {x = mirror_x(t.x), y = t.y}
-            end
-            run.tiles, run.dir = tiles, flip(run.dir)
-            if run.head then run.head = {x = mirror_x(run.head.x), y = run.head.y} end
-            for _, feed in ipairs(run.feeds or {}) do
-                feed.side_tile = {x = mirror_x(feed.side_tile.x), y = feed.side_tile.y}
-                feed.travel_dir = flip(feed.travel_dir)
-            end
-            if run.port then
-                run.port = {x = mirror_x(run.port.x), y = run.port.y, travel_dir = flip(run.port.travel_dir)}
-            end
-            run.reversed = not run.reversed
-        end
-    end
-    if not found then return nil end
-    local prefix = "row:" .. role .. ":"
-    for _, port in ipairs(result.ports or {}) do
-        if port.row_port and tostring(port.port_id):sub(1, #prefix) == prefix then
-            port.attach_dx = mirror_x(port.attach_dx)
-            port.normal_dir, port.travel_dir = flip(port.normal_dir), flip(port.travel_dir)
-        end
-    end
-    return result
-end
-
---A placed block's entities, ids prefixed "m:", rotated through Grid.place_member and Grid.place_port only
 function Groups.materialize(block, placement)
     placement = placement or {x = 0, y = 0, dir = NORTH}
     local px, py, dir = finite(placement.x, 0), finite(placement.y, 0), placement.dir or NORTH

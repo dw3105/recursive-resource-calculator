@@ -369,7 +369,7 @@ local function references_for(snapshot, calculation, settings)
             add_name(references.modules, beacon.modules, references.qualities)
         end
     end
-    for _, key in ipairs({"roboport", "pole", "belt", "inserter", "pipe", "underground_pipe"}) do
+    for _, key in ipairs({"roboport", "pole", "belt", "inserter", "long_inserter", "pipe", "underground_pipe"}) do
         local choice = settings and settings[key]
         add_name(references.entities, choice, references.qualities)
         if key == "belt" and type(choice) == "table" then
@@ -425,6 +425,7 @@ local function catalog_options(references, settings)
             quality = settings and settings.pipe and settings.pipe.quality,
         },
         inserter = settings and settings.inserter,
+        long_inserter = settings and settings.long_inserter,
         pole = settings and settings.pole,
         robo = settings and settings.roboport,
     }

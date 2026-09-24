@@ -102,6 +102,16 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(array.inserter.drop_offset, {x = -3.5, y = 4.75}, "array drop vector")
     end)
 
+    H.test(shape .. " CG-long captures selected long inserter geometry as plain facts", function()
+        local world = world_with_catalog_fixtures(shape)
+        world.add_inserter({name = "long-handed-inserter", pickup = {x = 0, y = 2}, drop = {x = 0, y = -2}})
+        local catalog = Catalog.build(1, {long_inserter = "long-handed-inserter"})
+        H.equal(catalog.long_inserter.name, "long-handed-inserter", "selected prototype")
+        H.deep_equal(catalog.long_inserter.pickup_offset, {x = 0, y = 2}, "pickup fact")
+        H.deep_equal(catalog.long_inserter.drop_offset, {x = 0, y = -2}, "drop fact")
+        H.deep_equal(catalog.long_inserter.drop_position, {x = 0, y = -2}, "compatibility drop fact")
+    end)
+
     H.test(shape .. " CG4 a complete capture still round-trips unchanged", function()
         world_with_catalog_fixtures(shape)
         local catalog = Catalog.build(1, {inserter = "inserter", entities = {"assembler"}})

@@ -1717,6 +1717,9 @@ function H.new_world(shape)
         world.add_underground_belt({name = "underground-belt", items_per_second = 15, max_distance = 5, related = "transport-belt"})
         world.add_splitter({name = "splitter", items_per_second = 15})
         world.add_inserter({name = "inserter"})
+        --Vanilla 2.0 always has it; the blueprint settings default to it (docs/contracts/pipeline_r29.md C5).
+        world.add_inserter({name = "long-handed-inserter", items_per_second = 1.2, pickup = {x = 0, y = 2},
+            drop = {x = 0, y = -2.203125}, energy_kw = 20})
         world.add_pipe({name = "pipe"})
         world.add_pipe_to_ground({name = "pipe-to-ground", max_distance = 10})
         world.add_electric_pole({name = "medium-electric-pole", supply_area = 3.5, wire_distance = 9,

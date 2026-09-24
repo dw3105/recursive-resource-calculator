@@ -105,6 +105,16 @@ local function buffer_zones_fit(state, zones)
     return true
 end
 
+local function zones_avoid_blockers(state, zones)
+    for _, zone in ipairs(zones) do
+        for _, blocker in ipairs(state.zone_blockers) do
+            --The whole ring, not only the machine footprint (docs/contracts/pipeline_r29.md C2).
+            if Grid.intersects(Buffer.zone(zone.rect, zone.ring), blocker) then return false end
+        end
+    end
+    return true
+end
+
 local function copy_rects(rects)
     local result = {}
     for index, rect in ipairs(rects or {}) do result[index] = copy_rect(rect) end
@@ -170,10 +180,18 @@ end
 
 local function better(candidate, best)
     if best == nil then return true end
+    if candidate.link_cost ~= nil and best.link_cost ~= nil and candidate.link_cost ~= best.link_cost then
+        return candidate.link_cost < best.link_cost
+    end
     if candidate.short_side ~= best.short_side then return candidate.short_side < best.short_side end
     if candidate.long_side ~= best.long_side then return candidate.long_side < best.long_side end
-    if candidate.x ~= best.x then return candidate.x < best.x end
-    if candidate.y ~= best.y then return candidate.y < best.y end
+    if candidate.link_cost ~= nil then
+        if candidate.y ~= best.y then return candidate.y < best.y end
+        if candidate.x ~= best.x then return candidate.x < best.x end
+    else
+        if candidate.x ~= best.x then return candidate.x < best.x end
+        if candidate.y ~= best.y then return candidate.y < best.y end
+    end
     return candidate.dir < best.dir
 end
 
@@ -283,6 +301,52 @@ local function world_slot(block, x, y, direction, slot)
     return x + dx, y + dy
 end
 
+local function port_tile(block, placement, endpoint)
+    if endpoint.port_id ~= nil then
+        for i, port in ipairs(block.ports or {}) do
+            if tostring(port.port_id) == tostring(endpoint.port_id) then
+                local slot = placement.port_slots and placement.port_slots[i]
+                if slot then return world_slot(block, placement.x, placement.y, placement.dir, slot) end
+                break
+            end
+        end
+    end
+    return placement.x + math.floor(placement.w / 2), placement.y + math.floor(placement.h / 2)
+end
+
+local function linked_cost(state, block, candidate)
+    local cost = 0
+    for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
+        local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
+        local other = mine == link.a and link.b or link.a
+        local x, y = port_tile(block, candidate, mine)
+        if other.edge then
+            if other.edge == "left" then cost = cost + (x - state.area.x)
+            elseif other.edge == "right" then cost = cost + (state.area.x + state.area.w - 1 - x)
+            elseif other.edge == "top" then cost = cost + (y - state.area.y)
+            elseif other.edge == "bottom" then cost = cost + (state.area.y + state.area.h - 1 - y) end
+        else
+            local partner = state.placement_by_id[tostring(other.block_id)]
+            if partner then
+                local pb = state.block_by_id[tostring(other.block_id)]
+                local px, py
+                if pb then px, py = port_tile(pb, partner, other)
+                else px, py = partner.x + math.floor(partner.w / 2), partner.y + math.floor(partner.h / 2) end
+                cost = cost + math.abs(x - px) + math.abs(y - py)
+            end
+        end
+    end
+    local box = state.placed_bbox
+    --Growth is measured as half-perimeter (w + h), in tiles like the link distances. Area growth (tiles squared)
+    --outweighed every distance and strung the player's sheet into one 280-entity strip (2026-09-24).
+    local old_span = box and box.w + box.h or 0
+    local minx, miny = box and math.min(box.x, candidate.x) or candidate.x,
+        box and math.min(box.y, candidate.y) or candidate.y
+    local maxx, maxy = box and math.max(box.x + box.w, candidate.x + candidate.w) or candidate.x + candidate.w,
+        box and math.max(box.y + box.h, candidate.y + candidate.h) or candidate.y + candidate.h
+    return cost + math.max(0, (maxx-minx)+(maxy-miny) - old_span)
+end
+
 local function choose_port_slots(state, block, x, y, direction)
     local entries = {}
     for index, port in ipairs(block.ports or {}) do
@@ -354,7 +418,7 @@ local function scan_origin(state, block, region, direction, x, y)
             local w, h = Grid.rotate_size(block.w, block.h, direction)
             state.counters.origins = state.counters.origins + 1
                 local buffer_zones = rotate_buffer_zones(block, x, y, direction)
-                if not buffer_zones_fit(state, buffer_zones) then return true end
+                if not buffer_zones_fit(state, buffer_zones) or not zones_avoid_blockers(state, buffer_zones) then return true end
                 if placement_avoids_port_cells(state, x, y, w, h) then
                     local short_side, long_side = Pack.bssf_score(region, w, h)
                     local candidate = {
@@ -362,11 +426,13 @@ local function scan_origin(state, block, region, direction, x, y)
                         short_side = short_side, long_side = long_side,
                     }
                     if #block.ports == 0 then
+                        if state.has_links then candidate.link_cost = linked_cost(state, block, candidate) end
                         if better(candidate, state.cursor.best) then state.cursor.best = candidate end
                     else
                         local slots, reason = choose_port_slots(state, block, x, y, direction)
                         if slots then
                             candidate.port_slots = slots
+                            if state.has_links then candidate.link_cost = linked_cost(state, block, candidate) end
                             if better(candidate, state.cursor.best) then state.cursor.best = candidate end
                         elseif reason == "pinned-free" then
                             return true
@@ -419,6 +485,7 @@ end
 --better candidate exists, a region whose best possible score is strictly worse cannot
 --win; strict comparison keeps equal-score regions in the scan for coordinate tie-breaks.
 local function region_can_beat(state, block, region)
+    if state.has_links then return true end
     local best = state.cursor.best
     if best == nil then return true end
     for _, direction in ipairs(block.allowed_dirs) do
@@ -448,6 +515,15 @@ local function place(state, block)
         port_slots = candidate.port_slots,
     }
     state.placements[#state.placements + 1] = placement
+    state.placement_by_id[tostring(block.block_id)] = placement
+    local box = state.placed_bbox
+    if box then
+        local x, y = math.min(box.x, placement.x), math.min(box.y, placement.y)
+        local right, bottom = math.max(box.x + box.w, placement.x + placement.w), math.max(box.y + box.h, placement.y + placement.h)
+        state.placed_bbox = {x = x, y = y, w = right - x, h = bottom - y}
+    else
+        state.placed_bbox = {x = placement.x, y = placement.y, w = placement.w, h = placement.h}
+    end
     local placed_zones = rotate_buffer_zones(block, candidate.x, candidate.y, candidate.dir)
     for _, zone in ipairs(placed_zones) do state.buffer_zones[#state.buffer_zones + 1] = zone end
 
@@ -514,10 +590,26 @@ function Pack.begin(input)
 
     local regions = Grid.free_regions(area, obstacles)
     local limits = {max_free_regions = input.limits and input.limits.max_free_regions or nil}
+    local links, links_by_block, block_by_id = {}, {}, {}
+    for _, b in ipairs(blocks) do block_by_id[tostring(b.block_id)] = b end
+    for _, source in ipairs(input.links or {}) do
+        local link = {a = source.a or {}, b = source.b or {}}
+        links[#links + 1] = link
+        for _, endpoint in ipairs({link.a, link.b}) do
+            if endpoint.block_id ~= nil then
+                local key = tostring(endpoint.block_id)
+                links_by_block[key] = links_by_block[key] or {}
+                links_by_block[key][#links_by_block[key] + 1] = link
+            end
+        end
+    end
     local state = {
         area = area,
         obstacles = obstacles,
+        zone_blockers = copy_rects(input.zone_blockers),
         blocks = blocks,
+        links = links, links_by_block = links_by_block, block_by_id = block_by_id,
+        placement_by_id = {}, has_links = #links > 0,
         limits = limits,
         regions = regions,
         placements = {},

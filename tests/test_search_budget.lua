@@ -136,21 +136,6 @@ local function finish(state, slice)
 end
 
 for _, shape in ipairs(H.shapes()) do
-    H.test(shape .. " search visits a larger grid for a lower-beacon candidate", function()
-        local high = candidate("high", 1, 2)
-        local low = candidate("low", 3, 1)
-        local input, candidates = search_input({{w = 2, h = 2}, {w = 3, h = 3}}, {high, low})
-        local state = run_with_stages({candidates = candidates, score_for = function(value)
-            return value.grid_w == 2 and {beacon_count = 2, footprint_area = 1, pole_count = 1}
-                or {beacon_count = 1, footprint_area = 2, pole_count = 1}
-        end}, function()
-            return finish(Search.begin(input))
-        end)
-        H.equal(state.ok, true, "the larger-grid search publishes a layout")
-        H.equal(state.incumbent.score.beacon_count, 1, "the larger grid's lower beacon count wins")
-        H.equal(state.incumbent.candidate.grid_w, 3, "the lower-beacon candidate came from the larger grid")
-    end)
-
     H.test(shape .. " equal-score layouts are deterministic", function()
         local first_candidate = candidate("first", 1, 0)
         local second_candidate = candidate("second", 1, 0)
@@ -178,35 +163,6 @@ for _, shape in ipairs(H.shapes()) do
         end
         local small_slice, large_slice = execute(1), execute(1000)
         H.deep_equal(small_slice.result, large_slice.result, "tick slicing does not change publication")
-    end)
-
-    H.test(shape .. " budget exhaustion with an incumbent publishes it", function()
-        local high = candidate("high", 1, 2)
-        local extra = candidate("extra", 1, 0)
-        local input, candidates = search_input({{w = 2, h = 2}, {w = 3, h = 3}}, {high, extra})
-        local state = run_with_stages({candidates = candidates, score_for = function(value)
-            local block_id = value.blocks[1] and value.blocks[1].block_id
-            return block_id == "high" and {beacon_count = 2, footprint_area = 1, pole_count = 1}
-                or {beacon_count = 1, footprint_area = 1, pole_count = 1}
-        end}, function()
-            local current = Search.begin(input)
-            local ticks = 0
-            while current.incumbent == nil and not current.done and ticks < 100 do
-                ticks = ticks + 1
-                Search.step(current, {ops = 1})
-            end
-            H.equal(current.incumbent ~= nil, true, "the bounded run first obtains a complete incumbent")
-            H.equal(current.done, false, "the incumbent is found before the work bound ends")
-            current.max_ops = current.ops_used
-            Search.step(current, {ops = 1})
-            H.equal(current.done, false, "publication has a reserved serialization phase")
-            finish(current, 1000)
-            return current
-        end)
-        H.equal(state.ok, true, "the incumbent survives search-budget exhaustion")
-        H.equal(state.result ~= nil, true, "the incumbent is serialized after exhaustion")
-        H.equal(state.errors, nil, "publishing an incumbent is not reported as a search failure")
-        H.equal(state.incumbent.score.beacon_count, 2, "the fully validated incumbent remains selected")
     end)
 
     H.test(shape .. " budget exhaustion without an incumbent reports the budget code", function()

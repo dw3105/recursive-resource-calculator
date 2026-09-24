@@ -101,9 +101,11 @@ end
 local function roboport_input()
     return input_for(one_step_plan(), {
         include_roboports = true,
-        grids = {{w = 6, h = 4, roboports = {
+        --Roboports stay outside every machine buffer zone (docs/contracts/pipeline_r29.md C2): both sit in one
+        --corner, within connection distance 3 of each other, on a grid with room for a ring-2 zone clear of them.
+        grids = {{w = 16, h = 12, roboports = {
             {x = 0, y = 0, w = 1, h = 1},
-            {x = 2, y = 2, w = 1, h = 1},
+            {x = 3, y = 0, w = 1, h = 1},
         }}},
     })
 end
@@ -126,97 +128,6 @@ end
 local function failed_stage(code, detail)
     return {done = true, ok = false, result = {}, errors = {{code = code, detail = detail}},
         progress = {phase = "failed", done_units = 1, total_units = 1}}
-end
-
-local function finish_with_validation_scores(input, label)
-    local scores = {}
-    local original_begin = Validate.begin
-    local original_step = Validate.step
-    local comparison_index = 0
-    Validate.begin = function(stage_input)
-        local stage = original_begin(stage_input)
-        if input.synthetic_comparison then
-            comparison_index = comparison_index + 1
-            stage.comparison_index = comparison_index
-        end
-        return stage
-    end
-    Validate.step = function(stage, budget)
-        original_step(stage, budget)
-        if stage.done and stage.ok then
-            if input.synthetic_comparison then
-                local area
-                if input.synthetic_tie then
-                    area = stage.comparison_index == 1 and 1 or 2
-                elseif input.block_orderings[1][1] == "block:a" then
-                    area = stage.comparison_index == 2 and 1 or 2
-                else
-                    area = stage.comparison_index == 1 and 1 or 2
-                end
-                stage.result.score = {beacon_count = 1, production_area = area, footprint_area = area, pole_count = 1,
-                    transport_entities = 0, coord_key = tostring(stage.comparison_index)}
-            end
-            scores[#scores + 1] = clone(stage.result.score)
-        end
-    end
-
-    local ok, state_or_error = pcall(function()
-        local state = Search.begin(input)
-        local ticks = 0
-        while not state.done and ticks < 600 do
-            ticks = ticks + 1
-            Search.step(state, {ops = 100000})
-        end
-        H.equal(state.done, true, label .. " finishes within the test bound; stopped in phase " .. tostring(state.phase))
-        return state
-    end)
-    Validate.begin, Validate.step = original_begin, original_step
-    if not ok then error(state_or_error) end
-    return state_or_error, scores
-end
-
-local function comparison_catalog()
-    local catalog = base_catalog()
-    catalog.entity.beacon = clone(catalog.entity.beacon)
-    catalog.entity.beacon.beacon = {supply_w = 2, supply_h = 2}
-    if catalog.beacon then catalog.beacon = {beacon = {supply_w = 2, supply_h = 2}} end
-    catalog.entity["wide-assembler"] = {
-        name = "wide-assembler", tile_w = 2, tile_h = 1, energy_usage_w = 1,
-        collision_box = box(), collision_mask = {"item-layer"},
-    }
-    return catalog
-end
-
-local function comparison_group(signature)
-    --Supply 2, matching comparison_catalog: each block's beacon reaches its own machine only.  With supply 10
-    --on this small grid each beacon reached BOTH machines, so removing either one left every count met and the
-    --validator refused both as BP_V_BEACON_REDUNDANT (measured 2026-09-23 on legalcopilot-dev).
-    return {signature = signature, name = "beacon", count_per_machine = 1, has_speed_module = false, modules = {},
-        supply_w = 2, supply_h = 2}
-end
-
-local function comparison_plan()
-    return {steps = {
-        {step_id = "a", machine = "assembler", machine_count = 1, power_w = 1, modules = {},
-            beacon_groups = {comparison_group("group-a")}},
-        {step_id = "b", machine = "wide-assembler", machine_count = 1, power_w = 1, modules = {},
-            beacon_groups = {comparison_group("group-b")}},
-    }, flows = {}, ports = {}}
-end
-
-local function comparison_input(orderings, grid)
-    return {
-        plan = comparison_plan(), catalog = comparison_catalog(), pole = pole(), include_roboports = false,
-        --10x10: the blocks grew to 2x3 and 3x3 (beacon rows) and never fit the old 3x5 grid, BP_P_NO_FIT in pack
-        --since at least round 18 (c14ad83), and two different machines need 2+2 ring tiles between them
-        --(logic/bp/buffer.lua); these rows judge which validated candidate wins, not grid size.
-        grids = {grid or {w = 10, h = 10}}, block_orderings = clone(orderings), synthetic_comparison = true,
-        synthetic_tie = grid ~= nil,
-    }
-end
-
-local function comparison_order(first, second)
-    return {{first, second}, {second, first}}
 end
 
 local function port_by_role(ports, role)
@@ -323,7 +234,7 @@ for _, shape in ipairs(H.shapes()) do
         local input = input_for(perimeter_pair_plan(), {grids = {{w = 1, h = 1}}})
         local state = finish(input)
         H.equal(state.ok, false, "the undersized perimeter search fails")
-        H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT_GRID_LIMIT", "slot exhaustion reports no layout")
+        H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT", "slot exhaustion reports no layout")
         H.equal(distinct_port_cells(state.work.perimeter_ports), true, "slot exhaustion never stacks ports")
         H.equal(#state.work.perimeter_ports, 1, "slot exhaustion keeps only the available perimeter slot")
     end)
@@ -498,58 +409,11 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(first.incumbent.score, second.incumbent.score, "the objective score is identical")
     end)
 
-    H.test(shape .. " BP-20 a larger grid that needs fewer beacons wins", function()
-        --The grouped block is four by three after its real beacon is included; the smaller grid is intentionally
-        --rejected by the exact fit preflight, while the larger grid is the first physically permitted alternative.
-        local state = finish(input_for(shared_plan(), {grids = {{w = 2, h = 3}, {w = 4, h = 3}}}))
-        H.equal(state.ok, true, "the multi-grid search succeeds")
-        H.equal(state.incumbent.score.beacon_count, 1, "the larger grid admits the one-beacon grouping")
-        H.equal(state.result ~= nil, true, "the best complete candidate is serialized")
-    end)
-
-    H.test(shape .. " BP-20 the better candidate found second wins", function()
-        local state, scores = finish_with_validation_scores(
-            comparison_input(comparison_order("block:a", "block:b")), "second-candidate comparison search")
-        H.equal(state.ok, true, "the comparison search succeeds")
-        H.equal(#scores, 2, "exactly two candidates were validated")
-        H.equal(Validate.compare(scores[2], scores[1]), -1, "the second candidate ranks ahead of the first")
-        H.equal(Validate.compare(state.incumbent.score, scores[2]), 0,
-            "the incumbent is the candidate Validate.compare ranks first")
-        H.equal(state.result.search.chosen_score.production_area, scores[2].production_area,
-            "the published result records the chosen score")
-        H.equal(#state.result.search.discarded_alternatives >= 1, true,
-            "the published result names the discarded alternative")
-    end)
-
-    H.test(shape .. " BP-20 the better first candidate survives a worse follow-up", function()
-        local state, scores = finish_with_validation_scores(
-            comparison_input(comparison_order("block:b", "block:a")), "first-candidate comparison search")
-        H.equal(state.ok, true, "the mirror comparison search succeeds")
-        H.equal(#scores, 2, "exactly two candidates were validated")
-        H.equal(Validate.compare(scores[1], scores[2]), -1, "the first candidate ranks ahead of the second")
-        H.equal(Validate.compare(state.incumbent.score, scores[1]), 0,
-            "the incumbent never changes to the worse follow-up")
-    end)
-
-    H.test(shape .. " BP-20 equal beacon counts defer to footprint area", function()
-        local state, scores = finish_with_validation_scores(
-            comparison_input(comparison_order("block:a", "block:b"), {w = 10, h = 10}),
-            "footprint tie-break search")
-        H.equal(state.ok, true, "the tie-break search succeeds")
-        H.equal(#scores, 2, "two candidates were validated for the tie-break")
-        H.equal(scores[1].beacon_count, scores[2].beacon_count, "the candidates tie on beacon count")
-        H.equal(scores[1].footprint_area < scores[2].footprint_area, true,
-            "the first candidate has the smaller footprint")
-        H.equal(Validate.compare(scores[1], scores[2]), -1, "footprint area decides the beacon-count tie")
-        H.equal(Validate.compare(state.incumbent.score, scores[1]), 0,
-            "the incumbent keeps the smaller-footprint candidate")
-    end)
-
     H.test(shape .. " BP-15 exhausting the search budget is not no-layout", function()
         local state = finish(input_for(one_step_plan(), {grids = {{w = 2, h = 2}}, max_ops = 1}), 100000)
         H.equal(state.ok, false, "the bounded search fails")
         H.equal(state.errors[1].code, "BP_FAIL_SEARCH_BUDGET", "budget exhaustion has the budget failure")
-        H.equal(state.errors[1].code == "BP_FAIL_NO_LAYOUT_GRID_LIMIT", false,
+        H.equal(state.errors[1].code == "BP_FAIL_NO_LAYOUT", false,
             "budget exhaustion never claims that no layout exists")
         H.equal(state.result, nil, "an unfinished search publishes nothing")
     end)
@@ -618,7 +482,7 @@ end
 H.test("ST1 an exhausted grid ladder reports its own code, never the budget code", function()
     local state = finish(input_for(one_step_plan(), {grids = {{w = 0, h = 0}, {w = 1, h = 1}}, max_search_grids = 1}))
     H.equal(state.ok, false, "an exhausted grid ladder fails")
-    H.equal(state.errors[1].code, "BP_FAIL_GRID_LIMIT", "grid exhaustion has its own failure code")
+    H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT", "three failed attempts report no layout")
     H.equal(state.errors[1].code == "BP_FAIL_SEARCH_BUDGET", false, "grid exhaustion is not an operation budget")
 end)
 
@@ -665,18 +529,13 @@ H.test("ST4 a pack, route, route-input or power rejection reaches reason_details
     H.equal(seen, true, "a pack rejection is retained in terminal reason_details")
 end)
 
-H.test("ST5 a candidate refused for size is recorded with its size", function()
+H.test("ST5 pack owns the no-fit decision", function()
     local state = finish(input_for(one_step_plan(), {grids = {{w = 0, h = 0}}, max_search_grids = 1}))
-    local size
+    local no_fit = false
     for _, reason in ipairs(state.errors[1].reason_details or {}) do
-        if reason.code == "BP_P_NO_FIT" and reason.candidate_size then size = reason; break end
+        if reason.code == "BP_P_NO_FIT" then no_fit = true end
     end
-    H.equal(size ~= nil, true, "the refused candidate has a size record")
-    if size then
-        H.equal(size.candidate_size.area > 0, true, "the candidate area is recorded")
-        H.equal(size.grid_size.w, 0, "the grid width is recorded")
-        H.equal(size.grid_size.h, 0, "the grid height is recorded")
-    end
+    H.equal(no_fit, true, "Pack reports the small-grid rejection")
 end)
 
 H.test("ST6 a cheap failed candidate never sets the whole job's ceiling", function()

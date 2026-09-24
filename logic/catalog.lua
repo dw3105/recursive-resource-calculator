@@ -732,8 +732,9 @@ local function build_pipe(catalog, diagnostics, options, requests)
     }
 end
 
-local function build_inserter(catalog, diagnostics, options, requests, geometry_state)
-    local descriptor = family_source(options, "inserter")
+local function build_inserter(catalog, diagnostics, options, requests, geometry_state, key)
+    key = key or "inserter"
+    local descriptor = family_source(options, key)
     if not descriptor then return end
     local name = family_piece(descriptor, "base", nil)
     if not name then name = family_piece(descriptor, "inserter", nil) end
@@ -747,7 +748,7 @@ local function build_inserter(catalog, diagnostics, options, requests, geometry_
     local quality = selected_quality(quality_name, diagnostics, catalog._quality_cache)
     if quality then project_quality(catalog, quality, quality_name) end
     local items_per_second = type(descriptor) == "table" and descriptor.items_per_second
-    catalog.inserter = {
+    catalog[key] = {
         name = entity.name,
         quality = quality_name,
         items_per_second = items_per_second or 4.62,
@@ -844,7 +845,7 @@ local function catalog_template()
         schema_version = Catalog.SCHEMA_VERSION,
         entity = {}, item = {}, fluid = {}, quality = {}, quality_level = {}, module = {}, beacon = {},
         recipe = {}, recipe_coverage = {state = "complete", active = {}, missing = {}},
-        belt = nil, pipe = nil, inserter = nil, pole = nil, robo = nil,
+        belt = nil, pipe = nil, inserter = nil, long_inserter = nil, pole = nil, robo = nil,
     }
 end
 
@@ -882,6 +883,7 @@ function Catalog.build(player_index, options)
     build_belt(catalog, diagnostics, options, entity_requests)
     build_pipe(catalog, diagnostics, options, entity_requests)
     build_inserter(catalog, diagnostics, options, entity_requests, geometry_state)
+    build_inserter(catalog, diagnostics, options, entity_requests, geometry_state, "long_inserter")
     build_pole(catalog, diagnostics, options, entity_requests)
     build_robo(catalog, diagnostics, options, entity_requests)
 
