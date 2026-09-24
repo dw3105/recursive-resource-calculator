@@ -337,17 +337,17 @@ end
 --order or outcome of any decision.
 local function operation_cost(state)
     local phase, work = state.cursor.phase, state._work
-    if phase == "candidate_position" then return 16 end
-    if phase == "candidate_coverage" or phase == "candidate_commit" then return 8 end
+    if phase == "candidate_position" then return 4 end
+    if phase == "candidate_coverage" or phase == "candidate_commit" then return 2 end
     if phase == "candidate_index" then
         local builder = work.index_builder
         if builder and (builder.mode == "consumer_position" or builder.mode == "finalize"
-            or builder.mode == "lattice_position") then return 8 end
+            or builder.mode == "lattice_position") then return 2 end
     end
-    if phase == "greedy" then return 16 end
-    if phase == "make_room" then return 16 end
-    if phase == "repair_check" then return 4 end
-    if phase == "prune" or phase == "publish_sort" then return 8 end
+    if phase == "greedy" then return 4 end
+    if phase == "make_room" then return 4 end
+    if phase == "repair_check" then return 1 end
+    if phase == "prune" or phase == "publish_sort" then return 2 end
     return 1
 end
 

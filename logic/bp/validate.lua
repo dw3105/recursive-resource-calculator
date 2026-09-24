@@ -2528,7 +2528,7 @@ function Validate.step(state, budget)
         local op_cost = 1
         if phase == "geometry" then
             -- Pair testing includes box conversion and mask intersection; account for that nested work.
-            op_cost = 3
+            op_cost = 1 --a pair test is ~1-2 us (measured green, 2026-09-24)
             local index, other_index = state.cursor.index, state.cursor.other_index or 2
             if index <= #work.infos then
                 if other_index == 2 then
@@ -2566,13 +2566,14 @@ function Validate.step(state, budget)
             elseif index <= #work.machines then check_physical_transfers(work, index, false)
             else check_physical_transfers(work, nil, true); state.cursor.phase = "machines" end
             state.cursor.physical_index = index + 1
-            op_cost = 2000
+            op_cost = 500
         elseif phase == "machines" then check_machines(work); state.cursor.phase = "finish"
         elseif phase == "finish" then finish(work, state)
         end
         local spent = math.min(ops, op_cost)
-        if phase == "physical" or phase == "beacon" or phase == "underground"
-            or phase == "port_approaches" then spent = math.min(ops, 2000) end --one game tick, never a caller's whole slice
+        --One-shot passes (beacon, underground + transport shapes) take one game tick; per-item passes pay per item.
+        if phase == "beacon" or phase == "underground" then spent = math.min(ops, 2000) end
+        if phase == "port_approaches" then spent = math.min(ops, 20) end
         ops = ops - spent; state.ops_used = state.ops_used + spent; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + spent)
     end
     budget.ops = ops; return state
