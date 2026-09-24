@@ -12,16 +12,23 @@ Plan.step = function(st, b) local r = step(st, b)
     local extras = {"stone", "wood", "coal", "sulfur"}
     for i = 1, EXTRA do
       local item = extras[i]
+      --generate.lua runs the planner twice on shared step tables: add each extra input once.
       for _, s in ipairs(st.result.steps) do
-        if s.recipe == "automation-science-pack" then s.inputs[#s.inputs + 1] = {flow_id = "item/" .. item, rate_per_second = 1} end
+        if s.recipe == "automation-science-pack" then
+          local has = false
+          for _, e in ipairs(s.inputs) do if e.flow_id == "item/" .. item then has = true end end
+          if not has then s.inputs[#s.inputs + 1] = {flow_id = "item/" .. item, rate_per_second = 1} end
+        end
       end
-      st.result.flows[#st.result.flows + 1] = {item_name = item, is_fluid = false, flow_id = "item/" .. item,
+      local seen_flow = false
+      for _, f in ipairs(st.result.flows) do if f.flow_id == "item/" .. item then seen_flow = true end end
+      if not seen_flow then st.result.flows[#st.result.flows + 1] = {item_name = item, is_fluid = false, flow_id = "item/" .. item,
         full_name = "item/" .. item, quality = "normal", rate_per_second = 1,
         producers = {{share_per_second = 1, step_id = "$external"}},
         consumers = {{share_per_second = 1, step_id = "automation-science-pack"}}}
       st.result.ports = st.result.ports or {}
       st.result.ports[#st.result.ports + 1] = {is_fluid = false, role = "in", kind = "item", min_lanes = 1,
-        full_name = "item/" .. item, port_id = "in:item/" .. item, rate_per_second = 1}
+        full_name = "item/" .. item, port_id = "in:item/" .. item, rate_per_second = 1} end
     end
   end return r end
 arg = {[0] = "tests/golden/generate.lua", "--input", "tests/golden/cases/player-red-science-1s/prepared_input.json", "--output", OUT}
