@@ -37,7 +37,7 @@ from typing import Any, Dict, List, Optional, Tuple
 #entity occupies.  Splitters have a direction-dependent rectangular footprint (handled below).
 SIZE = {
     "assembling-machine-1": 3, "assembling-machine-2": 3, "assembling-machine-3": 3,
-    "electromagnetic-plant": 3, "electric-furnace": 3, "steel-furnace": 2, "stone-furnace": 2,
+    "electromagnetic-plant": 4, "electric-furnace": 3, "steel-furnace": 2, "stone-furnace": 2,
     "foundry": 5, "biochamber": 3, "chemical-plant": 3, "oil-refinery": 5, "centrifuge": 3,
     "cryogenic-plant": 5, "rocket-silo": 9, "lab": 3, "beacon": 3, "roboport": 4,
     "big-electric-pole": 2, "substation": 2,
