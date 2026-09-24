@@ -319,12 +319,36 @@ local function supplied_connector_id(input, name)
     return connector_id(name)
 end
 
-local function consume(budget)
+local function consume(budget, cost)
     if type(budget) ~= "table" then return false end
     local ops = integer(budget.ops, 0)
+    cost = math.max(1, integer(cost, 1))
     if ops <= 0 then return false end
-    budget.ops = ops - 1
+    --Legacy callers may deliberately provide one-op slices. They still make
+    --one unit of progress; larger slices pay the full mode-specific charge.
+    budget.ops = ops - math.min(ops, cost)
     return true
+end
+
+--One scheduler op is not the same amount of work in every mode.  These
+--charges approximate the inner loops that a mode performs; in particular,
+--candidate scans and selection score many records while a connect step tests
+--one pole pair.  This keeps a 2000-op game tick bounded without changing the
+--order or outcome of any decision.
+local function operation_cost(state)
+    local phase, work = state.cursor.phase, state._work
+    if phase == "candidate_position" then return 16 end
+    if phase == "candidate_coverage" or phase == "candidate_commit" then return 8 end
+    if phase == "candidate_index" then
+        local builder = work.index_builder
+        if builder and (builder.mode == "consumer_position" or builder.mode == "finalize"
+            or builder.mode == "lattice_position") then return 8 end
+    end
+    if phase == "greedy" then return 16 end
+    if phase == "make_room" then return 16 end
+    if phase == "repair_check" then return 4 end
+    if phase == "prune" or phase == "publish_sort" then return 8 end
+    return 1
 end
 
 local function candidate_rect(spec, x, y)
@@ -847,8 +871,11 @@ function Power.step(state, budget)
     if type(budget) ~= "table" then return state end
     local work = state._work
 
-    while not state.done and consume(budget) do
-        state.ops_used = state.ops_used + 1
+    while not state.done do
+        local cost, available = operation_cost(state), integer(budget.ops, 0)
+        if not consume(budget, cost) then break end
+        -- ops_used records charged work, not state-machine transitions.
+        state.ops_used = state.ops_used + math.min(cost, available)
         local phase, cursor = state.cursor.phase, state.cursor
 
         if phase == "candidate_index" then
