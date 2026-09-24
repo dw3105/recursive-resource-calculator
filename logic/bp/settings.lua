@@ -3,7 +3,7 @@
 --Owned by lane W3-infra. A belt choice carries its family: the matching underground belt and splitter at the same
 --quality. A modded belt with no known family is refused rather than quietly replaced with a vanilla tier.
 --
---  {roboport = {name, quality}, pole = {...}, belt = {...}, inserter = {...}, pipe = {...}, underground_pipe = {...},
+--  {roboport = {name, quality}, pole = {...}, belt = {...}, inserter = {...}, long_inserter = {...}, pipe = {...}, underground_pipe = {...},
 --   input_edge = "left"|"right"|"top"|"bottom", output_edge = same, surface = string}
 --
 --Defaults: left in, top out, as in the reference layout. The two edges must differ. New sheets start from the
@@ -19,6 +19,7 @@ local INFRASTRUCTURE = {
     {key = "pole", catalog_key = "pole", default = "medium-electric-pole"},
     {key = "belt", catalog_key = "belt", default = "transport-belt"},
     {key = "inserter", catalog_key = "inserter", default = "inserter"},
+    {key = "long_inserter", catalog_key = "long_inserter", default = "long-handed-inserter"},
     {key = "pipe", catalog_key = "pipe", default = "pipe"},
     {key = "underground_pipe", catalog_key = "underground_pipe", default = "pipe-to-ground"},
 }
@@ -151,6 +152,7 @@ local function defaults()
         pole = {name = "medium-electric-pole", quality = "normal"},
         belt = {name = "transport-belt", quality = "normal"},
         inserter = {name = "inserter", quality = "normal"},
+        long_inserter = {name = "long-handed-inserter", quality = "normal"},
         pipe = {name = "pipe", quality = "normal"},
         underground_pipe = {name = "pipe-to-ground", quality = "normal"},
         input_edge = Settings.DEFAULT_INPUT_EDGE,
@@ -167,6 +169,7 @@ local function normalized_settings(settings)
     for _, definition in ipairs(INFRASTRUCTURE) do
         local value = infrastructure[definition.key]
         if value == nil and definition.key == "roboport" then value = infrastructure.robo end
+        if value == nil then value = definition.default end
         result[definition.key] = normalize_choice(value)
     end
     add_belt_family(result.belt)

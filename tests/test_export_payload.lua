@@ -513,6 +513,34 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(decoded.prepared_input.catalog.inserter.pickup_offset, nil,
             "replay does not turn the refused vector back into geometry")
     end)
+    H.test(shape .. " E-long captured long inserter offsets survive export and replay", function()
+        world_with(shape)
+        local _, sheet = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)
+        local snapshot = remember(sheet)
+        local Registry = require "logic.registry"
+        local previous_generation = Registry.generation
+        storage[1].generation_id = "capture-long-inserter"
+        Registry.generation = {
+            capture = function()
+                return {
+                    prepared_input = {schema_version = 1, snapshot = {sheet_id = snapshot.sheet_id},
+                        catalog = {long_inserter = {name = "long-handed-inserter", quality = "normal",
+                            pickup_offset = {x = 0, y = 2}, drop_offset = {x = 0, y = -2}, drop_position = {x = 0, y = -2}}}},
+                    source_kind = "runtime", provenance = {terminal_outcome = "failure"}, source_export = "fixture",
+                }
+            end,
+        }
+        local ok, payload_or_error = pcall(build, sheet)
+        Registry.generation = previous_generation
+        storage[1].generation_id = nil
+        if not ok then error(payload_or_error, 0) end
+        local payload = payload_or_error
+        H.equal(payload.prepared_input.catalog.long_inserter.name, "long-handed-inserter", "long geometry is capturable")
+        H.deep_equal(payload.prepared_input.catalog.long_inserter.pickup_offset, {x = 0, y = 2}, "export pickup fact")
+        local decoded = assert(H.decode_export(assert(ExportPayload.encode(payload))))
+        H.deep_equal(decoded.prepared_input.catalog.long_inserter.drop_offset, {x = 0, y = -2}, "replay drop fact")
+    end)
+
     --The record contracts §19 freezes lives at storage[pi].calc_results[sheet_id]. 1.1.47 shipped an export that
     --never read it, so a calculated sheet exported as state "not_computed" with no columns at all.
     H.test(shape .. " E24 the export reads the published calculation record", function()

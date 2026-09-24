@@ -178,6 +178,9 @@ local function capture_geometry_copy(prepared)
         require_capture_field(catalog.inserter, "pickup_offset", "prepared_input.catalog.inserter", errors, seen)
         require_capture_field(catalog.inserter, "drop_offset", "prepared_input.catalog.inserter", errors, seen)
         require_capture_field(catalog.inserter, "drop_position", "prepared_input.catalog.inserter", errors, seen)
+        require_capture_field(catalog.long_inserter, "pickup_offset", "prepared_input.catalog.long_inserter", errors, seen)
+        require_capture_field(catalog.long_inserter, "drop_offset", "prepared_input.catalog.long_inserter", errors, seen)
+        require_capture_field(catalog.long_inserter, "drop_position", "prepared_input.catalog.long_inserter", errors, seen)
         for entity_name, entity in pairs(catalog.entity or {}) do
             local entity_path = "prepared_input.catalog.entity." .. tostring(entity_name)
             local box = type(entity) == "table" and entity.collision_box

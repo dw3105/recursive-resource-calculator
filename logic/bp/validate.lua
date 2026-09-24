@@ -905,14 +905,27 @@ local function check_buffer_zones(work)
         local step = work.steps[entity.step_id]
         local recipe = (step and step.recipe) or entity.recipe
         local x, y, w, h = entity_tile_rect(machine)
+        local bump = math.max(0, math.min(2, math.floor(finite(work.input.ring_bump, 0))))
         records[#records + 1] = {id = tostring(machine.id), rect = {x = x, y = y, w = w, h = h},
-            ring = Buffer.ring(work.catalog, recipe), key = Buffer.key(machine.name, recipe)}
+            ring = Buffer.ring(work.catalog, recipe) + bump, key = Buffer.key(machine.name, recipe)}
     end
     for i = 1, #records do
         for j = i + 1, #records do
             local a, b = records[i], records[j]
             if Buffer.conflict(a, b) then
                 error_record(work.errors, "BP_V_BUFFER_ZONE", {a.id, b.id}, {rect_a = a.rect, rect_b = b.rect})
+            end
+        end
+    end
+    for _, record in ipairs(records) do
+        local zone = Buffer.zone(record.rect, record.ring)
+        for _, roboport in ipairs(work.roboports or {}) do
+            local x, y, w, h = entity_tile_rect(roboport)
+            local rect = {x = x, y = y, w = w, h = h}
+            if zone.x < rect.x + rect.w and rect.x < zone.x + zone.w
+                and zone.y < rect.y + rect.h and rect.y < zone.y + zone.h then
+                error_record(work.errors, "BP_V_BUFFER_ROBOPORT", {record.id, tostring(roboport.id)},
+                    {machine_id = record.id, roboport_id = tostring(roboport.id), zone = zone, rect = rect})
             end
         end
     end
@@ -1341,7 +1354,9 @@ end
 local function transfer_cells(info, work)
     local entity = info.entity or {}
     local inserter = info.spec or {}
-    local family = work and work.catalog and work.catalog.inserter or {}
+    local catalog = work and work.catalog or {}
+    local family = catalog.inserter or {}
+    if catalog.long_inserter and entity.name == catalog.long_inserter.name then family = catalog.long_inserter end
     local pickup_offset = inserter.pickup_offset or family.pickup_offset
     local drop_offset = inserter.drop_offset or inserter.drop_position or family.drop_offset or family.drop_position
     local pickup_x, pickup_y, drop_x, drop_y
