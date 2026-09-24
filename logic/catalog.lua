@@ -748,13 +748,22 @@ local function build_inserter(catalog, diagnostics, options, requests, geometry_
     local quality = selected_quality(quality_name, diagnostics, catalog._quality_cache)
     if quality then project_quality(catalog, quality, quality_name) end
     local items_per_second = type(descriptor) == "table" and descriptor.items_per_second
+    --The game's prototype frame has pickup at -y and drop at +y (fast inserter {0,-1} / {0,1.2}, captured in
+    --~/share/RRC/inserter-10s-1.1.71.txt on 2026-09-24).  The generator's frame is turned 180 degrees: pickup +y,
+    --drop -y (logic/bp/groups.lua inserter_offsets, logic/bp/serialize.lua turns it back at publish).  Handed
+    --through raw, every hand sat on the wrong face and pack rejected every grid.  Turn once, here, and say so.
+    local function turned(point)
+        if type(point) ~= "table" then return point end
+        return {x = -(point.x or 0) + 0, y = -(point.y or 0) + 0}
+    end
     catalog[key] = {
         name = entity.name,
         quality = quality_name,
         items_per_second = items_per_second or 4.62,
-        pickup_offset = geometry.pickup,
-        drop_offset = geometry.drop,
-        drop_position = geometry.drop,
+        pickup_offset = turned(geometry.pickup),
+        drop_offset = turned(geometry.drop),
+        drop_position = turned(geometry.drop),
+        offset_frame = "rrc",
     }
 end
 

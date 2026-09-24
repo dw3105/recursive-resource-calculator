@@ -1606,8 +1606,9 @@ function H.new_world(shape)
             end
         end
         return infrastructure({name = spec.name, type = "inserter", energy_kw = spec.energy_kw or 13},
-            {inserter_pickup_position = spec.pickup or {x = 0, y = 1},
-             inserter_drop_position = spec.drop or {x = 0, y = -1.203125},
+            --Game prototype frame (2.0.77, captured 2026-09-24): pickup -y, drop +y. logic/catalog.lua turns it 180.
+            {inserter_pickup_position = spec.pickup or {x = 0, y = -1},
+             inserter_drop_position = spec.drop or {x = 0, y = 1.203125},
              inserter_stack_size_bonus = spec.stack_bonus or 0,
              inserter_max_belt_stack_size = spec.max_belt_stack or 1,
              get_inserter_rotation_speed = speed_for("rotation_speed", 0.014),
@@ -1718,7 +1719,7 @@ function H.new_world(shape)
         world.add_splitter({name = "splitter", items_per_second = 15})
         world.add_inserter({name = "inserter"})
         --Vanilla 2.0 always has it; the blueprint settings default to it (docs/contracts/pipeline_r29.md C5).
-        world.add_inserter({name = "long-handed-inserter", items_per_second = 1.2, pickup = {x = 0, y = 2},
+        world.add_inserter({name = "long-handed-inserter", items_per_second = 1.2, pickup = {x = 0, y = -2},
             drop = {x = 0, y = -2.203125}, energy_kw = 20})
         world.add_pipe({name = "pipe"})
         world.add_pipe_to_ground({name = "pipe-to-ground", max_distance = 10})

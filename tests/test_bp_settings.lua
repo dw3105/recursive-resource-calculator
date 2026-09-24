@@ -4,7 +4,7 @@ local H = require "tests.harness"
 local function fixture(shape)
     local world = H.new_world(shape)
     world.add_default_infrastructure()
-    world.add_inserter({name = "long-handed-inserter", pickup = {x = 0, y = 2}, drop = {x = 0, y = -2}})
+    world.add_inserter({name = "long-handed-inserter", pickup = {x = 0, y = -2}, drop = {x = 0, y = 2}})
     world.add_player(1)
     storage[1] = {}
     local pane = H.gui_root({type = "tabbed-pane", name = "sheet_pane"}, 1)

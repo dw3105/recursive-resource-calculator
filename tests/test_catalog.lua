@@ -98,13 +98,15 @@ for _, shape in ipairs(H.shapes()) do
         local array = Catalog.build(1, {inserter = "array-inserter"})
         H.deep_equal(keyed.inserter.pickup_offset, {x = 0, y = 1}, "keyed pickup vector")
         H.deep_equal(keyed.inserter.drop_offset, {x = 0, y = -1.203125}, "keyed drop vector")
-        H.deep_equal(array.inserter.pickup_offset, {x = 1.25, y = 2.5}, "array pickup vector")
-        H.deep_equal(array.inserter.drop_offset, {x = -3.5, y = 4.75}, "array drop vector")
+        --Game frame in, generator frame (turned 180 degrees) out.
+        H.deep_equal(array.inserter.pickup_offset, {x = -1.25, y = -2.5}, "array pickup vector")
+        H.deep_equal(array.inserter.drop_offset, {x = 3.5, y = -4.75}, "array drop vector")
+        H.equal(keyed.inserter.offset_frame, "rrc", "turned offsets are stamped")
     end)
 
     H.test(shape .. " CG-long captures selected long inserter geometry as plain facts", function()
         local world = world_with_catalog_fixtures(shape)
-        world.add_inserter({name = "long-handed-inserter", pickup = {x = 0, y = 2}, drop = {x = 0, y = -2}})
+        world.add_inserter({name = "long-handed-inserter", pickup = {x = 0, y = -2}, drop = {x = 0, y = 2}})
         local catalog = Catalog.build(1, {long_inserter = "long-handed-inserter"})
         H.equal(catalog.long_inserter.name, "long-handed-inserter", "selected prototype")
         H.deep_equal(catalog.long_inserter.pickup_offset, {x = 0, y = 2}, "pickup fact")

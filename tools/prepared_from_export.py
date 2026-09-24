@@ -136,6 +136,21 @@ def repair_captured(prepared: Dict[str, Any]) -> Dict[str, Any]:
                 if not isinstance(current, dict) or "x" not in current or "y" not in current:
                     inserter[field] = dict(value)
                     repaired.append(f"catalog.inserter.{field}")
+        # Captures before round 33 carry the game's own offsets (pickup -y, drop +y); the generator's frame is turned
+        # 180 degrees (logic/catalog.lua build_inserter now turns and stamps `offset_frame`). Turn unstamped ones.
+        for key in ("inserter", "long_inserter"):
+            family = catalog.get(key)
+            if not isinstance(family, dict) or family.get("offset_frame") == "rrc":
+                continue
+            pickup = family.get("pickup_offset")
+            game_frame = isinstance(pickup, dict) and isinstance(pickup.get("y"), (int, float)) and pickup["y"] < 0
+            if game_frame and not (key == "inserter" and "catalog.inserter.pickup_offset" in repaired):
+                for field in ("pickup_offset", "drop_offset", "drop_position"):
+                    point = family.get(field)
+                    if isinstance(point, dict) and "x" in point and "y" in point:
+                        family[field] = {"x": -point["x"] + 0, "y": -point["y"] + 0}
+                repaired.append(f"catalog.{key}.offset_frame")
+            family["offset_frame"] = "rrc"
     provenance = prepared.setdefault("provenance", {})
     if repaired:
         prepared["source_kind"] = "runtime-repaired"

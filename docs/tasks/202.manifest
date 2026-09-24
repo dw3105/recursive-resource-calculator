@@ -1,0 +1,8 @@
+gui/progress_panel.lua
+logic/progress_view.lua
+logic/bp/search.lua
+locale/en/locale.cfg
+locale/cs/locale.cfg
+locale/ro/locale.cfg
+tests/test_progress_view.lua
+tests/test_progress_panel.lua
