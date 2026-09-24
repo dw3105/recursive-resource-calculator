@@ -74,7 +74,7 @@ for _, shape in ipairs(H.shapes()) do
         local _, job_id = dialog.on_generate_clicked({element = button, player_index = 1})
         local cancel = find(sheet, "hxrrc_cancel_button")
         click(cancel.name, cancel)
-        H.equal(Generation.status(1, job_id).state, "canceled", "handle state")
+        H.equal(Generation.status(1, job_id).state, "cancelled", "handle state")
         H.equal(storage[1].blueprint_job, nil, "scheduled blueprint removed")
         H.run_ticks(world, 600)
         H.equal(world.hold_record(1), nil, "no cursor write")

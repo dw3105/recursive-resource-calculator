@@ -133,8 +133,7 @@ local function handle_from_record(record)
     local job_id = integer(record.job_id, nil)
     if not job_id or record.player_index == nil or record.sheet_id == nil then return nil end
     local state = record.state
-    if state == "cancelled" then state = "canceled" end --older saves
-    if state ~= "success" and state ~= "failure" and state ~= "canceled" and state ~= "pending" then
+    if state ~= "success" and state ~= "failure" and state ~= "cancelled" and state ~= "pending" then
         state = "pending"
     end
     local handle = {
@@ -204,7 +203,7 @@ local function index_handle(handle)
 end
 
 local function attempt_state(state)
-    return state == "pending" or state == "success" or state == "failure" or state == "canceled" or state == "cancelled"
+    return state == "pending" or state == "success" or state == "failure" or state == "cancelled"
 end
 
 local function latest_handle(player_index, sheet_id)
@@ -856,7 +855,7 @@ end
 
 local function terminal_cancel(handle, phase)
     if not handle or handle.state ~= "pending" then return end
-    handle.state = "canceled"
+    handle.state = "cancelled"
     handle.phase = phase or "cancelled"
     handle.progress = result_progress(handle.progress)
     update_capture(handle, nil, "cancelled", nil, handle.phase)
