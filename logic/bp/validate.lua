@@ -1595,6 +1595,27 @@ local function check_transport_shapes(work)
             end
         end
     end
+    --The player placed green v2 on 2026-09-24 and boxed two "belt bleeding" spots: a flow's last belt pointed
+    --into another flow's belt, so its items ran on (circuits onto the science belt, gears onto the foundry's
+    --iron stub).  A tile that declares its flows may carry only those: any other flow reaching it leaked in.
+    local bled = {}
+    for _, key in ipairs(sorted_keys(witnesses)) do
+        local declared = declared_flow_ids(tiles[key].info)
+        if #declared > 0 then
+            local set = {}
+            for _, flow_id in ipairs(declared) do set[flow_id] = true end
+            for _, lane in ipairs({"L", "R"}) do
+                for _, flow_id in ipairs(sorted_keys(witnesses[key][lane] or {})) do
+                    local leaked = known(flow_id)
+                    if not set[leaked] and not bled[leaked .. ">" .. tostring(tiles[key].info.id)] then
+                        bled[leaked .. ">" .. tostring(tiles[key].info.id)] = true
+                        error_record(work.errors, "BP_V_BELT_BLEED", {tostring(tiles[key].info.id)},
+                            {tile = {x = tiles[key].x, y = tiles[key].y}, lane = lane, flow = leaked, declared = declared})
+                    end
+                end
+            end
+        end
+    end
     for _, hand in ipairs(work.inserters or {}) do
         local entity = hand.entity or hand
         local ids = declared_flow_ids(hand)

@@ -12,7 +12,9 @@
 For every inserter that drops into a machine it prints the items on each lane of its pickup tile.
 MIXED: one lane carries two items that also appear on the other lane.
 STARVED: nothing reaches the pickup tile, or (recipe known) nothing on it is an ingredient.
-Last line: `LANE-SIM mixed=M starved=S`.
+BLEED: (recipe known) an item on the pickup tile is no ingredient of the machine: another flow ran into this belt
+(player, green v2, 2026-09-24: circuits on the science belt). Smelter/external sources count as wildcards.
+Last line: `LANE-SIM mixed=M starved=S bleed=B`.
 
 Usage: lane_sim.py bp.txt [--input prepared_input.json]   (machine sizes and recipes from its catalog)"""
 import json, math, sys
@@ -156,7 +158,7 @@ while queue:
             near = 'R' if (p[0] - q[0]) * rx + (p[1] - q[1]) * ry > 0 else 'L'
             add(q, near, item)
 
-bad = starved = 0
+bad = starved = bleed = 0
 for h in sorted(hands, key=lambda e: tile(e)):
     hx, hy = tile(h); vx, vy = VEC[h.get('direction', 0)]; k = reach(h)
     pick, drop = (hx + vx * k, hy + vy * k), (hx - vx * k, hy - vy * k)
@@ -169,7 +171,9 @@ for h in sorted(hands, key=lambda e: tile(e)):
         items = set(L) | set(R)
         wild = any(i.startswith('ext@') or i.startswith('smelt@') for i in items)
         hungry = not items or (need is not None and not wild and not (items & need))
-        bad += mixed; starved += hungry
+        stray = sorted(i for i in items if need is not None and i not in need
+                       and not i.startswith('ext@') and not i.startswith('smelt@'))
+        bad += mixed; starved += hungry; bleed += bool(stray)
         print('%s hand %s -> %s L=%s R=%s%s%s' % (recipe or 'smelt', (hx, hy), m['e']['name'], L, R,
-              '  MIXED' if mixed else '', '  STARVED' if hungry else ''))
-print('LANE-SIM mixed=%d starved=%d' % (bad, starved))
+              '  MIXED' if mixed else '', '  STARVED' if hungry else '') + ('  BLEED %s' % stray if stray else ''))
+print('LANE-SIM mixed=%d starved=%d bleed=%d' % (bad, starved, bleed))

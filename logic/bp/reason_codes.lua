@@ -44,7 +44,7 @@ ReasonCodes.VIOLATION = {
     --Round 14, contract 26.2 and 26.6. A transport entity or inserter that serves no obligation is waste, and
     --a beacon whose removal leaves every machine at its configured count is waste.
     "BP_V_TRANSPORT_UNUSED", "BP_V_BEACON_REDUNDANT",
-    "BP_V_UNDERGROUND_SIDELOAD_BLOCKED", "BP_V_UNDERGROUND_BACK_TO_BACK", "BP_V_ROUTE_LOOP", "BP_V_LANE_MIX",
+    "BP_V_UNDERGROUND_SIDELOAD_BLOCKED", "BP_V_UNDERGROUND_BACK_TO_BACK", "BP_V_ROUTE_LOOP", "BP_V_LANE_MIX", "BP_V_BELT_BLEED",
 }
 
 --The locale key a code is shown with. Codes a player can see (REJECT and FAIL) have one; an internal retry signal
