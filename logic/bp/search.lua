@@ -20,6 +20,7 @@ local Power = require "logic.bp.power"
 local Validate = require "logic.bp.validate"
 local Serialize = require "logic.bp.serialize"
 local Hands = require "logic.bp.hands"
+local Ends = require "logic.bp.ends"
 
 local PHASES = {
     plan = "planning", preflight = "preflight", groups = "grouping", pack = "packing", route = "routing",
@@ -1644,6 +1645,7 @@ function Search.step(container, budget)
             state.progress.done_units = state.progress.done_units + spent
             if stage_done(state.work.route_state) then
                 local before = #(state.work.route_state.result and state.work.route_state.result.port_slides or {})
+                Ends.turn_heads(state.work.route_state.result or {})
                 Hands.place(state.work.materialized, state.work.route_state.result or {})
                 if before > 0 then
                     state.work.post_tidy_power = true
