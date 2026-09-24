@@ -158,12 +158,14 @@ local function build_window(player, sheet_flow, settings)
         {"hxrrc.blueprint_edge_top"}, {"hxrrc.blueprint_edge_bottom"},
     }, selected_index = edge_index(settings.output_edge)}
 
-    frame.add{type = "label", name = ERROR_NAME, caption = "", visible = false}
+    local error_label = frame.add{type = "label", name = ERROR_NAME, caption = "", visible = false}
+    error_label.style.single_line = false
+    error_label.style.maximal_width = 400
     local footer = frame.add{type = "flow", name = "hxrrc_blueprint_footer", direction = "horizontal"}
     footer.style.horizontally_stretchable = true
     footer.style.horizontal_align = "right"
     footer.add{type = "button", name = GENERATE_NAME, caption = {"hxrrc.blueprint_generate"}}
-    footer.add{type = "button", name = CLOSE_NAME, caption = {"gui.cancel"}}
+    footer.add{type = "button", name = CLOSE_NAME, caption = {"gui.close"}}
     return frame
 end
 
@@ -320,6 +322,9 @@ function BlueprintDialog.on_generate_clicked(event)
         return false, reason
     end
     --The click only enqueues.  Preparation and every layout stage run under Jobs.on_tick.
+    BlueprintDialog.close(player_index)
+    if Registry.calculator then Registry.calculator.show(player) end
+    if type(Registry.progress_refresh) == "function" then Registry.progress_refresh() end
     return true, job_id
 end
 
@@ -344,9 +349,18 @@ end
 function BlueprintDialog.show_generation_failure(player_index, terminal)
     local frame = frame_of(player_of(player_index))
     local label = frame and frame[ERROR_NAME]
-    if not label then return end
-    label.caption = failure_caption(terminal)
-    label.visible = true
+    local caption = failure_caption(terminal)
+    if label then
+        label.caption = caption
+        label.visible = true
+    else
+        local sheet_id = terminal and terminal.sheet_id
+            or (terminal and terminal.job_id and Generation.status(player_index, terminal.job_id)
+                and Generation.status(player_index, terminal.job_id).sheet_id)
+        if sheet_id and type(Registry.progress_note) == "function" then
+            Registry.progress_note(player_index, sheet_id, caption)
+        end
+    end
 end
 
 Registry.generation_failure = BlueprintDialog.show_generation_failure

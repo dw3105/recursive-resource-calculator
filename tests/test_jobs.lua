@@ -119,7 +119,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(commits[1].result.value, "new", "the latest request wins")
     end)
 
-    H.test(shape .. " J4 cancel stops within two ticks and publishes nothing", function()
+    H.test(shape .. " J4 cancellation drops only its own late publish and permits a fresh same-revision job", function()
         local world, Jobs = world_with_control(shape)
         if not seam_or_red(Jobs) then return end
         local commits, steps = {}, {}
@@ -128,11 +128,19 @@ for _, shape in ipairs(H.shapes()) do
         queue_fake(Jobs, 1, 1, 20, "cancelled")
         H.run_ticks(world, 1)
         H.equal(steps[1], 1, "the job started before the handler cancelled it")
+        local late = storage[1].calc_jobs[1]
+        late.done, late.ok, late.result = true, true, {value = "late-canceled-publish"}
         Jobs.cancel(1, 1)
-        queue_fake(Jobs, 1, 1, 1, "duplicate-at-same-revision")
-        H.run_ticks(world, 2)
-        H.equal(#commits, 0, "cancelled work publishes nothing")
-        H.equal(next(storage[1].calc_jobs), nil, "cancel removes the pending job")
+        --Model an already-dispatched completion reaching the publish gate after Cancel.
+        storage[1].calc_jobs[1] = late
+        H.run_ticks(world, 1)
+        H.equal(#commits, 0, "tombstone drops the canceled job's own late publish")
+        local fresh = queue_fake(Jobs, 1, 1, 1, "fresh-after-cancel")
+        H.equal(fresh ~= nil, true, "same-revision user request is accepted")
+        H.run_ticks(world, 1)
+        H.equal(#commits, 1, "only the fresh job publishes")
+        H.equal(commits[1].result.value, "fresh-after-cancel", "late canceled job cannot replace fresh output")
+        H.equal(next(storage[1].calc_jobs), nil, "fresh job completes")
     end)
 
     H.test(shape .. " J5 two players share one budget and neither is starved", function()

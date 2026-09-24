@@ -3,6 +3,7 @@ local Sheet = require "gui.sheet"
 local ModuleGUI = require "gui.modulegui"
 local ModulePicker = require "gui.module_picker"
 local Reset = require "logic.reset"
+local Registry = require "logic.registry"
 local Calculator = {}
 
 function Calculator.build(player)
@@ -65,11 +66,41 @@ event_handlers.on_gui_click["hxrrc_delete_sheet_button"] = function(event)
     storage[event.player_index].calculator.force_auto_center()
 end
 
+local function select_running_job_sheet(player_index)
+    local data = storage[player_index]
+    local pane = data and data.sheet_section and data.sheet_section.sheet_pane
+    if not pane then return end
+    local blueprint = data.blueprint_job
+    local wanted = blueprint and blueprint.sheet_id
+    if not wanted then
+        for sheet_id in pairs(data.calc_jobs or {}) do wanted = sheet_id; break end
+    end
+    if not wanted then return end
+    for index, tab_and_sheet in ipairs(pane.tabs) do
+        if Sheet.id_of(tab_and_sheet.content) == wanted then
+            pane.selected_tab_index = index
+            return
+        end
+    end
+end
+
+function Calculator.show(player)
+    ModulePicker.close(player.index, false)
+    local calculator = player.gui.screen.hxrrc_calculator
+    calculator.visible = true
+    select_running_job_sheet(player.index)
+    player.opened = calculator
+end
+
 function Calculator.toggle(player)
     ModulePicker.close(player.index, false)
     local calculator = player.gui.screen.hxrrc_calculator
-    calculator.visible = not calculator.visible
-    player.opened = calculator.visible and calculator or nil
+    if calculator.visible then
+        calculator.visible = false
+        player.opened = nil
+    else
+        Calculator.show(player)
+    end
 end
 
 function Calculator.recompute_everything(player_index)
@@ -85,6 +116,8 @@ function Calculator.recompute_everything(player_index)
     storage.computation_stack[#storage.computation_stack+1] = {player_index = player_index, call_id = 2, parameters = {player_index}}
     storage[player_index].backlogged_computation_count = storage[player_index].backlogged_computation_count + 1
 end
+
+Registry.calculator = Calculator
 
 event_handlers.on_gui_elem_changed["hxrrc_choose_module_button"] = function(event)
     if ModuleGUI.on_module_button_changed(event) then
