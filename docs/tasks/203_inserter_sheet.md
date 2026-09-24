@@ -65,3 +65,13 @@ Commit on `lane/203_inserter_sheet`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3600s
+
+## Built
+
+- Fluid input or output keeps a multi-machine step out of row layout, so the normal block port builder carries the fluid connection into routing.
+- Item flows are split into `ceil(rate / inserter.items_per_second)` individual hands. Each gets its own port id and rate share; port placement uses that hand's captured face position.
+- Added fluid-row and hand-count coverage across all harness API shapes.
+
+## Left
+
+None known before the required sheet measurements.

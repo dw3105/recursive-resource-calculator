@@ -616,6 +616,35 @@ local function hand_groups_for(block, step, machine, catalog, input, flows)
         end
     end
     for _, port in ipairs(outputs) do groups[#groups + 1] = hand_group("output", {port}, machine_count) end
+    -- A hand has a finite transfer rate. Split each single-flow obligation into independent
+    -- hands so every hand and every routed port has an honest per-hand rate.
+    local capacity = finite(catalog and catalog.inserter and catalog.inserter.items_per_second)
+    if capacity and capacity > 0 then
+        local expanded = {}
+        for _, hand in ipairs(groups) do
+            local count = 1
+            if #hand.flow_ids == 1 then
+                count = math.max(1, math.ceil(hand.rate_per_second_per_machine / capacity - 1e-9))
+            end
+            for ordinal = 1, count do
+                local part = copy(hand)
+                if count > 1 then
+                    local id = hand.flow_ids[1]
+                    part.key = hand.key .. ":hand:" .. tostring(ordinal)
+                    part.rate_per_second = hand.rate_per_second / count
+                    part.rate_per_second_per_machine = hand.rate_per_second_per_machine / count
+                    part.flow_shares[id] = (part.flow_shares[id] or 0) / count
+                    part.flow_shares_per_machine[id] = (part.flow_shares_per_machine[id] or 0) / count
+                    part.port = copy(hand.port)
+                    part.port.port_id = tostring(hand.port.port_id or id) .. ":hand:" .. tostring(ordinal)
+                    part.port.rate_per_second = (flow_entry_rate(hand.port) / count)
+                    part.ports = {part.port}
+                end
+                expanded[#expanded + 1] = part
+            end
+        end
+        groups = expanded
+    end
     return groups
 end
 
@@ -755,7 +784,7 @@ local function append_multi_flow_inserters(block, step, machine, catalog, input,
                 or ((hand.role == "input" and "in:" or "out:")
                     .. tostring(hand.port.port_id or hand.port.flow_id or hand.port.full_name)),
             flow_id = shared and nil or hand.flow_ids[1], flow_ids = flow_ids, flow_shares = flow_shares,
-            rate_per_second = hand.rate_per_second_per_machine,
+            rate_per_second = hand.rate_per_second,
             x = placement.x, y = placement.y, w = iw, h = ih, dir = placement.dir,
             pickup_position = placement.pickup_position, drop_position = placement.drop_position,
             flow_entries = shared and list_copy(hand.ports) or nil,
@@ -783,10 +812,13 @@ local function append_inserters(block, step, machine, catalog, input, flows)
 end
 
 local function port_for_hand(inserter, fallback)
-    if not (inserter and type(inserter.flow_ids) == "table" and #inserter.flow_ids > 1) then
-        return fallback
-    end
+    if not inserter then return fallback end
     local source = copy(fallback or {})
+    if inserter.rate_per_second ~= nil then source.rate_per_second = inserter.rate_per_second end
+    if not (type(inserter.flow_ids) == "table" and #inserter.flow_ids > 1) then
+        source.port_id = inserter.port_id or source.port_id
+        return source
+    end
     source.flow_id, source.full_name = nil, nil
     source.flow_ids = list_copy(inserter.flow_ids)
     source.flow_shares = {}
@@ -1054,6 +1086,11 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --route (tests/golden/long_hand_probe.lua 2, 2026-09-24), and single-machine blocks run out of faces.
     local row_layout = machine_total >= 2
     for _, step in ipairs(steps) do
+        for _, role in ipairs({"inputs", "outputs"}) do
+            for _, entry in ipairs(step[role] or {}) do
+                if flow_is_fluid(entry, flows) then row_layout = false end
+            end
+        end
         if item_port_count(step, "outputs", flows) > 1 then row_layout = false end
         if item_port_count(step, "inputs", flows) > 3 then row_layout = false end
     end
