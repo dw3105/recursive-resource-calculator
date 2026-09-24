@@ -77,6 +77,10 @@ local function set_phase(state, phase)
     state.phase = phase
     state.cursor.phase = phase
     state.progress.phase = PHASES[phase] or phase
+    state.progress.stage = phase == "plan" and "prepare" or state.progress.phase
+    state.progress.stage_done, state.progress.stage_total = 0, 1
+    state.progress.attempt = math.max(1, state.work.attempt or 1)
+    state.progress.attempts = 3
 end
 
 local function failure(state, code, details)
@@ -1165,6 +1169,10 @@ local function run_stage(state, field, module, budget)
     local stage = state.work[field]
     local before = finite(budget.ops, 0)
     module.step(stage, budget)
+    if type(stage) == "table" and type(stage.progress) == "table" then
+        state.progress.stage_done = finite(stage.progress.done_units, 0)
+        state.progress.stage_total = math.max(1, finite(stage.progress.total_units, 1))
+    end
     local after = finite(budget.ops, before)
     local spent = math.max(0, before - after)
     state.ops_used = state.ops_used + spent
@@ -1384,7 +1392,7 @@ function Search.begin(input)
         done = false, ok = nil, phase = "plan", cursor = {phase = "plan", grid_index = 1, candidate_index = 1},
         incumbent = nil, result = nil, errors = nil, ops_used = 0, max_ops = max_ops, grid_spacing = nil,
         revisions = copy(input.revisions) or {sheet = 0, config = 0}, current_revisions = copy(input.current_revisions),
-        progress = {phase = "planning", done_units = 0, total_units = nil},
+        progress = {phase = "planning", stage = "prepare", stage_done = 0, stage_total = 1, attempt = 1, attempts = 1, shown = 0, done_units = 0, total_units = nil},
         work = {input = input, limits = limits, grid_specs = ordered_grid_specs(input), plan_state = nil,
             plan_result = nil, preflight = nil, grid = nil, groups = nil, candidate = nil,
             pack = nil, route = nil, power = nil, validate = nil, serializing_candidate = nil, serialize = nil,
@@ -1406,6 +1414,7 @@ function Search.begin(input)
         state.work.plan_state = Plan.begin(input)
     end
     state.progress.total_units = math.max(1, #state.work.grid_specs)
+    state.progress.attempts = 3
     return state
 end
 
@@ -1643,6 +1652,9 @@ function Search.step(container, budget)
             local spent = math.max(0, before - budget.ops)
             state.ops_used = state.ops_used + spent
             state.progress.done_units = state.progress.done_units + spent
+            local tidy_progress = state.work.route_state and state.work.route_state.progress or {}
+            state.progress.stage_done = finite(tidy_progress.done_units, 0)
+            state.progress.stage_total = math.max(1, finite(tidy_progress.total_units, 1))
             if stage_done(state.work.route_state) then
                 local before = #(state.work.route_state.result and state.work.route_state.result.port_slides or {})
                 Ends.turn_heads(state.work.route_state.result or {})

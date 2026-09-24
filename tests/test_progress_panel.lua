@@ -55,9 +55,9 @@ for _, shape in ipairs(H.shapes()) do
         local ProgressPanel = require "gui.progress_panel"
         local bar = require("gui.sheet").progressbar_of(sheet_flow)
         ProgressPanel.update(sheet_flow, {phase = "expanding", done_units = 3, total_units = 10})
-        H.deep_equal(bar.caption, {"hxrrc.calc_phase_expanding"}, "the caption is the phase locale key")
+        H.deep_equal(bar.caption[1], "hxrrc.progress_caption", "the caption says what job is doing")
         H.near(bar.value, 0.3, "the bar is done over total")
-        H.deep_equal(bar.tooltip, {"hxrrc.calc_progress_tooltip", {"hxrrc.calc_phase_expanding"}, 3, 10}, "the tooltip has phase, done and total")
+        H.equal(bar.tooltip[1], "hxrrc.progress_tooltip", "the tooltip gives elapsed and estimated time")
     end)
 
     H.test(shape .. " PP-03 unknown totals rise with an explicit estimate and never fabricate a countdown", function()
@@ -101,7 +101,10 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(Sheet.cancel_button_of(sheet_flow).visible, false, "Cancel hides itself")
         H.equal(old_report.valid, true, "the old report remains on screen")
         H.equal(old_report.caption, "old report", "the old report is not replaced")
-        H.equal(child_named(sheet_flow.output_flow, "hxrrc_calc_canceled_label").caption[1], "hxrrc.calc_canceled", "the report is labeled canceled")
+        local note = child_named(sheet_flow, "hxrrc_job_note")
+        H.equal(note ~= nil, true, "cancellation note is a separate sheet child")
+        H.equal(note.children[1].caption[1], "hxrrc.calc_canceled", "the note explains cancellation")
+        H.equal(child_named(sheet_flow.output_flow, "hxrrc_calc_canceled_label"), nil, "the note is outside the output")
         H.equal(calculator.enabled, true, "Cancel never disables the calculator")
     end)
 
@@ -109,20 +112,16 @@ for _, shape in ipairs(H.shapes()) do
         local world, sheet_flow = panel_world(shape)
         local ProgressPanel = require "gui.progress_panel"
         local Jobs = require "logic.jobs"
-        local progress = {phase = "solving", done_units = 2, total_units = 10}
-        local reads = 0
-        Jobs.progress_of = function(player_index, sheet_id)
-            reads = reads + 1
-            return progress
-        end
+        local sheet_id = require("gui.sheet").id_of(sheet_flow)
+        storage[1].calc_jobs = {[sheet_id] = {kind="calculation", sheet_id=sheet_id, started_tick=0, done=false,
+            phase="solve", progress={stage="solve", stage_done=20, stage_total=100, completed_weight=10, shown=0.2}}}
         ProgressPanel.show(sheet_flow)
-        H.run_ticks(world, 9)
-        H.equal(reads > 0, true, "the panel polls while work runs")
-        H.run_ticks(world, 1)
-        H.equal(reads >= 10, true, "the panel refreshes at least every ten ticks")
-        H.near(require("gui.sheet").progressbar_of(sheet_flow).value, 0.2, "the tick refresh uses current progress")
-        progress = nil
-        H.run_ticks(world, 1)
+        game.tick = 10
+        require("logic.registry").progress_refresh()
+        H.near(require("gui.sheet").progressbar_of(sheet_flow).value, 0.2, "the refresh reads the saved job record")
+        storage[1].calc_jobs = nil
+        game.tick = 20
+        require("logic.registry").progress_refresh()
         H.equal(require("gui.sheet").progressbar_of(sheet_flow).visible, false, "a same-tick completion hides the controls")
     end)
 
@@ -202,6 +201,20 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(bar.value ~= nil, true, "the second update leaves a value")
         H.equal(bar.value >= first, true, "the bar does not move backwards")
         H.equal(bar.value, first, "the prior phase value is retained")
+    end)
+
+    H.test(shape .. " PP-15 caption, best-so-far and note are visible in the sheet flow", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        ProgressPanel.update(sheet_flow, {kind="blueprint", stage_key="pack", attempt=2, attempts=3, fraction=.42,
+            elapsed_ticks=600, eta_ticks=300, best_entities=57})
+        local bar=require("gui.sheet").progressbar_of(sheet_flow)
+        H.equal(bar.caption[1], "hxrrc.progress_caption", "caption uses the descriptive key")
+        H.equal(bar.caption[5][1], "hxrrc.progress_stage_pack", "caption names current stage")
+        H.equal(child_named(sheet_flow, "hxrrc_progress_best").caption[1], "hxrrc.progress_best", "best-so-far has its own line")
+        ProgressPanel.set_note(sheet_flow, {"hxrrc.calc_canceled"})
+        H.equal(child_named(sheet_flow, "hxrrc_job_note") ~= nil, true, "note is a child of the sheet")
+        H.equal(child_named(sheet_flow.output_flow, "hxrrc_job_note"), nil, "note never enters output flow")
     end)
 end
 
