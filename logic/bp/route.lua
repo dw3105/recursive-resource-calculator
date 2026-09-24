@@ -485,6 +485,12 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         --with nothing behind it that belt is a curve, not a side-load (round 28, the player's v8 U-turn).
         rear_curve = (port.rear == true and ((port.flow_ids and #port.flow_ids > 0 and #port.flow_ids <= 2)
             or (port_flow_id(port) ~= nil and port.flow_ids == nil))) or nil,
+        --A row's side feed (its belt side-loads the run head) may be entered by a curve for the same reason: the
+        --feed belt still faces the port's heading, so it lands on the same lane (player's hand fix of v10 at (7,2),
+        --2026-09-24: lane walk mixed=0). Offered only in the keep-if-cheaper improve pass: in first routing it moved
+        --the gear feed off its underground and cost the player's sheet 185 -> 190 entities.
+        feed_curve = (port.row_port == true and port.rear ~= true and role == "in"
+            and ((port.flow_ids and #port.flow_ids > 0 and #port.flow_ids <= 2) or (port_flow_id(port) ~= nil and port.flow_ids == nil))) or nil,
         block_id = block.block_id or block.id,
         step_id = port.step_id or block_step_id(block),
         role = role,
@@ -1570,7 +1576,10 @@ local function append_normal_path(work, demand, path, amount)
         local direction = direction_from_step(cell.x, cell.y, next_cell.x, next_cell.y)
         if index == #path and #path > 1 then direction = direction_from_step(path[index - 1].x, path[index - 1].y, cell.x, cell.y) end
         --A curve onto a one-flow rear port: the last belt faces the port's heading, into the row's head.
-        if index == #path and demand.sink and demand.sink.rear_curve and demand.sink.travel_dir ~= nil
+        --A row feed port admits a side arrival only through the improve pass's curve freedom, so commit (which may run
+        --after that pass cleared its flag) turns such a last belt into the port's heading unconditionally.
+        if index == #path and demand.sink and (demand.sink.rear_curve or demand.sink.feed_curve)
+            and demand.sink.travel_dir ~= nil
             and cell.x == demand.sink.x and cell.y == demand.sink.y then direction = demand.sink.travel_dir end
         --A cell has TWO directions and they decide different things.  `incoming` is how the items arrived,
         --`outgoing` is how they leave.  Arriving at a run already laid from one of its SIDES is a merge and
@@ -2104,7 +2113,8 @@ local function search_step(work, search)
         --ring, and refusing the ring left automation-science-pack:4 BP_R_NO_PATH.  So the widening below is
         --for machine ports only.
         local sink_any_approach = false
-        if target and search.demand.sink.rear_curve and search.demand.sink.travel_dir ~= nil
+        if target and (search.demand.sink.rear_curve or (search.demand.sink.feed_curve and work.free_source_heading))
+            and search.demand.sink.travel_dir ~= nil
             and direction ~= Grid.dir_opposite(search.demand.sink.travel_dir)
             and work.segments_by_cell[coordinate_key(nx, ny)] == nil then
             local sx, sy = Grid.dir_vector(search.demand.sink.travel_dir)

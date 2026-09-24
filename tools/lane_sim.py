@@ -130,15 +130,22 @@ for h in hands:
         recipe = m['e'].get('recipe')
         for item in (products(recipe) if recipe else {'smelt@%d,%d' % (m['x0'], m['y0'])}):
             add(drop, far, item)
+def fed(p):
+    # A splitter takes from behind either of its two tiles and mixes both into both outputs.
+    cells = splitter_of[p][1] if p in splitter_of else [p]
+    return any(pred[c] for c in cells)
 for p in succ:
-    if not pred[p] and not (p in ugs and ugs[p][1] == 'output'):
+    if not fed(p) and not (p in ugs and ugs[p][1] == 'output'):
         if not any(lanes[(p, l)] for l in 'LR'):
             add(p, 'L', 'ext@%d,%d' % p); add(p, 'R', 'ext@%d,%d' % p)
 while queue:
     p, lane, item = queue.popleft()
     for q in succ[p]:
         dq, dp = dir_of(q), dir_of(p)
-        if q in splitter_of or p in splitter_of or dp == dq or (q in ugs and ugs[q][1] == 'output'):
+        if q in splitter_of:
+            for c in splitter_of[q][1]: add(c, lane, item)  # both halves carry every input lane
+            continue
+        if p in splitter_of or dp == dq or (q in ugs and ugs[q][1] == 'output'):
             add(q, lane, item)
             continue
         behind = [f for f in pred[q] if dir_of(f) == dq]
