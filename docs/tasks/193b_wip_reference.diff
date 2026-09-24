@@ -1,0 +1,276 @@
+diff --git a/logic/bp/pack.lua b/logic/bp/pack.lua
+index 1839e92..208347f 100644
+--- a/logic/bp/pack.lua
++++ b/logic/bp/pack.lua
+@@ -21,7 +21,7 @@ local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
+ --inner work so one module call stays short even when the search budget is large.  256 made one op ~0.5 us, so a
+ --2000-op game tick did ~1 ms and the player's sheet needed 6101 pack ticks; 16 gives ~8 us per op, ~16 ms per
+ --tick (measured 2026-09-23 on legalcopilot-dev with tools/speed_probe.sh).
+-local PORT_ORIGIN_OPS = 16
++local PORT_ORIGIN_OPS = 512
+ 
+ local function finite(value, fallback)
+     if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
+@@ -150,6 +150,46 @@ local function prune_regions(rects)
+     return out
+ end
+ 
++local function begin_prune(rects)
++    local order = {}
++    for i, rect in ipairs(rects) do order[i] = {index = i, rect = rect, area = rect.w * rect.h} end
++    table.sort(order, function(a, b)
++        if a.area ~= b.area then return a.area > b.area end
++        return a.index < b.index
++    end)
++    return {rects = rects, order = order, maximal = {}, keep = {}, position = 1,
++        compare_index = 1, contained = false}
++end
++
++local function continue_prune(prune, budget)
++    while prune.position <= #prune.order and budget.ops > 0 do
++        local item = prune.order[prune.position]
++        local larger = prune.maximal[prune.compare_index]
++        if larger then
++            if larger.x <= item.rect.x and larger.y <= item.rect.y
++                and larger.x + larger.w >= item.rect.x + item.rect.w
++                and larger.y + larger.h >= item.rect.y + item.rect.h then
++                prune.contained = true
++                prune.compare_index = #prune.maximal + 1
++            else
++                prune.compare_index = prune.compare_index + 1
++            end
++        else
++            if not prune.contained then
++                prune.keep[item.index] = true
++                prune.maximal[#prune.maximal + 1] = item.rect
++            end
++            prune.position, prune.compare_index, prune.contained = prune.position + 1, 1, false
++        end
++        budget.ops = budget.ops - math.min(budget.ops, 4)
++    end
++    if prune.position <= #prune.order then return nil end
++    local out = {}
++    for i, rect in ipairs(prune.rects) do if prune.keep[i] then out[#out + 1] = rect end end
++    return out
++end
++
++
+ local function set_result(state)
+     state.result = {
+         placements = state.placements,
+@@ -347,6 +387,37 @@ local function linked_cost(state, block, candidate)
+     return cost + math.max(0, (maxx-minx)+(maxy-miny) - old_span)
+ end
+ 
++local function link_bound(state, block, x, y, w, h)
++    local cost = 0
++    for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
++        local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
++        local other = mine == link.a and link.b or link.a
++        local px, py
++        if other.edge == "left" then cost = cost + math.max(0, x - 1 - state.area.x)
++        elseif other.edge == "right" then cost = cost + math.max(0, state.area.x + state.area.w - 1 - (x + w))
++        elseif other.edge == "top" then cost = cost + math.max(0, y - 1 - state.area.y)
++        elseif other.edge == "bottom" then cost = cost + math.max(0, state.area.y + state.area.h - 1 - (y + h))
++        else
++            local partner = other.block_id and state.placement_by_id[tostring(other.block_id)]
++            if partner then
++                local pb = state.block_by_id[tostring(other.block_id)]
++                if pb then px, py = port_tile(pb, partner, other)
++                else px, py = partner.x + math.floor(partner.w / 2), partner.y + math.floor(partner.h / 2) end
++            end
++        end
++        if px ~= nil then
++            cost = cost + math.max(0, x - 1 - px, px - (x + w))
++                + math.max(0, y - 1 - py, py - (y + h))
++        end
++    end
++    local box = state.placed_bbox
++    local old = box and box.w + box.h or 0
++    local minx, miny = box and math.min(box.x, x) or x, box and math.min(box.y, y) or y
++    local maxx, maxy = box and math.max(box.x + box.w, x + w) or x + w,
++        box and math.max(box.y + box.h, y + h) or y + h
++    return cost + math.max(0, maxx - minx + maxy - miny - old)
++end
++
+ local function choose_port_slots(state, block, x, y, direction)
+     local entries = {}
+     for index, port in ipairs(block.ports or {}) do
+@@ -416,15 +487,24 @@ end
+ 
+ local function scan_origin(state, block, region, direction, x, y)
+             local w, h = Grid.rotate_size(block.w, block.h, direction)
++            local key = tostring(block.block_id) .. ":" .. direction .. ":" .. x .. ":" .. y
++            local cache = state.origin_seen[key]
++            if cache then return cache.pinned_failed end
+             state.counters.origins = state.counters.origins + 1
++                local score = state.cursor.score_maps[direction][cell_key(x, y)]
++                local best_short, best_long = score[1], score[2]
++                local candidate = {x=x,y=y,dir=direction,w=w,h=h,short_side=best_short,long_side=best_long}
++                if state.has_links then
++                    local best = state.cursor.best
++                    if best and link_bound(state, block, x, y, w, h) > best.link_cost then
++                        state.origin_seen[key] = {pinned_failed=true}; return true
++                    end
++                end
+                 local buffer_zones = rotate_buffer_zones(block, x, y, direction)
+-                if not buffer_zones_fit(state, buffer_zones) or not zones_avoid_blockers(state, buffer_zones) then return true end
++                if not buffer_zones_fit(state, buffer_zones) or not zones_avoid_blockers(state, buffer_zones) then
++                    state.origin_seen[key] = {pinned_failed=true}; return true
++                end
+                 if placement_avoids_port_cells(state, x, y, w, h) then
+-                    local short_side, long_side = Pack.bssf_score(region, w, h)
+-                    local candidate = {
+-                        x = x, y = y, dir = direction, w = w, h = h,
+-                        short_side = short_side, long_side = long_side,
+-                    }
+                     if #block.ports == 0 then
+                         if state.has_links then candidate.link_cost = linked_cost(state, block, candidate) end
+                         if better(candidate, state.cursor.best) then state.cursor.best = candidate end
+@@ -435,13 +515,32 @@ local function scan_origin(state, block, region, direction, x, y)
+                             if state.has_links then candidate.link_cost = linked_cost(state, block, candidate) end
+                             if better(candidate, state.cursor.best) then state.cursor.best = candidate end
+                         elseif reason == "pinned-free" then
+-                            return true
++                            state.origin_seen[key] = {pinned_failed=true}; return true
+                         end
+                     end
+                 end
++                state.origin_seen[key] = {pinned_failed=false}
+                 return false
+ end
+ 
++local function build_score_region(state, block, region)
++    local maps = state.cursor.score_maps
++    for _, direction in ipairs(block.allowed_dirs) do
++        local w, h = Grid.rotate_size(block.w, block.h, direction)
++        if region.w >= w and region.h >= h then
++            local map = maps[direction]
++            for y = region.y, region.y + region.h - h do
++                for x = region.x, region.x + region.w - w do
++                    local key = cell_key(x, y)
++                    local short, long = Pack.bssf_score(region, w, h)
++                    local old = map[key]
++                    if not old or short < old[1] or (short == old[1] and long < old[2]) then map[key] = {short, long} end
++                end
++            end
++        end
++    end
++end
++
+ local function scan_one(state, block, region)
+     local c = state.cursor
+     while c.direction_index <= #block.allowed_dirs do
+@@ -501,7 +600,7 @@ local function region_can_beat(state, block, region)
+     return false
+ end
+ 
+-local function place(state, block)
++local function start_place(state, block)
+     local candidate = state.cursor.best
+     if candidate == nil then
+         fail(state, "BP_P_NO_FIT", block.block_id)
+@@ -547,11 +646,27 @@ local function place(state, block)
+         reserved = {x = placement.x - margin, y = placement.y - margin,
+             w = placement.w + margin * 2, h = placement.h + margin * 2}
+     end
+-    local next_regions = {}
+-    for _, region in ipairs(state.regions) do
+-        local pieces = Grid.subtract(region, reserved)
+-        for _, piece in ipairs(pieces) do next_regions[#next_regions + 1] = piece end
++    state.pending_place = {block = block, reserved = reserved, region_index = 1, regions = {}}
++end
++
++local function place_step(state, budget)
++    local pending = state.pending_place
++    local block = pending.block
++    local candidate, placement = state.cursor.best, state.placements[#state.placements]
++    while pending.region_index <= #state.regions and budget.ops > 0 do
++        local pieces = Grid.subtract(state.regions[pending.region_index], pending.reserved)
++        for _, piece in ipairs(pieces) do pending.regions[#pending.regions + 1] = piece end
++        pending.region_index = pending.region_index + 1
++        budget.ops = budget.ops - 1
++    end
++    if pending.region_index <= #state.regions then return end
++    if not pending.pruned then
++        if budget.ops <= 0 then return end
++        pending.prune = begin_prune(pending.regions)
++        pending.pruned = true
+     end
++    local pruned = continue_prune(pending.prune, budget)
++    if pruned == nil then return end
+     for index, slot in ipairs(candidate.port_slots or {}) do
+         local x, y = world_slot(block, candidate.x, candidate.y, candidate.dir, slot)
+         state.port_cells[#state.port_cells + 1] = {x = x, y = y}
+@@ -563,7 +678,7 @@ local function place(state, block)
+             state.port_cells[#state.port_cells + 1] = {x = x + dx, y = y + dy}
+         end
+     end
+-    state.regions = prune_regions(next_regions)
++    state.regions = pruned
+     rebuild_indexes(state)
+     if #state.regions > state.stats.peak_free_regions then
+         state.stats.peak_free_regions = #state.regions
+@@ -573,12 +688,14 @@ local function place(state, block)
+     state.cursor.region_index = 1
+     reset_region_cursor(state.cursor)
+     state.cursor.best = nil
++    state.cursor.score_maps, state.cursor.score_region_index = nil, nil
+     state.progress.done_units = state.progress.done_units + 1
+ 
+     local limit = state.limits.max_free_regions
+     if limit ~= nil and #state.regions > limit then
+         fail(state, "BP_P_REGION_LIMIT")
+     end
++    state.pending_place = nil
+ end
+ 
+ function Pack.begin(input)
+@@ -624,6 +741,7 @@ function Pack.begin(input)
+         port_cells = {},
+         buffer_zones = {},
+         counters = {origins = 0},
++        origin_seen = {},
+     }
+     rebuild_indexes(state)
+ 
+@@ -646,23 +764,36 @@ function Pack.step(state, budget)
+             break
+         end
+ 
+-        if state.cursor.region_index <= #state.regions then
++        if state.pending_place then
++            place_step(state, budget)
++        elseif state.cursor.region_index <= #state.regions then
+             if budget.ops == nil or budget.ops <= 0 then break end
+             local region = state.regions[state.cursor.region_index]
+-            if state.cursor.direction_index == 1 and state.cursor.origin_x == nil
++            if state.cursor.score_maps == nil then
++                state.cursor.score_maps, state.cursor.score_region_index = {}, 1
++                for _, direction in ipairs(block.allowed_dirs) do state.cursor.score_maps[direction] = {} end
++            elseif state.cursor.score_region_index <= #state.regions then
++                local score_region = state.regions[state.cursor.score_region_index]
++                build_score_region(state, block, score_region)
++                state.cursor.score_region_index = state.cursor.score_region_index + 1
++                budget.ops = budget.ops - math.min(budget.ops, math.max(1, score_region.w * score_region.h * #block.allowed_dirs))
++            elseif state.cursor.direction_index == 1 and state.cursor.origin_x == nil
+                 and not region_can_beat(state, block, region) then
+                 state.cursor.region_index = state.cursor.region_index + 1
+                 reset_region_cursor(state.cursor)
++                budget.ops = budget.ops - math.min(budget.ops, 8)
+             elseif scan_one(state, block, region) then
+                 state.stats.scans = state.stats.scans + 1
+                 budget.ops = budget.ops - math.min(budget.ops, #block.ports > 0 and PORT_ORIGIN_OPS or 1)
+             else
+                 state.cursor.region_index = state.cursor.region_index + 1
+                 reset_region_cursor(state.cursor)
++                budget.ops = budget.ops - math.min(budget.ops, 8)
+             end
+             if budget.ops <= 0 then break end
+         else
+-            place(state, block)
++            start_place(state, block)
++            if state.pending_place then place_step(state, budget) end
+         end
+     end
+     return state
