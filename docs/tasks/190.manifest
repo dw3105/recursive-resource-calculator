@@ -1,0 +1,9 @@
+logic/bp/route.lua
+logic/bp/groups.lua
+logic/bp/validate.lua
+docs/contracts/row_block.md
+tests/test_long_hands_e2e.lua
+tests/test_groups_long_hands.lua
+tests/test_route_rows.lua
+tests/test_validate_rows.lua
+tests/golden/long_hand_probe.lua
