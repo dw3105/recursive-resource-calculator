@@ -30,6 +30,10 @@ local EPSILON = 1e-9
 --that FAIL: a sink fenced in by an earlier demand exhausts its whole reachable set whatever order the
 --frontier is opened in, and no estimate shortens that.  item/cable 10:8 -> 10:5 alone spends about 52800
 --over six of them.
+--One A* expansion (heap pop, neighbour checks, crossing targets) costs ~50-80 us on the player's green sheet; one op is
+--budgeted at ~8 us (2000 ops ~ one 16 ms game tick). Charged at 1 op, a 2000-op call ran 0.1-0.56 s (measured
+--2026-09-24, legalcopilot-dev, tools/tick_parts.lua). Decisions count steps and expansions, never ops.
+local EXPANSION_OPS = 10
 local HEURISTIC_PER_TILE = 1
 --Contract 28.8.  A trunk tile that is already the sink's own port tile, entered in a heading the port
 --did not ask for, is the LAST answer the search should take: high enough that any real approach wins,
@@ -631,36 +635,66 @@ end
 --segments exist: it prices the obstacle-aware route that each producer/consumer pair is asking for, rather than
 --letting input list order choose the first trunk.  The real Dijkstra below still makes the final decision with
 --capacity, bends, crossings and sharing in view.
-local function pairing_route_cost(work, source, sink)
-    if not source or not sink then return math.huge end
-    local grid = work.grid or {}
-    local function inside(x, y)
-        return (grid.w == nil or (x >= 0 and y >= 0 and x < grid.w and y < grid.h))
-    end
-    local function open(x, y)
-        if (x == source.x and y == source.y) or (x == sink.x and y == sink.y) then return true end
-        local owner = work.obstacles[coordinate_key(x, y)]
-        if owner ~= nil and owner ~= Grid.RESERVED.corridor and owner ~= Grid.RESERVED.port then return false end
-        return indexed_cell(grid, x, y) == nil
-    end
+--A resumable breadth-first flood from one source tile over the static obstacles. Every pair that shares the source
+--reads its distance from the same flood: BFS distance to a tile does not depend on where the search stops. The sink
+--tile is open for its own pair only, so a blocked sink is reached from its best flooded neighbour.
+local function pairing_flood_begin(work, source)
     local start = coordinate_key(source.x, source.y)
-    local queue, head = {{x = source.x, y = source.y, distance = 0}}, 1
-    local seen = {[start] = true}
-    while queue[head] do
-        local current = queue[head]
-        head = head + 1
-        if current.x == sink.x and current.y == sink.y then return current.distance end
+    return {source = source, queue = {{x = source.x, y = source.y, distance = 0}}, head = 1,
+        dist = {[start] = 0}, done = false}
+end
+
+local function pairing_flood_step(work, flood, cells)
+    local grid = work.grid or {}
+    local source = flood.source
+    local used = 0
+    while flood.queue[flood.head] and used < cells do
+        local current = flood.queue[flood.head]
+        flood.head, used = flood.head + 1, used + 1
         for _, direction in ipairs(DIRECTIONS) do
             local dx, dy = Grid.dir_vector(direction)
             local x, y = current.x + dx, current.y + dy
             local key = coordinate_key(x, y)
-            if inside(x, y) and not seen[key] and open(x, y) then
-                seen[key] = true
-                queue[#queue + 1] = {x = x, y = y, distance = current.distance + 1}
+            if flood.dist[key] == nil and (grid.w == nil or (x >= 0 and y >= 0 and x < grid.w and y < grid.h)) then
+                local owner = work.obstacles[coordinate_key(x, y)]
+                local open = (x == source.x and y == source.y)
+                    or ((owner == nil or owner == Grid.RESERVED.corridor or owner == Grid.RESERVED.port)
+                        and indexed_cell(grid, x, y) == nil)
+                if open then
+                    flood.dist[key] = current.distance + 1
+                    flood.queue[#flood.queue + 1] = {x = x, y = y, distance = current.distance + 1}
+                end
             end
         end
     end
-    return math.huge
+    if not flood.queue[flood.head] then flood.done, flood.queue = true, nil end
+    return used
+end
+
+local function pairing_flood(work, source)
+    work.pairing_floods = work.pairing_floods or {}
+    local key = coordinate_key(source.x, source.y)
+    local flood = work.pairing_floods[key]
+    if not flood then flood = pairing_flood_begin(work, source); work.pairing_floods[key] = flood end
+    return flood
+end
+
+local function pairing_route_cost(work, source, sink)
+    if not source or not sink then return math.huge end
+    if source.x == sink.x and source.y == sink.y then return 0 end
+    local flood = pairing_flood(work, source)
+    if not flood.done then pairing_flood_step(work, flood, math.huge) end
+    local direct = flood.dist[coordinate_key(sink.x, sink.y)]
+    if direct ~= nil then return direct end
+    local grid = work.grid or {}
+    if grid.w ~= nil and not (sink.x >= 0 and sink.y >= 0 and sink.x < grid.w and sink.y < grid.h) then return math.huge end
+    local best = math.huge
+    for _, direction in ipairs(DIRECTIONS) do
+        local dx, dy = Grid.dir_vector(direction)
+        local d = flood.dist[coordinate_key(sink.x - dx, sink.y - dy)]
+        if d ~= nil and d + 1 < best then best = d + 1 end
+    end
+    return best
 end
 
 local function candidate_first(candidates, chosen)
@@ -862,6 +896,123 @@ local function build_demands(work, flows)
         return left._build_order < right._build_order
     end)
     return demands
+end
+
+--Resumable counterpart used by the tick runner. One producer row is scored per route call;
+--the stable scan order and comparisons are the same as build_demands above.
+local function begin_flow_demand_build(work, flow)
+    local id = flow_id_of(flow)
+    if not id then return {flow = flow, done = true} end
+    local producers, consumers = {}, {}
+    if per_port_demands then
+        for _, entry in ipairs(flow.producers or {}) do
+            append_port_demands(work, producers, id, step_id_of(entry) == "$external" and "in" or "out", entry,
+                share_of(entry), "producer")
+        end
+        for _, entry in ipairs(flow.consumers or {}) do
+            append_port_demands(work, consumers, id, step_id_of(entry) == "$external" and "out" or "in", entry,
+                share_of(entry), "consumer")
+        end
+    else
+        for _, entry in ipairs(flow.producers or {}) do
+            local candidates = demand_endpoint_candidates(work, id, step_id_of(entry) == "$external" and "in" or "out", entry)
+            producers[#producers + 1] = {endpoint = candidates[1], candidates = candidates, remaining = share_of(entry),
+                explicit_port_id = entry and (entry.port_id or entry.port)}
+        end
+        for _, entry in ipairs(flow.consumers or {}) do
+            local candidates = demand_endpoint_candidates(work, id, step_id_of(entry) == "$external" and "out" or "in", entry)
+            consumers[#consumers + 1] = {endpoint = candidates[1], candidates = candidates, remaining = share_of(entry),
+                explicit_port_id = entry and (entry.port_id or entry.port)}
+        end
+    end
+    if #producers == 0 and #consumers == 0 then
+        for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id].out or {}) do
+            producers[#producers + 1] = {endpoint = endpoint, candidates = {endpoint}, remaining = endpoint.rate_per_second}
+        end
+        for _, endpoint in ipairs(work.endpoint_index[id] and work.endpoint_index[id]["in"] or {}) do
+            consumers[#consumers + 1] = {endpoint = endpoint, candidates = {endpoint}, remaining = endpoint.rate_per_second}
+        end
+    end
+    return {flow = flow, id = id, producers = producers, consumers = consumers,
+        producer_index = 1, consumer_index = 1, best = nil, done = false,
+        demand_start_index = #work.demands + 1}
+end
+
+local function advance_flow_demand_build(work, context)
+    if context.done then return true end
+    local producers, consumers, flow = context.producers, context.consumers, context.flow
+    local producer = producers[context.producer_index]
+    if producer then
+        local consumer = consumers[context.consumer_index]
+        if not consumer then
+            context.producer_index, context.consumer_index = context.producer_index + 1, 1
+            return false
+        end
+        if producer.endpoint and producer.remaining > tolerance(producer.remaining) then
+            if consumer.endpoint and consumer.remaining > tolerance(consumer.remaining) then
+                    local route_cost, chosen_source, chosen_sink = math.huge, nil, nil
+                    for _, source_candidate in ipairs(producer.candidates or {}) do
+                        for _, sink_candidate in ipairs(consumer.candidates or {}) do
+                            local candidate_cost = pairing_route_cost(work, source_candidate, sink_candidate)
+                            if candidate_cost < route_cost then route_cost, chosen_source, chosen_sink = candidate_cost, source_candidate, sink_candidate end
+                        end
+                    end
+                    chosen_source, chosen_sink = chosen_source or producer.endpoint, chosen_sink or consumer.endpoint
+                    local amount = math.min(producer.remaining, consumer.remaining)
+                    local flow_capacity = capacity_for(work, flow)
+                    local score = route_cost - math.min(amount, flow_capacity) * 1e-6
+                    local entry = {producer = producer, consumer = consumer, producer_index = context.producer_index,
+                        consumer_index = context.consumer_index, source = chosen_source, sink = chosen_sink,
+                        route_cost = route_cost, score = score, amount = amount}
+                    local best = context.best
+                    if not best or entry.score < best.score
+                        or (entry.score == best.score and tostring(entry.source.port_id) < tostring(best.source.port_id))
+                        or (entry.score == best.score and tostring(entry.source.port_id) == tostring(best.source.port_id)
+                            and tostring(entry.sink.port_id) < tostring(best.sink.port_id)) then context.best = entry end
+            end
+        end
+        context.consumer_index = context.consumer_index + 1
+        return false
+    end
+    local best = context.best
+    if best and best.amount > tolerance(best.amount) then
+        work.demands[#work.demands + 1] = {flow = flow, flow_id = context.id, source = best.source, sink = best.sink,
+            source_candidates = candidate_first(prioritized_candidates(best.producer.candidates, best.sink), best.source),
+            sink_candidates = candidate_first(prioritized_candidates(best.consumer.candidates, best.source), best.sink),
+            source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
+            pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id}
+        best.producer.remaining = best.producer.remaining - best.amount
+        best.consumer.remaining = best.consumer.remaining - best.amount
+        context.producer_index, context.consumer_index, context.best = 1, 1, nil
+        return false
+    end
+    for _, entry in ipairs(producers) do
+        if entry.remaining > tolerance(entry.remaining) then
+            work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = context.id, detail = "producer port is not bound"}
+            break
+        end
+    end
+    if not work.initial_error then
+        for _, entry in ipairs(consumers) do
+            if entry.remaining > tolerance(entry.remaining) then
+                work.initial_error = {code = "BP_R_PORT_BLOCKED", flow_id = context.id, detail = "consumer port is not bound"}
+                break
+            end
+        end
+    end
+    local flow_demands = {}
+    for index = context.demand_start_index, #work.demands do
+        local demand = work.demands[index]
+        demand._build_order = index - context.demand_start_index + 1
+        flow_demands[#flow_demands + 1] = demand
+    end
+    table.sort(flow_demands, function(left, right)
+        if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end
+        return left._build_order < right._build_order
+    end)
+    for index, demand in ipairs(flow_demands) do work.demands[context.demand_start_index + index - 1] = demand end
+    context.done = true
+    return true
 end
 
 local function segment_total(segment)
@@ -2538,17 +2689,13 @@ local function normalize_input(input)
         end
     end
     work.flows = flow_list(input)
-    work.demands = build_demands(work, work.flows)
+    work.expansion_limit_input = {grid = input.grid, limits = input.limits, max_expansions = input.max_expansions}
     work.max_expansions = finite(input.limits and input.limits.max_expansions,
-        finite(input.max_expansions, default_expansion_limit(input, #work.demands)))
+        finite(input.max_expansions, default_expansion_limit(input, #work.flows)))
+    -- Demand pairing contains obstacle floods for every producer/consumer candidate pair. Keep the
+    -- normalized inputs here; Route.step builds one flow's demands at a time under its op budget.
+    work.demands, work.demand_build_index = {}, 1
     work.demand_order, work.demands_by_key = {}, {}
-    for index, demand in ipairs(work.demands) do
-        demand.order_key = index
-        work.demand_order[index] = demand
-        work.demands_by_key[index] = demand
-    end
-    work.port_cells = reserve_port_cells(work)
-    lay_belt_runs(work)
     return work
 end
 
@@ -2680,10 +2827,33 @@ end
 
 local improve_begin, improve_step
 
+local function finish_demand_build(work)
+    -- `build_demands` has already applied its stable route-cost ordering per flow. The old sort
+    -- was global; preserve that exact ordering across flows by applying its same comparator once.
+    for index, demand in ipairs(work.demands) do demand._build_order = index end
+    table.sort(work.demands, function(left, right)
+        if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end
+        return left._build_order < right._build_order
+    end)
+    local limits = work.expansion_limit_input or {}
+    work.max_expansions = finite(limits.limits and limits.limits.max_expansions,
+        finite(limits.max_expansions, default_expansion_limit(limits, #work.demands)))
+    work.demand_order, work.demands_by_key = {}, {}
+    for index, demand in ipairs(work.demands) do
+        demand.order_key = index
+        work.demand_order[index], work.demands_by_key[index] = demand, demand
+    end
+    work.port_cells = reserve_port_cells(work)
+    lay_belt_runs(work)
+    work.demand_build_done = true
+    work.expansion_limit_input = nil
+end
+
 function Route.begin(input)
+    input = input or {}
     local work = normalize_input(input or {})
-    return {done = false, ok = nil, tidy = not (type(input) == "table" and input.tidy == false), cursor = {flow_index = 1, demand_index = 1, phase = "routing"},
-        progress = {phase = "routing", done_units = 0, total_units = #work.demands},
+    return {done = false, ok = nil, tidy = not (type(input) == "table" and input.tidy == false), cursor = {flow_index = 1, demand_index = 1, phase = "demand_build"},
+        progress = {phase = "demand_build", done_units = 0, total_units = #work.flows},
         counters = work.counters, work = work}
 end
 
@@ -2719,7 +2889,7 @@ function Route.tidy_step(state, budget)
         state.result, state.done, state.ok = result_for(work), true, true
         state.progress.phase = "done"
     end
-    budget.ops = ops
+    budget.ops = math.max(0, ops)
     return state
 end
 
@@ -2993,7 +3163,9 @@ end
 --One re-route trial, resumable: start lifts the path, applies an optional hand slide and begins the search; run
 --spends one op per search step and stops when the budget does; finish appends and weighs.  The player's in-game
 --generate ran 10+ minutes at 3 UPS on 2026-09-23 because this pass ran inside ONE game tick.
-local IMPROVE_TRIAL_OPS = 50
+--A trial start/commit copies the whole route state (route_snapshot) and walks every binding's chain; ~2-3 ms on
+--the green sheet, so it is charged ~300 ops (one op ~8 us).
+local IMPROVE_TRIAL_OPS = 300
 local IMPROVE_MAX_STEPS = 200000
 
 local function trial_start(work, wanted, demand, option)
@@ -3014,7 +3186,7 @@ local function trial_run(work, trial, ops)
     local used = 0
     while not trial.done and used < ops do
         if trial.steps >= IMPROVE_MAX_STEPS then trial.done = true; break end
-        trial.steps, used = trial.steps + 1, used + 1
+        trial.steps, used = trial.steps + 1, used + EXPANSION_OPS
         local outcome = search_step(work, trial.search)
         if type(outcome) == "table" then trial.path, trial.done = outcome, true
         elseif outcome == "failed" then trial.done = true end
@@ -3216,7 +3388,7 @@ improve_step = function(work, st, ops)
             local phase = st.merge_phase
             if phase == "a" or phase == "b" then
                 local outcome = search_step(work, st.merge_search)
-                used = used + 1; st.merge_steps = st.merge_steps + 1
+                used = used + EXPANSION_OPS; st.merge_steps = st.merge_steps + 1
                 if type(outcome) == "table" then
                     if phase == "a" then
                         if append_normal_path(work, st.da, outcome, st.pair.a.rate_per_second) then
@@ -3351,12 +3523,54 @@ function Route.step(state, budget)
     local ops = finite(budget.ops, 1)
     if ops < 0 then ops = 0 end
     local work = state.work
+    local demand_build_ops = 0
+    -- Demand construction is ordered exactly as the original one-shot builder, but one flow is
+    -- materialized per operation so large plans do not hide pairing work in Route.begin.
+    while ops > 0 and not work.demand_build_done do
+        local flow = work.flows[work.demand_build_index]
+        if not flow then
+            finish_demand_build(work)
+            state.cursor.phase = "routing"
+            state.progress.phase = "routing"
+            state.progress.total_units = #work.demands
+            budget.ops = math.max(0, ops)
+            return state
+        end
+        work.demand_build_context = work.demand_build_context or begin_flow_demand_build(work, flow)
+        --Finish the floods this pairing row reads, a slice per call (4 ops per flooded cell, ~30 us each).
+        local pending
+        for _, producer in ipairs(work.demand_build_context.producers or {}) do
+            for _, candidate in ipairs(producer.candidates or {}) do
+                local flood = pairing_flood(work, candidate)
+                if not flood.done then pending = flood; break end
+            end
+            if pending then break end
+        end
+        local flow_done = false
+        if pending then
+            ops = ops - 4 * pairing_flood_step(work, pending, math.max(1, math.floor(ops / 4)))
+        else
+            flow_done = advance_flow_demand_build(work, work.demand_build_context)
+            ops = ops - 1
+        end
+        demand_build_ops = demand_build_ops + 1
+        if flow_done then
+            work.demand_build_context = nil
+            work.demand_build_index = work.demand_build_index + 1
+            state.cursor.flow_index = work.demand_build_index
+            state.progress.done_units = state.progress.done_units + 1
+        end
+        --One candidate producer row is a bounded scheduling unit when more rows remain. Small flows can
+        --finish their demand setup and continue into routing in this same call.
+
+    end
+    if not work.demand_build_done then budget.ops = ops; return state end
     if work.initial_error then
         if ops > 0 then
             state.errors, state.done, state.ok = {work.initial_error}, true, false
             state.progress.phase, ops = "failed", ops - 1
         end
-        budget.ops = ops
+        budget.ops = math.max(0, ops)
         return state
     end
     while ops > 0 and not state.done do
@@ -3425,7 +3639,7 @@ function Route.step(state, budget)
                 work.expansions = work.expansions + 1
                 work.counters.expansions = work.counters.expansions + 1
                 local outcome = search_step(work, work.current)
-                ops = ops - 1
+                ops = ops - EXPANSION_OPS
                 if type(outcome) == "table" then
                     local placed, reason = append_normal_path(work, demand, outcome, amount)
                     work.current = nil
@@ -3486,7 +3700,7 @@ function Route.step(state, budget)
             end
         end
     end
-    budget.ops = ops
+    budget.ops = math.max(0, ops)
     return state
 end
 
