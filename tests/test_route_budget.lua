@@ -86,7 +86,13 @@ for _, shape in ipairs(H.shapes()) do
 
     H.test(shape .. " RB4 cancellation clears every half-written segment list", function()
         local state = Route.begin(dofile(FROZEN))
-        Route.step(state, {ops = 500})
+        --Demand pairing now consumes route operations before the first geometry is searched.
+        --Advance until routing has published a partial segment, then exercise cancellation.
+        local ticks = 0
+        while #state.work.segments == 0 and not state.done and ticks < 2000 do
+            ticks = ticks + 1
+            Route.step(state, {ops = 500})
+        end
         H.equal(#state.work.segments > 0, true, "the cancellation starts after route work exists")
         Route.cancel(state)
         H.equal(state.done, true, "cancelled route is terminal")
