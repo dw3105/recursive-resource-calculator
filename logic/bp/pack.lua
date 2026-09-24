@@ -58,7 +58,9 @@ local function copy_port(port, index)
         inserter_id = port.inserter_id,
         --A row port is fixed at its belt run's head or end (docs/contracts/row_block.md), like a hand's port.
         row_port = port.row_port == true or nil,
-        pinned = port.inserter_id ~= nil or port.row_port == true,
+        --A fluid port is the pipe tile in front of the machine's fluid box: no other tile connects to it.
+        fluid_pinned = port.fluid_pinned == true or nil,
+        pinned = port.inserter_id ~= nil or port.row_port == true or port.fluid_pinned == true,
         attach_dx = finite(port.attach_dx), attach_dy = finite(port.attach_dy),
         normal_dir = finite(port.normal_dir), travel_dir = finite(port.travel_dir),
     }
@@ -251,7 +253,7 @@ local function port_slots(block, port)
     local result, seen = {}, {}
     local function add(slot)
         --A row's second head feed sits inside the envelope beside the head; it keeps its own heading.
-        local interior_row_feed = port.row_port and not bounded_slot(slot, block.w, block.h)
+        local interior_row_feed = (port.row_port or port.fluid_pinned) and not bounded_slot(slot, block.w, block.h)
         if not bounded_slot(slot, block.w, block.h) and not interior_row_feed then return end
         local key = slot_key(slot.attach_dx, slot.attach_dy)
         if seen[key] then return end
@@ -370,7 +372,7 @@ local function choose_port_slots(state, block, x, y, direction)
         end
         if #options == 0 then
             if port.pinned and port.attach_dx ~= nil and port.attach_dy ~= nil
-                and (port.row_port or bounded_slot(port, block.w, block.h)) then
+                and (port.row_port or port.fluid_pinned or bounded_slot(port, block.w, block.h)) then
                 return nil, "pinned-free"
             end
             return nil, "no-slot"

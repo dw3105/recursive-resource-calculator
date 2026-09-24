@@ -243,10 +243,12 @@ class BlueprintAuditTest(unittest.TestCase):
         self.assertGreaterEqual(counts["unpairable_pipe_to_ground"], 1)
 
     def test_ACC10_pipe_to_ground_pair_facing_each_other_is_accepted(self):
-        """A correct pair must NOT be reported, or the rule above is satisfied by rejecting all pipes."""
+        """A correct pair must NOT be reported, or the rule above is satisfied by rejecting all pipes.
+
+        Each pipe-to-ground faces its exposed connection; its partner is behind it (2.0.77 prototype, round 33)."""
         entities = control()
-        entities.append({"name": "pipe-to-ground", "position": {"x": 4.5, "y": 5.5}, "direction": 4})
-        entities.append({"name": "pipe-to-ground", "position": {"x": 8.5, "y": 5.5}, "direction": 12})
+        entities.append({"name": "pipe-to-ground", "position": {"x": 4.5, "y": 5.5}, "direction": 12})
+        entities.append({"name": "pipe-to-ground", "position": {"x": 8.5, "y": 5.5}, "direction": 4})
         _, counts = audit(entities)
         self.assertEqual(counts["unpairable_pipe_to_ground"], 0)
 

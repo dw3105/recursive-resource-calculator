@@ -91,8 +91,10 @@ for _, shape in ipairs(H.shapes()) do
         local entrance, exit = state.result.entities[1], state.result.entities[2]
         H.equal(entrance.ug_role, "input", "the source is the pipe entrance")
         H.equal(exit.ug_role, "output", "the sink is the pipe exit")
-        H.equal(entrance.direction, Grid.EAST, "the entrance points downstream")
-        H.equal(exit.direction, Grid.WEST, "the exit points upstream")
+        --Prototype (2.0.77 capture, draftsman): a pipe-to-ground faces its EXPOSED connection and its partner is
+        --behind it.  Until round 33 this row asserted the reverse and code, test and auditor agreed with each other.
+        H.equal(entrance.direction, Grid.WEST, "the entrance faces its exposed side, upstream")
+        H.equal(exit.direction, Grid.EAST, "the exit faces its exposed side, downstream")
         H.equal(entrance.type, nil, "pipe entrance has no belt type")
         H.equal(exit.type, nil, "pipe exit has no belt type")
         H.equal(entrance.ug_pair_id, exit.id, "pipe pair points forward")

@@ -780,6 +780,9 @@ local function block_port_geometry(errors, root, placements)
                 --A hand hop (round 31) moves a single machine's hand to another face: its port is the belt tile next
                 --to that hand, anywhere around the machine, not on the grouping's boundary ring.
                 if port.hopped then bounded, interior_row_feed = true, true end
+                --A fluid port is the pipe tile in front of its machine's fluid box, often in the gap row between
+                --a beacon row and the machine. The fluid-connection check proves that tile; the ring does not apply.
+                if port.fluid_pinned or port.kind == "fluid" or port.is_fluid == true then bounded, interior_row_feed = true, true end
                 if not bounded and not interior_row_feed then error_record(errors, "BP_V_PORT_EDGE_WRONG", {tostring(id)}, {reason = "attachment is not on the block boundary"}) end
                 local nx, ny = Grid.dir_vector(port.normal_dir or Grid.NORTH)
                 local inward = interior_row_feed or (bounded and ((dx == -1 and nx == 1) or (dx == width and nx == -1) or (dy == -1 and ny == 1) or (dy == height and ny == -1)))
@@ -1303,7 +1306,10 @@ local function check_underground(work)
                 error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "endpoints are not cardinally aligned"})
             end
             local source_direction, sink_direction = entity_direction(source), entity_direction(sink)
-            if expected and ((source_direction ~= nil and source_direction ~= expected)
+            --A pipe-to-ground faces its exposed connection: the entry looks back along the span, the exit on.
+            local pipe_pair = transport_kind(info) == "pipe" or transport_kind(pair) == "pipe"
+            local expected_source = (expected and pipe_pair) and Grid.dir_opposite(expected) or expected
+            if expected and ((source_direction ~= nil and source_direction ~= expected_source)
                 or (sink_direction ~= nil and sink_direction ~= expected)) then
                 error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id), tostring(pair.id)}, {reason = "endpoints do not carry transport direction"})
             end
@@ -1924,8 +1930,17 @@ local function fluid_connection_cells(machine, entry, role)
                         local px, py = finite(position.x), finite(position.y)
                         if px ~= nil and py ~= nil then
                             if type(connection.positions) ~= "table" then px, py = Grid.rotate_vector(px, py, dir) end
-                            result[#result + 1] = {x = math.floor(machine.cx + px + EPSILON),
-                                y = math.floor(machine.cy + py + EPSILON), direction = connection.direction or connection.dir}
+                            --The position is the machine's own tile; the pipe that serves it sits one tile out
+                            --along the rotated connection direction. Walking from the machine tile found the
+                            --machine, never a pipe, so every fluid box read as disconnected.
+                            --A hand-written fixture may already name the outside tile (the 1.1 habit); step
+                            --out only from a tile the machine itself covers.
+                            local outward = connection.direction or connection.dir
+                            if outward ~= nil then outward = Grid.rotate_dir(outward, dir) end
+                            local cell_x, cell_y = math.floor(machine.cx + px + EPSILON), math.floor(machine.cy + py + EPSILON)
+                            local ox, oy = 0, 0
+                            if outward ~= nil and cell_inside_machine(machine, cell_x, cell_y) then ox, oy = Grid.dir_vector(outward) end
+                            result[#result + 1] = {x = cell_x + (ox or 0), y = cell_y + (oy or 0), direction = outward}
                         end
                     end
                 end
@@ -2050,6 +2065,24 @@ local function check_physical_transfers(work, machine_index, final)
     work._physical_initialized = true
     end
 
+    --A machine may carry several hands for one flow (round 31: enough hands per flow). The first connected hand
+    --witnesses the transfer; every further hand of that machine and flow that is connected by its own route is
+    --a real transfer too, so it is used, not waste.
+    local function extra_hands(machine, entry, flow_id, role)
+        for _, other in ipairs(work.inserters) do
+            local pickup_x, pickup_y, drop_x, drop_y = transfer_matches(work, other, machine, entry, role, used)
+            if pickup_x then
+                local cell_x, cell_y = role == "input" and pickup_x or drop_x, role == "input" and pickup_y or drop_y
+                local port, path = connection_path(work, flow_id, role, cell_x, cell_y, "belt")
+                if port then
+                    validate_inserter_endpoints(other)
+                    mark_path(path, flow_id)
+                    mark_used(other, flow_id)
+                end
+            end
+        end
+    end
+
     local machine = machine_index and work.machines[machine_index]
     for _, machine in ipairs(machine and {machine} or {}) do
         local step = work.steps[machine.entity.step_id]
@@ -2116,6 +2149,7 @@ local function check_physical_transfers(work, machine_index, final)
                                     table.insert(witness.steps, 1, witness_step(source_machine))
                                 end
                                 found = true
+                                extra_hands(machine, entry, flow_id, "input")
                                 break
                             end
                             local opposite = external_port_for(work, flow_id, "out")
@@ -2194,6 +2228,7 @@ local function check_physical_transfers(work, machine_index, final)
                                     witness.steps[#witness.steps + 1] = witness_step(target_machine)
                                 end
                                 found = true
+                                extra_hands(machine, entry, flow_id, "output")
                                 break
                             end
                             local opposite = external_port_for(work, flow_id, "in")

@@ -254,6 +254,10 @@ def audit_underground(entities) -> Tuple[List[str], Dict[str, int]]:
             #A belt exit is fed from behind it, so it must look the other way along the same axis.
             if not is_pipe and entity.get("type") == "output":
                 vx, vy = -vx, -vy
+            #A pipe-to-ground faces its EXPOSED connection; its buried side, and so its partner, is behind it
+            #(prototype: normal connection at the entity's direction, underground connection opposite).
+            if is_pipe:
+                vx, vy = -vx, -vy
             partner = None
             blocker = None
             for step in range(1, reach + 1):

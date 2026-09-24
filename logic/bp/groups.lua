@@ -970,6 +970,7 @@ local function block_ports(block, steps, ports, flows)
                 end
             end
             local machine = member_for(block, selected_port.member_id)
+            local fluid_pipe_tile
             if source.kind == "fluid" or source.is_fluid == true then
                 local connection = source.connection
                 local position = connection and point(connection.position or connection.pos)
@@ -981,15 +982,27 @@ local function block_ports(block, steps, ports, flows)
                     local connection_x = cell_of(machine.x + machine.w / 2 + dx)
                     local connection_y = cell_of(machine.y + machine.h / 2 + dy)
                     source.connection_position = {x = connection_x, y = connection_y}
-                    local on_edge = (connection_x == -1 and connection_y >= 0 and connection_y < block.h)
-                        or (connection_x == block.w and connection_y >= 0 and connection_y < block.h)
-                        or (connection_y == -1 and connection_x >= 0 and connection_x < block.w)
-                        or (connection_y == block.h and connection_x >= 0 and connection_x < block.w)
-                    if on_edge then x, y = connection_x, connection_y end
+                    --The catalog position is the machine's OWN tile that carries the fluid box; the pipe that
+                    --connects to it sits one tile further along the connection's direction. That pipe tile is
+                    --the port, wherever it falls: on the block edge or in a gap row inside the envelope.
+                    --The old test accepted the machine tile only when it lay OUTSIDE the block, which never
+                    --happens, so every fluid port fell back to the arbitrary top/left fallback slot.
+                    local outward = Grid.rotate_dir(connection.direction or connection.dir or NORTH, machine.dir or NORTH)
+                    local ox, oy = Grid.dir_vector(outward)
+                    local inside = connection_x >= machine.x and connection_x < machine.x + machine.w
+                        and connection_y >= machine.y and connection_y < machine.y + machine.h
+                    if not inside then ox, oy = 0, 0 end
+                    if ox then
+                        x, y = connection_x + ox, connection_y + oy
+                        fluid_pipe_tile = {normal = Grid.dir_opposite(outward),
+                            travel = role == "in" and Grid.dir_opposite(outward) or outward}
+                    end
                 end
             end
             local actual_normal, actual_travel = normal, travel
-            if x == -1 then actual_normal, actual_travel = EAST, role == "in" and EAST or WEST
+            if fluid_pipe_tile then actual_normal, actual_travel = fluid_pipe_tile.normal, fluid_pipe_tile.travel end
+            if fluid_pipe_tile then
+            elseif x == -1 then actual_normal, actual_travel = EAST, role == "in" and EAST or WEST
             elseif x == block.w then actual_normal, actual_travel = WEST, role == "in" and WEST or EAST
             elseif y == -1 then actual_normal, actual_travel = SOUTH, role == "in" and SOUTH or NORTH
             elseif y == block.h then actual_normal, actual_travel = NORTH, role == "in" and NORTH or SOUTH end
@@ -1016,6 +1029,7 @@ local function block_ports(block, steps, ports, flows)
                 step_id = selected_port.step_id,
                 attach_dx = x, attach_dy = y, normal_dir = actual_normal, travel_dir = actual_travel,
                 member_id = selected_port.member_id, inserter_id = inserter_id,
+                fluid_pinned = fluid_pipe_tile ~= nil or nil,
             }
             local machine_count = machine_count_by_step[selected_port.step_id]
             if block_port.rate_per_second ~= nil and machine_count and machine_count > 0 then

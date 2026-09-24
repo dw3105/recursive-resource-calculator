@@ -519,6 +519,9 @@ local function normalize_endpoint(block, placement, port, catalog, work)
     if port.x == nil and port.y == nil and port._block_w ~= nil then
         endpoint.validator_travel_dir = port.travel_dir or port.dir or port.normal_dir
     end
+    --A pipe has no heading: it joins every neighbour, and the port tile joins the machine's fluid box whichever
+    --way the path arrives. A belt heading here only forbids legal arrivals and claims a tile no pipe needs.
+    if endpoint.kind == "fluid" then endpoint.travel_dir, endpoint.validator_travel_dir = nil, nil end
     return endpoint
 end
 
@@ -1381,9 +1384,13 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
         underground_entry_x = entry.x, underground_entry_y = entry.y,
         underground_exit_x = exit_cell.x, underground_exit_y = exit_cell.y}
     local first_id, second_id = next_entity_id(work), next_entity_id(work)
-    local paired_exit_direction = kind == "pipe" and Grid.dir_opposite(direction) or direction
+    --A pipe-to-ground faces its EXPOSED connection (catalog: normal connection at the entity's own direction,
+    --underground one opposite). So the entry faces back along the path and the exit faces on along it; both
+    --buried sides then face each other. A belt underground faces the travel direction at both ends.
+    local paired_exit_direction = direction
+    local entry_direction = kind == "pipe" and Grid.dir_opposite(direction) or direction
     local first = {id = first_id, name = name, position = entity_position(entry.x, entry.y),
-        direction = direction, dir = direction, flow_id = demand.flow_id,
+        direction = entry_direction, dir = entry_direction, flow_id = demand.flow_id,
         ug_role = "input", ug_pair_id = second_id, segment_id = segment.segment_id}
     local second = {id = second_id, name = name, position = entity_position(exit_cell.x, exit_cell.y),
         direction = paired_exit_direction, dir = paired_exit_direction, flow_id = demand.flow_id,
@@ -1489,7 +1496,39 @@ local function route_chain_walk(work, source, sink, flow_id)
         if segment and segment_has_flow(segment, flow_id) then
             tiles[#tiles + 1] = key
             if key == target_key then return true, tiles end
-            if segment.underground then
+            if segment.kind == "pipe" then
+                --A pipe network has no direction: fluid reaches every tile it touches. A plain pipe joins all
+                --four neighbours; a pipe-to-ground joins only its partner and the one tile its exposed side
+                --faces (behind the entry, ahead of the exit, along the span's travel direction).
+                local x, y = coordinate_from_key(key)
+                local function exposed_key(other)
+                    local dx, dy = Grid.dir_vector(other.direction)
+                    if dx == nil then return nil end
+                    if other.underground_entry_x ~= nil then
+                        return coordinate_key(other.underground_entry_x - dx, other.underground_entry_y - dy),
+                            coordinate_key(other.underground_exit_x + dx, other.underground_exit_y + dy)
+                    end
+                    return nil
+                end
+                if segment.underground then
+                    enqueue(key == segment.underground_entry_key and segment.underground_exit_key or segment.underground_entry_key)
+                    local behind, ahead = exposed_key(segment)
+                    enqueue(key == segment.underground_entry_key and behind or ahead)
+                else
+                    for _, direction in ipairs(DIRECTIONS) do
+                        local dx, dy = Grid.dir_vector(direction)
+                        local next_key = coordinate_key(x + dx, y + dy)
+                        local other = work.segments_by_cell[next_key]
+                        if other and other.kind == "pipe" and other.underground then
+                            local behind, ahead = exposed_key(other)
+                            if (next_key == other.underground_entry_key and behind == key)
+                                or (next_key == other.underground_exit_key and ahead == key) then enqueue(next_key) end
+                        elseif other and other.kind == "pipe" then
+                            enqueue(next_key)
+                        end
+                    end
+                end
+            elseif segment.underground then
                 if key == segment.underground_entry_key then enqueue(segment.underground_exit_key) end
                 if key == segment.underground_exit_key then
                     local x, y = segment.underground_exit_x, segment.underground_exit_y
@@ -1720,7 +1759,21 @@ local function append_normal_path(work, demand, path, amount)
     while index < #path do
         index = index + 1
         local cell = path[index]
-        if is_crossing_step(cell, path[index + 1]) then
+        local ridden = is_crossing_step(cell, path[index + 1]) and work.segments_by_cell[coordinate_key(cell.x, cell.y)]
+        if ridden and ridden.underground and ridden.kind ~= "pipe"
+            and ridden.underground_entry_key == coordinate_key(cell.x, cell.y)
+            and ridden.underground_exit_key == coordinate_key(path[index + 1].x, path[index + 1].y) then
+            --An existing same-flow pair the path rides through: it builds nothing, it only carries more.
+            if not allocated_segments[ridden.segment_id] then
+                local allowed, reason = segment_allows(work, ridden, demand, amount)
+                if not allowed then return reject(reason or "occupied") end
+                register_segment_flow(ridden, demand.flow_id)
+                add_allocation(ridden, demand.flow_id, sink, amount)
+                allocated_segments[ridden.segment_id] = true
+            end
+            first_segment = first_segment or ridden
+            index = index + 1
+        elseif is_crossing_step(cell, path[index + 1]) then
             local crossed, reason, segment = append_crossing(work, demand, cell, path[index + 1], amount)
             if not crossed then return reject(reason) end
             first_segment = first_segment or segment
@@ -1768,7 +1821,8 @@ local function append_normal_path(work, demand, path, amount)
             if segment.splitter and key == segment.splitter_second_key and not splitter_continuation then return reject("occupied") end
             --A sink is reached by entering its port tile.  Its existing belt need not point out of that tile,
             --but only when the otherwise required splitter footprint is reserved by an underground endpoint.
-            local leaves_sideways = outgoing ~= nil and outgoing ~= segment.direction
+            --A pipe branches at any tile of its own network: a T of pipe is a legal joint, never a splitter.
+            local leaves_sideways = segment.kind ~= "pipe" and outgoing ~= nil and outgoing ~= segment.direction
             local rode_the_trunk = incoming == nil or incoming == segment.direction
             if leaves_sideways and rode_the_trunk and not splitter_continuation
                 and not terminal_splitter_refused(work, cell.x, cell.y, segment, outgoing) then
@@ -1884,9 +1938,10 @@ local function append_underground(work, demand, candidate, amount)
     local name = infrastructure(work, kind)
     if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
     else name = (work.belt and (work.belt.underground or work.belt.belt)) or name end
-    local exit_direction = kind == "pipe" and Grid.dir_opposite(candidate.direction) or candidate.direction
+    local exit_direction = candidate.direction
+    local entry_direction = kind == "pipe" and Grid.dir_opposite(candidate.direction) or candidate.direction
     local first = {id = first_id, name = name, position = entity_position(candidate.source.x, candidate.source.y),
-        direction = candidate.direction, dir = candidate.direction, flow_id = demand.flow_id,
+        direction = entry_direction, dir = entry_direction, flow_id = demand.flow_id,
         ug_role = "input", ug_pair_id = second_id, segment_id = segment.segment_id}
     local second = {id = second_id, name = name, position = entity_position(candidate.sink.x, candidate.sink.y),
         direction = exit_direction, dir = exit_direction, flow_id = demand.flow_id,
@@ -1924,7 +1979,9 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     if segment then
         --An underground input consumes its feed into the pair; stepping onto it from the side cannot continue.
-        if segment.underground and segment.underground_entry_key == coordinate_key(x, y) then
+        if segment.underground and segment.underground_entry_key == coordinate_key(x, y)
+            and not (demand.kind ~= "pipe" and move_direction == segment.direction
+                and segment_has_flow(segment, demand.flow_id)) then
             search.saw_blocked = true
             return false
         end
@@ -1941,7 +1998,9 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             --Only a foreign pipe that actually DENIED the step is fluid mixing. Setting the flag on every
             --pipe cell the search merely looked at made an item flow report BP_R_FLUID_MIX, so the belt's
             --real blocker was hidden behind somebody else's pipe.
-            if not segment_has_flow(segment, demand.flow_id) and segment.kind == "pipe" then search.saw_fluid_mix = true end
+            --A BELT stopped by a pipe is merely blocked: kind mismatch already said "occupied". Flagging it as
+            --fluid mixing both misnamed the failure and skipped the direction-order retries below.
+            if not segment_has_flow(segment, demand.flow_id) and segment.kind == "pipe" and demand.kind == "pipe" then search.saw_fluid_mix = true end
             return false
         end
         local terminal_refused = is_target and terminal_splitter_refused(work, x, y, segment, move_direction)
@@ -2223,11 +2282,26 @@ local function search_step(work, search)
     search.closed[current.key] = true
     if current.x == search.demand.sink.x and current.y == search.demand.sink.y then
         --The second copper branch once pointed back into its own seeded trunk, closing a 14-tile belt ring.
+        --A pipe network is undirected, so it always "reaches its root"; a loop of pipe is harmless.
         local dx, dy = Grid.dir_vector(current.direction)
-        if dx and downstream_reaches_root(work, search, current.key, current.x + dx, current.y + dy) then
+        if dx and search.demand.kind ~= "pipe"
+            and downstream_reaches_root(work, search, current.key, current.x + dx, current.y + dy) then
             return "continue"
         end
         return reconstruct(search, current.key)
+    end
+    --Riding a same-flow trunk straight into its own underground entrance carries the items through the pair:
+    --the next tile of the path is the pair's exit, exactly as the laid chain walks it.
+    local riding = work.segments_by_cell[coordinate_key(current.x, current.y)]
+    if riding and riding.kind ~= "pipe" and riding.underground and not riding.splitter
+        and riding.underground_entry_key == coordinate_key(current.x, current.y)
+        and current.direction == riding.direction and segment_has_flow(riding, search.demand.flow_id)
+        and current.key ~= search.source_key then
+        if segment_allows(work, riding, search.demand, search.amount) then
+            enqueue_state(search, riding.underground_exit_x, riding.underground_exit_y, riding.direction, 1, current.key,
+                current.cost + (riding.length or 1))
+        end
+        return "continue"
     end
     for _, direction in ipairs(search.directions) do
         local dx, dy = Grid.dir_vector(direction)
@@ -2343,11 +2417,11 @@ local function search_step(work, search)
             --does inside a splitter body.
             local entering = work.segments_by_cell[coordinate_key(nx, ny)]
             local merge = not body_jump and entering ~= nil and not entering.splitter
-                and entering.direction ~= nil and entering.direction ~= direction
+                and entering.kind ~= "pipe" and entering.direction ~= nil and entering.direction ~= direction
                 and direction ~= Grid.dir_opposite(entering.direction)
             local free = path_cell_free(work, search.demand, nx, ny,
                 body_jump and leaving.direction or direction, target, search.amount, search)
-            local refused_body = leaving ~= nil and splitter_can_absorb(leaving)
+            local refused_body = leaving ~= nil and leaving.kind ~= "pipe" and splitter_can_absorb(leaving)
                 and current.direction ~= nil and leaving.direction == current.direction
                 and direction ~= current.direction and work.belt and work.belt.splitter and not body_jump
             if free and body_jump then
@@ -2613,6 +2687,7 @@ local function reserve_port_cells(work)
             if endpoint.role == "in" then claim(endpoint.x - dx, endpoint.y - dy, endpoint, false)
             else claim(endpoint.x + dx, endpoint.y + dy, endpoint, false) end
         end
+        if endpoint.kind == "fluid" then claim(endpoint.x, endpoint.y, endpoint, true); return end
         claim_approach(endpoint.travel_dir)
         if endpoint.validator_travel_dir ~= nil and endpoint.validator_travel_dir ~= endpoint.travel_dir then
             claim_approach(endpoint.validator_travel_dir)
