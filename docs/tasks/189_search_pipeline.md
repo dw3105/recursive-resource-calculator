@@ -63,7 +63,8 @@ Generation reads `search.interim` only if present (`logic/bp/generation.lua` ~11
    raw-input ports -> `input_edge`, product ports -> `output_edge`, edges from settings as today). Route input
    `tidy = false`. Power input `make_room(x, y)` = `Route.free_cell(route_state, x, y) or Hands.free_cell(...)` and
    `occupied[i].kind`. Tidy: `Route.tidy_begin(route_state, {obstacles = pole rects})`; after tidy, if a hand slid
-   out of pole cover, rerun Power once.
+   out of pole cover, rerun Power once. Hand-slide offers are computed before poles exist: before tidy, drop every
+   `slide_options` entry whose new hand tile is a pole cell (a slid hand must never land on a pole).
 4. Delete: orderings (keep only the greedy connectivity order), flip queue and `MAX_FLIP_TRIALS`, comparator loop and
    incumbent replacement, `NO_IMPROVEMENT_LIMIT`, `MAX_LAYOUTS`, interim publish, `Groups.reverse_run`. Delete
    `tests/test_search_run_direction.lua` and `tests/test_row_reverse.lua`; rewrite `test_search_stop.lua` /
