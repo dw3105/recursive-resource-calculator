@@ -777,6 +777,9 @@ local function block_port_geometry(errors, root, placements)
                 --A row's second head feed side-loads from inside the envelope, beside the head (docs/contracts/
                 --row_block.md); its tile is free ground, so the boundary rule does not apply to it.
                 local interior_row_feed = port.row_port and port.role == "in" and not bounded
+                --A hand hop (round 31) moves a single machine's hand to another face: its port is the belt tile next
+                --to that hand, anywhere around the machine, not on the grouping's boundary ring.
+                if port.hopped then bounded, interior_row_feed = true, true end
                 if not bounded and not interior_row_feed then error_record(errors, "BP_V_PORT_EDGE_WRONG", {tostring(id)}, {reason = "attachment is not on the block boundary"}) end
                 local nx, ny = Grid.dir_vector(port.normal_dir or Grid.NORTH)
                 local inward = interior_row_feed or (bounded and ((dx == -1 and nx == 1) or (dx == width and nx == -1) or (dy == -1 and ny == 1) or (dy == height and ny == -1)))

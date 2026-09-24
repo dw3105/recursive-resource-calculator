@@ -153,6 +153,8 @@ function Hands.place(materialized, route_result)
                 port.attach_dx,port.attach_dy=port.attach_dx+dx,port.attach_dy+dy
                 local rotate=function(dir) return dir==nil and nil or (dir+4*hop.turns)%16 end
                 port.travel_dir,port.normal_dir=rotate(port.travel_dir),rotate(port.normal_dir)
+                --A hopped port leaves the block's own boundary ring; validate checks it against its hand instead.
+                port.hopped=true
             else
                 port.x, port.y = port.x + slide.dx, port.y + slide.dy
                 port.attach_dx, port.attach_dy = port.attach_dx + slide.dx, port.attach_dy + slide.dy
