@@ -21,7 +21,7 @@ local function input()
         end
         value.blocks[#value.blocks + 1] = {block_id = source_id, machines = {{step_id = source_id}}, x = 1, y = sy,
             w = 1, h = 4, ports = source_ports}
-        value.blocks[#value.blocks + 1] = {block_id = consumer_id, machines = {{step_id = consumer_id}}, x = 8, y = cy,
+        value.blocks[#value.blocks + 1] = {block_id = consumer_id, machines = {{step_id = consumer_id}}, x = 5, y = cy,
             w = 1, h = 4, ports = consumer_ports}
     end
     return value
