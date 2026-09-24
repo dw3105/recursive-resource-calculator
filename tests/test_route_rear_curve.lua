@@ -47,4 +47,29 @@ H.test("RC1 ore arriving from below curves onto the rear port: no U-turn", funct
     H.equal(at_port and at_port.dir, Grid.EAST, "the rear port belt faces into the head: a curve")
     for _, b in ipairs(belts) do H.equal(b.x == 8, false, "nothing west of the port column (no U-turn)") end
 end)
+H.test("RC2 two-flow rear port uses a side curve when its rear approach is free", function()
+    local input = make_input()
+    local rear = input.blocks[1].ports[1]
+    rear.flow_ids = {ORE, "item/copper-plate"}
+    local curved = finish(input)
+    H.equal(curved.ok, true, "two-flow rear route succeeds")
+    local belts = belts_off_run(curved)
+    local at_port
+    for _, b in ipairs(belts) do if b.x == rear.x and b.y == rear.y then at_port = b end end
+    H.equal(at_port ~= nil, true, "curve belt occupies rear port")
+    H.equal(at_port and at_port.dir, rear.travel_dir, "last belt faces port travel direction")
+    local dx, dy = Grid.dir_vector(rear.travel_dir)
+    local behind = false
+    for _, b in ipairs(belts) do if b.x == rear.x - dx and b.y == rear.y - dy then behind = true end end
+    H.equal(behind, false, "curve is fed from its side, with rear tile free")
+
+    local straight_input = make_input()
+    local straight_rear = straight_input.blocks[1].ports[1]
+    straight_rear.rear = false
+    straight_rear.flow_ids = {ORE, "item/copper-plate"}
+    local straight = finish(straight_input)
+    H.equal(straight.ok, true, "behind approach route succeeds")
+    H.equal(#(curved.result.entities or {}) < #(straight.result.entities or {}), true,
+        "curve uses fewer belts than the behind approach")
+end)
 H.done("test_route_rear_curve")
