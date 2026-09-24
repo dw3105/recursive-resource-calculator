@@ -202,6 +202,12 @@ local function masks_collide(a, b)
     return false
 end
 
+local function collision_sets_collide(left, right)
+    if not left or not right then return true end
+    for layer, _ in pairs(left) do if right[layer] then return true end end
+    return false
+end
+
 --Shared with logic/bp/groups.lua through logic/bp/geometry.lua. Rotation is by corners, so an asymmetric
 --collision box survives a quarter turn.
 local function corners_box(box, dir)
@@ -788,6 +794,8 @@ local function block_port_geometry(errors, root, placements)
     end
 end
 
+local coordinate_key, make_score
+
 local function make_work(input)
     input = type(input) == "table" and input or {}
     local root = input.candidate or input.result or input
@@ -825,7 +833,14 @@ local function make_work(input)
             connection_witnesses = {}, transfer_witnesses = {},
             peak_power_w = 0, pollution_per_min = 0},
     }
+    work.geometry_world, work.geometry_masks = {}, {}
+    for index, info in ipairs(infos) do
+        work.geometry_world[index] = box_world(info)
+        work.geometry_masks[index] = collision_mask_set(info.mask)
+    end
+    work.coordinate_key = coordinate_key(work)
     work.transport_by_cell = transport_cells(work)
+    work.initial_score = make_score(work)
     return work
 end
 
@@ -913,8 +928,10 @@ end
 local function check_geometry_pair(work, index, other_index)
     local info, other = work.infos[index], work.infos[other_index]
     if not info or not other then return end
-    local world, other_world = box_world(info), box_world(other)
-    if masks_collide(info.mask, other.mask) and boxes_overlap(world, other_world) then
+    local world = work.geometry_world[index] or box_world(info)
+    local other_world = work.geometry_world[other_index] or box_world(other)
+    if collision_sets_collide(work.geometry_masks[index], work.geometry_masks[other_index])
+        and boxes_overlap(world, other_world) then
         error_record(work.errors, "BP_V_COLLISION", {tostring(info.id), tostring(other.id)}, {box_a = world, box_b = other_world})
     end
 end
@@ -1892,10 +1909,10 @@ local function fluid_connection_cells(machine, entry, role)
     return result
 end
 
-local function check_physical_transfers(work)
-    local used = {}
+local function check_physical_transfers(work, machine_index, final)
+    local used = work._physical_used or {}; work._physical_used = used
     local multi_flow = multi_flow_hands_enabled(work)
-    local endpoint_checked = {}
+    local endpoint_checked = work._physical_endpoint_checked or {}; work._physical_endpoint_checked = endpoint_checked
 
     local function transfer_failure_ladder(candidate_seen, shape_seen, wrong_network, explicit_target)
         if next(work.transport_by_cell) == nil then
@@ -1993,6 +2010,7 @@ local function check_physical_transfers(work)
 
     -- A fluid connection is a pipe endpoint, never an item inserter.  Check this before looking for a missing
     -- pipe so a malformed transfer receives the actionable entity error.
+    if not work._physical_initialized then
     for _, inserter in ipairs(work.inserters) do
         local flow_id = inserter.entity.flow_id or inserter.entity.full_name
         if flow_is_fluid(flow_id, inserter.entity, work) then
@@ -2003,8 +2021,11 @@ local function check_physical_transfers(work)
         local flow_id = inserter.entity.flow_id or inserter.entity.full_name
         if not flow_is_fluid(flow_id, inserter.entity, work) then validate_inserter_endpoints(inserter) end
     end
+    work._physical_initialized = true
+    end
 
-    for _, machine in ipairs(work.machines) do
+    local machine = machine_index and work.machines[machine_index]
+    for _, machine in ipairs(machine and {machine} or {}) do
         local step = work.steps[machine.entity.step_id]
         if step then
             for _, entry in ipairs(plan_entries(step, "inputs")) do
@@ -2174,6 +2195,7 @@ local function check_physical_transfers(work)
     local has_obligations = false
     for _ in pairs(work.steps or {}) do has_obligations = true; break end
     if not has_obligations then return true end
+    if not final then return true end
 
     local function published_cell(entity, field)
         local position = entity and entity[field]
@@ -2228,8 +2250,8 @@ local function check_physical_transfers(work)
     return true
 end
 
-local function check_port_approaches(work)
-    local reported = {}
+local function check_port_approaches(work, port_index)
+    local reported = work._approach_reported or {}; work._approach_reported = reported
     local function report(port, x, y, flow_id, source)
         local key = tostring(port.port_id) .. "\0" .. tile_key(x, y) .. "\0" .. tostring(flow_id)
         if reported[key] then return end
@@ -2274,7 +2296,8 @@ local function check_port_approaches(work)
             end
         end
     end
-    for _, port in ipairs(work.ports) do
+    local port = port_index and work.ports[port_index]
+    for _, port in ipairs(port and {port} or {}) do
         local x, y = port_position(work, port)
         local direction = port_travel_direction(work, port)
         local dx, dy
@@ -2419,12 +2442,12 @@ local function check_machines(work)
     return true
 end
 
-local function coordinate_key(work)
+coordinate_key = function(work)
     local parts = {}; for _, info in ipairs(work.infos) do parts[#parts + 1] = tostring(info.id) .. "@" .. tostring(info.cx) .. ":" .. tostring(info.cy) end
     table.sort(parts); return table.concat(parts, "|")
 end
 
-local function make_score(work)
+make_score = function(work)
     local min_x, min_y, max_x, max_y = INF, INF, -INF, -INF
     local beacon_count, pole_count, transport_entities, transport_cost = 0, 0, 0, 0
     local underground_seen = {}
@@ -2478,14 +2501,14 @@ local function make_score(work)
     end
     local score = {beacon_count = beacon_count, production_area = production_area,
         cell_envelope_area = cell_envelope_area, transport_cost = transport_cost,
-        transport_entities = transport_entities, pole_count = pole_count, coord_key = coordinate_key(work)}
+        transport_entities = transport_entities, pole_count = pole_count, coord_key = work.coordinate_key or coordinate_key(work)}
     for key, value in pairs(score) do work.metrics[key] = value end
     return score
 end
 
 local function finish(work, state)
     block_port_geometry(work.errors, work.root, work.placements)
-    local score = make_score(work)
+    local score = work.initial_score or make_score(work)
     local result = {score = score, metrics = work.metrics}
     if #work.errors == 0 then state.ok = true; state.result = result; state.errors = nil
     else state.ok = false; state.errors = work.errors; state.result = result end
@@ -2502,13 +2525,16 @@ function Validate.step(state, budget)
     budget = type(budget) == "table" and budget or {ops = 1}; local ops = math.max(0, math.floor(finite(budget.ops, 1))); local work = state._work
     while ops > 0 and not state.done do
         local phase = state.cursor.phase
+        local op_cost = 1
         if phase == "geometry" then
+            -- Pair testing includes box conversion and mask intersection; account for that nested work.
+            op_cost = 3
             local index, other_index = state.cursor.index, state.cursor.other_index or 2
             if index <= #work.infos then
                 if other_index == 2 then
                     local info = work.infos[index]
                     if info then
-                        local world = box_world(info)
+                        local world = work.geometry_world[index] or box_world(info)
                         if work.grid_w and (world.left < -EPSILON or world.right > work.grid_w + EPSILON or world.top < -EPSILON or world.bottom > work.grid_h + EPSILON) then
                             error_record(work.errors, "BP_V_OUT_OF_GRID", {tostring(info.id)}, {box = world, grid_w = work.grid_w, grid_h = work.grid_h})
                         end
@@ -2529,13 +2555,25 @@ function Validate.step(state, budget)
         elseif phase == "wire_connectivity" then check_wire_connectivity(work); state.cursor.phase = "segments"
         elseif phase == "segments" then check_segments(work); state.cursor.phase = "underground"
         elseif phase == "underground" then check_underground(work); check_transport_shapes(work); state.cursor.phase = "port_approaches"
-        elseif phase == "port_approaches" then check_port_approaches(work); state.cursor.phase = "ports"
+        elseif phase == "port_approaches" then
+            local index = state.cursor.approach_index or 1
+            if index <= #work.ports then check_port_approaches(work, index); state.cursor.approach_index = index + 1
+            else state.cursor.phase = "ports" end
         elseif phase == "ports" then check_ports(work); state.cursor.phase = "physical"
-        elseif phase == "physical" then check_physical_transfers(work); state.cursor.phase = "machines"
+        elseif phase == "physical" then
+            local index = state.cursor.physical_index or 1
+            if index == 1 then check_physical_transfers(work, index, false)
+            elseif index <= #work.machines then check_physical_transfers(work, index, false)
+            else check_physical_transfers(work, nil, true); state.cursor.phase = "machines" end
+            state.cursor.physical_index = index + 1
+            op_cost = 2000
         elseif phase == "machines" then check_machines(work); state.cursor.phase = "finish"
         elseif phase == "finish" then finish(work, state)
         end
-        ops = ops - 1; state.ops_used = state.ops_used + 1; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + 1)
+        local spent = math.min(ops, op_cost)
+        if phase == "physical" or phase == "beacon" or phase == "underground"
+            or phase == "port_approaches" then spent = ops end
+        ops = ops - spent; state.ops_used = state.ops_used + spent; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + spent)
     end
     budget.ops = ops; return state
 end
