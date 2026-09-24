@@ -1336,7 +1336,10 @@ local function declare_allowance(state)
     --The square term covers power's candidate-position sweep and the linear term covers pack/route/validate/
     --serialize work.  It is intentionally a declared problem bound, not a sample of whichever candidate happens
     --to fail first.  Keep the arithmetic finite for malformed but finite caller inputs.
-    local per_candidate = math.max(256, area * area * math.max(16, demand_bound * 8 + steps * 4)
+    --Stages charge honest ~8 us ops since 2026-09-24 (route 10 per expansion, 300 per improve trial, pairing 4 per
+    --flooded cell; power and pack by work done), so one unit of real work costs up to ~32 of the old ops. The
+    --allowance stays a runaway guard, scaled by the same factor.
+    local per_candidate = 32 * math.max(256, area * area * math.max(16, demand_bound * 8 + steps * 4)
         + area * math.max(1, steps + flows) * 64)
     local grids = math.max(1, state.work.grid_trial_limit)
     local feasibility = math.max(1, per_candidate * candidate_count * grids)

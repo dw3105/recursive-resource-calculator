@@ -69,5 +69,6 @@ return {
         note = "Harness capture only; runtime evidence needs a packaged candidate and engine scenario.",
     },
     supported_outcome = "production",
-    max_ticks = 900,
+    --Round 30: stages charge honest ~8 us ops, so one generation spans more, shorter ticks.
+    max_ticks = 3000,
 }

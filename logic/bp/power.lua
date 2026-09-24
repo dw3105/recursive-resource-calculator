@@ -914,7 +914,9 @@ function Power.step(state, budget)
         -- Publishing is the stage boundary where Search may otherwise continue
         -- into validation in this same game tick. Reserve the remainder here
         -- so the next stage starts on the next scheduler slice.
-        if state.cursor.phase == "publish_finish" then cost = available end
+        --Capped at one game tick (Jobs.OPS_PER_TICK): a caller with a larger slice would otherwise lose it all
+        --here and trip the search allowance (test_search BP-15, 2026-09-24).
+        if state.cursor.phase == "publish_finish" then cost = math.min(available, 2000) end
         if not consume(budget, cost) then break end
         -- ops_used records charged work, not state-machine transitions.
         state.ops_used = state.ops_used + math.min(cost, available)

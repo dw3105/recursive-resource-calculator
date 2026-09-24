@@ -44,5 +44,6 @@ return {
         {{full_name = "item/example-machine", rate_per_second = 1}}),
     supported_outcome = "production",
     expected_outcome = "production",
-    max_ticks = 600,
+    --Round 30: stages charge honest ~8 us ops, so one generation spans more, shorter ticks.
+    max_ticks = 3000,
 }

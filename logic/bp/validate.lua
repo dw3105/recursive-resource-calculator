@@ -2572,7 +2572,7 @@ function Validate.step(state, budget)
         end
         local spent = math.min(ops, op_cost)
         if phase == "physical" or phase == "beacon" or phase == "underground"
-            or phase == "port_approaches" then spent = ops end
+            or phase == "port_approaches" then spent = math.min(ops, 2000) end --one game tick, never a caller's whole slice
         ops = ops - spent; state.ops_used = state.ops_used + spent; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + spent)
     end
     budget.ops = ops; return state

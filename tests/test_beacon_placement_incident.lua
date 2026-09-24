@@ -65,10 +65,14 @@ local function blocks_for_each_step(instruction_bound)
     H.equal(plan.ok, true, "the player's plan is healthy before any beacon work")
     input.plan = plan.result
 
-    local make_candidates = upvalue(Groups.step, "make_candidates")
-    --Round 26: make_candidates runs make_candidates_once with and without rows; the helpers live on the inner one.
-    local has_once, once = pcall(upvalue, make_candidates, "make_candidates_once")
-    if has_once then make_candidates = once end
+    --Round 30 (lane 193c): Groups.step calls make_candidates_once directly, sliced across ticks.
+    local has_direct, make_candidates = pcall(upvalue, Groups.step, "make_candidates_once")
+    if not has_direct then
+        make_candidates = upvalue(Groups.step, "make_candidates")
+        --Round 26: make_candidates runs make_candidates_once with and without rows; the helpers live on the inner one.
+        local has_once, once = pcall(upvalue, make_candidates, "make_candidates_once")
+        if has_once then make_candidates = once end
+    end
     local normalize_plan = upvalue(make_candidates, "normalize_plan")
     local build_block = upvalue(make_candidates, "build_block")
     local step_ports = upvalue(make_candidates, "step_ports")
