@@ -510,6 +510,9 @@ local function normalize_endpoint(block, placement, port, catalog, work)
     if type(port.slide_options) == "table" and port.hand_x ~= nil and port.hand_y ~= nil then
         endpoint.slide_options, endpoint.hand_x, endpoint.hand_y = port.slide_options, port.hand_x, port.hand_y
     end
+    if type(port.hop_options) == "table" and port.hand_x ~= nil and port.hand_y ~= nil then
+        endpoint.hop_options, endpoint.hand_x, endpoint.hand_y = port.hop_options, port.hand_x, port.hand_y
+    end
     --A rotated materialization carries source-frame attach geometry and a validator-facing travel direction.
     --Traversal still uses the placed direction above, but the validator also protects the approach implied by
     --this published direction. Keep that second direction private to reservation construction.
@@ -2491,7 +2494,8 @@ local function result_for(work)
         shortfalls = work.shortfalls or {}, port_slides = {}}
     for _, port_id in ipairs(sorted_keys(work.port_slides or {})) do
         local slide = work.port_slides[port_id]
-        result.port_slides[#result.port_slides + 1] = {port_id = port_id, dx = slide.dx, dy = slide.dy}
+        result.port_slides[#result.port_slides + 1] = slide.hop and {port_id = port_id, hop = slide.hop}
+            or {port_id = port_id, dx = slide.dx, dy = slide.dy}
     end
     for _, entity in ipairs(work.entities) do
         if not entity._route_removed then result.entities[#result.entities + 1] = entity end
@@ -3145,6 +3149,41 @@ local function unslide_endpoint(work, endpoint, old)
     work.port_cells = old.port_cells
 end
 
+--A hop moves the hand to another face and rotates the belt heading with that face. Its undo is plain data so
+--the improve pass can be saved and resumed between game ticks.
+local function hop_endpoint(work, endpoint, option)
+    local port_x, port_y, hand_x, hand_y = option.port_x, option.port_y, option.hand_x, option.hand_y
+    local port_key, hand_key = coordinate_key(port_x, port_y), coordinate_key(hand_x, hand_y)
+    if not inside_grid(work, port_x, port_y) or not inside_grid(work, hand_x, hand_y) then return nil end
+    if work.segments_by_cell[port_key] or work.segments_by_cell[hand_key] then return nil end
+    if work.underground_cells[port_key] or work.underground_cells[hand_key] then return nil end
+    local owner = static_owner(work, port_x, port_y)
+    if owner ~= nil and not is_allowed_owner(owner) then return nil end
+    if work.obstacles[hand_key] ~= nil or not is_allowed_owner(indexed_cell(work.grid, hand_x, hand_y)) then return nil end
+    if work.port_cells[hand_key] ~= nil then return nil end
+    for port_id in pairs((work.port_cells[port_key] or {})._port_owners or {}) do
+        if port_id ~= endpoint.port_id then return nil end
+    end
+    local old_hand_key = coordinate_key(endpoint.hand_x, endpoint.hand_y)
+    local old = {x = endpoint.x, y = endpoint.y, hand_x = endpoint.hand_x, hand_y = endpoint.hand_y,
+        travel_dir = endpoint.travel_dir, port_cells = work.port_cells, owner = work.obstacles[old_hand_key],
+        hand_key = hand_key, old_hand_key = old_hand_key}
+    work.obstacles[old_hand_key] = nil
+    work.obstacles[hand_key] = old.owner or ("hand:" .. tostring(endpoint.port_id))
+    endpoint.x, endpoint.y, endpoint.hand_x, endpoint.hand_y = port_x, port_y, hand_x, hand_y
+    endpoint.travel_dir = Grid.rotate_dir(endpoint.travel_dir, (option.turns or 0) * 4)
+    work.port_cells = reserve_port_cells(work)
+    return old
+end
+
+local function unhop_endpoint(work, endpoint, old)
+    work.obstacles[old.hand_key] = nil
+    work.obstacles[old.old_hand_key] = old.owner
+    endpoint.x, endpoint.y, endpoint.hand_x, endpoint.hand_y = old.x, old.y, old.hand_x, old.hand_y
+    endpoint.travel_dir = old.travel_dir
+    work.port_cells = old.port_cells
+end
+
 local function find_binding(work, wanted)
     for _, candidate in ipairs(work.bindings or {}) do
         if candidate.source_port_id == wanted[1] and candidate.sink_port_id == wanted[2]
@@ -3173,8 +3212,9 @@ local function trial_start(work, wanted, demand, option)
     local binding = find_binding(work, wanted)
     if not binding or not lift_binding(work, binding) then trial.done = true; return trial end
     if option then
-        trial.slide = slide_endpoint(work, option.endpoint, option.dx, option.dy)
-        if not trial.slide then trial.done = true; return trial end
+        if option.hop then trial.hop = hop_endpoint(work, option.endpoint, option.hop)
+        else trial.slide = slide_endpoint(work, option.endpoint, option.dx, option.dy) end
+        if not trial.slide and not trial.hop then trial.done = true; return trial end
     end
     trial.amount = binding.rate_per_second
     work.free_source_heading, work.allow_bury = true, true
@@ -3207,6 +3247,7 @@ end
 
 local function trial_undo(work, trial)
     if trial.slide then unslide_endpoint(work, trial.option.endpoint, trial.slide) end
+    if trial.hop then unhop_endpoint(work, trial.option.endpoint, trial.hop) end
 end
 
 --A binding names one live segment of its path.  A kept re-route may delete that segment; point the binding at
@@ -3294,13 +3335,18 @@ improve_step = function(work, st, ops)
                     and candidate.sink.port_id == wanted[2] then demand = candidate; break end
             end
             if demand and find_binding(work, wanted) then
-                --Option 1 keeps both hands; each further option slides one hand one tile.  A hand slides only
-                --when this path is the only one on its port, so no other belt loses its end tile.
+                --Option 1 keeps both hands; then try the offered slides and hops for each hand.  A hand may move
+                --only when this path is the only one on its port, so no other belt loses its end tile.
                 local options = {false}
                 for _, endpoint in ipairs({demand.sink, demand.source}) do
                     if endpoint.slide_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
                         for _, slide in ipairs(endpoint.slide_options) do
                             options[#options + 1] = {endpoint = endpoint, dx = slide.dx, dy = slide.dy}
+                        end
+                    end
+                    if endpoint.hop_options and not endpoint.perimeter and bindings_on_port(work, endpoint.port_id) == 1 then
+                        for _, hop in ipairs(endpoint.hop_options) do
+                            options[#options + 1] = {endpoint = endpoint, hop = hop}
                         end
                     end
                 end
@@ -3336,9 +3382,16 @@ improve_step = function(work, st, ops)
                 st.improved = st.improved + 1
                 if option then
                     local port_id = option.endpoint.port_id
-                    local slide = work.port_slides[port_id] or {dx = 0, dy = 0}
-                    work.port_slides[port_id] = {dx = slide.dx + option.dx, dy = slide.dy + option.dy}
-                    option.endpoint.slide_options = nil
+                    if option.hop then
+                        local hop = option.hop
+                        work.port_slides[port_id] = {hop = {hand_x = hop.hand_x, hand_y = hop.hand_y,
+                            port_x = hop.port_x, port_y = hop.port_y, turns = hop.turns}}
+                        option.endpoint.hop_options = nil
+                    else
+                        local slide = work.port_slides[port_id] or {dx = 0, dy = 0}
+                        work.port_slides[port_id] = {dx = slide.dx + option.dx, dy = slide.dy + option.dy}
+                        option.endpoint.slide_options = nil
+                    end
                 end
             else
                 restore_route_snapshot(work, st.snapshot)

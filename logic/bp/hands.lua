@@ -57,6 +57,74 @@ function Hands.offer_slides(materialized, grid)
             end
         end
     end
+    -- A hop changes the machine face served by a single inserter. Keep the option payload plain data so the
+    -- router can snapshot, try and resume it across ticks without retaining closures.
+    for _, port in ipairs(materialized.ports or {}) do
+        local hand = hand_of(port)
+        local machine = hand and by_id[tostring(hand.machine_id)]
+        if hand and machine and served[hand] == 1 and not port.row_port and port.x ~= nil and port.y ~= nil
+            and hand.x ~= nil and hand.y ~= nil and machine.x ~= nil and port.attach_dx ~= nil
+            and finite(hand.w, 1) == 1 and finite(hand.h, 1) == 1 then
+            local vx, vy = port.x - hand.x, port.y - hand.y
+            local current_dir
+            if vx == 0 and vy == -1 then current_dir = 0 elseif vx == 1 and vy == 0 then current_dir = 4
+            elseif vx == 0 and vy == 1 then current_dir = 8 elseif vx == -1 and vy == 0 then current_dir = 12 end
+            if current_dir then
+                local candidates, slide_tiles = {}, {}
+                for _, twin in ipairs(every_port_copy(materialized)) do
+                    if twin.port_id == port.port_id then
+                        for _, slide in ipairs(twin.slide_options or {}) do
+                            slide_tiles[(hand.x + slide.dx) .. ":" .. (hand.y + slide.dy)] = true
+                        end
+                    end
+                end
+                local faces = {
+                    {dir=0, dx=0, dy=-1, x0=machine.x, x1=machine.x + finite(machine.w, 1) - 1, y=machine.y-1},
+                    {dir=8, dx=0, dy=1, x0=machine.x, x1=machine.x + finite(machine.w, 1) - 1, y=machine.y+finite(machine.h,1)},
+                    {dir=12, dx=-1, dy=0, y0=machine.y, y1=machine.y + finite(machine.h,1)-1, x=machine.x-1},
+                    {dir=4, dx=1, dy=0, y0=machine.y, y1=machine.y + finite(machine.h,1)-1, x=machine.x+finite(machine.w,1)},
+                }
+                local function free(x,y)
+                    --The search's roboport grid carries no `cells` (Grid.robo_grid); `taken` already holds every entity.
+                    return x >= 0 and y >= 0 and x < grid.w and y < grid.h and not taken[x .. ":" .. y]
+                        and (grid.cells == nil or grid.cells[y * grid.w + x + 1] == nil)
+                end
+                for _, face in ipairs(faces) do
+                    if face.x0 then
+                        for hx=face.x0,face.x1 do
+                            local hy=face.y
+                            local px,py=hx+face.dx,hy+face.dy
+                            if not (hx==hand.x and hy==hand.y) and not slide_tiles[hx .. ":" .. hy]
+                                and free(hx,hy) and free(px,py) then
+                                candidates[#candidates+1]={hand_x=hx,hand_y=hy,port_x=px,port_y=py,
+                                    turns=((face.dir-current_dir)%16)/4}
+                            end
+                        end
+                    else
+                        for hy=face.y0,face.y1 do
+                            local hx=face.x
+                            local px,py=hx+face.dx,hy+face.dy
+                            if not (hx==hand.x and hy==hand.y) and not slide_tiles[hx .. ":" .. hy]
+                                and free(hx,hy) and free(px,py) then
+                                candidates[#candidates+1]={hand_x=hx,hand_y=hy,port_x=px,port_y=py,
+                                    turns=((face.dir-current_dir)%16)/4}
+                            end
+                        end
+                    end
+                end
+                table.sort(candidates,function(a,b)
+                    local ad,bd=math.abs(a.hand_x-hand.x)+math.abs(a.hand_y-hand.y),math.abs(b.hand_x-hand.x)+math.abs(b.hand_y-hand.y)
+                    if ad~=bd then return ad<bd end
+                    if a.hand_y~=b.hand_y then return a.hand_y<b.hand_y end
+                    return a.hand_x<b.hand_x
+                end)
+                while #candidates>16 do candidates[#candidates]=nil end
+                for _, twin in ipairs(every_port_copy(materialized)) do
+                    if twin.port_id==port.port_id then twin.hop_options,twin.hand_x,twin.hand_y=candidates,hand.x,hand.y end
+                end
+            end
+        end
+    end
 end
 
 --Move each hand the route kept a slide for, with its port tile and pickup/drop points.
@@ -78,9 +146,21 @@ function Hands.place(materialized, route_result)
     for _, port in ipairs(ports) do
         local slide = by_port[tostring(port.port_id or port.id)]
         if slide then
-            port.x, port.y = port.x + slide.dx, port.y + slide.dy
-            port.attach_dx, port.attach_dy = port.attach_dx + slide.dx, port.attach_dy + slide.dy
+            if slide.hop then
+                local hop=slide.hop
+                local dx,dy=hop.port_x-port.x,hop.port_y-port.y
+                port.x,port.y=hop.port_x,hop.port_y
+                port.attach_dx,port.attach_dy=port.attach_dx+dx,port.attach_dy+dy
+                local rotate=function(dir) return dir==nil and nil or (dir+4*hop.turns)%16 end
+                port.travel_dir,port.normal_dir=rotate(port.travel_dir),rotate(port.normal_dir)
+                --A hopped port leaves the block's own boundary ring; validate checks it against its hand instead.
+                port.hopped=true
+            else
+                port.x, port.y = port.x + slide.dx, port.y + slide.dy
+                port.attach_dx, port.attach_dy = port.attach_dx + slide.dx, port.attach_dy + slide.dy
+            end
             port.slide_options = nil
+            port.hop_options = nil
         end
     end
     for _, port in ipairs(materialized.ports or {}) do
@@ -88,12 +168,29 @@ function Hands.place(materialized, route_result)
         local hand = slide and port.inserter_id ~= nil
             and (by_id["m:" .. tostring(port.inserter_id)] or by_id[tostring(port.inserter_id)])
         if hand then
-            local dx, dy = slide.dx, slide.dy
             local old_x, old_y = hand.x, hand.y
-            hand.x, hand.y = hand.x + dx, hand.y + dy
-            for _, field in ipairs({"position", "pickup_position", "drop_position"}) do
-                local point = hand[field]
-                if type(point) == "table" and point.x ~= nil then hand[field] = {x = point.x + dx, y = point.y + dy} end
+            local dx,dy
+            if slide.hop then
+                local hop=slide.hop
+                dx,dy=hop.hand_x-hand.x,hop.hand_y-hand.y
+                hand.x,hand.y=hop.hand_x,hop.hand_y
+                if hand.dir ~= nil then hand.dir=(hand.dir+4*hop.turns)%16 end
+                if hand.direction ~= nil then hand.direction=(hand.direction+4*hop.turns)%16 end
+                hand.position={x=hand.x+0.5,y=hand.y+0.5}
+                --The machine tile is the hand's mirror of its port tile: no guess about what normal_dir points at.
+                local outward_x,outward_y=hop.port_x-hop.hand_x,hop.port_y-hop.hand_y
+                local machine_x,machine_y=hand.x-outward_x,hand.y-outward_y
+                local port_point={x=port.x+0.5,y=port.y+0.5}
+                local machine_point={x=machine_x+0.5,y=machine_y+0.5}
+                if port.role=="out" then hand.pickup_position,hand.drop_position=machine_point,port_point
+                else hand.pickup_position,hand.drop_position=port_point,machine_point end
+            else
+                dx, dy = slide.dx, slide.dy
+                hand.x, hand.y = hand.x + dx, hand.y + dy
+                for _, field in ipairs({"position", "pickup_position", "drop_position"}) do
+                    local point = hand[field]
+                    if type(point) == "table" and point.x ~= nil then hand[field] = {x = point.x + dx, y = point.y + dy} end
+                end
             end
             for _, other in ipairs(ports) do
                 for _, rect in ipairs(other._occupied or {}) do
