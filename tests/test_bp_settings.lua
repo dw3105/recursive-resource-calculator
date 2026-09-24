@@ -4,6 +4,7 @@ local H = require "tests.harness"
 local function fixture(shape)
     local world = H.new_world(shape)
     world.add_default_infrastructure()
+    world.add_inserter({name = "long-handed-inserter", pickup = {x = 0, y = 2}, drop = {x = 0, y = -2}})
     world.add_player(1)
     storage[1] = {}
     local pane = H.gui_root({type = "tabbed-pane", name = "sheet_pane"}, 1)
@@ -21,6 +22,7 @@ local function catalog_for(Settings, player_index, settings)
         belt = {belt = belt.name, underground = belt.underground, splitter = belt.splitter, quality = belt.quality},
         pipe = {pipe = pipe.name, underground = underground_pipe.name, quality = pipe.quality},
         inserter = settings.inserter,
+        long_inserter = settings.long_inserter,
         pole = settings.pole,
         robo = settings.roboport,
     })
@@ -32,6 +34,7 @@ for _, shape in ipairs(H.shapes()) do
         local settings = Settings.of_sheet(1, "sheet-1")
         H.equal(settings.input_edge, "left", "default input edge")
         H.equal(settings.output_edge, "top", "default output edge")
+        H.equal(settings.long_inserter.name, "long-handed-inserter", "default long inserter")
         H.equal(settings.belt.name, "transport-belt", "default belt")
         H.equal(settings.belt.underground, "underground-belt", "default underground family")
         H.equal(settings.belt.splitter, "splitter", "default splitter family")

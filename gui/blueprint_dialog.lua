@@ -22,6 +22,7 @@ local INFRASTRUCTURE = {
     {key = "pole", name = "hxrrc_blueprint_pole_button", entity_type = "electric-pole"},
     {key = "belt", name = "hxrrc_blueprint_belt_button", entity_type = "transport-belt"},
     {key = "inserter", name = "hxrrc_blueprint_inserter_button", entity_type = "inserter"},
+    {key = "long_inserter", name = "hxrrc_blueprint_long_inserter_button", entity_type = "inserter"},
     {key = "pipe", name = "hxrrc_blueprint_pipe_button", entity_type = "pipe"},
     {key = "underground_pipe", name = "hxrrc_blueprint_underground_pipe_button", entity_type = "pipe-to-ground"},
 }
@@ -195,6 +196,7 @@ local function validate_settings(player_index, settings)
     local expected = {
         {key = "roboport", type = "roboport"}, {key = "pole", type = "electric-pole"},
         {key = "belt", type = "transport-belt"}, {key = "inserter", type = "inserter"},
+        {key = "long_inserter", type = "inserter"},
         {key = "pipe", type = "pipe"}, {key = "underground_pipe", type = "pipe-to-ground"},
     }
     for _, definition in ipairs(expected) do

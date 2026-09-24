@@ -1,8 +1,8 @@
 --The buffer zone: an empty ring around every producing machine, so belts and inserters always have room.
 --The player's rule, 2026-09-23 (screenshots ~/share/RRC/Screenshot 2026-09-23 155116.png and 155945.png):
 --  * ring width by ingredient count: 1-2 -> 2 cells, 3 -> 3 cells, 4 or more -> 4 cells;
---  * no other machine may stand in a machine's ring; belts, undergrounds, splitters, inserters, poles,
---    roboports, pipes and beacons may;
+--  * no other machine or roboport may stand in a machine's ring; belts, undergrounds, splitters, inserters, poles,
+--    pipes and beacons may;
 --  * two machines of the same name and recipe may share ring space, but only in the same row (equal top y)
 --    or the same column (equal left x).
 --This module is the whole rule.  Grouping, packing and the validator all call it, so they cannot disagree.
