@@ -336,12 +336,14 @@ local function linked_cost(state, block, candidate)
         end
     end
     local box = state.placed_bbox
-    local old_area = box and box.w * box.h or 0
+    --Growth is measured as half-perimeter (w + h), in tiles like the link distances. Area growth (tiles squared)
+    --outweighed every distance and strung the player's sheet into one 280-entity strip (2026-09-24).
+    local old_span = box and box.w + box.h or 0
     local minx, miny = box and math.min(box.x, candidate.x) or candidate.x,
         box and math.min(box.y, candidate.y) or candidate.y
     local maxx, maxy = box and math.max(box.x + box.w, candidate.x + candidate.w) or candidate.x + candidate.w,
         box and math.max(box.y + box.h, candidate.y + candidate.h) or candidate.y + candidate.h
-    return cost + math.max(0, (maxx-minx)*(maxy-miny) - old_area)
+    return cost + math.max(0, (maxx-minx)+(maxy-miny) - old_span)
 end
 
 local function choose_port_slots(state, block, x, y, direction)
