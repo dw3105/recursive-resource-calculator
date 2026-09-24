@@ -1872,6 +1872,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                     pickup_offset = point(long_facts.pickup_offset) or {x = 0, y = 2},
                     drop_offset = point(long_facts.drop_offset) or {x = 0, y = -2},
                     port_bound = true, flow_entries = {}}
+                --Groups.materialize places block.members, not block.inserters: a hand missing here never
+                --reaches the layout (the synthetic 3-input sheet lost all four long hands, 2026-09-24).
+                block.members[#block.members + 1] = block.inserters[#block.inserters]
                 run.hand_ids[#run.hand_ids + 1] = hid
             end
             block.belt_runs[#block.belt_runs + 1] = run
@@ -1879,6 +1882,17 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
         add_far(far_in, true)
         add_far(far_out, false)
+        --A far belt head right of the row widens the block; the output run must still end on the block edge
+        --(its port lies on the boundary, attach_dx == w).
+        if far_w > row_w then
+            local out_run = block.belt_runs[2]
+            for x = row_w, far_w - 1 do out_run.tiles[#out_run.tiles + 1] = {x = x, y = drop_y} end
+            out_run.port = {x = far_w, y = drop_y, travel_dir = EAST}
+            for _, port in ipairs(block.ports) do
+                if port.role == "out" and port.row_port then port.attach_dx = far_w end
+            end
+            row_w = far_w
+        end
         if #far_out > 0 then block.h = math.max(block.h, drop_y + 3) end
         block.row.machines = #block.machines
         block.row.first_x, block.row.last_x = first_x, last_x
