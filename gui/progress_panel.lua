@@ -7,15 +7,18 @@
 --The calculator window is never disabled while work runs, because the controls that stop that work live inside
 --it. Cancel stops within two ticks of its handler and leaves the previous report visible and marked canceled.
 local Registry = require "logic.registry"
+local ProgressView = require "logic.progress_view"
 
 local ProgressPanel = {}
 
 local UNKNOWN_TOTAL_ESTIMATE = 100
-local CANCEL_LABEL_NAME = "hxrrc_calc_canceled_label"
+local NOTE_NAME = "hxrrc_job_note"
 local LAST_PHASE_TAG = "hxrrc_progress_phase"
 local LAST_VALUE_TAG = "hxrrc_progress_value"
 local OFFER_NAME = "hxrrc_better_layout_offer"
 local OFFER_BUTTON = "hxrrc_deliver_better_layout"
+local BEST_NAME = "hxrrc_progress_best"
+local refreshed_tick, last_game_tick, refresh_sequence
 
 --Sheet requires this module to install its handlers, so the edge back is late: Factorio refuses require inside a
 --handler, and both modules load while control.lua is parsed.
@@ -101,6 +104,7 @@ function ProgressPanel.show(sheet_flow)
     end
     bar.visible = true
     cancel.visible = true
+    ProgressPanel.set_note(sheet_flow, nil)
 end
 
 function ProgressPanel.hide(sheet_flow)
@@ -114,6 +118,11 @@ function ProgressPanel.hide(sheet_flow)
 end
 
 --progress: {phase = locale key suffix, done_units, total_units | nil}
+local function clock_text(ticks)
+    local seconds = math.floor((ticks or 0) / 60)
+    return string.format("%d:%02d", math.floor(seconds / 60), seconds % 60)
+end
+
 function ProgressPanel.update(sheet_flow, progress, job_id, interim)
     if not progress then
         return
@@ -123,14 +132,35 @@ function ProgressPanel.update(sheet_flow, progress, job_id, interim)
         return
     end
 
-    local key = phase_key(progress.phase)
-    local value, total = progress_value(progress)
+    local key = "hxrrc.progress_stage_" .. tostring(progress.stage_key or progress.phase or "prepare")
+    local value = progress.fraction
+    if type(value) ~= "number" then value = progress_value(progress) end
     value = nondecreasing_value(bar, key, value)
-    bar.caption = {key}
-    bar.tooltip = {"hxrrc.calc_progress_tooltip", {key}, finite_nonnegative_integer(progress.done_units), total}
-    bar.value = value
+    local percent = math.floor(value * 100)
+    local caption_sig = table.concat({progress.kind or "calc", progress.attempt or 1, progress.attempts or 1, key, percent}, "|")
+    local tags = bar.tags or {}
+    if tags.hxrrc_progress_caption_sig ~= caption_sig then
+        bar.caption = {"hxrrc.progress_caption", {"hxrrc.progress_kind_" .. (progress.kind or "calc")}, progress.attempt or 1, progress.attempts or 1, {key}, percent}
+        tags.hxrrc_progress_caption_sig = caption_sig
+    end
+    local eta = progress.eta_ticks and clock_text(progress.eta_ticks) or "?"
+    local tooltip = {"hxrrc.progress_tooltip", clock_text(progress.elapsed_ticks or 0), eta}
+    local tooltip_sig = tostring(progress.elapsed_ticks or 0) .. "|" .. tostring(progress.eta_ticks or "?")
+    if tags.hxrrc_progress_tooltip_sig ~= tooltip_sig then bar.tooltip = tooltip; tags.hxrrc_progress_tooltip_sig = tooltip_sig end
+    bar.tags = tags
+    if bar.value ~= value then bar.value = value end
     ProgressPanel.show(sheet_flow)
     ProgressPanel.set_offer(sheet_flow, job_id, interim)
+end
+
+function ProgressPanel.set_note(sheet_flow, caption)
+    if not sheet_flow or sheet_flow.valid == false then return end
+    local note
+    for _, child in ipairs(sheet_flow.children or {}) do if child.name == NOTE_NAME then note = child; break end end
+    if not caption then if note then note.destroy() end; return end
+    if not note then note = sheet_flow.add{type="flow", name=NOTE_NAME, direction="vertical", index=sheet_flow.output_flow and sheet_flow.output_flow.get_index_in_parent() or #sheet_flow.children+1}; note.add{type="label", name="hxrrc_job_note_label"} end
+    note.children[1].caption = caption
+    note.children[1].style.single_line = false
 end
 
 local function output_flow_of(sheet_flow)
@@ -161,6 +191,16 @@ function ProgressPanel.set_offer(sheet_flow, job_id, interim)
     offer.children[2].tags = {job_id = job_id, sequence = interim.sequence}
 end
 
+function ProgressPanel.set_best(sheet_flow, entities)
+    local label
+    for _, child in ipairs(sheet_flow.children or {}) do if child.name == BEST_NAME then label=child; break end end
+    if not entities then if label then label.destroy() end; return end
+    if not label then label=sheet_flow.add{type="label", name=BEST_NAME, index=sheet_flow.output_flow and sheet_flow.output_flow.get_index_in_parent() or #sheet_flow.children+1} end
+    if label.tags and label.tags.entities == entities then return end
+    label.caption={"hxrrc.progress_best", entities}
+    label.tags={entities=entities}
+end
+
 local function deliver_offer(event)
     local tags = event and event.element and event.element.tags or {}
     local generation = Registry.generation
@@ -173,28 +213,7 @@ if event_handlers and event_handlers.on_gui_click then
 end
 
 local function mark_canceled(sheet_flow)
-    local output_flow = output_flow_of(sheet_flow)
-    if not output_flow or output_flow.valid == false then
-        return
-    end
-
-    for _, child in ipairs(output_flow.children) do
-        if child.name == CANCEL_LABEL_NAME then
-            child.caption = {"hxrrc.calc_canceled"}
-            return
-        end
-        if child.name == "report" then
-            --A cancellation never clears or replaces the last report.
-            child.visible = true
-        end
-    end
-
-    output_flow.add{
-        type = "label",
-        name = CANCEL_LABEL_NAME,
-        caption = {"hxrrc.calc_canceled"},
-        index = 1,
-    }
+    ProgressPanel.set_note(sheet_flow, {"hxrrc.calc_canceled"})
 end
 
 function ProgressPanel.on_cancel_clicked(event)
@@ -209,6 +228,8 @@ function ProgressPanel.on_cancel_clicked(event)
         Jobs().cancel(player_index, sheet_id)
     end
     ProgressPanel.hide(sheet_flow)
+    ProgressPanel.set_best(sheet_flow, nil)
+    ProgressPanel.set_offer(sheet_flow, nil, nil)
     mark_canceled(sheet_flow)
 end
 
@@ -219,6 +240,37 @@ local function refresh_all()
     if not game or not game.players or not storage then
         return
     end
+    local observed=game.tick
+    if observed ~= last_game_tick then
+        refresh_sequence=finite_nonnegative_integer(observed)
+        last_game_tick=observed
+    else
+        refresh_sequence=(refresh_sequence or 0)+1
+    end
+    local tick=refresh_sequence or observed or 0
+    if tick % 10 ~= 0 then
+        --Jobs.on_tick still calls the registry hook in this branch. Keep that path cheap: only settle controls
+        --for a job that finished between tenth-tick refreshes; live progress is read and written every ten ticks.
+        local sheet = Sheet()
+        for player_index, _ in pairs(game.players) do
+            local data=storage[player_index]
+            local pane=data and data.sheet_section and data.sheet_section.sheet_pane
+            for _, tab in ipairs(pane and pane.tabs or {}) do
+                local flow=tab.content
+                if flow and Sheet().progressbar_of(flow) and Sheet().progressbar_of(flow).visible then
+                    local sid=sheet.id_of(flow)
+                    if not ProgressView.of(player_index,sid) then
+                        ProgressPanel.hide(flow)
+                        ProgressPanel.set_best(flow,nil)
+                        ProgressPanel.set_offer(flow,nil,nil)
+                    end
+                end
+            end
+        end
+        return
+    end
+    if refreshed_tick == tick then return end
+    refreshed_tick = tick
     local sheet = Sheet()
     local jobs = Jobs()
     for player_index, _ in pairs(game.players) do
@@ -227,7 +279,7 @@ local function refresh_all()
         for _, tab_and_sheet in ipairs(pane and pane.tabs or {}) do
             local sheet_flow = tab_and_sheet.content
             local sheet_id = sheet.id_of(sheet_flow)
-            local progress = jobs.progress_of(player_index, sheet_id)
+            local progress = ProgressView.of(player_index, sheet_id)
             if progress then
                 local data = storage[player_index]
                 local job = data and data.blueprint_job
@@ -235,10 +287,15 @@ local function refresh_all()
                     and job.state.input.generation_job_id
                 local status = id and Registry.generation and Registry.generation.status(player_index, id)
                 ProgressPanel.update(sheet_flow, progress, id, status and status.interim)
+                local best = (job and job.progress and job.progress.best_entities) or (status and status.interim and status.interim.entities)
+                if best then ProgressPanel.set_best(sheet_flow, best) else ProgressPanel.set_best(sheet_flow, nil) end
+                ProgressPanel.set_note(sheet_flow, nil)
             else
                 local attempt = Registry.generation and Registry.generation.lookup(player_index, sheet_id)
-                ProgressPanel.set_offer(sheet_flow, attempt and attempt.job_id, attempt and attempt.interim)
+                local pending = attempt and attempt.state == "pending"
+                ProgressPanel.set_offer(sheet_flow, pending and attempt.job_id, pending and attempt.interim)
                 ProgressPanel.hide(sheet_flow)
+                ProgressPanel.set_best(sheet_flow, nil)
             end
         end
     end
@@ -252,5 +309,11 @@ end
 --published rather than wrapped: wrapping needed logic.jobs while this module was still loading, and the load
 --order of two modules that need each other is never fixed.
 Registry.progress_refresh = refresh_all
+Registry.progress_note = function(player_index, sheet_id, caption)
+    local data = storage and storage[player_index]
+    local pane = data and data.sheet_section and data.sheet_section.sheet_pane
+    for _, tab in ipairs(pane and pane.tabs or {}) do if Sheet().id_of(tab.content)==sheet_id then ProgressPanel.set_note(tab.content, caption); return true end end
+    return false
+end
 
 return ProgressPanel
