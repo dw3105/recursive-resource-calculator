@@ -1,5 +1,6 @@
 -- Fails before the fix: nil cursors fail before fallback and cursor errors are discarded; staging inventories leak.
 local H=require "tests.harness"
+H.test("cursor delivery falls back to clipboard and destroys staging inventory", function()
 for _,shape in ipairs(H.shapes()) do
  local world=H.new_world(shape); world.add_blueprint_item(); world.add_player(1); world.init()
  local Delivery=require "gui.blueprint_delivery"
@@ -17,4 +18,5 @@ for _,shape in ipairs(H.shapes()) do
  H.equal(destroyed,2,"second inventory destroyed")
  game.create_inventory=original
 end
+end)
 H.done("test_delivery_fallback")
