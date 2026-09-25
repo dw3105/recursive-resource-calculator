@@ -1,0 +1,5 @@
+gui/progress_panel.lua
+tests/test_note_kinds.lua
+tests/test_progress_panel.lua
+tests/test_panel_sweep.lua
+docs/tasks/213_note_kinds.md

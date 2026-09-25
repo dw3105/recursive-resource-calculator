@@ -1,0 +1,8 @@
+logic/bp/groups.lua
+logic/bp/pack.lua
+tests/test_groups_beacon_row.lua
+tests/test_groups.lua
+tests/test_groups_long_hands.lua
+tests/test_pack.lua
+tests/test_pack_layered.lua
+docs/tasks/209_beacon_row.md

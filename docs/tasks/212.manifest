@@ -1,0 +1,11 @@
+logic/catalog.lua
+logic/export_payload.lua
+tools/prepared_from_export.py
+tests/harness.lua
+tests/test_catalog_inserter_speed.lua
+tests/test_catalog.lua
+tests/test_bp_settings.lua
+tests/test_long_inserter_catalog.lua
+tests/test_export_payload.lua
+tests/test_prepared_from_export.py
+docs/tasks/212_hand_speed.md
