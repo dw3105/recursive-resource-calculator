@@ -1,9 +1,10 @@
 -- Save the input of the FIRST call of one stage for one prepared input as JSON (round 36), so a test can replay
 -- one real candidate through that stage in seconds instead of generating the whole sheet.
--- Usage (repository root): lua5.2 tools/capture_stage_input.lua <prepared_input.json> <out.json> [stage]
+-- Usage (repository root): lua5.2 tools/capture_stage_input.lua <prepared_input.json> <out.json> [stage] [call]
 -- stage: validate (default), route, groups, pack, power -- any logic/bp/<stage>.lua with begin().
 package.path = "./?.lua;./?/init.lua;" .. package.path
 local input, out, stage = assert(arg[1], "prepared input"), assert(arg[2], "output path"), arg[3] or "validate"
+local wanted_call, calls = tonumber(arg[4] or "1"), 0
 
 local function escape(s)
     return (s:gsub('[%c"\\]', function(c)
@@ -44,7 +45,10 @@ local function encode(value, stack)
 end
 
 local V = require("logic.bp." .. stage)
+local original_begin = V.begin
 V.begin = function(root)
+    calls = calls + 1
+    if calls < wanted_call then return original_begin(root) end
     local f = assert(io.open(out, "w"))
     f:write(encode(root, {}))
     f:close()
