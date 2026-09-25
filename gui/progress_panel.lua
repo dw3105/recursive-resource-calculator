@@ -15,6 +15,7 @@ local UNKNOWN_TOTAL_ESTIMATE = 100
 local NOTE_NAME = "hxrrc_job_note"
 local LAST_PHASE_TAG = "hxrrc_progress_phase"
 local LAST_VALUE_TAG = "hxrrc_progress_value"
+local STATUS_NAME = "hxrrc_progress_status"
 local OFFER_NAME = "hxrrc_better_layout_offer"
 local OFFER_BUTTON = "hxrrc_deliver_better_layout"
 local BEST_NAME = "hxrrc_progress_best"
@@ -36,6 +37,23 @@ local function controls_of(sheet_flow)
     end
     local sheet = Sheet()
     return sheet.progressbar_of(sheet_flow), sheet.cancel_button_of(sheet_flow)
+end
+
+local function status_of(sheet_flow, create)
+    if not sheet_flow or sheet_flow.valid == false then return nil end
+    for _, child in ipairs(sheet_flow.children or {}) do
+        if child.name == STATUS_NAME then return child end
+    end
+    if not create then return nil end
+    local controls
+    for _, child in ipairs(sheet_flow.children or {}) do
+        if child.name == "hxrrc_sheet_controls" then controls = child; break end
+    end
+    local index = controls and controls.get_index_in_parent() + 1 or #sheet_flow.children + 1
+    local label = sheet_flow.add{type="label", name=STATUS_NAME, index=index}
+    label.style.single_line = false
+    label.style.maximal_width = 400
+    return label
 end
 
 local function phase_key(phase)
@@ -104,10 +122,13 @@ function ProgressPanel.show(sheet_flow)
     end
     bar.visible = true
     cancel.visible = true
+    status_of(sheet_flow, true)
     ProgressPanel.set_note(sheet_flow, nil)
 end
 
 function ProgressPanel.hide(sheet_flow)
+    local status = status_of(sheet_flow, false)
+    if status then status.destroy() end
     local bar, cancel = controls_of(sheet_flow)
     if not bar or not cancel or bar.valid == false or cancel.valid == false then
         return
@@ -140,8 +161,16 @@ function ProgressPanel.update(sheet_flow, progress, job_id, interim)
     local caption_sig = table.concat({progress.kind or "calc", progress.attempt or 1, progress.attempts or 1, key, percent}, "|")
     local tags = bar.tags or {}
     if tags.hxrrc_progress_caption_sig ~= caption_sig then
-        bar.caption = {"hxrrc.progress_caption", {"hxrrc.progress_kind_" .. (progress.kind or "calc")}, progress.attempt or 1, progress.attempts or 1, {key}, percent}
+        bar.caption = {"hxrrc.progress_bar_percent", percent}
         tags.hxrrc_progress_caption_sig = caption_sig
+    end
+    local status = status_of(sheet_flow, true)
+    local status_sig = table.concat({progress.kind or "calc", progress.attempt or 1, progress.attempts or 1, key}, "|")
+    local status_tags = status.tags or {}
+    if status_tags.hxrrc_progress_status_sig ~= status_sig then
+        status.caption = {"hxrrc.progress_status", {"hxrrc.progress_kind_" .. (progress.kind or "calc")}, progress.attempt or 1, progress.attempts or 1, {key}}
+        status_tags.hxrrc_progress_status_sig = status_sig
+        status.tags = status_tags
     end
     local eta = progress.eta_ticks and clock_text(progress.eta_ticks) or "?"
     local tooltip = {"hxrrc.progress_tooltip", clock_text(progress.elapsed_ticks or 0), eta}

@@ -37,6 +37,7 @@ for _, shape in ipairs(H.shapes()) do
         local Sheet = require "gui.sheet"
         H.equal(Sheet.progressbar_of(sheet).visible, false, "stale bar is hidden")
         H.equal(Sheet.cancel_button_of(sheet).visible, false, "stale Cancel is hidden")
+        H.equal(named(sheet, "hxrrc_progress_status"), nil, "stale status is removed")
     end)
 
     H.test(shape .. " PS2 explicit sweep is published for every sheet", function()
