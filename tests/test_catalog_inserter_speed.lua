@@ -33,7 +33,7 @@ for _, shape in ipairs(H.shapes()) do
         world.add_unlinked_quality("higher", 1)
         world.add_inserter({name = "quality-inserter", speeds_by_quality = {
             normal = {rotation_speed = 0.02515, extension_speed = 0.0343},
-            higher = {rotation_speed = 0.05, extension_speed = 0.04}}})
+            higher = {rotation_speed = 0.1, extension_speed = 0.04}}})
         local quality = Catalog.build(1, {inserter = {base = "quality-inserter", quality = "higher"}})
         H.equal(quality.inserter.items_per_second > fast.inserter.items_per_second, true, "higher quality faster")
     end)
