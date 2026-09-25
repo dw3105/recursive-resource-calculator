@@ -2022,6 +2022,7 @@ local function check_physical_transfers(work, machine_index, final)
     end
 
     local function used_any(info)
+        if work._collector_witnessed and work._collector_witnessed[info.id] then return true end
         if not multi_flow then return used[info.id] == true end
         return used[info.id] ~= nil and next(used[info.id]) ~= nil
     end
@@ -2050,6 +2051,12 @@ local function check_physical_transfers(work, machine_index, final)
         return false
     end
     local function mark_path(path, flow_id)
+        local function binding_matches_inserter(binding, inserter)
+            local port_id = inserter.entity and inserter.entity.port_id
+            local source_id = binding.source_port_id
+            return type(port_id) == "string" and type(source_id) == "string"
+                and (source_id == port_id or source_id:sub(1, #port_id + 1) == port_id .. ":")
+        end
         flow_id_for_feeds = flow_id
         local queue, head, seen = {}, 1, {}
         for _, info in ipairs(path or {}) do
@@ -2059,6 +2066,66 @@ local function check_physical_transfers(work, machine_index, final)
             local current = queue[head]; head = head + 1
             mark_used(current, flow_id)
             local x, y = transport_tile(current)
+            -- A collector can be fed by several output hands. The route binding may
+            -- name just one representative port, so witness every same-flow hand
+            -- whose drop cell is this witnessed belt tile.
+            local witnessed_output_segments = {}
+            for _, inserter in ipairs(work.inserters or {}) do
+                if transport_accepts_flow(inserter, flow_id) then
+                    local role = inserter.entity and inserter.entity.role
+                    if role ~= "output" then
+                        local machine = inserter.entity and inserter.entity.machine_id and work.info_by_id[inserter.entity.machine_id]
+                        role = machine and transfer_role(inserter, machine) or nil
+                    end
+                    if role == "output" then
+                        local _, _, drop_x, drop_y = transfer_cells(inserter, work)
+                        local position = inserter.entity and inserter.entity.drop_position
+                        if type(position) == "table" and finite(position.x) ~= nil and finite(position.y) ~= nil then
+                            drop_x, drop_y = math.floor(finite(position.x) + EPSILON), math.floor(finite(position.y) + EPSILON)
+                        end
+                        if drop_x == x and drop_y == y then
+                            work._collector_witnessed = work._collector_witnessed or {}
+                            work._collector_witnessed[inserter.id] = true
+                            for _, binding in ipairs(work.bindings or {}) do
+                                if binding.segment_id and binding.flow_id == flow_id and binding_matches_inserter(binding, inserter) then
+                                    witnessed_output_segments[binding.segment_id] = true
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            -- Collector bindings retain the shared route segment. Credit only the
+            -- same-flow output hands bound to that segment whose own drop tile has
+            -- a matching belt; hands elsewhere on the machine stay independently
+            -- subject to the transport witness.
+            if next(witnessed_output_segments) then
+                for _, inserter in ipairs(work.inserters or {}) do
+                    local entity = inserter.entity or {}
+                    if entity.role == "output" and (entity.flow_id or entity.full_name) == flow_id then
+                        local same_route = false
+                        for _, binding in ipairs(work.bindings or {}) do
+                            if binding.flow_id == flow_id and binding_matches_inserter(binding, inserter)
+                                and witnessed_output_segments[binding.segment_id] then same_route = true; break end
+                        end
+                        if same_route then
+                            local position = entity.drop_position
+                            local dx, dy
+                            if type(position) == "table" and finite(position.x) ~= nil and finite(position.y) ~= nil then
+                                dx, dy = math.floor(finite(position.x) + EPSILON), math.floor(finite(position.y) + EPSILON)
+                            else
+                                local _, _, drop_x, drop_y = transfer_cells(inserter, work); dx, dy = drop_x, drop_y
+                            end
+                            for _, belt in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(dx, dy)] or {}) do
+                                if transport_kind(belt) == "belt" and transport_accepts_flow(belt, flow_id) then
+                                    work._collector_witnessed[inserter.id] = true
+                                    work._collector_witnessed[belt.id] = true
+                                end
+                            end
+                        end
+                    end
+                end
+            end
             local candidates = {}
             --Belts, splitters and a side-load sit next to what they feed (a splitter is two tiles wide).
             for oy = -2, 2 do
@@ -2260,6 +2327,19 @@ local function check_physical_transfers(work, machine_index, final)
                         end
                     end
                     if not found then
+                        -- This hand was considered for a required input and has a
+                        -- specific transfer failure below. Keep it out of the
+                        -- duplicate orphan report; geometry, reachability and
+                        -- target-shortfall validation remain fatal and unchanged.
+                        if candidate_seen then
+                            work._failed_obligation_hand = work._failed_obligation_hand or {}
+                            for _, inserter in ipairs(work.inserters) do
+                                if transfer_role(inserter, machine) == "input"
+                                    and (inserter.entity.flow_id or inserter.entity.full_name) == flow_id then
+                                    work._failed_obligation_hand[inserter.id] = true
+                                end
+                            end
+                        end
                         local code, failure_detail = transfer_failure_ladder(candidate_seen, shape_seen, wrong_network, explicit_target)
                         failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "input transfer", nil,
                             failure_detail, missing_port_machine)
@@ -2395,7 +2475,7 @@ local function check_physical_transfers(work, machine_index, final)
     end
 
     for _, inserter in ipairs(work.inserters) do
-        if not used_any(inserter) then
+        if not used_any(inserter) and not (work._failed_obligation_hand and work._failed_obligation_hand[inserter.id]) then
             local detail = unused_detail(inserter, true)
             detail.reason = "inserter serves no required transfer"
             error_record(work.errors, "BP_V_TRANSPORT_UNUSED", {tostring(inserter.id)}, detail)

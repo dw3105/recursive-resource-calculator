@@ -1,0 +1,8 @@
+logic/bp/route.lua
+logic/bp/validate.lua
+tests/test_validate_collector_witness.lua
+tests/fixtures/validate_red10s_collector.json
+tests/test_route_collector.lua
+tests/test_route.lua
+tests/test_validate.lua
+docs/tasks/223b_collector_witness.md
