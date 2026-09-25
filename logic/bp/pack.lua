@@ -533,9 +533,10 @@ end
 --Layered pack: a block's layer is the longest link chain from raw input to it. Layers are columns going right
 --from the input edge; inside its column a block aims at the mean row of its placed partners' ports. It takes the
 --nearest legal origin to that target, then looks EXTRA more rings out and keeps the lowest link cost. Buffer
---rings already keep blocks apart, so no free-rectangle search is needed. Off unless RRC_PACK=col (trial).
+--rings already keep blocks apart, so no free-rectangle search is needed. On by default (player placed red 148 and
+--green 305 in game, 2026-09-25); RRC_PACK=maxrects turns it off.
 local mode = os and os.getenv and os.getenv("RRC_PACK")
-Pack.layered = mode == "col"
+Pack.layered = mode ~= "maxrects"
 local EXTRA = tonumber(os and os.getenv and os.getenv("RRC_PACK_EXTRA") or "") or 8
 
 local function layered_order(state)
