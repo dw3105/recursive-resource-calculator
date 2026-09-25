@@ -53,3 +53,7 @@ Commit on `lane/215_witness_underground`. **Run the checks as the very LAST acti
 ```
 
 # bound: 3000s
+
+## Implementation note
+
+The physical-transfer witness now expands through transport neighbors and follows underground pair IDs in either direction. The regression fixture exercises an underground branch, a splitter on a used route, and an isolated dead-end stub.
