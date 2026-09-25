@@ -10,6 +10,7 @@ local Registry = require "logic.registry"
 local Catalog = require "logic.catalog"
 local ExportPayload = require "logic.export_payload"
 local Search = require "logic.bp.search"
+local BlueprintString = require "logic.bp.blueprint_string"
 local Serialize = require "logic.bp.serialize"
 local BlueprintDelivery = require "gui.blueprint_delivery"
 local Settings = require "logic.bp.settings"
@@ -935,10 +936,8 @@ end
 
 local function encode_blueprint(result)
     if type(result) ~= "table" or not rawget(_G, "helpers") then return nil end
-    local ok_json, json = pcall(helpers.table_to_json, result)
-    if not ok_json then return nil end
-    local ok_encoded, encoded = pcall(helpers.encode_string, json)
-    if not ok_encoded or type(encoded) ~= "string" or encoded == "" then return nil end
+    local ok, encoded = pcall(BlueprintString.build, result)
+    if not ok then return nil end
     return encoded
 end
 

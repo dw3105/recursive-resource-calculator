@@ -202,10 +202,12 @@ for _, shape in ipairs(H.shapes()) do
         local _, sheet_flow = H.fill_sheet({}, 1)
         storage[1].blueprint_delivery = {pending = true, entities = {{entity_number = 1}}}
         storage[1].blueprint_delivery_last_reason = "blueprint_delivery_failed"
+        storage[1].blueprint_delivery_last_error = "cursor write refused"
         storage[1].blueprint_delivered_sequence = 7
         local payload = build(sheet_flow)
         H.equal(payload.delivery.pending, true, "pending delivery is reported")
         H.equal(payload.delivery.last_reason, "blueprint_delivery_failed", "last reason is reported")
+        H.equal(payload.delivery.last_error, "cursor write refused", "last delivery error is reported")
         H.equal(payload.delivery.delivered_sequence, 7, "delivered sequence is reported")
     end)
 

@@ -55,6 +55,7 @@ end
 
 local function cursor_is_empty(player)
     local stack = player.cursor_stack
+    if stack == nil then return true end
     if stack and stack.valid_for_read then return false end
     if player.cursor_ghost ~= nil then return false end
     if player.cursor_record ~= nil then return false end
@@ -65,8 +66,9 @@ local function tell(player, key)
     player.create_local_flying_text{text = {"hxrrc." .. key}, create_at_cursor = true}
 end
 
-local function cleanup(staged)
+local function cleanup(staged, inventory)
     if staged then pcall(function() staged.clear() end) end
+    if inventory then pcall(function() inventory.destroy() end) end
 end
 
 local function complete_source(blueprint)
@@ -114,7 +116,7 @@ local function stage(result)
     local ok, inventory = pcall(function() return game.create_inventory(1) end)
     if not ok or inventory == nil then return nil end
     local staged = inventory[1]
-    if staged == nil then return nil end
+    if staged == nil then pcall(function() inventory.destroy() end); return nil end
 
     local staged_ok = pcall(function()
         staged.set_stack({name = "blueprint", count = 1})
@@ -126,10 +128,10 @@ local function stage(result)
         if not staged.is_blueprint_setup() then error("staging did not set up the blueprint") end
     end)
     if not staged_ok then
-        cleanup(staged)
+        cleanup(staged, inventory)
         return nil
     end
-    return staged
+    return staged, inventory
 end
 
 local function publish(player_index, result)
@@ -142,8 +144,9 @@ local function publish(player_index, result)
 
     --All fallible work is complete before this point.  The remaining writes operate on a known-empty cursor; if a
     --runtime API call still refuses one, clear the partially written blueprint so the original empty cursor remains.
-    local ok = pcall(function()
+    local ok, err = pcall(function()
         local cursor = player.cursor_stack
+        if cursor == nil then error("player has no cursor stack") end
         cursor.set_stack({name = "blueprint", count = 1})
         if not cursor.is_blueprint then error("cursor did not receive a blueprint") end
         cursor.set_blueprint_entities(result.entities)
@@ -154,6 +157,8 @@ local function publish(player_index, result)
     end)
     if not ok then
         pcall(function() player.clear_cursor() end)
+        local state = state_of(player_index)
+        state.blueprint_delivery_last_error = tostring(err)
         return false, "blueprint_delivery_failed"
     end
     return true
@@ -167,21 +172,33 @@ function BlueprintDelivery.deliver(player_index, blueprint, metadata)
     state[PENDING_KEY] = nil
     local result = prepared_result(blueprint, metadata)
     if not result then state.blueprint_delivery_last_reason = "blueprint_delivery_failed"; return false, "blueprint_delivery_failed" end
-    local staged = stage(result)
+    local staged, inventory = stage(result)
     if not staged then state.blueprint_delivery_last_reason = "blueprint_delivery_failed"; return false, "blueprint_delivery_failed" end
 
     --The cursor is checked again after staging.  No cursor-clearing operation is ever used to make room.
     if not cursor_is_empty(player) then
         state[PENDING_KEY] = result
         state[PENDING_KEY].pending = true
-        cleanup(staged)
+        cleanup(staged, inventory)
         tell(player, "blueprint_cursor_busy")
         return false, "blueprint_cursor_busy"
     end
 
     local ok, reason = publish(player_index, result)
-    cleanup(staged)
-    if not ok then state.blueprint_delivery_last_reason = reason; return false, reason end
+    if not ok then
+        local clip_ok = pcall(function() player.add_to_clipboard(staged) end)
+        if clip_ok then clip_ok = pcall(function() player.activate_paste() end) end
+        cleanup(staged, inventory)
+        if clip_ok then
+            state.blueprint_delivery_last_reason = "blueprint_on_clipboard"
+            tell(player, "blueprint_on_clipboard")
+            return true, "blueprint_on_clipboard"
+        end
+        state.blueprint_delivery_last_reason = "blueprint_not_delivered"
+        return false, "blueprint_not_delivered"
+    end
+    cleanup(staged, inventory)
+    state.blueprint_delivery_last_error = nil
     state.blueprint_delivery_last_reason = nil
     tell(player, "blueprint_delivered")
     return true
