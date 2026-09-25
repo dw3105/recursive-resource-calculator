@@ -42,6 +42,8 @@ for _, shape in ipairs(H.shapes()) do
             elseif stage == 2 then
                 state.interim = {sequence = 2, result = layout2, entities = 2}
                 state.done, state.ok = false, false
+            elseif stage < 15 then
+                state.done, state.ok = false, false
             else
                 state.done, state.ok, state.result = true, true, layout2
             end
@@ -55,22 +57,18 @@ for _, shape in ipairs(H.shapes()) do
         local pending = Generation.status(1, id)
         H.equal(pending.state, "pending", "first interim keeps the job pending")
         H.equal(pending.phase, "improving", "first interim marks the improving phase")
-        H.equal(world.cursors[1].stack.name, "blueprint", "first interim reaches the cursor")
-        H.run_ticks(world, 1)
-        --The sheet panel refreshes on its tenth-tick poll, not from every job slice.
-        Registry.progress_refresh()
+        H.equal(game.get_player(1).cursor_stack.valid_for_read, false, "first interim remains an offer")
+        H.run_ticks(world, 9)
         local offer = find(pane, "hxrrc_deliver_better_layout")
         H.equal(offer ~= nil, true, "later interim is offered in the panel")
-        H.equal(world.cursors[1].stack.entities[1].position.x, 0,
-            "better interim does not replace the cursor")
-        game.get_player(1).clear_cursor()
+        H.equal(game.get_player(1).cursor_stack.valid_for_read, false, "interim candidates are not auto-delivered")
         event_handlers.on_gui_click[offer.name]({element = offer, player_index = 1})
         H.equal(world.cursors[1].stack.entities[1].position.x, 1,
             "clicking the offer delivers the better layout")
-        H.run_ticks(world, 1)
+        H.run_ticks(world, 10)
         H.equal(Generation.status(1, id).state, "success", "final result is published")
         H.equal(storage[1].blueprint_delivery, nil, "equal final result does not queue a duplicate delivery")
-        H.equal(stage, 3, "the final tick follows the two interim candidates")
+        H.equal(stage, 15, "the final tick follows the two interim candidates")
     end)
 end
 

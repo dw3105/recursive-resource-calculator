@@ -1244,6 +1244,12 @@ function ExportPayload.build(player_index, sheet_flow)
     local capture_geometry_errors = {}
     if prepared ~= nil then prepared, capture_geometry_errors = capture_geometry_copy(prepared) end
     local generation = generation_attempt(player_index, player_data, snapshot.sheet_id, capture, provenance)
+    local delivery_state = type(player_data.blueprint_delivery) == "table" and player_data.blueprint_delivery or {}
+    local delivery = {
+        pending = delivery_state.pending == true or (delivery_state.entities ~= nil and delivery_state.pending ~= false),
+        last_reason = player_data.blueprint_delivery_last_reason or (type(player_data.blueprint_delivery) == "table" and player_data.blueprint_delivery.last_reason) or delivery_state.last_reason or delivery_state.reason,
+        delivered_sequence = player_data.blueprint_delivered_sequence or delivery_state.delivered_sequence,
+    }
 
     local diagnostics = {
         missing_prototypes = {}, rejected_values = rejected_values(snapshot), catalog = sorted_diagnostics(catalog_diagnostics),
@@ -1288,6 +1294,7 @@ function ExportPayload.build(player_index, sheet_flow)
         prototypes = copy_json(catalog),
         diagnostics = diagnostics,
         generation = generation,
+        delivery = delivery,
     }
     if #capture_geometry_errors > 0 then
         payload.capture = {status = "incomplete", reason_codes = {"BP_CAP_INCOMPLETE"},

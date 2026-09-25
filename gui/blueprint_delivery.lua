@@ -163,15 +163,17 @@ function BlueprintDelivery.deliver(player_index, blueprint, metadata)
     local player = player_of(player_index)
     if not player then return false, "no_player" end
     local state = state_of(player_index)
-    if state[PENDING_KEY] ~= nil then return false, "blueprint_pending" end
+    --Every new attempt supersedes a saved hand-off; the newest finished result wins.
+    state[PENDING_KEY] = nil
     local result = prepared_result(blueprint, metadata)
-    if not result then return false, "blueprint_delivery_failed" end
+    if not result then state.blueprint_delivery_last_reason = "blueprint_delivery_failed"; return false, "blueprint_delivery_failed" end
     local staged = stage(result)
-    if not staged then return false, "blueprint_delivery_failed" end
+    if not staged then state.blueprint_delivery_last_reason = "blueprint_delivery_failed"; return false, "blueprint_delivery_failed" end
 
     --The cursor is checked again after staging.  No cursor-clearing operation is ever used to make room.
     if not cursor_is_empty(player) then
         state[PENDING_KEY] = result
+        state[PENDING_KEY].pending = true
         cleanup(staged)
         tell(player, "blueprint_cursor_busy")
         return false, "blueprint_cursor_busy"
@@ -179,7 +181,8 @@ function BlueprintDelivery.deliver(player_index, blueprint, metadata)
 
     local ok, reason = publish(player_index, result)
     cleanup(staged)
-    if not ok then return false, reason end
+    if not ok then state.blueprint_delivery_last_reason = reason; return false, reason end
+    state.blueprint_delivery_last_reason = nil
     tell(player, "blueprint_delivered")
     return true
 end
@@ -189,8 +192,9 @@ function BlueprintDelivery.retry(player_index)
     local result = state[PENDING_KEY]
     if result == nil then return false, "nothing_to_deliver" end
     local ok, reason = publish(player_index, result)
-    if not ok then return false, reason end
+    if not ok then state.blueprint_delivery_last_reason = reason; return false, reason end
     state[PENDING_KEY] = nil
+    state.blueprint_delivery_last_reason = nil
     tell(player_of(player_index), "blueprint_delivered")
     return true
 end

@@ -11,6 +11,7 @@ local ModulePicker = require "gui.module_picker"
 local Jobs = require "logic.jobs"
 local Registry = require "logic.registry"
 local Generation = require "logic.bp.generation"
+local BlueprintDelivery = require "gui.blueprint_delivery"
 --Loaded here so their registry entries exist before any handler runs: a handler may never call require.
 local Snapshot = require "logic.snapshot"
 local SolverSteps = require "logic.solver_steps"
@@ -113,7 +114,14 @@ script.on_event("hxrrc_pipette", function(event)
     end
 end)
 
-script.on_event(defines.events.on_player_cursor_stack_changed, Pipette.on_cursor_changed)
+script.on_event(defines.events.on_player_cursor_stack_changed, function(event)
+    Pipette.on_cursor_changed(event)
+    local player = game.get_player(event.player_index)
+    if player and not (player.cursor_stack and player.cursor_stack.valid_for_read)
+        and player.cursor_ghost == nil and player.cursor_record == nil then
+        BlueprintDelivery.retry(event.player_index)
+    end
+end)
 
 script.on_event("hxrrc_confirm_module_picker", function(event)
     if ModulePicker.confirm(event.player_index) then
