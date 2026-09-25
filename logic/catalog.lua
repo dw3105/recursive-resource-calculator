@@ -33,6 +33,8 @@ local Utils = require "logic.utils"
 local MISSING_PROTOTYPE = "CATALOG_MISSING_PROTOTYPE"
 local MISSING_QUALITY = "CATALOG_MISSING_QUALITY"
 local INCOMPLETE_CAPTURE = "BP_CAP_INCOMPLETE"
+local BELT_PICKUP_FACTOR = 0.55 -- chest-to-chest swings spend part of their cycle picking up and placing items
+local INSERTER_RATE_K = 1
 
 local function diagnostic(diagnostics, code, subject, detail, field)
     diagnostics[#diagnostics + 1] = {code = code, subject = subject, detail = detail, field = field}
@@ -732,7 +734,7 @@ local function build_pipe(catalog, diagnostics, options, requests)
     }
 end
 
-local function build_inserter(catalog, diagnostics, options, requests, geometry_state, key)
+local function build_inserter(catalog, diagnostics, options, requests, geometry_state, player_index, key)
     key = key or "inserter"
     local descriptor = family_source(options, key)
     if not descriptor then return end
@@ -747,7 +749,31 @@ local function build_inserter(catalog, diagnostics, options, requests, geometry_
     if not geometry.ok then return end
     local quality = selected_quality(quality_name, diagnostics, catalog._quality_cache)
     if quality then project_quality(catalog, quality, quality_name) end
-    local items_per_second = type(descriptor) == "table" and descriptor.items_per_second
+    local items_per_second = type(descriptor) == "table" and descriptor.items_per_second or nil
+    local rotation, extension
+    if type(entity.get_inserter_rotation_speed) == "function" then
+        local ok, value = pcall(entity.get_inserter_rotation_speed, quality_name)
+        if ok and type(value) == "number" and value > 0 then rotation = value end
+    end
+    if type(entity.get_inserter_extension_speed) == "function" then
+        local ok, value = pcall(entity.get_inserter_extension_speed, quality_name)
+        if ok and type(value) == "number" and value > 0 then extension = value end
+    end
+    if items_per_second == nil then
+        if rotation then
+            local player = rawget(_G, "game") and game.players and game.players[player_index]
+            if player == nil and rawget(_G, "game") and game.get_player then player = game.get_player(player_index) end
+            local force = player and player.force
+            local bonus = force and (entity.bulk == true and force.bulk_inserter_capacity_bonus
+                or force.inserter_stack_size_bonus) or nil
+            local stack = 1 + (type(bonus) == "number" and bonus or 0)
+            items_per_second = stack * 60 * rotation * INSERTER_RATE_K * BELT_PICKUP_FACTOR
+        else
+            items_per_second = 4.62
+            diagnostic(diagnostics, "CATALOG_INSERTER_SPEED_DEFAULT", "entity/" .. name,
+                "inserter speed facts are unavailable; using 4.62 items per second")
+        end
+    end
     --The game's prototype frame has pickup at -y and drop at +y (fast inserter {0,-1} / {0,1.2}, captured in
     --~/share/RRC/inserter-10s-1.1.71.txt on 2026-09-24).  The generator's frame is turned 180 degrees: pickup +y,
     --drop -y (logic/bp/groups.lua inserter_offsets, logic/bp/serialize.lua turns it back at publish).  Handed
@@ -759,7 +785,14 @@ local function build_inserter(catalog, diagnostics, options, requests, geometry_
     catalog[key] = {
         name = entity.name,
         quality = quality_name,
-        items_per_second = items_per_second or 4.62,
+        items_per_second = items_per_second,
+        rotation_speed = rotation,
+        extension_speed = extension,
+        bulk = entity.bulk == true,
+        inserter_stack_size_bonus = (rawget(_G, "game") and game.get_player and game.get_player(player_index)
+            and game.get_player(player_index).force and game.get_player(player_index).force.inserter_stack_size_bonus) or 0,
+        bulk_inserter_capacity_bonus = (rawget(_G, "game") and game.get_player and game.get_player(player_index)
+            and game.get_player(player_index).force and game.get_player(player_index).force.bulk_inserter_capacity_bonus) or 0,
         pickup_offset = turned(geometry.pickup),
         drop_offset = turned(geometry.drop),
         drop_position = turned(geometry.drop),
@@ -891,8 +924,8 @@ function Catalog.build(player_index, options)
 
     build_belt(catalog, diagnostics, options, entity_requests)
     build_pipe(catalog, diagnostics, options, entity_requests)
-    build_inserter(catalog, diagnostics, options, entity_requests, geometry_state)
-    build_inserter(catalog, diagnostics, options, entity_requests, geometry_state, "long_inserter")
+    build_inserter(catalog, diagnostics, options, entity_requests, geometry_state, player_index)
+    build_inserter(catalog, diagnostics, options, entity_requests, geometry_state, player_index, "long_inserter")
     build_pole(catalog, diagnostics, options, entity_requests)
     build_robo(catalog, diagnostics, options, entity_requests)
 
