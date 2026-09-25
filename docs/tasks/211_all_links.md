@@ -50,4 +50,10 @@ Commit on `lane/211_all_links`. **Run the checks as the very LAST action.**
 {"name": "lane211-measure", "command": "sh tools/gate_sheet.sh player-red-science-1s 148 | tail -1 | grep -q GATE-OK && sh tools/gate_sheet.sh player-green-science-1s 305 | tail -1 | grep -q GATE-OK && sh tools/gate_sheet.sh player-inserter-10s 413 | tail -1 | grep -q GATE-OK && echo lane211-ok", "expect_exit": 0, "expect_regex": "lane211-ok", "timeout_s": 1800}
 ```
 
+# 211_all_links — L1
+
+`candidate_links` now keeps a list of ports for every `step|flow|role` key on both layered and MaxRects attempts.
+It expands those lists into one link per producer/consumer block pair and emits external edge links for each
+matching block. The regression test splits a shared step across two blocks and checks both links on the retry path.
+
 # bound: 3000s
