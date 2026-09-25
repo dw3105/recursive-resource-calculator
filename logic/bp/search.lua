@@ -1462,10 +1462,9 @@ local function candidate_links(state, candidate)
     for _, block in ipairs(candidate.blocks or {}) do
         for _, port in ipairs(block.ports or {}) do
             local key = tostring(port.step_id) .. "|" .. tostring(port.flow_id or port.full_name) .. "|" .. tostring(port.role)
-            --One step can fill several blocks (casting-iron#1, #2); layered pack needs a link to each of them.
+            --One step can fill several blocks (casting-iron#1, #2); retain every block for link construction.
             local list = port_by_step_flow[key] or {}
             port_by_step_flow[key] = list
-            if not pack_layered(state) then list[1] = nil end
             list[#list + 1] = {block_id = block.id or block.block_id, port_id = port.port_id}
             blocks_for_step[tostring(port.step_id)] = block.id or block.block_id
         end
