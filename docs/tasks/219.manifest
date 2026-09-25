@@ -1,0 +1,6 @@
+logic/bp/pack.lua
+tests/test_pack_red10s_compact.lua
+tests/fixtures/pack_red10s_call1.json
+tests/test_pack.lua
+tests/test_pack_layered.lua
+docs/tasks/219_red10s_compact.md
