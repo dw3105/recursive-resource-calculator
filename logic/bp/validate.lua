@@ -2517,6 +2517,23 @@ end
 
 local function check_ports(work)
     local bound_source, bound_sink = {}, {}
+    local edge_sources = {}
+    for _, port in ipairs(work.ports) do
+        if is_external_port(port) and (port.role or port.direction) == "in" then
+            local flow_id = flow_id_of(port)
+            if flow_id then
+                local key = tostring(flow_id)
+                edge_sources[key] = edge_sources[key] or {}
+                edge_sources[key][#edge_sources[key] + 1] = port.port_id
+            end
+        end
+    end
+    for flow_id, ids in pairs(edge_sources) do
+        if #ids > 1 then
+            table.sort(ids, function(a, b) return tostring(a) < tostring(b) end)
+            error_record(work.errors, "BP_V_SOURCE_DUPLICATE", {flow_id}, {flow_id = flow_id, port_ids = ids})
+        end
+    end
     for _, binding in ipairs(work.bindings) do
         local source_id, sink_id = binding.source_port_id or binding.source, binding.sink_port_id or binding.sink; local source, sink = work.port_by_id[source_id], work.port_by_id[sink_id]
         local source_external = source and is_external_port(source)

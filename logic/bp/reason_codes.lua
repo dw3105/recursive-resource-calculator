@@ -45,7 +45,7 @@ ReasonCodes.VIOLATION = {
     --a beacon whose removal leaves every machine at its configured count is waste.
     "BP_V_TRANSPORT_UNUSED", "BP_V_BEACON_REDUNDANT",
     "BP_V_UNDERGROUND_SIDELOAD_BLOCKED", "BP_V_UNDERGROUND_BACK_TO_BACK", "BP_V_ROUTE_LOOP", "BP_V_LANE_MIX", "BP_V_BELT_BLEED",
-    "BP_V_FLUID_MIX",
+    "BP_V_FLUID_MIX", "BP_V_SOURCE_DUPLICATE",
     "BP_V_SPLITTER_CHAIN", "BP_V_BELT_NO_SOURCE",
 }
 
