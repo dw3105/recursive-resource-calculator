@@ -2303,7 +2303,29 @@ local function make_candidates_once(input, work)
         end
         local block = build_block(group, work.catalog, relevant_ports(group, work.ports, work.flows), work.flows, input, "block:" .. table.concat(ids, "+"))
         if block.invalid_coverage or block.failure then
-            work.failures[#work.failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}
+            local machine_total = 0
+            for _, step in ipairs(group) do machine_total = machine_total + math.max(1, step.machine_count or 1) end
+            if block.invalid_coverage and machine_total > 1 then
+                -- Shared placement can leave some machines without their requested beacon count even
+                -- when each machine fits on its own. Retry the physical instances individually.
+                local fragments = {}
+                for _, step in ipairs(group) do
+                    local count = math.max(1, step.machine_count or 1)
+                    for ordinal = 1, count do
+                        local fragment = copy(step)
+                        fragment.machine_count = 1
+                        fragment._physical_ordinal = count == 1 and step._physical_ordinal or ordinal
+                        fragment._rate_machine_count = step._rate_machine_count or count
+                        fragment._force_block = true
+                        fragments[#fragments + 1] = {fragment}
+                    end
+                end
+                for offset = #fragments, 1, -1 do
+                    table.insert(work.buckets, work.bucket_index + offset, fragments[offset])
+                end
+            else
+                work.failures[#work.failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}
+            end
         else work.blocks[#work.blocks + 1] = block end
         work.bucket_index = work.bucket_index + 1
     end
