@@ -61,3 +61,13 @@ Commit on `lane/206_inserter_name`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3000s
+
+## Built
+
+- Row hands now get their name and size from `inserter_size`, so they use the selected regular inserter when the
+  step does not carry an inserter override.
+- Searched `logic/bp/groups.lua` for literal entity-name defaults. The plain inserter row fallback was the defect
+  and is now catalog driven. Machine and beacon defaults now resolve their catalog entity names. Long hands use
+  `catalog.long_inserter.name`, with a catalog entity lookup for older catalog shapes that omit that field.
+- Added `tools/entity_names.py`, which decodes the delivered blueprint using the audit loader and checks prototype
+  names against prepared settings, plus Lua and Python regression tests.
