@@ -69,7 +69,9 @@ H.test("TJ1 tidy removes dead belts and chained splitters from frozen route call
         for _,s in ipairs(work.segments) do if s.flow_id then H.equal(live[s.segment_id] or false,true,"every flow segment lies on a live path: "..tostring(s.segment_id)) end end
         for _,s in ipairs(work.segments) do if s.splitter then
             local dx,dy=Grid.dir_vector(s.splitter_direction)
-            for _,k in ipairs({tostring(s.splitter_anchor_x+dx)..":"..tostring(s.splitter_anchor_y+dy)}) do
+            local sx,sy=string.match(s.splitter_second_key or "", "^([^:]+):([^:]+)$")
+            for _,k in ipairs({tostring(s.splitter_anchor_x+dx)..":"..tostring(s.splitter_anchor_y+dy),
+                tostring(tonumber(sx)+dx)..":"..tostring(tonumber(sy)+dy)}) do
                 local next_segment=work.segments_by_cell[k]
                 H.equal(next_segment and next_segment.splitter or false,false,"splitter output does not feed another splitter")
             end
