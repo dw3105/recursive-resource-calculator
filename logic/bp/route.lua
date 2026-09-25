@@ -2358,7 +2358,8 @@ local function search_step(work, search)
         --ring, and refusing the ring left automation-science-pack:4 BP_R_NO_PATH.  So the widening below is
         --for machine ports only.
         local sink_any_approach = false
-        if target and (search.demand.sink.rear_curve or (search.demand.sink.feed_curve and work.free_source_heading))
+        if target and (search.demand.sink.rear_curve or (search.demand.sink.feed_curve
+            and (work.free_source_heading or search.demand.curve_allowed)))
             and search.demand.sink.travel_dir ~= nil
             and direction ~= Grid.dir_opposite(search.demand.sink.travel_dir)
             and work.segments_by_cell[coordinate_key(nx, ny)] == nil then
@@ -2906,6 +2907,17 @@ end
 
 local function fail_demand(state, work, demand, code, detail)
     if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
+    --A row side feed is entered straight from behind (often an underground under the machines) in first routing;
+    --the curve in from the side waits for the improve pass. When the straight way has no room -- red science
+    --10/s (2026-09-25): the output-side beacon row sits where the gear underground had to start -- the demand gets
+    --one more restart with the curve allowed, before it is written off as a shortfall.
+    if code == "BP_R_NO_PATH" and demand and demand.sink and demand.sink.feed_curve and not demand.curve_allowed then
+        demand.curve_allowed = true
+        for index = #(work.priority or {}), 1, -1 do
+            if work.priority[index] == demand.order_key then table.remove(work.priority, index) end
+        end
+        if restart_with_priority(state, work, demand) then return false end
+    end
     if shortfall_allowed(work, demand, code) then
         demand.unroutable = code
         demand.remaining = 0
