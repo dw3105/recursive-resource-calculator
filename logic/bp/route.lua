@@ -3241,16 +3241,20 @@ end
 
 prune_dead_route_segments = function(work)
     untangle_splitter_chains(work)
-    local live = {}
+    local live, incomplete = {}, {}
     for _, binding in ipairs(work.bindings or {}) do
-        for _, key in ipairs(binding_path(work, binding) or {}) do
+        local path = binding_path(work, binding)
+        if not path then incomplete[binding.flow_id] = true end
+        for _, key in ipairs(path or {}) do
             local segment = work.segments_by_cell[key]
             if segment then live[segment.segment_id] = true end
         end
     end
     local kept = {}
     for _, segment in ipairs(work.segments or {}) do
-        if live[segment.segment_id] then kept[#kept + 1] = segment end
+        local preserve = live[segment.segment_id]
+        for flow_id in pairs(incomplete) do if segment_has_flow(segment, flow_id) then preserve = true; break end end
+        if preserve then kept[#kept + 1] = segment end
     end
     work.segments = kept
     audit_route_work(work)
