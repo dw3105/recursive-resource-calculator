@@ -415,6 +415,7 @@ event_handlers.on_gui_click["hxrrc_cancel_button"] = function(event)
     local player_data = storage[event.player_index]
     local running = player_data and player_data.calc_jobs and player_data.calc_jobs[sheet_id]
     local blueprint = player_data and player_data.blueprint_job
+    local canceled_kind = blueprint and blueprint.sheet_id == sheet_id and "blueprint" or "calc"
     if blueprint and blueprint.sheet_id == sheet_id then
         local input = blueprint.state and blueprint.state.input
         local job_id = input and input.generation_job_id
@@ -426,7 +427,7 @@ event_handlers.on_gui_click["hxrrc_cancel_button"] = function(event)
         --last published report stale before the panel hides itself and adds its canceled label.
         Registry.calc_pipeline.cancel(event.player_index, sheet_id)
     end
-    ProgressPanel.on_cancel_clicked(event)
+    ProgressPanel.on_cancel_clicked(event, canceled_kind)
 end
 
 event_handlers.on_gui_selection_state_changed["hxrrc_start_leftovers_dropdown"] = recompute_own_sheet

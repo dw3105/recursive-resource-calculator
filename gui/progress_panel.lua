@@ -18,6 +18,7 @@ local LAST_VALUE_TAG = "hxrrc_progress_value"
 local OFFER_NAME = "hxrrc_better_layout_offer"
 local OFFER_BUTTON = "hxrrc_deliver_better_layout"
 local BEST_NAME = "hxrrc_progress_best"
+local LEGACY_NOTE_NAME = "hxrrc_calc_canceled_label"
 
 --Sheet requires this module to install its handlers, so the edge back is late: Factorio refuses require inside a
 --handler, and both modules load while control.lua is parsed.
@@ -200,6 +201,34 @@ function ProgressPanel.set_best(sheet_flow, entities)
     label.tags={entities=entities}
 end
 
+local function destroy_legacy_notes(element)
+    local children = element and element.children or {}
+    for index = #children, 1, -1 do
+        local child = children[index]
+        if child.name == LEGACY_NOTE_NAME then
+            child.destroy()
+        else
+            destroy_legacy_notes(child)
+        end
+    end
+end
+
+local function sheet_job_running(sheet_flow)
+    local data = storage and storage[sheet_flow and sheet_flow.player_index]
+    local sheet_id = Sheet().id_of(sheet_flow)
+    return data and ((data.calc_jobs and data.calc_jobs[sheet_id])
+        or (data.blueprint_job and data.blueprint_job.sheet_id == sheet_id)) or false
+end
+
+function ProgressPanel.sweep(sheet_flow)
+    if not sheet_flow or sheet_flow.valid == false then return end
+    destroy_legacy_notes(sheet_flow)
+    if sheet_job_running(sheet_flow) then return end
+    ProgressPanel.set_offer(sheet_flow, nil, nil)
+    ProgressPanel.set_best(sheet_flow, nil)
+    ProgressPanel.hide(sheet_flow)
+end
+
 local function deliver_offer(event)
     local tags = event and event.element and event.element.tags or {}
     local generation = Registry.generation
@@ -211,11 +240,11 @@ if event_handlers and event_handlers.on_gui_click then
     event_handlers.on_gui_click[OFFER_BUTTON] = deliver_offer
 end
 
-local function mark_canceled(sheet_flow)
-    ProgressPanel.set_note(sheet_flow, {"hxrrc.calc_canceled"})
+local function mark_canceled(sheet_flow, kind)
+    ProgressPanel.set_note(sheet_flow, {kind == "blueprint" and "hxrrc.blueprint_canceled" or "hxrrc.calc_canceled"})
 end
 
-function ProgressPanel.on_cancel_clicked(event)
+function ProgressPanel.on_cancel_clicked(event, canceled_kind)
     local element = event and event.element
     if not element then
         return
@@ -223,13 +252,15 @@ function ProgressPanel.on_cancel_clicked(event)
     local sheet_flow = Sheet().sheet_flow_of(element)
     local player_index = (event and event.player_index) or sheet_flow.player_index
     local sheet_id = Sheet().id_of(sheet_flow)
+    local data = storage and storage[player_index]
+    local kind = canceled_kind or (data and data.blueprint_job and "blueprint" or "calc")
     if player_index and sheet_id then
         Jobs().cancel(player_index, sheet_id)
     end
     ProgressPanel.hide(sheet_flow)
     ProgressPanel.set_best(sheet_flow, nil)
     ProgressPanel.set_offer(sheet_flow, nil, nil)
-    mark_canceled(sheet_flow)
+    mark_canceled(sheet_flow, kind)
 end
 
 --Poll all existing sheets without putting GUI objects or functions in storage. The real game invokes this on
@@ -259,11 +290,7 @@ local function refresh_all()
                 if best then ProgressPanel.set_best(sheet_flow, best) else ProgressPanel.set_best(sheet_flow, nil) end
                 ProgressPanel.set_note(sheet_flow, nil)
             else
-                local attempt = Registry.generation and Registry.generation.lookup(player_index, sheet_id)
-                local pending = attempt and attempt.state == "pending"
-                ProgressPanel.set_offer(sheet_flow, pending and attempt.job_id, pending and attempt.interim)
-                ProgressPanel.hide(sheet_flow)
-                ProgressPanel.set_best(sheet_flow, nil)
+                ProgressPanel.sweep(sheet_flow)
             end
         end
     end
@@ -277,6 +304,14 @@ end
 --published rather than wrapped: wrapping needed logic.jobs while this module was still loading, and the load
 --order of two modules that need each other is never fixed.
 Registry.progress_refresh = refresh_all
+Registry.progress_sweep = function(player_index)
+    if not game or not game.players or not game.players[player_index] then return end
+    local data = storage and storage[player_index]
+    local pane = data and data.sheet_section and data.sheet_section.sheet_pane
+    for _, tab_and_sheet in ipairs(pane and pane.tabs or {}) do
+        ProgressPanel.sweep(tab_and_sheet.content)
+    end
+end
 Registry.progress_note = function(player_index, sheet_id, caption)
     local data = storage and storage[player_index]
     local pane = data and data.sheet_section and data.sheet_section.sheet_pane

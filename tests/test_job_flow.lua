@@ -76,6 +76,10 @@ for _, shape in ipairs(H.shapes()) do
         click(cancel.name, cancel)
         H.equal(Generation.status(1, job_id).state, "cancelled", "handle state")
         H.equal(storage[1].blueprint_job, nil, "scheduled blueprint removed")
+        local note = find(sheet, "hxrrc_job_note")
+        H.equal(note.children[1].caption[1], "hxrrc.blueprint_canceled", "blueprint cancellation uses blueprint words")
+        H.equal(note:get_index_in_parent(), sheet.output_flow:get_index_in_parent() - 1,
+            "cancel note sits immediately above the output")
         H.run_ticks(world, 600)
         H.equal(world.hold_record(1), nil, "no cursor write")
         H.equal(find(sheet, "hxrrc_better_layout_offer"), nil, "no delivery offer")
