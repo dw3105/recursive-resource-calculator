@@ -2396,7 +2396,7 @@ local function search_step(work, search)
         if first and not search.demand.source.perimeter and not search.demand.source.row_port
             and work.segments_by_cell[coordinate_key(current.x, current.y)] == nil then
             local landing = work.segments_by_cell[coordinate_key(nx, ny)]
-            source_any_heading = work.free_source_heading == true
+            source_any_heading = work.free_source_heading == true or search.demand.free_heading == true
                 or (landing ~= nil and not landing.underground and not landing.splitter
                     and segment_has_flow(landing, search.demand.flow_id))
         end
@@ -2911,6 +2911,17 @@ local function fail_demand(state, work, demand, code, detail)
     --the curve in from the side waits for the improve pass. When the straight way has no room -- red science
     --10/s (2026-09-25): the output-side beacon row sits where the gear underground had to start -- the demand gets
     --one more restart with the curve allowed, before it is written off as a shortfall.
+    --A machine's output hand drops onto its tile whichever way the belt there faces. First routing still lays
+    --that belt in the hand's own heading; when that leaves no way out -- several hands of one flow side by side
+    --on one face, as slow hands need (2.31/s, 2026-09-25) -- the demand gets one restart with any heading.
+    if code == "BP_R_NO_PATH" and demand and demand.source and not demand.source.perimeter
+        and not demand.source.row_port and not demand.free_heading then
+        demand.free_heading = true
+        for index = #(work.priority or {}), 1, -1 do
+            if work.priority[index] == demand.order_key then table.remove(work.priority, index) end
+        end
+        if restart_with_priority(state, work, demand) then return false end
+    end
     if code == "BP_R_NO_PATH" and demand and demand.sink and demand.sink.feed_curve and not demand.curve_allowed then
         demand.curve_allowed = true
         for index = #(work.priority or {}), 1, -1 do
