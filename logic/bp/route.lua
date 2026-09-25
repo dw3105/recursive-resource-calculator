@@ -2211,11 +2211,10 @@ local PROBE = {}
 local function crossing_targets(work, demand, search, current, direction, amount)
     local reach = underground_reach(work, demand)
     if reach < 2 then return {} end
-    --A side-fed underground entrance consumes one lane of its approach belt. Avoid creating that
-    --shape in route/tidy searches; a straight feeder works on both lanes, including at the map edge.
-    local edge = current.x == 0 or current.y == 0 or current.x == work.grid.w - 1 or current.y == work.grid.h - 1
-    if not edge and current.direction ~= nil and current.direction ~= 0
-        and current.direction ~= direction then return {} end
+    --An underground entrance fed from its side takes only the lane on its far side; the validator refuses the
+    --shape whenever the feeding lane lands on the blocked half (BP_V_UNDERGROUND_SIDELOAD_BLOCKED), and a map-edge
+    --belt carries both lanes. Route and tidy therefore dive straight on only (slow hands, 2.31/s, 2026-09-25).
+    if current.direction ~= nil and current.direction ~= direction then return {} end
     local current_key = coordinate_key(current.x, current.y)
     if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return {} end
     local dx, dy = Grid.dir_vector(direction)
