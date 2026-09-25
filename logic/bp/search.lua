@@ -1568,7 +1568,21 @@ local function note_edge_shortfalls(state)
     end
 end
 
+--Collector keep-if-cheaper (round 37): the player's shape puts every same-flow output hand of one machine on one
+--belt, but on some sheets that heading costs more once hands, power and tidy are done (inserter 10/s: 401 against
+--373 entities). A validated candidate that used collectors is routed once more without them from the same packing;
+--Validate.compare picks the finished winner. A retry that fails anywhere hands back the first.
+local function restore_collector_first(state)
+    local saved = state.work.collector_first
+    state.work.collector_first, state.work.collector_trial = nil, "done"
+    state.incumbent, state.work.incumbent_record = saved.incumbent, saved.record
+    saved.record.chosen = true
+    state.work.attempt_recorded = true
+    begin_serialization(state)
+end
+
 local function discard_candidate(state)
+    if state.work.collector_trial == "running" then restore_collector_first(state); return end
     note_edge_shortfalls(state)
     if not state.work.attempt_recorded then
         local score = state.work.validate and state.work.validate.result and state.work.validate.result.score
@@ -1656,6 +1670,8 @@ function Search.step(container, budget)
                     Hands.offer_slides(state.work.materialized, state.work.grid)
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input then
+                        state.work.route_args = {blocks = blocks, ports = ports}
+                        state.work.collector_trial, state.work.collector_first = nil, nil
                         state.work.route = Route.begin(route_input)
                         set_phase(state, "route")
                     else
@@ -1774,12 +1790,39 @@ function Search.step(container, budget)
                 else
                     local score = state.work.validate.result and state.work.validate.result.score or {}
                     local record = record_valid_attempt(state, score)
-                    record.chosen = true
-                    state.work.incumbent_record = record
-                    state.incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
+                    local incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
                         source_candidate = copy(state.work.candidate), validation = copy(state.work.validate.result)}
-                    state.work.attempt_recorded = true
-                    begin_serialization(state)
+                    local routed = state.work.route and state.work.route.work
+                    local first = state.work.collector_first
+                    if state.work.collector_trial == "running" and first then
+                        state.work.collector_trial, state.work.collector_first = "done", nil
+                        if Validate.compare(score, first.incumbent.score) >= 0 then
+                            state.incumbent, state.work.incumbent_record = first.incumbent, first.record
+                            first.record.chosen = true
+                            state.work.attempt_recorded = true
+                            begin_serialization(state)
+                            incumbent = nil
+                        end
+                    elseif state.work.collector_trial == nil and routed and routed.collectors_used and state.work.route_args then
+                        local retry_input = make_route_input(state, state.work.grid, state.work.route_args.blocks,
+                            state.work.route_args.ports, state.work.robo_obstacles)
+                        if retry_input then
+                            retry_input.collectors = false
+                            state.work.collector_first = {incumbent = incumbent, record = record}
+                            state.work.collector_trial = "running"
+                            state.work.power, state.work.validate, state.work.tidy, state.work.route_state = nil, nil, nil, nil
+                            state.work.route = Route.begin(retry_input)
+                            set_phase(state, "route")
+                            incumbent = nil
+                        end
+                    end
+                    if incumbent then
+                        record.chosen = true
+                        state.work.incumbent_record = record
+                        state.incumbent = incumbent
+                        state.work.attempt_recorded = true
+                        begin_serialization(state)
+                    end
                 end
             end
         elseif state.phase == "serialize" then

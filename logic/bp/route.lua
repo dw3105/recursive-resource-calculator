@@ -857,6 +857,7 @@ local function combine_adjacent_output_hands(work, demands)
                 for _, member in ipairs(component) do
                     if member.endpoint.inserter_id then hand_ids[#hand_ids + 1] = member.endpoint.inserter_id end
                 end
+                work.collectors_used = true
                 work.belt_runs[#work.belt_runs + 1] = {role = "out", dir = direction, flows = {chosen.flow_id},
                     head = tiles[1], tiles = tiles, hand_ids = hand_ids, synthetic_collector = true}
             end
@@ -885,7 +886,7 @@ local function build_demands(work, flows)
                     local role = step_id_of(entry) == "$external" and "out" or "in"
                     append_port_demands(work, consumers, id, role, entry, share_of(entry), "consumer")
                 end
-                if #consumers == 1 and consumers[1].endpoint.position_explicit then
+                if work.collectors and #consumers == 1 and consumers[1].endpoint.position_explicit then
                     combine_adjacent_output_hands(work, producers)
                 end
             else
@@ -1014,7 +1015,7 @@ local function begin_flow_demand_build(work, flow)
             append_port_demands(work, consumers, id, step_id_of(entry) == "$external" and "out" or "in", entry,
                 share_of(entry), "consumer")
         end
-        if #consumers == 1 and consumers[1].endpoint.position_explicit then
+        if work.collectors and #consumers == 1 and consumers[1].endpoint.position_explicit then
             combine_adjacent_output_hands(work, producers)
         end
     else
@@ -2902,7 +2903,9 @@ local function normalize_input(input)
         multi_flow_hands = multi_flow_hands_enabled(input),
         belt = input.belt or (input.catalog and input.catalog.belt) or {},
         pipe = input.pipe or (input.catalog and input.catalog.pipe) or {},
-        belt_runs = input.belt_runs or {},
+        --A copy: collectors append synthetic runs, and a keep-if-cheaper retry routes the same input again.
+        belt_runs = (function() local runs = {}; for i, run in ipairs(input.belt_runs or {}) do runs[i] = run end; return runs end)(),
+        collectors = input.collectors ~= false, collectors_used = false,
         input_entities = input_entities,
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
