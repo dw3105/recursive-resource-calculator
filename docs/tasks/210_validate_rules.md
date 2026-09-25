@@ -77,3 +77,8 @@ role, cell_x, cell_y, "belt")` from its belt cell reaches a port. Find why the s
 reached (print the path/port for one of the hands above), fix the witness so a connected producer-hand → belt →
 consumer-hand line is used, keep a real dead-end stub reported, add a case to `tests/test_validate_two_feeds.lua`,
 and pass the inserter-10s gate (`sh tools/gate_sheet.sh player-inserter-10s 373`, first validate verdict ok=true).
+
+The leftover was caused by internal transfer lookup choosing only the first matching port on a machine. The other
+parallel belt line reached a separate compatible port, so its producer hands could not establish a witness. The
+lookup now tries every compatible port for that machine; the two-feed regression checks both a straight feed and a
+side-load while retaining a dead-end stub.

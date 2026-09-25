@@ -1796,7 +1796,8 @@ local function external_failure_step(work, flow_id, role, start_x, start_y, kind
     return "external:" .. tostring(flow_id)
 end
 
-local function machine_port_for(work, machine, flow_id, role)
+local function machine_ports_for(work, machine, flow_id, role)
+    local result = {}
     for _, port in ipairs(work.ports) do
         if not is_external_port(port) and (port.role or port.direction) == role
             and (port.step_id == nil or port.step_id == machine.entity.step_id) then
@@ -1804,12 +1805,12 @@ local function machine_port_for(work, machine, flow_id, role)
                 --A row port serves every machine of its row: they share one belt run (docs/contracts/row_block.md).
                 if port.member_id == nil or port.row_port or port.member_id == machine.id
                     or port.member_id == machine.entity.machine_id then
-                    return port
+                    result[#result + 1] = port
                 end
             end
         end
     end
-    return nil
+    return result
 end
 
 local function flow_record(work, flow_id)
@@ -1855,8 +1856,10 @@ local function connection_path(work, flow_id, role, x, y, kind)
         local step_id = step_id_of(record)
         if step_id and step_id ~= "$external" then
             for _, machine in ipairs(machines_for_step(work, step_id)) do
-                local port = machine_port_for(work, machine, flow_id, role == "input" and "out" or "in")
-                if not port then missing_port_machine = missing_port_machine or machine end
+                local ports = machine_ports_for(work, machine, flow_id, role == "input" and "out" or "in")
+                if #ports == 0 then missing_port_machine = missing_port_machine or machine end
+                --A machine can expose multiple ports for one flow on separate belt lines. Test each port:
+                --choosing only the first made a connected second hand look disconnected and its whole line waste.
                 --`local px, py = port and port_position(...)` was silently WRONG: in Lua a call as the right
                 --operand of `and` is adjusted to exactly ONE value, so `py` was ALWAYS nil and every internal
                 --machine-to-machine walk died on transport_path's first line, which refuses a nil endpoint.
@@ -1864,13 +1867,12 @@ local function connection_path(work, flow_id, role, x, y, kind)
                 --Measured 2026-09-22 on legalcopilot-dev, the player's own sheet: every copper-plate and
                 --iron-gear-wheel obligation failed this way and was reported BP_V_ROUTE_DISCONTINUOUS, with
                 --every belt behind it then swept up as BP_V_TRANSPORT_UNUSED.
-                local px, py
-                if port then px, py = port_position(work, port) end
-                local path
-                if role == "input" then path = transport_path(work, px, py, x, y, flow_id, kind)
-                else path = transport_path(work, x, y, px, py, flow_id, kind) end
-                if port and path then
-                    found_port, found_path, found_machine = port, path, machine
+                for _, port in ipairs(ports) do
+                    local px, py = port_position(work, port)
+                    local path
+                    if role == "input" then path = transport_path(work, px, py, x, y, flow_id, kind)
+                    else path = transport_path(work, x, y, px, py, flow_id, kind) end
+                    if path then found_port, found_path, found_machine = port, path, machine end
                 end
             end
         end

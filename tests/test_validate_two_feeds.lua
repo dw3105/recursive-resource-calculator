@@ -7,6 +7,9 @@ local function run()
         {id="hand", name="inserter", kind="inserter", x=9,y=4,w=1,h=1,dir=Grid.EAST,
             flow_id="item/out", role="output", machine_id="machine", pickup_target="machine", drop_target="head",
             pickup_position={x=8.5,y=4.5}, drop_position={x=10.5,y=4.5}},
+        {id="side-hand", name="inserter", kind="inserter", x=9,y=5,w=1,h=1,dir=Grid.EAST,
+            flow_id="item/out", role="output", machine_id="machine", pickup_target="machine", drop_target="side-feed",
+            pickup_position={x=8.5,y=5.5}, drop_position={x=10.5,y=5.5}},
     }
     local function belt(id,x,y,dir)
         entities[#entities+1]={id=id,name="transport-belt",kind="belt",x=x,y=y,w=1,h=1,dir=dir,flow_id="item/out"}
@@ -35,6 +38,13 @@ H.test("both the straight and side-loaded feed into a used belt are witnessed", 
 end)
 H.test("a dead-end belt stub remains unused", function()
     local state=run()
+    H.equal(unused(state,"dead-stub"),true)
+end)
+H.test("both producer hands feeding behind and from the side are witnessed", function()
+    local state=run()
+    H.equal(unused(state,"hand"),false)
+    H.equal(unused(state,"side-hand"),false)
+    H.equal(unused(state,"side-feed"),false)
     H.equal(unused(state,"dead-stub"),true)
 end)
 H.done("test_validate_two_feeds")
