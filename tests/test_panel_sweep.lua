@@ -42,8 +42,13 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " PS2 explicit sweep is published for every sheet", function()
         local _, sheet = world_for(shape)
         local old = H.legacy_save(sheet, {visible_controls = false})
+        local pane = sheet.parent
+        require("gui.sheet").new(pane)
+        local second_sheet = pane.tabs[2].content
+        local second_old = H.legacy_save(second_sheet, {visible_controls = false})
         require("logic.registry").progress_sweep(1)
-        H.equal(old.valid, false, "registry sweep removes the legacy label")
+        H.equal(old.valid, false, "registry sweep removes the first sheet's legacy label")
+        H.equal(second_old.valid, false, "registry sweep removes every sheet's legacy label")
     end)
 
     H.test(shape .. " PS3 a real red science generation shows its bar by the tenth tick", function()
