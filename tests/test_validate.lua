@@ -176,7 +176,9 @@ H.test("VS2 the fractional-box counterexample is refused by the beacon rule and 
             supply_w = 3, supply_h = 3},
     }})
     H.equal(state.ok, false, "the real fractional collision box is outside both supply decisions")
-    H.equal(has_code(state, "BP_V_BEACON_COVERAGE_SHORT"), true, "the beacon rejects the fractional-box counterexample")
+    --Round 36: a beacon's supply_area_distance counts from its edge (3x3, distance 3 -> y -3..6), so the machine box
+    --4.8..6.2 is in reach; only the pole, whose distance counts from its centre, refuses it.
+    H.equal(has_code(state, "BP_V_BEACON_COVERAGE_SHORT"), false, "the beacon reaches the machine from its edge")
     H.equal(has_code(state, "BP_V_POWER_UNCOVERED"), true, "the pole rejects the fractional-box counterexample")
 end)
 

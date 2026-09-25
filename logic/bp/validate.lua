@@ -1025,7 +1025,10 @@ local function check_beacons(work)
         local influencing, effects = {}, {speed = 0, consumption = 0, pollution = 0, quality = 0}
         for _, beacon in ipairs(work.beacons) do
             local projection = beacon_projection(beacon, work.catalog)
-            if box_in_area(machine, beacon.cx, beacon.cy, projection.supply_w, projection.supply_h) then
+            --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9); a pole's
+            --counts from its centre. Add the half footprint here only.
+            local half_w, half_h = finite(beacon.w, 3) / 2, finite(beacon.h, finite(beacon.w, 3)) / 2
+            if box_in_area(machine, beacon.cx, beacon.cy, projection.supply_w + half_w, projection.supply_h + half_h) then
                 influencing[#influencing + 1] = beacon
                 if machine.entity.forbids_speed_beacon or machine.entity.has_quality_module
                     or (work.steps[machine.entity.step_id] and (work.steps[machine.entity.step_id].forbids_speed_beacon

@@ -510,7 +510,9 @@ local function covers(beacon, machine, machine_spec, supply_w, supply_h)
     -- Supply is measured from the beacon centre, but the supplied entity is its collision box.  Keeping the
     -- conversion in Geometry is important: a tile footprint is a deliberate fallback, not a second predicate.
     local beacon_x, beacon_y = Geometry.center(beacon)
-    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y, supply_w, supply_h)
+    --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9), unlike a pole's.
+    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y,
+        (supply_w or 0) + (beacon.w or 3) / 2, (supply_h or supply_w or 0) + (beacon.h or beacon.w or 3) / 2)
 end
 
 --Contract 28.1 and 28.3: one hand may serve two item flows that ride one belt, using both belt lanes, which
@@ -1155,9 +1157,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
     end
 
-    -- Every requested signature has a row on each side of the machine strip.  Starting both rows at the
-    -- configured requirement gives sharing a chance, while the loop below adds only the physical beacons that
-    -- the source-frame collision boxes actually need.
+    -- Ordinary blocks use a beacon strip above their machines. Machine rows keep their input face above
+    -- the machines, so their beacon strip belongs below the output belt instead.
     --beacon_rows_h measures ONLY the rows stacked ABOVE the machine strip, because that is the single thing
     --it is used for: the machine strip's y offset and the top rows' own stacking. Counting a bottom row here
     --pushed the machines a full row further down while the top row stayed at y=0, so the top row no longer
@@ -1173,14 +1174,20 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             --single row of adjacent beacons already covers a machine several times over. Placing a second
             --row unconditionally cost a one-beacon machine FOUR beacons and made every block tall enough
             --that, once rotated, it walled the perimeter ports into a pocket with no route out.
-            local top = {group = group, w = bw, h = bh, count = count, side = "top"}
-            top_rows[#top_rows + 1] = top
-            beacon_row_specs[#beacon_row_specs + 1] = top
-            beacon_rows_h = beacon_rows_h + bh + 1
-            if count > 2 then
-                local bottom = {group = group, w = bw, h = bh, count = count, side = "bottom"}
-                bottom_rows[#bottom_rows + 1] = bottom
-                beacon_row_specs[#beacon_row_specs + 1] = bottom
+            if row_layout then
+                local output = {group = group, w = bw, h = bh, count = count, side = "output"}
+                bottom_rows[#bottom_rows + 1] = output
+                beacon_row_specs[#beacon_row_specs + 1] = output
+                -- A possible second output row is used only if actual supply-box coverage from the first
+                -- row leaves a deficit. place_row skips it when the first row is enough.
+                local second = {group = group, w = bw, h = bh, count = count, side = "output"}
+                bottom_rows[#bottom_rows + 1] = second
+                beacon_row_specs[#beacon_row_specs + 1] = second
+            else
+                local top = {group = group, w = bw, h = bh, count = count, side = "top"}
+                top_rows[#top_rows + 1] = top
+                beacon_row_specs[#beacon_row_specs + 1] = top
+                beacon_rows_h = beacon_rows_h + bh + 1
             end
         end
     end
@@ -1239,7 +1246,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 local beacon = {x = 0, y = row.y, w = row.w, h = row.h}
                 local box = Geometry.world_box({x = 0, y = machine_y, w = spec.w, h = spec.h}, spec.machine_spec)
                 local beacon_x, beacon_y = Geometry.center(beacon)
-                local supply = Geometry.supply_box(beacon_x, beacon_y, row.group.supply_w, row.group.supply_h)
+                local supply = Geometry.supply_box(beacon_x, beacon_y, row.group.supply_w + row.w / 2,
+                    (row.group.supply_h or row.group.supply_w) + row.h / 2)
                 local y_overlap = box.top < supply.bottom + Geometry.EPSILON
                     and supply.top - Geometry.EPSILON < box.bottom
                 if requests and not y_overlap then
@@ -1561,7 +1569,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     for _, inserter in ipairs(block.inserters) do
         if inserter.port_bound then has_port_bound_inserter = true; break end
     end
-    if not block.failure and has_port_bound_inserter and #bottom_rows > 0 then
+    if not block.failure and has_port_bound_inserter and #bottom_rows > 0 and not row_layout then
         block.failure = {name = "beacon-face", code = "BP_P_NO_FIT",
             detail = "bottom beacon row claims the port-bound inserter face"}
     end
@@ -1585,6 +1593,10 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --is why a one-beacon requirement was paying for four beacons and covering with two.
     local bottom_y = inserter_bottom
     local bottom_row_y = bottom_y
+    if row_layout then
+        -- Output hand, output belt, then beacon: all hand and belt cells stay clear.
+        bottom_row_y = machine_y + max_machine_h + 2
+    end
     for _, row in ipairs(bottom_rows) do
         row.y = bottom_row_y
         bottom_row_y = bottom_row_y + row.h + 1
@@ -1645,6 +1657,18 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         local deficit, order = {}, {}
         for _, machine in ipairs(block.machines) do
             local need = required_count(machine, group)
+            for _, previous in ipairs(beacon_row_specs) do
+                if previous == row then break end
+                if previous.group.signature == group.signature then
+                    for _, x in ipairs(previous.positions or {}) do
+                        local spec = machine_specs_by_id[machine.id].machine_spec
+                        if need > 0 and covers({x = row_x(previous) + x, y = previous.y,
+                            w = previous.w, h = previous.h}, machine, spec, group.supply_w, group.supply_h) then
+                            need = need - 1
+                        end
+                    end
+                end
+            end
             if need > 0 then deficit[machine.id] = need; order[#order + 1] = machine end
         end
         row.positions = {}

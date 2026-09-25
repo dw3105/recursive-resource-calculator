@@ -48,7 +48,9 @@ end
 -- conversion as the validator, with the prototype box supplied explicitly by the test.
 local function independently_covered(beacon, machine, machine_spec)
     local beacon_x, beacon_y = Geometry.center(beacon)
-    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y, beacon.supply_w, beacon.supply_h)
+    --Engine: a beacon's supply_area_distance counts from its edge (vanilla 3x3, distance 3 -> 9x9).
+    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y,
+        beacon.supply_w + (beacon.w or 3) / 2, (beacon.supply_h or beacon.supply_w) + (beacon.h or 3) / 2)
 end
 
 for _, shape in ipairs(H.shapes()) do
@@ -88,8 +90,10 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " B3 a tile fallback is covered but a smaller collision box is not", function()
         local placed = {entities = {
             {kind = "beacon", x = 3, y = 0, w = 3, h = 3, supply_w = 3, supply_h = 3},
-            {kind = "machine", x = 0, y = 4, w = 3, h = 3},
-            {kind = "machine", x = 4, y = 4, w = 3, h = 3,
+            --Round 36: beacon reach counts from its edge (y -3..6); at y = 6 the tile footprint touches the edge (covered)
+            --and the smaller box 6.8..8.2 misses it.
+            {kind = "machine", x = 0, y = 6, w = 3, h = 3},
+            {kind = "machine", x = 4, y = 6, w = 3, h = 3,
                 collision_box = {left_top = {x = -0.7, y = -0.7}, right_bottom = {x = 0.7, y = 0.7}}},
         }}
         local beacon = entities_of_kind(placed, "beacon")[1]
