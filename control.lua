@@ -9,6 +9,8 @@ local Calculator = require "gui.calculator"
 local ModulePicker = require "gui.module_picker"
 --Round 8 modules. Requiring them here is what registers their GUI handlers and their remote interface.
 local Jobs = require "logic.jobs"
+local Registry = require "logic.registry"
+local Generation = require "logic.bp.generation"
 --Loaded here so their registry entries exist before any handler runs: a handler may never call require.
 local Snapshot = require "logic.snapshot"
 local SolverSteps = require "logic.solver_steps"
@@ -56,6 +58,16 @@ script.on_configuration_changed(function(configuration_changed_data)
     storage.opened_restores = nil --the GUIs are rebuilt and recomputed below; pending focus restores are dropped
     --Prototypes may have changed under any running job, so no result computed before this point may commit
     Jobs.invalidate_all("configuration_changed")
+    local stopped = Generation.stop_all("mod_updated")
+    for _, player in pairs(game.players) do
+        local player_index = player.index
+        if type(Registry.progress_sweep) == "function" then Registry.progress_sweep(player_index) end
+    end
+    for _, item in ipairs(stopped) do
+        if type(Registry.progress_note) == "function" then
+            Registry.progress_note(item.player_index, item.sheet_id, {"hxrrc.blueprint_stopped_update"})
+        end
+    end
     --Prototypes changed, so every stored solver result describes a world that no longer exists
     Calculation.forget_all()
     for _, player in pairs(game.players) do

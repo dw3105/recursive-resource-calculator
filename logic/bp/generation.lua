@@ -1405,7 +1405,34 @@ end
 --Returns a plain record even when the player has never generated this sheet. The scan is intentionally per sheet:
 --a newer attempt on another sheet is not a valid fallback.
 function Generation.lookup(player_index, sheet_id)
-    return public_attempt(latest_handle(player_index, sheet_id), player_index, sheet_id)
+    local handle = latest_handle(player_index, sheet_id)
+    if handle and handle.state == "pending" then
+        local data = type(storage) == "table" and storage[player_index] or nil
+        local job = data and data.blueprint_job
+        local input = job and job.state and job.state.input
+        if not (job and input and input.generation_job_id == handle.job_id) then
+            terminal_cancel(handle, "cancelled")
+        end
+    end
+    return public_attempt(handle, player_index, sheet_id)
+end
+
+function Generation.stop_all(reason)
+    reason = type(reason) == "string" and reason or tostring(reason or "cancelled")
+    local state, stopped = persistence(false), {}
+    local candidates = {}
+    for id, handle in pairs(handles) do candidates[id] = handle end
+    for id, record in pairs(state and state.jobs or {}) do
+        if not candidates[id] then candidates[id] = handle_from_record(record) end
+    end
+    for id, handle in pairs(candidates) do
+        if handle and handle.state == "pending" then
+            handle.reason_codes = {reason}
+            terminal_cancel(handle, "cancelled")
+            stopped[#stopped + 1] = {player_index = handle.player_index, sheet_id = handle.sheet_id}
+        end
+    end
+    return stopped
 end
 
 Generation.attempt = Generation.lookup
@@ -1423,32 +1450,8 @@ function Generation.status(player_index, job_id)
         if job and input and input.generation_job_id == job_id then
             handle.phase = job.phase or handle.phase
             handle.progress = copy_plain(job.progress) or handle.progress
-        elseif not sheet_for(player_index, handle.sheet_id) then
-            terminal_cancel(handle, "cancelled")
-        elseif not job then
-            local revisions = current_revisions(player_index, handle.sheet_id)
-            if revisions.sheet ~= (handle.revisions and handle.revisions.sheet)
-                or revisions.config ~= (handle.revisions and handle.revisions.config) then
-                handle.state = "failure"
-                handle.phase = "search"
-                handle.reason_codes = {"BP_FAIL_REVISION_CHANGED"}
-                update_capture(handle, nil, "failure", handle.reason_codes, handle.phase)
-                persist_handle(handle)
-                bridge_attempt(handle, false)
-            else
-                terminal_cancel(handle, "cancelled")
-            end
         else
-            local revisions = current_revisions(player_index, handle.sheet_id)
-            if revisions.sheet ~= (handle.revisions and handle.revisions.sheet)
-                or revisions.config ~= (handle.revisions and handle.revisions.config) then
-                handle.state = "failure"
-                handle.phase = "search"
-                handle.reason_codes = {"BP_FAIL_REVISION_CHANGED"}
-                update_capture(handle, nil, "failure", handle.reason_codes, handle.phase)
-                persist_handle(handle)
-                bridge_attempt(handle, false)
-            end
+            terminal_cancel(handle, "cancelled")
         end
     end
     return public_status(handle)
@@ -1490,6 +1493,10 @@ function Generation.cancel(player_index, job_id)
     Jobs.cancel(player_index, handle.sheet_id)
     terminal_cancel(handle, "cancelled")
     return true
+end
+
+function Generation._forget_handles_for_test()
+    handles = {}
 end
 
 Registry.generation = Generation
