@@ -780,6 +780,50 @@ local function append_port_demands(work, demands, flow_id, role, entry, share, l
     end
 end
 
+-- Output hands from one machine can share a collector when their drop ports form a straight,
+-- adjacent run.  Start at the end nearest the usual northbound route; the first belt tiles then
+-- cover every hand drop, since a hand can drop onto a belt regardless of its facing.
+local function combine_adjacent_output_hands(demands)
+    local groups = {}
+    for _, demand in ipairs(demands) do
+        local endpoint = demand.endpoint
+        if endpoint and endpoint.step_id ~= "$external" and endpoint.kind ~= "fluid" then
+            local key = tostring(endpoint.step_id) .. "\0" .. tostring(endpoint.x)
+            groups[key] = groups[key] or {}
+            groups[key][#groups[key] + 1] = demand
+        end
+    end
+    local removed = {}
+    for _, group in pairs(groups) do
+        table.sort(group, function(a, b) return a.endpoint.y < b.endpoint.y end)
+        local run = {}
+        local function flush()
+            if #run > 1 then
+                local total = 0
+                for _, member in ipairs(run) do total = total + member.remaining; removed[member] = true end
+                local chosen = run[#run].endpoint
+                demands[#demands + 1] = {endpoint = chosen, candidates = {chosen}, remaining = total,
+                    explicit_port_id = run[#run].explicit_port_id}
+            end
+            run = {}
+        end
+        for _, member in ipairs(group) do
+            if #run == 0 or member.endpoint.y == run[#run].endpoint.y + 1 then
+                run[#run + 1] = member
+            else
+                flush(); run[1] = member
+            end
+        end
+        flush()
+    end
+    if next(removed) then
+        local kept = {}
+        for _, demand in ipairs(demands) do if not removed[demand] then kept[#kept + 1] = demand end end
+        for index = #demands, 1, -1 do demands[index] = nil end
+        for _, demand in ipairs(kept) do demands[#demands + 1] = demand end
+    end
+end
+
 local function build_demands(work, flows)
     local demands = {}
     for _, flow in ipairs(flows) do
@@ -791,6 +835,7 @@ local function build_demands(work, flows)
                     local role = step_id_of(entry) == "$external" and "in" or "out"
                     append_port_demands(work, producers, id, role, entry, share_of(entry), "producer")
                 end
+                combine_adjacent_output_hands(producers)
                 for _, entry in ipairs(flow.consumers or {}) do
                     local role = step_id_of(entry) == "$external" and "out" or "in"
                     append_port_demands(work, consumers, id, role, entry, share_of(entry), "consumer")

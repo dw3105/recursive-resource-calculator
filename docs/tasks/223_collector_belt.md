@@ -44,6 +44,10 @@ slot, copper takes the other; no detour. An inserter drops onto a belt tile what
    connected belt run touching both its drop tiles; no belt of any flow with y < 3 outside the feed row at y = 3
    (no detour over the top); total belt cells lower than base (print both).
 
+Implementation note: demand construction joins contiguous vertical output ports belonging to the same machine and
+flow into one source demand. Its route begins on the lower drop tile, so a northbound route lays belt under every
+adjacent hand drop. Other ports retain the per-port demand behavior.
+
 ## Files this lane owns
 
 logic/bp/route.lua, tests/test_route_collector.lua, tests/test_route.lua, tests/test_route_tidy.lua, docs/tasks/223_collector_belt.md.
