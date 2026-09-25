@@ -160,7 +160,7 @@ local function display_text(encoded)
     return table.concat(lines, "\n")
 end
 
-local function build_window(player, state, encoded, encode_error, sheet_id)
+local function build_window(player, state, encoded, encode_error, sheet_id, blueprint_string)
     local frame = player.gui.screen.add{
         type = "frame",
         name = ExportDialog.FRAME_NAME,
@@ -174,7 +174,7 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     --close sprites are core utility sprites of 2.0 ("close" and "close_black"); "close_white" does not exist.
     local titlebar = frame.add{type = "flow", name = TITLEBAR_NAME, direction = "horizontal"}
     titlebar.drag_target = frame
-    titlebar.add{type = "label", name = "hxrrc_export_title", caption = {"hxrrc.export_dialog_title"},
+    titlebar.add{type = "label", name = "hxrrc_export_title", caption = {blueprint_string and "hxrrc.blueprint_string_title" or "hxrrc.export_dialog_title"},
         style = "frame_title"}
     local drag_space = titlebar.add{type = "empty-widget", name = "hxrrc_export_drag",
         style = "draggable_space_header"}
@@ -190,7 +190,7 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     frame.add{
         type = "label",
         name = STATE_NAME,
-        caption = {"hxrrc.export_state_" .. state},
+        caption = {blueprint_string and "hxrrc.blueprint_delivered" or "hxrrc.export_state_" .. state},
     }
 
     if type(encoded) == "string" and encode_error == nil then
@@ -222,7 +222,7 @@ local function build_window(player, state, encoded, encode_error, sheet_id)
     frame.add{
         type = "label",
         name = "hxrrc_export_explanation",
-        caption = {"hxrrc.export_explanation"},
+        caption = {blueprint_string and "hxrrc.blueprint_string_explanation" or "hxrrc.export_explanation"},
     }
 
     local footer = frame.add{type = "flow", name = "hxrrc_export_footer", direction = "horizontal"}
@@ -252,6 +252,18 @@ function ExportDialog.open(player_index, sheet_flow)
     --Only plain data is saved. The frame is recovered from player.gui.screen by name.
     storage[player_index].export_dialog = {sheet_id = sheet_id_of(sheet_flow), state = state}
     opened_sheets[player_index] = sheet_flow
+    player.opened = frame
+    return frame
+end
+
+function ExportDialog.open_blueprint_string(player_index, encoded)
+    local player = player_of(player_index)
+    if not player or type(encoded) ~= "string" then return nil end
+    local existing = live_frame(player_index)
+    if existing then destroy_frame(existing) end
+    local frame = build_window(player, "current", encoded, nil, nil, true)
+    storage[player_index].export_dialog = {state = "current"}
+    opened_sheets[player_index] = nil
     player.opened = frame
     return frame
 end

@@ -10,12 +10,14 @@ local Settings = require "logic.bp.settings"
 local ReasonCodes = require "logic.bp.reason_codes"
 local Generation = require "logic.bp.generation"
 local Registry = require "logic.registry"
+local ExportDialog = require "gui.export_dialog"
 
 local GENERATE_NAME = "hxrrc_blueprint_generate_button"
 local CLOSE_NAME = "hxrrc_blueprint_close_button"
 local ERROR_NAME = "hxrrc_blueprint_error"
 local INPUT_EDGE_NAME = "hxrrc_blueprint_input_edge_dropdown"
 local OUTPUT_EDGE_NAME = "hxrrc_blueprint_output_edge_dropdown"
+local COPY_NAME = "hxrrc_copy_blueprint_string"
 
 local INFRASTRUCTURE = {
     {key = "roboport", name = "hxrrc_blueprint_roboport_button", entity_type = "roboport"},
@@ -364,6 +366,50 @@ function BlueprintDialog.show_generation_failure(player_index, terminal)
 end
 
 Registry.generation_failure = BlueprintDialog.show_generation_failure
+
+local progress_note = Registry.progress_note
+if progress_note then
+    Registry.progress_note = function(player_index, sheet_id, caption, extra)
+        local found = progress_note(player_index, sheet_id, caption)
+        if found and extra and extra.copy_job_id then
+            local pane = storage[player_index] and storage[player_index].sheet_section and storage[player_index].sheet_section.sheet_pane
+            for _, tab in ipairs(pane and pane.tabs or {}) do
+                if sheet_id_of(tab.content) == sheet_id then
+                    local note
+                    for _, child in ipairs(tab.content.children or {}) do if child.name == "hxrrc_job_note" then note = child end end
+                    if note then note.add{type = "button", name = COPY_NAME, caption = {"hxrrc.copy_string"}, tags = {job_id = extra.copy_job_id}} end
+                end
+            end
+        end
+        return found
+    end
+end
+
+local function open_blueprint_string(player_index, job_id)
+    local player = player_of(player_index)
+    local status = Generation.status(player_index, job_id)
+    if not player or not status or not status.blueprint_string then return end
+    ExportDialog.open_blueprint_string(player_index, status.blueprint_string)
+end
+Registry.add_delivery_copy_button = function(player_index, sheet_id, job_id)
+    local pane = storage[player_index] and storage[player_index].sheet_section and storage[player_index].sheet_section.sheet_pane
+    for _, tab in ipairs(pane and pane.tabs or {}) do
+        if sheet_id_of(tab.content) == sheet_id then
+            local note
+            for _, child in ipairs(tab.content.children or {}) do if child.name == "hxrrc_job_note" then note = child end end
+            if note then
+                for _, child in ipairs(note.children or {}) do if child.name == COPY_NAME then child.destroy() end end
+                note.add{type = "button", name = COPY_NAME, caption = {"hxrrc.copy_string"}, tags = {job_id = job_id}}
+                return true
+            end
+        end
+    end
+    return false
+end
+event_handlers.on_gui_click[COPY_NAME] = function(event)
+    local tags = event.element and event.element.tags or {}
+    open_blueprint_string(event.player_index, tags.job_id)
+end
 
 for _, definition in ipairs(INFRASTRUCTURE) do
     event_handlers.on_gui_elem_changed[definition.name] = store_element_change

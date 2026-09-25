@@ -197,6 +197,18 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(ExportPayload.encode(payload) ~= nil, true, "empty payload encodes")
     end)
 
+    H.test(shape .. " D5 delivery diagnostics are exported as plain fields", function()
+        world_with(shape)
+        local _, sheet_flow = H.fill_sheet({}, 1)
+        storage[1].blueprint_delivery = {pending = true, entities = {{entity_number = 1}}}
+        storage[1].blueprint_delivery_last_reason = "blueprint_delivery_failed"
+        storage[1].blueprint_delivered_sequence = 7
+        local payload = build(sheet_flow)
+        H.equal(payload.delivery.pending, true, "pending delivery is reported")
+        H.equal(payload.delivery.last_reason, "blueprint_delivery_failed", "last reason is reported")
+        H.equal(payload.delivery.delivered_sequence, 7, "delivered sequence is reported")
+    end)
+
     H.test(shape .. " E5 stale result carries its own settings and is never current", function()
         world_with(shape)
         local _, sheet_flow = H.fill_sheet({{item = "gear", rate = 1, unit = "/s"}}, 1)

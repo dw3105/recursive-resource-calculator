@@ -1186,10 +1186,7 @@ local function step(job, budget)
                     result = candidate, blueprint_string = encoded}
                 active_handle.phase = first and "improving" or active_handle.phase
                 if first then job.phase = "improving" end
-                if first and active_handle.deliver then
-                    local ok = BlueprintDelivery.deliver(active_handle.player_index, candidate)
-                    if ok then active_handle.delivered_sequence = interim.sequence end
-                end
+                -- Interims are offers. Automatic delivery is reserved for the final result.
                 persist_handle(active_handle)
                 bridge_attempt(active_handle, false)
             end
@@ -1249,17 +1246,30 @@ local function publish(job)
     local final_entities = type(blueprint.entities) == "table" and #blueprint.entities or 0
     local had_interim = handle.interim ~= nil
     local equal_delivered = handle.delivered_sequence ~= nil and handle.interim
-        and handle.interim.sequence == final_sequence and handle.interim.entities == final_entities
+        and handle.interim.sequence == final_sequence and handle.interim.blueprint_string == encoded
     if equal_delivered then
         --The cursor already received this exact best result while the search was running.
     else
         handle.interim = {sequence = final_sequence or (had_interim and (handle.interim.sequence + 1) or 1), entities = final_entities,
             result = blueprint, blueprint_string = encoded}
     end
-    if handle.deliver and not equal_delivered and not had_interim then
+    if handle.deliver and not equal_delivered then
         local ok, reason = BlueprintDelivery.deliver(handle.player_index, blueprint)
-        if not ok and reason ~= "blueprint_cursor_busy" then
+        if ok then
+            handle.delivered_sequence = final_sequence or 1
+            local data = type(storage) == "table" and storage[handle.player_index]
+            if data then data.blueprint_delivered_sequence = handle.delivered_sequence end
+        else
             handle.delivery_reason = reason
+            local caption = reason == "blueprint_cursor_busy" and {"hxrrc.blueprint_waiting_hand"}
+                or {"hxrrc.blueprint_not_delivered", tostring(reason)}
+            if type(Registry.progress_note) == "function" then
+                Registry.progress_note(handle.player_index, handle.sheet_id, caption,
+                    reason == "blueprint_cursor_busy" and nil or {copy_job_id = handle.job_id})
+                if reason ~= "blueprint_cursor_busy" and type(Registry.add_delivery_copy_button) == "function" then
+                    Registry.add_delivery_copy_button(handle.player_index, handle.sheet_id, handle.job_id)
+                end
+            end
         end
     end
     persist_handle(handle)
@@ -1276,6 +1286,8 @@ function Generation.deliver_interim(player_index, job_id, sequence)
     local ok, reason = BlueprintDelivery.deliver(player_index, interim.result)
     if ok then
         handle.delivered_sequence = interim.sequence
+        local data = type(storage) == "table" and storage[player_index]
+        if data then data.blueprint_delivered_sequence = interim.sequence end
         persist_handle(handle)
     end
     return ok, reason
@@ -1344,6 +1356,7 @@ local function public_status(handle)
     }
     if handle.state == "success" then
         result.blueprint_string = handle.blueprint_string
+        result.result = copy_plain(handle.result)
         result.canonical_sha256 = handle.canonical_sha256
         result.canonical_version = handle.canonical_version
     elseif handle.state == "failure" then
