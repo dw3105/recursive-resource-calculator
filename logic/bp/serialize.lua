@@ -408,6 +408,9 @@ local function published_direction(entity, direction, catalog)
     local spec = catalog_entity(catalog, entity)
     local etype = (spec and spec.etype) or entity.etype or entity.kind
     local name = tostring(entity.name or entity.prototype or "")
+    --A plain pipe has no direction; the route's travel heading leaked out as `direction` (draftsman flagged 44 on
+    --player-inserter-10s, 2026-09-25).  Pipe-to-ground keeps its own.
+    if etype == "pipe" or name == "pipe" then return nil end
     if etype ~= "inserter" and not name:find("inserter", 1, true) then return direction end
     return (direction + 8) % 16
 end

@@ -2278,6 +2278,16 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
     return cost
 end
 
+--Riding is a last resort only when there is something to ride: a same-flow belt underground already laid.
+--Without one the retry repeats the failed search and spends the demand-order restart's budget (test RB3).
+local function has_rideable_pair(work, flow_id)
+    for _, segment in ipairs(work.segments or {}) do
+        if segment.underground and segment.kind ~= "pipe" and not segment.splitter
+            and segment_has_flow(segment, flow_id) then return true end
+    end
+    return false
+end
+
 local function search_step(work, search)
     local current = heap_pop(search)
     if not current then return "failed" end
@@ -3910,7 +3920,7 @@ function Route.step(state, budget)
                     elseif next_endpoint_candidate(demand) then
                         work.current = nil
                     elseif not demand.allow_ride and not search.saw_fluid_mix and not search.saw_capacity
-                        and demand.kind ~= "pipe" then
+                        and demand.kind ~= "pipe" and has_rideable_pair(work, demand.flow_id) then
                         --Last resort before the demand fails: search once more, now allowed to ride a same-flow
                         --underground pair already laid (see search_step).
                         demand.allow_ride = true
