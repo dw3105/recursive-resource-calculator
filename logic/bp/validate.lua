@@ -638,18 +638,6 @@ local function transport_neighbors(work, info, wanted_flow)
                     add_at(x + ox + dx, y + oy + dy)
                 end
             end
-            --A belt may also feed this tile from its side. The neighboring belt points into the
-            --current tile; include that incoming edge so every producer branch is witnessed.
-            for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
-                local nx, ny = x + delta[1], y + delta[2]
-                for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(nx, ny)] or {}) do
-                    if candidate ~= info and transport_kind(candidate) == "belt"
-                        and transport_accepts_flow(candidate, wanted_flow) then
-                        local ndx, ndy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
-                        if ndx == -delta[1] and ndy == -delta[2] then add_at(nx, ny) end
-                    end
-                end
-            end
         end
     end
     return result
@@ -2002,7 +1990,31 @@ local function check_physical_transfers(work, machine_index, final)
         return used[info.id] ~= nil and next(used[info.id]) ~= nil
     end
 
+    local flow_id_for_feeds
+    --Marks a witnessed path and everything that FEEDS it: a belt behind or side-loading into a used transport, a
+    --splitter input, an underground entrance behind its exit. Only upstream: a belt the used line feeds and that
+    --leads nowhere is waste and stays BP_V_TRANSPORT_UNUSED (tests/test_validate_witness_underground.lua dangle).
+    local function pair_of(info)
+        local entity = info.entity or {}
+        local id = entity.ug_pair_id or entity.underground_pair_id
+        return id and work.info_by_id[id] or nil
+    end
+    local function feeds(candidate, current)
+        local partner = work._underground_partner and work._underground_partner[candidate.id] or pair_of(candidate)
+        if partner == current then
+            --An underground pair joins both ways in the index; the entrance is the end that faces the exit.
+            local cx, cy = transport_tile(candidate)
+            local tx, ty = transport_tile(current)
+            local dx, dy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
+            return dx ~= nil and ((tx - cx) * dx + (ty - cy) * dy) > 0
+        end
+        for _, next_info in ipairs(transport_neighbors(work, candidate, flow_id_for_feeds)) do
+            if next_info == current then return true end
+        end
+        return false
+    end
     local function mark_path(path, flow_id)
+        flow_id_for_feeds = flow_id
         local queue, head, seen = {}, 1, {}
         for _, info in ipairs(path or {}) do
             if not seen[info.id] then seen[info.id] = true; queue[#queue + 1] = info end
@@ -2010,17 +2022,31 @@ local function check_physical_transfers(work, machine_index, final)
         while queue[head] do
             local current = queue[head]; head = head + 1
             mark_used(current, flow_id)
-            for _, candidate in ipairs(transport_neighbors(work, current, flow_id)) do
-                if not seen[candidate.id] then seen[candidate.id] = true; queue[#queue + 1] = candidate end
+            local x, y = transport_tile(current)
+            local candidates = {}
+            --Belts, splitters and a side-load sit next to what they feed (a splitter is two tiles wide).
+            for oy = -2, 2 do
+                for ox = -2, 2 do
+                    for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x + ox, y + oy)] or {}) do
+                        candidates[#candidates + 1] = candidate
+                    end
+                end
             end
-            -- Exports sometimes publish the pair id on only one underground endpoint.
-            for _, candidate in ipairs(work.infos or {}) do
-                local entity, current_entity = candidate.entity or {}, current.entity or {}
-                local pair_id = entity.ug_pair_id or entity.underground_pair_id
-                local current_pair = current_entity.ug_pair_id or current_entity.underground_pair_id
-                if candidate ~= current and transport_kind(candidate) == "belt"
-                    and transport_accepts_flow(candidate, flow_id)
-                    and (pair_id == current.id or current_pair == candidate.id) and not seen[candidate.id] then
+            --An underground's partner may be many tiles away, and an export may name the pair on one end only.
+            if not work._underground_partner then
+                work._underground_partner = {}
+                for _, info in ipairs(work.infos or {}) do
+                    local partner = pair_of(info)
+                    if partner then
+                        work._underground_partner[info.id] = partner
+                        work._underground_partner[partner.id] = work._underground_partner[partner.id] or info
+                    end
+                end
+            end
+            candidates[#candidates + 1] = work._underground_partner[current.id]
+            for _, candidate in ipairs(candidates) do
+                if candidate ~= current and not seen[candidate.id] and transport_kind(candidate) == "belt"
+                    and transport_accepts_flow(candidate, flow_id) and feeds(candidate, current) then
                     seen[candidate.id] = true; queue[#queue + 1] = candidate
                 end
             end
