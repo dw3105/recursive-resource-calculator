@@ -314,7 +314,9 @@ local function json_write(value, out)
             for index, key in ipairs(keys) do
                 if index > 1 then out[#out + 1] = "," end
                 out[#out + 1] = json_escape(key) .. ":"
-                json_write(value[key] ~= nil and value[key] or value[tonumber(key)], out)
+                local child = value[key]
+                if child == nil then child = value[tonumber(key)] end
+                json_write(child, out)
             end
             out[#out + 1] = "}"
         end
