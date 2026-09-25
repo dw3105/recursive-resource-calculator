@@ -18,7 +18,11 @@ H.test("PP1 two parallel belt lines of one flow between the same two machines ar
         if err.code == "BP_V_TRANSPORT_UNUSED" then unused = unused + 1 end
     end
     H.equal(unused, 0, "no belt or hand of the copper-cable lines is reported unused")
-    H.equal(state.ok, true, "the real inserter-10s layered candidate passes")
+    -- The frozen validator input still contains the historical splitter chain; route now removes it upstream.
+    H.equal(state.ok, false, "the frozen witness is refused only for its splitter chain")
+    local chain = 0
+    for _, err in ipairs(state.errors or {}) do if err.code == "BP_V_SPLITTER_CHAIN" then chain = chain + 1 end end
+    H.equal(chain > 0, true, "the frozen route geometry has a splitter chain")
 end)
 
 H.done("test_validate_parallel_ports")

@@ -3022,6 +3022,7 @@ function Route.tidy_begin(done_state, options)
     return state
 end
 
+local prune_dead_route_segments
 function Route.tidy_step(state, budget)
     if type(state) ~= "table" or state.done then return state end
     budget = budget or {ops = 1}
@@ -3042,6 +3043,7 @@ function Route.tidy_step(state, budget)
     end
     if work.improved then
         unbury_empty_pairs(work)
+        prune_dead_route_segments(work)
         state.result, state.done, state.ok = result_for(work), true, true
         state.progress.phase = "done"
     end
@@ -3187,6 +3189,71 @@ local function lift_binding(work, binding, allow_fixed)
     for _, other in ipairs(work.bindings) do if other ~= binding then bindings[#bindings + 1] = other end end
     work.bindings = bindings
     return count
+end
+
+--A kept reroute can leave the old shared trunk behind when every sink's lift correctly protects the
+--other sinks' allocation. Once all trials are over, retain only segments on a complete bound path.
+local function untangle_splitter_chains(work)
+    local replacements = {}
+    for _, downstream in ipairs(work.segments or {}) do
+        if downstream.splitter then
+            local dx, dy = Grid.dir_vector(downstream.splitter_direction)
+            local x, y = coordinate_from_key(downstream.splitter_second_key or "")
+            if dx and x then
+                for _, upstream in ipairs(work.segments or {}) do
+                    if upstream ~= downstream and upstream.splitter and upstream.flow_id == downstream.flow_id
+                        and upstream.splitter_direction == downstream.splitter_direction then
+                        local ux, uy = Grid.dir_vector(upstream.splitter_direction)
+                        local sx, sy = coordinate_from_key(upstream.splitter_second_key or "")
+                        local out1 = coordinate_key(upstream.splitter_anchor_x + ux, upstream.splitter_anchor_y + uy)
+                        local out2 = coordinate_key(sx + ux, sy + uy)
+                        if coordinate_key(downstream.splitter_anchor_x, downstream.splitter_anchor_y) == out1
+                            and downstream.splitter_second_key == out2 then replacements[#replacements + 1] = downstream; break end
+                    end
+                end
+            end
+        end
+    end
+    for _, old in ipairs(replacements) do
+        local keys = {old.splitter_anchor_key, old.splitter_second_key}
+        local old_entity = work.entity_by_segment[old.segment_id]
+        if old_entity then old_entity._route_removed = true end
+        work.entity_by_segment[old.segment_id] = nil
+        for index = #work.segments, 1, -1 do if work.segments[index] == old then table.remove(work.segments,index) end end
+        for i, key in ipairs(keys) do
+            local x, y = coordinate_from_key(key)
+            local segment = {segment_id = i == 1 and old.segment_id or next_segment_id(work), kind = "belt",
+                capacity_per_second = old.capacity_per_second, allocations = {}, flow_id = old.flow_id,
+                flow_ids = old.flow_ids, direction = old.splitter_direction, length = 1}
+            for _, allocation in ipairs(old.allocations or {}) do
+                segment.allocations[#segment.allocations + 1] = {flow_id=allocation.flow_id,sink=allocation.sink,rate_per_second=allocation.rate_per_second}
+            end
+            local entity = {id=next_entity_id(work),name=work.belt.belt,position=entity_position(x,y),
+                direction=segment.direction,dir=segment.direction,flow_id=segment.flow_id,segment_id=segment.segment_id}
+            work.segments[#work.segments+1]=segment
+            work.segments_by_cell[key]=segment
+            work.entities[#work.entities+1]=entity
+            work.entity_by_segment[segment.segment_id]=entity
+        end
+        for _, binding in ipairs(work.bindings or {}) do if binding.segment_id == old.segment_id then binding.segment_id = keys[1] and old.segment_id end end
+    end
+end
+
+prune_dead_route_segments = function(work)
+    untangle_splitter_chains(work)
+    local live = {}
+    for _, binding in ipairs(work.bindings or {}) do
+        for _, key in ipairs(binding_path(work, binding) or {}) do
+            local segment = work.segments_by_cell[key]
+            if segment then live[segment.segment_id] = true end
+        end
+    end
+    local kept = {}
+    for _, segment in ipairs(work.segments or {}) do
+        if live[segment.segment_id] then kept[#kept + 1] = segment end
+    end
+    work.segments = kept
+    audit_route_work(work)
 end
 
 --Underground inputs fed from the side: the player's rule is that a side-load is a last resort, so the
@@ -3860,7 +3927,10 @@ function Route.step(state, budget)
                 if finished then work.improved, work.improve_state = true, nil end
             end
             if not work.improved then break end
-            if state.tidy ~= false then unbury_empty_pairs(work) end
+            if state.tidy ~= false then
+                unbury_empty_pairs(work)
+                prune_dead_route_segments(work)
+            end
             state.result, state.done, state.ok = result_for(work), true, true
             state.progress.phase = "done"
             break
