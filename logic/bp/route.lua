@@ -3387,7 +3387,9 @@ local function source_lane(work, endpoint, flow_id)
             if carries then
                 for _,hand_id in ipairs(run.hand_ids or {}) do
                     for _,hand in ipairs(work.input_entities or {}) do
-                        if same_id(hand.id,hand_id) and (hand.role=="output" or hand.direction=="output") then
+                        if same_id(hand.id,hand_id)
+                            and (endpoint.inserter_id == nil or same_id(endpoint.inserter_id, hand_id))
+                            and (hand.role=="output" or hand.direction=="output") then
                             local drop=hand.drop_position or hand.drop
                             local hx,hy=finite(hand.x),finite(hand.y)
                             local tx,ty=finite(drop and drop.x),finite(drop and drop.y)
