@@ -831,7 +831,7 @@ local function combine_adjacent_output_hands(work, demands)
                 local total, chosen_member, port_ids, members = 0, component[1], {}, {}
                 local vertical = true
                 for _, member in ipairs(component) do
-                    if member.endpoint.y ~= component[1].endpoint.y then vertical = false end
+                    if member.endpoint.x ~= component[1].endpoint.x then vertical = false end
                 end
                 for _, member in ipairs(component) do
                     total = total + member.remaining
