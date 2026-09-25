@@ -638,6 +638,18 @@ local function transport_neighbors(work, info, wanted_flow)
                     add_at(x + ox + dx, y + oy + dy)
                 end
             end
+            --A belt may also feed this tile from its side. The neighboring belt points into the
+            --current tile; include that incoming edge so every producer branch is witnessed.
+            for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+                local nx, ny = x + delta[1], y + delta[2]
+                for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(nx, ny)] or {}) do
+                    if candidate ~= info and transport_kind(candidate) == "belt"
+                        and transport_accepts_flow(candidate, wanted_flow) then
+                        local ndx, ndy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
+                        if ndx == -delta[1] and ndy == -delta[2] then add_at(nx, ny) end
+                    end
+                end
+            end
         end
     end
     return result
@@ -1787,7 +1799,8 @@ local function external_failure_step(work, flow_id, role, start_x, start_y, kind
     return "external:" .. tostring(flow_id)
 end
 
-local function machine_port_for(work, machine, flow_id, role)
+local function machine_ports_for(work, machine, flow_id, role)
+    local result = {}
     for _, port in ipairs(work.ports) do
         if not is_external_port(port) and (port.role or port.direction) == role
             and (port.step_id == nil or port.step_id == machine.entity.step_id) then
@@ -1795,12 +1808,12 @@ local function machine_port_for(work, machine, flow_id, role)
                 --A row port serves every machine of its row: they share one belt run (docs/contracts/row_block.md).
                 if port.member_id == nil or port.row_port or port.member_id == machine.id
                     or port.member_id == machine.entity.machine_id then
-                    return port
+                    result[#result + 1] = port
                 end
             end
         end
     end
-    return nil
+    return result
 end
 
 local function flow_record(work, flow_id)
@@ -1846,8 +1859,10 @@ local function connection_path(work, flow_id, role, x, y, kind)
         local step_id = step_id_of(record)
         if step_id and step_id ~= "$external" then
             for _, machine in ipairs(machines_for_step(work, step_id)) do
-                local port = machine_port_for(work, machine, flow_id, role == "input" and "out" or "in")
-                if not port then missing_port_machine = missing_port_machine or machine end
+                local ports = machine_ports_for(work, machine, flow_id, role == "input" and "out" or "in")
+                if #ports == 0 then missing_port_machine = missing_port_machine or machine end
+                --A machine can expose multiple ports for one flow on separate belt lines. Test each port:
+                --choosing only the first made a connected second hand look disconnected and its whole line waste.
                 --`local px, py = port and port_position(...)` was silently WRONG: in Lua a call as the right
                 --operand of `and` is adjusted to exactly ONE value, so `py` was ALWAYS nil and every internal
                 --machine-to-machine walk died on transport_path's first line, which refuses a nil endpoint.
@@ -1855,13 +1870,12 @@ local function connection_path(work, flow_id, role, x, y, kind)
                 --Measured 2026-09-22 on legalcopilot-dev, the player's own sheet: every copper-plate and
                 --iron-gear-wheel obligation failed this way and was reported BP_V_ROUTE_DISCONTINUOUS, with
                 --every belt behind it then swept up as BP_V_TRANSPORT_UNUSED.
-                local px, py
-                if port then px, py = port_position(work, port) end
-                local path
-                if role == "input" then path = transport_path(work, px, py, x, y, flow_id, kind)
-                else path = transport_path(work, x, y, px, py, flow_id, kind) end
-                if port and path then
-                    found_port, found_path, found_machine = port, path, machine
+                for _, port in ipairs(ports) do
+                    local px, py = port_position(work, port)
+                    local path
+                    if role == "input" then path = transport_path(work, px, py, x, y, flow_id, kind)
+                    else path = transport_path(work, x, y, px, py, flow_id, kind) end
+                    if path then found_port, found_path, found_machine = port, path, machine end
                 end
             end
         end
@@ -1989,7 +2003,29 @@ local function check_physical_transfers(work, machine_index, final)
     end
 
     local function mark_path(path, flow_id)
-        for _, info in ipairs(path or {}) do mark_used(info, flow_id) end
+        local queue, head, seen = {}, 1, {}
+        for _, info in ipairs(path or {}) do
+            if not seen[info.id] then seen[info.id] = true; queue[#queue + 1] = info end
+        end
+        while queue[head] do
+            local current = queue[head]; head = head + 1
+            mark_used(current, flow_id)
+            if transport_kind(current) == "belt" then
+                local x, y = transport_tile(current)
+                for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+                    local nx, ny = x + delta[1], y + delta[2]
+                    for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(nx, ny)] or {}) do
+                        if candidate ~= current and transport_kind(candidate) == "belt"
+                            and transport_accepts_flow(candidate, flow_id) then
+                            local dx, dy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
+                            if dx == -delta[1] and dy == -delta[2] and not seen[candidate.id] then
+                                seen[candidate.id] = true; queue[#queue + 1] = candidate
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 
     local function witness_step(info)
@@ -2329,7 +2365,8 @@ local function check_port_approaches(work, port_index)
         if wanted_flow == nil then return end
         for _, info in ipairs(work.infos) do
             local kind = transport_kind(info)
-            if kind then
+            local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
+            if kind and ((fluid_port and kind == "pipe") or (not fluid_port and kind == "belt")) then
                 local tx, ty = tile_of(info)
                 local flow_id = info.entity.flow_id or info.entity.full_name
                 if tx == math.floor(x) and ty == math.floor(y) and flow_id ~= nil and flow_id ~= wanted_flow then
@@ -2338,13 +2375,16 @@ local function check_port_approaches(work, port_index)
             end
         end
         for _, segment in ipairs(work.segments) do
+            local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
+            local segment_kind = segment.kind == "pipe" and "pipe" or "belt"
             local flow_ids = {}
             if segment.flow_id ~= nil then flow_ids[segment.flow_id] = true end
             for _, allocation in ipairs(segment.allocations or {}) do
                 if allocation.flow_id ~= nil then flow_ids[allocation.flow_id] = true end
             end
             for flow_id, _ in pairs(flow_ids) do
-                if flow_id ~= wanted_flow then
+                if flow_id ~= wanted_flow and ((fluid_port and segment_kind == "pipe")
+                    or (not fluid_port and segment_kind == "belt")) then
                     local points = segment.cells or segment.tiles or segment.path or segment.positions
                     for _, point in ipairs(list_from(points)) do
                         local px, py
@@ -2370,6 +2410,45 @@ local function check_port_approaches(work, port_index)
             occupant_at(port, x, y)
             if port.role == "in" then occupant_at(port, x - dx, y - dy)
             elseif port.role == "out" then occupant_at(port, x + dx, y + dy) end
+        end
+    end
+    return true
+end
+
+-- Pipes join every orthogonally adjacent ordinary pipe.  A pipe-to-ground only joins its declared pair;
+-- its surface tile does not connect to nearby pipes.
+local function check_fluid_mix(work)
+    local pipes, underground = {}, {}
+    for _, info in ipairs(work.infos or {}) do
+        local entity = info.entity or {}
+        local name = tostring(name_of(entity) or "")
+        if transport_kind(info) == "pipe" then
+            local is_underground = name == "pipe-to-ground" or entity.type == "pipe-to-ground" or entity.kind == "pipe-to-ground"
+            if is_underground then underground[#underground + 1] = info else pipes[#pipes + 1] = info end
+        end
+    end
+    for _, info in ipairs(underground) do
+        local entity = info.entity or {}
+        local pair_id = entity.ug_pair_id or entity.underground_pair_id or entity.pipe_connection
+        local pair = pair_id and work.info_by_id[pair_id]
+        local flow_id, pair_flow = transport_flow(info), transport_flow(pair)
+        if pair and transport_kind(pair) == "pipe" and flow_id and pair_flow and flow_id ~= pair_flow
+            and tostring(info.id) < tostring(pair.id) then
+            error_record(work.errors, "BP_V_FLUID_MIX", {tostring(info.id), tostring(pair.id)},
+                {flow_a = flow_id, flow_b = pair_flow})
+        end
+    end
+    for i = 1, #pipes do
+        local a = pipes[i]
+        local ax, ay = transport_tile(a)
+        for j = i + 1, #pipes do
+            local b = pipes[j]
+            local bx, by = transport_tile(b)
+            local af, bf = transport_flow(a), transport_flow(b)
+            if af and bf and af ~= bf and math.abs(ax - bx) + math.abs(ay - by) == 1 then
+                error_record(work.errors, "BP_V_FLUID_MIX", {tostring(a.id), tostring(b.id)},
+                    {flow_a = af, flow_b = bf})
+            end
         end
     end
     return true
@@ -2617,7 +2696,7 @@ function Validate.step(state, budget)
         elseif phase == "power_coverage" then check_power_coverage(work); state.cursor.phase = "wire_legality"
         elseif phase == "wire_legality" then check_wire_legality(work); state.cursor.phase = "wire_connectivity"
         elseif phase == "wire_connectivity" then check_wire_connectivity(work); state.cursor.phase = "segments"
-        elseif phase == "segments" then check_segments(work); state.cursor.phase = "underground"
+        elseif phase == "segments" then check_segments(work); check_fluid_mix(work); state.cursor.phase = "underground"
         elseif phase == "underground" then check_underground(work); check_transport_shapes(work); state.cursor.phase = "port_approaches"
         elseif phase == "port_approaches" then
             local index = state.cursor.approach_index or 1
