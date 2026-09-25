@@ -2507,13 +2507,6 @@ local function search_step(work, search)
                 --port keeps the old rule: its source tile is the tile an inserter drops onto, and that tile
                 --stays a plain belt.
                 local crossings = crossing_targets(work, search.demand, search, current, direction, search.amount)
-                --A side-fed underground entrance takes only the lane on its far side. A map-edge belt carries both
-                --lanes (the validator seeds it so), so a side-fed dive on its path always blocks one of them:
-                --BP_V_UNDERGROUND_SIDELOAD_BLOCKED on red science 10/s (2026-09-25). Such a path dives straight only.
-                if current.direction ~= nil and current.direction ~= direction and search.demand.source
-                    and search.demand.source.perimeter then
-                    crossings = {}
-                end
                 for _, crossing in ipairs(crossings) do
                     local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
                     if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
