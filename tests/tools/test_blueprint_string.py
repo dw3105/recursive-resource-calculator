@@ -62,6 +62,16 @@ class BlueprintStringWireTest(unittest.TestCase):
         self.assertIn("entity 1 (medium-electric-pole)", stderr)
         self.assertIn("has no usable position", stderr)
 
+    def test_BS11_every_underground_tier_keeps_its_type(self):
+        """An untyped underground imports as an entrance; fast ones shipped untyped until 2026-09-25."""
+        ends = [{"name": name, "position": {"x": 0.5 + 4 * i, "y": 2.5}, "direction": 4, "type": kind}
+                for i, (name, kind) in enumerate([("fast-underground-belt", "input"), ("fast-underground-belt", "output"),
+                                                  ("express-underground-belt", "input"), ("turbo-underground-belt", "output")])]
+        status, stdout, stderr = run({"entities": [POLE_A, POLE_B, MACHINE] + ends})
+        self.assertEqual(status, 0, stderr)
+        kinds = [e.get("type") for e in decode(stdout)["entities"] if "underground" in e["name"]]
+        self.assertEqual(kinds, ["input", "output", "input", "output"])
+
     def test_BS1_a_result_with_no_wires_converts(self):
         """The control. Without it every refusal below is satisfied by a converter that refuses everything."""
         status, stdout, stderr = run({"entities": [POLE_A, POLE_B, MACHINE]})

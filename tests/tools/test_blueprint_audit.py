@@ -252,6 +252,14 @@ class BlueprintAuditTest(unittest.TestCase):
         _, counts = audit(entities)
         self.assertEqual(counts["unpairable_pipe_to_ground"], 0)
 
+    def test_ACC14_long_handed_inserter_reaches_two_tiles(self):
+        """A long hand picks two tiles away (player-inserter-10s, 2026-09-25: read at one tile it picked from ground)."""
+        entities = [belt(0.5, 0.5),
+                    {"name": "long-handed-inserter", "position": {"x": 2.5, "y": 0.5}, "direction": 12},
+                    {"name": "assembling-machine-3", "position": {"x": 5.5, "y": 0.5}, "recipe": "iron-gear-wheel"}]
+        _, counts = audit(entities)
+        self.assertEqual(counts["invalid_inserters"], 0)
+
     def test_ACC11_redundant_beacon_is_rejected(self):
         entities = control()
         entities.append({"name": "beacon", "position": {"x": 4.5, "y": 4.5}})

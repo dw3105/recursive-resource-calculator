@@ -1980,7 +1980,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     if segment then
         --An underground input consumes its feed into the pair; stepping onto it from the side cannot continue.
         if segment.underground and segment.underground_entry_key == coordinate_key(x, y)
-            and not (demand.kind ~= "pipe" and move_direction == segment.direction
+            and not (search and search.allow_ride and demand.kind ~= "pipe" and move_direction == segment.direction
                 and segment_has_flow(segment, demand.flow_id)) then
             search.saw_blocked = true
             return false
@@ -2116,7 +2116,11 @@ local function begin_search(work, demand, amount, order_index)
     order_index = order_index or 1
     local search = {demand = demand, amount = amount, heap = {}, serial = 0, best = {}, parent = {}, points = {},
         saw_capacity = false, saw_fluid_mix = false, saw_blocked = false,
-        directions = DIRECTION_ORDERS[order_index], order_index = order_index, closed = {}}
+        directions = DIRECTION_ORDERS[order_index], order_index = order_index, closed = {},
+        --Riding a laid same-flow underground: first routing only as a fallback (the demand's own flag), and in
+        --the keep-if-cheaper re-route pass (`allow_bury` marks it).  Refused in that pass, a trial that needed
+        --the ride searched the whole grid before failing: player-inserter-10s first-verdict tidy 18 s -> 77 s.
+        allow_ride = demand.allow_ride == true or work.allow_bury == true}
     search.source_key = state_key(demand.source.x, demand.source.y, demand.source.travel_dir or 0, demand.kind, 0)
     search.points[search.source_key] = {x = demand.source.x, y = demand.source.y}
     search.best[search.source_key] = 0
@@ -2291,8 +2295,11 @@ local function search_step(work, search)
         return reconstruct(search, current.key)
     end
     --Riding a same-flow trunk straight into its own underground entrance carries the items through the pair:
-    --the next tile of the path is the pair's exit, exactly as the laid chain walks it.
-    local riding = work.segments_by_cell[coordinate_key(current.x, current.y)]
+    --the next tile of the path is the pair's exit, exactly as the laid chain walks it.  `search.allow_ride`
+    --(begin_search): in first routing only after the demand found no path without it; offered there first it
+    --moved frozen candidates, tests/test_route_chain.lua RC5 (a demand unserved) and RC8, and
+    --tests/test_route_collision.lua RX1.
+    local riding = search.allow_ride and work.segments_by_cell[coordinate_key(current.x, current.y)]
     if riding and riding.kind ~= "pipe" and riding.underground and not riding.splitter
         and riding.underground_entry_key == coordinate_key(current.x, current.y)
         and current.direction == riding.direction and segment_has_flow(riding, search.demand.flow_id)
@@ -2387,11 +2394,27 @@ local function search_step(work, search)
         --heading for exactly the one tile it spans.  Mode 2 is that commitment, and it is the same shape of
         --rule as `surfaced` above.
         local in_body = current.mode == 2 and current.direction ~= nil and current.direction ~= direction
+        --A sink port tile that already carries a surface belt of this flow, laid facing the port's own heading,
+        --is reached by merging onto that belt: the merge adopts its heading (below), builds nothing, and the
+        --belt keeps facing the way the port asks.  Demanding the step's OWN heading there made every later
+        --demand of the flow leave the trunk one tile early, jog sideways through a new splitter and come back
+        --into the port tile from behind.  Measured 2026-09-25 on player-inserter-10s: three iron-plate hands
+        --rode the trunk down x=27 to the row feed at (27,24), already served by a curve from (27,23), and
+        --built splitters r:461 (27,22)+(28,22) and r:462 (27,23)+(28,23) plus belt r:710 at (28,24), which
+        --the validator then rightly called BP_V_TRANSPORT_UNUSED: its items only ever rejoin the same tile.
+        local sink_laid = false
+        if target and search.demand.sink.travel_dir ~= nil
+            and direction ~= Grid.dir_opposite(search.demand.sink.travel_dir) then
+            local laid = work.segments_by_cell[coordinate_key(nx, ny)]
+            sink_laid = laid ~= nil and laid.kind == "belt" and not laid.underground and not laid.splitter
+                and laid.direction == search.demand.sink.travel_dir
+                and segment_has_flow(laid, search.demand.flow_id)
+        end
         if not surfaced and not reversed and not in_body
             and (not first or search.demand.source.travel_dir == nil or search.demand.source.travel_dir == direction
                 or source_any_heading)
             and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction
-                or sink_any_approach) then
+                or sink_any_approach or sink_laid) then
             local leaving = work.segments_by_cell[coordinate_key(current.x, current.y)]
             --The body jump.  Leaving a belt already laid is not a turn -- no entity turns flow.  It is a
             --step into the OTHER tile of the splitter this cell is about to become, and the items keep the
@@ -3886,6 +3909,12 @@ function Route.step(state, budget)
                         work.current = begin_search(work, demand, amount, search.order_index + 1)
                     elseif next_endpoint_candidate(demand) then
                         work.current = nil
+                    elseif not demand.allow_ride and not search.saw_fluid_mix and not search.saw_capacity
+                        and demand.kind ~= "pipe" then
+                        --Last resort before the demand fails: search once more, now allowed to ride a same-flow
+                        --underground pair already laid (see search_step).
+                        demand.allow_ride = true
+                        work.current = begin_search(work, demand, amount, 1)
                     else
                         local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
                         work.current = nil

@@ -43,8 +43,11 @@ from typing import Any, Dict, List
 #2.0.77, packed the way Factorio packs a version: major<<48 | minor<<32 | patch<<16 | dev.
 DEFAULT_VERSION = (2 << 48) | (0 << 32) | (77 << 16)
 
-#Only these take the input/output `type` in a blueprint.
-TYPED = {"underground-belt", "loader", "loader-1x1", "fast-loader", "express-loader"}
+#Only these take the input/output `type` in a blueprint.  Every underground-belt tier does: an untyped one imports
+#as an ENTRANCE, so a pair becomes two entrances.  Only the yellow name was listed, and the player-inserter-10s
+#sheet (fast belts, 2026-09-25) shipped all 16 of its fast-underground-belt ends untyped.
+TYPED = {"underground-belt", "fast-underground-belt", "express-underground-belt", "turbo-underground-belt",
+         "loader", "loader-1x1", "fast-loader", "express-loader", "turbo-loader"}
 
 #Everything the engine understands on an ordinary blueprint entity. Anything else is internal.
 KEEP = ("name", "position", "direction", "recipe", "recipe_quality", "items", "quality",

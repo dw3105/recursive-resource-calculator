@@ -211,7 +211,11 @@ def audit_inserters(entities, cells) -> List[str]:
             failures.append(f"inserter at ({px},{py}) faces direction {direction}, which is not cardinal")
             continue
         # In a blueprint, direction points to the pickup tile; the inserter drops behind itself.
+        # A long-handed inserter reaches TWO tiles each way (tools/lane_sim.py already knew this); reading one tile
+        # reported player-inserter-10s's long hand at (25.5,26.5) as picking from empty ground, 2026-09-25.
+        reach = 2 if "long-handed" in entity.get("name", "") else 1
         vx, vy = VEC[direction]
+        vx, vy = vx * reach, vy * reach
         pickup = endpoint_kind(cells.get((px + vx, py + vy)))
         drop = endpoint_kind(cells.get((px - vx, py - vy)))
         bad_pickup = pickup not in ("belt", "machine")
@@ -330,7 +334,9 @@ def audit_orphans(entities, cells, pairs) -> Tuple[List[str], int, int]:
         direction = entity.get("direction", 0)
         if direction not in VEC:
             continue
+        reach = 2 if "long-handed" in entity.get("name", "") else 1
         vx, vy = VEC[direction]
+        vx, vy = vx * reach, vy * reach
         px, py = entity["position"]["x"], entity["position"]["y"]
         if (px - vx, py - vy) in transport:
             drops.add((px - vx, py - vy))
