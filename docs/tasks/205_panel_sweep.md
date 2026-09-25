@@ -56,3 +56,14 @@ Commit on `lane/205_panel_sweep`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3000s
+
+## Implementation status
+
+Completed S1–S4. `ProgressPanel.sweep` recursively removes the saved cancellation labels, and `Registry.progress_sweep`
+visits every sheet for a player. The tenth tick refresh sweeps sheets without running jobs, clearing stale offers,
+best-layout labels, and visible controls while leaving reports and cancellation notes in place. Cancel captures the
+job kind before the job handler removes it, so blueprint and calculation notes use their own locale keys and sit
+immediately above the report flow.
+
+Coverage is in `tests/test_panel_sweep.lua`, `tests/test_progress_panel.lua`, and `tests/test_job_flow.lua`; the new
+legacy-save and real red science generation cases drive the tenth-tick handler through `H.run_ticks` on both shapes.

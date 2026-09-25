@@ -105,6 +105,8 @@ for _, shape in ipairs(H.shapes()) do
         local note = child_named(sheet_flow, "hxrrc_job_note")
         H.equal(note ~= nil, true, "cancellation note is a separate sheet child")
         H.equal(note.children[1].caption[1], "hxrrc.calc_canceled", "the note explains cancellation")
+        H.equal(note:get_index_in_parent(), sheet_flow.output_flow:get_index_in_parent() - 1,
+            "the note sits immediately above the output")
         H.equal(child_named(sheet_flow.output_flow, "hxrrc_calc_canceled_label"), nil, "the note is outside the output")
         H.equal(calculator.enabled, true, "Cancel never disables the calculator")
     end)
@@ -115,14 +117,14 @@ for _, shape in ipairs(H.shapes()) do
         local Jobs = require "logic.jobs"
         local sheet_id = require("gui.sheet").id_of(sheet_flow)
         storage[1].calc_jobs = {[sheet_id] = {kind="calculation", sheet_id=sheet_id, started_tick=0, done=false,
-            phase="solve", progress={stage="solve", stage_done=20, stage_total=100, completed_weight=10, shown=0.2}}}
+            phase="solve", progress={stage="solve", stage_done=20, stage_total=100}}}
         ProgressPanel.show(sheet_flow)
-        game.tick = 10
-        require("logic.registry").progress_refresh()
+        --Keep the persisted sample stationary; this case isolates the registered tenth-tick fallback.
+        world.handlers.events[defines.events.on_tick] = nil
+        H.run_ticks(world, 10)
         H.near(require("gui.sheet").progressbar_of(sheet_flow).value, 0.2, "the refresh reads the saved job record")
         storage[1].calc_jobs = nil
-        game.tick = 20
-        require("logic.registry").progress_refresh()
+        H.run_ticks(world, 10)
         H.equal(require("gui.sheet").progressbar_of(sheet_flow).visible, false, "a same-tick completion hides the controls")
     end)
 
