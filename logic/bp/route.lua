@@ -1379,9 +1379,11 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     local direction = direction_from_step(entry.x, entry.y, exit_cell.x, exit_cell.y)
     local dx, dy = Grid.dir_vector(direction)
     local distance = underground_distance(entry, exit_cell)
-    for offset = 1, distance - 1 do
-        local middle = work.segments_by_cell[coordinate_key(entry.x + dx * offset, entry.y + dy * offset)]
-        if middle and segment_has_flow(middle, demand.flow_id) then return false, "crossing-middle-flow" end
+    if work.allow_bury then
+        for offset = 1, distance - 1 do
+            local middle = work.segments_by_cell[coordinate_key(entry.x + dx * offset, entry.y + dy * offset)]
+            if middle and segment_has_flow(middle, demand.flow_id) then return false, "crossing-middle-flow" end
+        end
     end
     local family = kind == "pipe" and work.pipe or work.belt
     local name = (family and family.underground) or infrastructure(work, kind)
@@ -2213,7 +2215,9 @@ local function crossing_targets(work, demand, search, current, direction, amount
     if reach < 2 then return {} end
     --A side-fed underground entrance consumes one lane of its approach belt. Avoid creating that
     --shape in route/tidy searches; a straight feeder works on both lanes, including at the map edge.
-    if current.direction ~= nil and current.direction ~= 0 and current.direction ~= direction then return {} end
+    local edge = current.x == 0 or current.y == 0 or current.x == work.grid.w - 1 or current.y == work.grid.h - 1
+    if work.allow_bury and not edge and current.direction ~= nil and current.direction ~= 0
+        and current.direction ~= direction then return {} end
     local current_key = coordinate_key(current.x, current.y)
     if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return {} end
     local dx, dy = Grid.dir_vector(direction)
@@ -2226,7 +2230,7 @@ local function crossing_targets(work, demand, search, current, direction, amount
         if work.underground_cells[coordinate_key(middle_x, middle_y)] then break end
         --Free middles do not end a possible longer crossing; a crossing must cover at least one blocked tile.
         local middle_segment = work.segments_by_cell[coordinate_key(middle_x, middle_y)]
-        if middle_segment and segment_has_flow(middle_segment, demand.flow_id) then break end
+        if work.allow_bury and middle_segment and segment_has_flow(middle_segment, demand.flow_id) then break end
         if not path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, PROBE) then
             blocked_middle = true
         end
