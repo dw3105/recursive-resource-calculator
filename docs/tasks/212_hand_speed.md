@@ -58,3 +58,11 @@ Commit on `lane/212_hand_speed`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3000s
+
+## Implementation notes
+
+`logic/catalog.lua` now derives inserter throughput from the selected quality's prototype rotation speed, the
+player force's stack bonus, and the prototype's bulk flag. It uses a 0.55 belt pickup factor to map the full-turn
+rate to the documented chest-to-chest rates. If the rotation speed is missing, it keeps the historical 4.62 rate
+and emits `CATALOG_INSERTER_SPEED_DEFAULT`. Debug prototype exports include both speed methods' results, bulk,
+and the force bonuses; the converter preserves those facts when they are present.

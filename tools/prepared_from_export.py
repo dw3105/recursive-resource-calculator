@@ -165,8 +165,32 @@ def build(export: Dict[str, Any], surface: str) -> Dict[str, Any]:
     generation = export.get("generation") or {}
     captured = generation.get("prepared_input")
     if isinstance(captured, dict) and captured.get("catalog"):
-        return repair_captured(captured)
-    return build_reconstructed(export, surface)
+        prepared = repair_captured(captured)
+        return pass_inserter_facts(prepared, export)
+    return pass_inserter_facts(build_reconstructed(export, surface), export)
+
+
+def pass_inserter_facts(prepared: Dict[str, Any], export: Dict[str, Any]) -> Dict[str, Any]:
+    """Retain speed and force facts emitted by newer debug exports."""
+    prototypes = export.get("prototypes") or {}
+    captured = prototypes.get("inserter")
+    catalog = prepared.get("catalog")
+    if isinstance(captured, dict) and isinstance(catalog, dict):
+        current = catalog.get("inserter")
+        if not isinstance(current, dict):
+            current = {}
+            catalog["inserter"] = current
+        for field in ("rotation_speed", "extension_speed", "bulk", "inserter_stack_size_bonus",
+                      "bulk_inserter_capacity_bonus"):
+            if field in captured and field not in current:
+                current[field] = captured[field]
+    force = (export.get("environment") or {}).get("force") or {}
+    target = catalog.get("inserter") if isinstance(catalog, dict) else None
+    if isinstance(target, dict):
+        for field in ("inserter_stack_size_bonus", "bulk_inserter_capacity_bonus"):
+            if field in force and field not in target:
+                target[field] = force[field]
+    return prepared
 
 
 def build_reconstructed(export: Dict[str, Any], surface: str) -> Dict[str, Any]:

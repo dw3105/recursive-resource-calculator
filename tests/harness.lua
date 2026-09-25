@@ -76,6 +76,7 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "collision_box", "collision_mask", "tile_width", "tile_height", "flags", "fluidbox_prototypes",
     "belt_speed", "related_underground_belt", "max_underground_distance",
     "inserter_pickup_position", "inserter_drop_position", "inserter_stack_size_bonus", "inserter_max_belt_stack_size",
+    "bulk",
     --Both are methods in the pinned extract, never attributes; a quality argument selects the value.
     "get_inserter_rotation_speed", "get_inserter_extension_speed",
     "logistic_radius", "construction_radius", "connection_distance",
@@ -162,7 +163,8 @@ local FLUID_BOX_MEMBERS = {
 }
 FLUID_BOX_MEMBERS.hybrid = FLUID_BOX_MEMBERS["2.0"]
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
-local FORCE_MEMBERS = {"name", "valid", "recipes", "players", "is_quality_unlocked"}
+local FORCE_MEMBERS = {"name", "valid", "recipes", "players", "is_quality_unlocked",
+    "inserter_stack_size_bonus", "bulk_inserter_capacity_bonus"}
 local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text", "cursor_ghost", "cursor_stack", "clear_cursor",
     "is_cursor_empty", "cursor_record"}
 --LuaItemStack per 2.0.77, the members the cursor stack mock serves; quality reads as LuaQualityPrototype
@@ -312,7 +314,9 @@ local function json_write(value, out)
             for index, key in ipairs(keys) do
                 if index > 1 then out[#out + 1] = "," end
                 out[#out + 1] = json_escape(key) .. ":"
-                json_write(value[key] ~= nil and value[key] or value[tonumber(key)], out)
+                local child = value[key]
+                if child == nil then child = value[tonumber(key)] end
+                json_write(child, out)
             end
             out[#out + 1] = "}"
         end
@@ -1388,6 +1392,8 @@ function H.new_world(shape)
     function world.add_player(index, research_bonus_by_recipe_name)
         world.research_bonus_by_recipe_name = research_bonus_by_recipe_name or {}
         local force = H.lua_object("LuaForce", {name = "player", valid = true, recipes = {}, players = {},
+            inserter_stack_size_bonus = world.inserter_stack_size_bonus or 0,
+            bulk_inserter_capacity_bonus = world.bulk_inserter_capacity_bonus or 0,
             --takes a quality name or prototype, as QualityID does
             is_quality_unlocked = function(quality)
                 local quality_name = raw_type(quality) == "table" and quality.name or quality
@@ -1616,10 +1622,12 @@ function H.new_world(shape)
             --Game prototype frame (2.0.77, captured 2026-09-24): pickup -y, drop +y. logic/catalog.lua turns it 180.
             {inserter_pickup_position = spec.pickup or {x = 0, y = -1},
              inserter_drop_position = spec.drop or {x = 0, y = 1.203125},
-             inserter_stack_size_bonus = spec.stack_bonus or 0,
+            inserter_stack_size_bonus = spec.stack_bonus or 0,
+            bulk = spec.bulk == true,
              inserter_max_belt_stack_size = spec.max_belt_stack or 1,
-             get_inserter_rotation_speed = speed_for("rotation_speed", 0.014),
-             get_inserter_extension_speed = speed_for("extension_speed", 0.0343),
+             get_inserter_rotation_speed = not spec.no_speed and speed_for("rotation_speed",
+                 spec.name == "fast-inserter" and 0.04 or (spec.name == "long-handed-inserter" and 0.02 or 0.014)) or nil,
+             get_inserter_extension_speed = not spec.no_speed and speed_for("extension_speed", 0.0343) or nil,
              --the mod reads a rate from its own model; the prototype only carries geometry and bonuses
              energy_usage = (spec.energy_kw or 13) * 1000 / 60})
     end
@@ -1725,6 +1733,7 @@ function H.new_world(shape)
         world.add_underground_belt({name = "underground-belt", items_per_second = 15, max_distance = 5, related = "transport-belt"})
         world.add_splitter({name = "splitter", items_per_second = 15})
         world.add_inserter({name = "inserter"})
+        world.add_inserter({name = "fast-inserter"})
         --Vanilla 2.0 always has it; the blueprint settings default to it (docs/contracts/pipeline_r29.md C5).
         world.add_inserter({name = "long-handed-inserter", items_per_second = 1.2, pickup = {x = 0, y = -2},
             drop = {x = 0, y = -2.203125}, energy_kw = 20})
