@@ -2645,7 +2645,16 @@ local function result_for(work)
                             -- Remove the redundant edge belt and merge its complete rate promises.
                             for _,al in ipairs(b.seg.allocations or {}) do if al.flow_id==a.flow then a.seg.allocations[#a.seg.allocations+1]=al end end
                             b.seg.allocations={}; b.seg._route_removed=true; b.entity._route_removed=true
-                            for _,binding in ipairs(work.bindings or {}) do if binding.segment_id==b.seg.segment_id then binding.segment_id=a.seg.segment_id end end
+                            local kept_source_port
+                            for _,binding in ipairs(work.bindings or {}) do
+                                if binding.segment_id==a.seg.segment_id and binding.flow_id==a.flow then kept_source_port=kept_source_port or binding.source_port_id end
+                            end
+                            for _,binding in ipairs(work.bindings or {}) do
+                                if binding.segment_id==b.seg.segment_id and binding.flow_id==a.flow then
+                                    binding.segment_id=a.seg.segment_id
+                                    if kept_source_port then binding.source_port_id=kept_source_port end
+                                end
+                            end
                             -- One splitter occupies the two first inside tiles.  Keep one segment identity.
                             for _,al in ipairs(two.allocations or {}) do one.allocations[#one.allocations+1]=al end
                             two.allocations={}; two._route_removed=true; etwo._route_removed=true
