@@ -499,6 +499,7 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         step_id = port.step_id or block_step_id(block),
         inserter_id = port.inserter_id,
         role = role,
+        position_explicit = port.x ~= nil and port.y ~= nil,
         flow_id = port_flow_id(port),
         flow_ids = port.flow_ids,
         kind = port.kind or (port.is_fluid and "fluid" or "item"),
@@ -880,10 +881,12 @@ local function build_demands(work, flows)
                     local role = step_id_of(entry) == "$external" and "in" or "out"
                     append_port_demands(work, producers, id, role, entry, share_of(entry), "producer")
                 end
-                combine_adjacent_output_hands(work, producers)
                 for _, entry in ipairs(flow.consumers or {}) do
                     local role = step_id_of(entry) == "$external" and "out" or "in"
                     append_port_demands(work, consumers, id, role, entry, share_of(entry), "consumer")
+                end
+                if #consumers == 1 and consumers[1].endpoint.position_explicit then
+                    combine_adjacent_output_hands(work, producers)
                 end
             else
                 for _, entry in ipairs(flow.producers or {}) do
@@ -1007,10 +1010,12 @@ local function begin_flow_demand_build(work, flow)
             append_port_demands(work, producers, id, step_id_of(entry) == "$external" and "in" or "out", entry,
                 share_of(entry), "producer")
         end
-        combine_adjacent_output_hands(work, producers)
         for _, entry in ipairs(flow.consumers or {}) do
             append_port_demands(work, consumers, id, step_id_of(entry) == "$external" and "out" or "in", entry,
                 share_of(entry), "consumer")
+        end
+        if #consumers == 1 and consumers[1].endpoint.position_explicit then
+            combine_adjacent_output_hands(work, producers)
         end
     else
         for _, entry in ipairs(flow.producers or {}) do
