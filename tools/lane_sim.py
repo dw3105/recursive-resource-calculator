@@ -119,6 +119,10 @@ def add(p, lane, item):
     if is_transport(p) and item not in lanes[(p, lane)]:
         lanes[(p, lane)].add(item); queue.append((p, lane, item))
 
+def hand_receivers(drop):
+    """Tiles directly seeded by a hand; splitter input is shared across its two halves."""
+    return splitter_of[drop][1] if drop in splitter_of else [drop]
+
 def reach(h):
     return 2 if 'long' in h['name'] else 1
 
@@ -131,7 +135,10 @@ for h in hands:
         far = 'R' if (drop[0] - hx) * rx + (drop[1] - hy) * ry > 0 else 'L'
         recipe = m['e'].get('recipe')
         for item in (products(recipe) if recipe else {'smelt@%d,%d' % (m['x0'], m['y0'])}):
-            add(drop, far, item)
+            # A hand can side-load either half of a splitter; the receiving half is an input,
+            # and the splitter carries that input to both halves before forwarding it.
+            for cell in hand_receivers(drop):
+                add(cell, far, item)
 def fed(p):
     # A splitter takes from behind either of its two tiles and mixes both into both outputs.
     cells = splitter_of[p][1] if p in splitter_of else [p]
