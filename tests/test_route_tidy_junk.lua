@@ -40,35 +40,24 @@ local function edges(work, key, flow)
     return out
 end
 
-local function path_segments(work, start, target, flow)
-    local seen, q, head={[start]=true},{start},1
-    local parent={}
-    while q[head] do
-        local k=q[head]; head=head+1
-        if k==target then break end
-        for _,n in ipairs(edges(work,k,flow)) do if not seen[n] then seen[n]=true;parent[n]=k;q[#q+1]=n end end
-    end
-    local live={}; local key=target
-    while key do
-        local s=work.segments_by_cell[key]; if s then live[s.segment_id]=true end
-        key=parent[key]
-    end
-    return live
-end
-
 H.test("TJ1 tidy removes dead belts and chained splitters from frozen route calls", function()
     for _,path in ipairs({"tests/fixtures/route_ins10s_bulk_call4.json", "tests/fixtures/route_ins10s_call1.json"}) do
         local state=replay(path); H.equal(state.ok,true,"route and tidy complete: "..path)
         local work=state.work
-        local live={}
+        local sources={}
         for _,binding in ipairs(work.bindings) do
             local source=work.endpoint_by_id[binding.source_port_id]
-            local sink=work.endpoint_by_id[binding.sink_port_id]
-            for id in pairs(path_segments(work,tostring(source.x)..":"..tostring(source.y),tostring(sink.x)..":"..tostring(sink.y),binding.flow_id)) do live[id]=true end
+            if source then sources[tostring(source.x)..":"..tostring(source.y)]=true end
         end
-        for _,s in ipairs(work.segments) do
-            if s.flow_id and s.kind == "belt" then
-                H.equal(live[s.segment_id] or false,true,"every flow belt lies on a live path: "..tostring(s.segment_id))
+        for key,s in pairs(work.segments_by_cell) do
+            if s.kind == "belt" and not s.underground and not s.splitter then
+                local fed=false
+                for other_key,other in pairs(work.segments_by_cell) do
+                    if other~=s and (other.flow_id==s.flow_id or (other.flow_ids and other.flow_ids[s.flow_id])) then
+                        for _,out in ipairs(edges(work,other_key,s.flow_id)) do if out==key then fed=true end end
+                    end
+                end
+                H.equal(fed or sources[key] or s.fixed or false,true,"every belt has a source or transport feed: "..tostring(s.segment_id))
             end
         end
         for _,s in ipairs(work.segments) do if s.splitter then

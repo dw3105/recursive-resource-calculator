@@ -3241,22 +3241,60 @@ end
 
 prune_dead_route_segments = function(work)
     untangle_splitter_chains(work)
-    local live, incomplete = {}, {}
+    local sources = {}
     for _, binding in ipairs(work.bindings or {}) do
-        local path = binding_path(work, binding)
-        if not path then incomplete[binding.flow_id] = true end
-        for _, key in ipairs(path or {}) do
-            local segment = work.segments_by_cell[key]
-            if segment then live[segment.segment_id] = true end
+        local source = work.endpoint_by_id and work.endpoint_by_id[binding.source_port_id]
+        if source then sources[coordinate_key(source.x, source.y)] = true end
+    end
+    local changed = true
+    while changed do
+        changed = false
+        local fed = {}
+        for _, segment in ipairs(work.segments or {}) do
+            if segment.underground then
+                if segment.underground_entry_key then fed[segment.underground_exit_key] = true end
+                if segment.underground_exit_key then
+                    local dx,dy=Grid.dir_vector(segment.direction)
+                    if dx then fed[coordinate_key(segment.underground_exit_x+dx,segment.underground_exit_y+dy)] = true end
+                end
+            elseif segment.splitter then
+                local dx,dy=Grid.dir_vector(segment.splitter_direction)
+                local sx,sy=coordinate_from_key(segment.splitter_second_key or "")
+                if dx and sx then
+                    fed[coordinate_key(segment.splitter_anchor_x+dx,segment.splitter_anchor_y+dy)] = true
+                    fed[coordinate_key(sx+dx,sy+dy)] = true
+                end
+            elseif segment.kind == "belt" then
+                local dx,dy=Grid.dir_vector(segment.direction)
+                if dx then
+                    for key,owner in pairs(work.segments_by_cell or {}) do
+                        if owner == segment then
+                            local x,y=coordinate_from_key(key)
+                            fed[coordinate_key(x+dx,y+dy)] = true
+                        end
+                    end
+                end
+            end
+        end
+        local remove = {}
+        for key,segment in pairs(work.segments_by_cell or {}) do
+            if segment.kind == "belt" and not segment.underground and not segment.splitter
+                and not fed[key] and not sources[key] and not segment.fixed then remove[segment.segment_id] = true end
+        end
+        if next(remove) then
+            changed = true
+            local kept={}
+            for _,segment in ipairs(work.segments) do if not remove[segment.segment_id] then kept[#kept+1]=segment end end
+            work.segments=kept
+            for key,segment in pairs(work.segments_by_cell) do if remove[segment.segment_id] then work.segments_by_cell[key]=nil end end
+            local entities={}
+            for _,entity in ipairs(work.entities) do
+                if remove[entity.segment_id] then entity._route_removed=true else entities[#entities+1]=entity end
+            end
+            work.entities=entities
+            for id in pairs(remove) do work.entity_by_segment[id]=nil end
         end
     end
-    local kept = {}
-    for _, segment in ipairs(work.segments or {}) do
-        local preserve = live[segment.segment_id]
-        for flow_id in pairs(incomplete) do if segment_has_flow(segment, flow_id) then preserve = true; break end end
-        if preserve then kept[#kept + 1] = segment end
-    end
-    work.segments = kept
     audit_route_work(work)
 end
 
