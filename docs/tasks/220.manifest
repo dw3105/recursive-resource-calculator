@@ -1,0 +1,15 @@
+gui/blueprint_delivery.lua
+logic/bp/generation.lua
+logic/bp/blueprint_string.lua
+logic/export_payload.lua
+tests/harness.lua
+locale/en/locale.cfg
+locale/cs/locale.cfg
+locale/ro/locale.cfg
+tools/lua_blueprint_string.lua
+tests/test_blueprint_string_game.lua
+tests/test_delivery_fallback.lua
+tests/test_blueprint_delivery.lua
+tests/test_delivery_final.lua
+tests/test_export_payload.lua
+docs/tasks/220_delivery_string.md
