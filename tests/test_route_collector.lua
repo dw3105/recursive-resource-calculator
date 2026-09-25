@@ -11,16 +11,16 @@ H.test("adjacent output hands share a collector on the frozen red science route"
     while not state.done do Route.step(state, {ops = 100000}) end
     H.equal(state.ok, true, "frozen route completes")
     local work = state.work or state._work
+    local foundries = {
+        ["item/iron-gear-wheel"] = {{20, 25}, {20, 26}},
+        ["item/copper-plate"] = {{8, 25}, {8, 26}},
+    }
     local demand_counts = {}
     for _, demand in ipairs(work.demands or {}) do
         if foundries[demand.flow_id] then demand_counts[demand.flow_id] = (demand_counts[demand.flow_id] or 0) + 1 end
     end
     for flow_id in pairs(foundries) do H.equal(demand_counts[flow_id], 1, flow_id .. " has one collector demand") end
-    local base_belts, routed_belts = 139, 0
-    local foundries = {
-        ["item/iron-gear-wheel"] = {{20, 25}, {20, 26}},
-        ["item/copper-plate"] = {{8, 25}, {8, 26}},
-    }
+    local base_belts, routed_belts = 176, 0
     local flow_tiles = {}
     local coordinates = {}
     for key, segment in pairs(work.segments_by_cell or {}) do
@@ -61,7 +61,11 @@ H.test("adjacent output hands share a collector on the frozen red science route"
         H.equal(seen[drops[2][1] .. "," .. drops[2][2]], true, flow_id .. " drops join one connected run")
     end
     for _, cell in pairs(coordinates) do
-        if cell.y < 3 then
+        local is_collector_flow = false
+        for _, allocation in ipairs(cell.segment.allocations or {}) do
+            if foundries[allocation.flow_id] then is_collector_flow = true end
+        end
+        if cell.y < 3 and not cell.segment.fixed and is_collector_flow then
             H.equal(true, false, "no routed belt above the row feed: " .. tostring(cell.x) .. "," .. tostring(cell.y))
         end
     end

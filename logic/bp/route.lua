@@ -783,7 +783,7 @@ end
 -- Output hands from one machine can share a collector when their drop ports form a straight,
 -- adjacent run.  Start at the end nearest the usual northbound route; the first belt tiles then
 -- cover every hand drop, since a hand can drop onto a belt regardless of its facing.
-local function combine_adjacent_output_hands(demands)
+local function combine_adjacent_output_hands(work, demands)
     local groups = {}
     for _, demand in ipairs(demands) do
         local endpoint = demand.endpoint
@@ -821,16 +821,31 @@ local function combine_adjacent_output_hands(demands)
                 end
             end
             if #component > 1 and collinear then
-                local total, chosen_member = 0, component[1]
+                local total, chosen_member, port_ids = 0, component[1], {}
+                local vertical = true
+                for _, member in ipairs(component) do
+                    if member.endpoint.y ~= component[1].endpoint.y then vertical = false end
+                end
                 for _, member in ipairs(component) do
                     total = total + member.remaining
                     removed[member] = true
+                    port_ids[member.endpoint.port_id] = true
                     local point, chosen = member.endpoint, chosen_member.endpoint
-                    if point.y > chosen.y or (point.y == chosen.y and point.x < chosen.x) then chosen_member = member end
+                    if (vertical and point.y > chosen.y) or (not vertical and point.x < chosen.x) then chosen_member = member end
                 end
                 local chosen = chosen_member.endpoint
                 demands[#demands + 1] = {endpoint = chosen, candidates = {chosen}, remaining = total,
-                    explicit_port_id = chosen_member.explicit_port_id}
+                    explicit_port_id = chosen_member.explicit_port_id, collector_port_ids = port_ids}
+                local tiles = {}
+                table.sort(component, function(a, b)
+                    if vertical then return a.endpoint.y > b.endpoint.y end
+                    return a.endpoint.x < b.endpoint.x
+                end)
+                for _, member in ipairs(component) do tiles[#tiles + 1] = {x = member.endpoint.x, y = member.endpoint.y} end
+                local direction = vertical and Grid.NORTH or Grid.EAST
+                work.belt_runs = work.belt_runs or {}
+                work.belt_runs[#work.belt_runs + 1] = {role = "out", dir = direction, flows = {chosen.flow_id},
+                    head = tiles[1], tiles = tiles, hand_ids = {}}
             end
         end
     end
@@ -853,7 +868,7 @@ local function build_demands(work, flows)
                     local role = step_id_of(entry) == "$external" and "in" or "out"
                     append_port_demands(work, producers, id, role, entry, share_of(entry), "producer")
                 end
-                combine_adjacent_output_hands(producers)
+                combine_adjacent_output_hands(work, producers)
                 for _, entry in ipairs(flow.consumers or {}) do
                     local role = step_id_of(entry) == "$external" and "out" or "in"
                     append_port_demands(work, consumers, id, role, entry, share_of(entry), "consumer")
@@ -923,7 +938,8 @@ local function build_demands(work, flows)
                 demands[#demands + 1] = {flow = flow, flow_id = id, source = best.source, sink = best.sink,
                     source_candidates = source_candidates, sink_candidates = sink_candidates,
                     source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
-                    pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id}
+                    pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id,
+                    collector_port_ids = best.producer.collector_port_ids}
                 best.producer.remaining = best.producer.remaining - best.amount
                 best.consumer.remaining = best.consumer.remaining - best.amount
             end
@@ -978,6 +994,7 @@ local function begin_flow_demand_build(work, flow)
             append_port_demands(work, producers, id, step_id_of(entry) == "$external" and "in" or "out", entry,
                 share_of(entry), "producer")
         end
+        combine_adjacent_output_hands(work, producers)
         for _, entry in ipairs(flow.consumers or {}) do
             append_port_demands(work, consumers, id, step_id_of(entry) == "$external" and "out" or "in", entry,
                 share_of(entry), "consumer")
@@ -1049,7 +1066,8 @@ local function advance_flow_demand_build(work, context)
             source_candidates = candidate_first(prioritized_candidates(best.producer.candidates, best.sink), best.source),
             sink_candidates = candidate_first(prioritized_candidates(best.consumer.candidates, best.source), best.sink),
             source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
-            pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id}
+            pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id,
+            collector_port_ids = best.producer.collector_port_ids}
         best.producer.remaining = best.producer.remaining - best.amount
         best.consumer.remaining = best.consumer.remaining - best.amount
         context.producer_index, context.consumer_index, context.best = 1, 1, nil
@@ -1253,7 +1271,9 @@ local function splitter_cell_allowed(work, demand, x, y, segment, search)
     if reserved ~= nil then
         local source_id = demand.source and demand.source.port_id
         local sink_id = demand.sink and demand.sink.port_id
-        if not (reserved[source_id] or reserved[sink_id] or reserved["flow:" .. tostring(demand.flow_id)]) then
+        local collector_port = false
+        for port_id in pairs(demand.collector_port_ids or {}) do if reserved[port_id] then collector_port = true; break end end
+        if not (reserved[source_id] or reserved[sink_id] or collector_port or reserved["flow:" .. tostring(demand.flow_id)]) then
             return blocked("reserved")
         end
     end
