@@ -1451,7 +1451,18 @@ function Generation.status(player_index, job_id)
             handle.phase = job.phase or handle.phase
             handle.progress = copy_plain(job.progress) or handle.progress
         else
-            terminal_cancel(handle, "cancelled")
+            local revisions = current_revisions(player_index, handle.sheet_id)
+            if revisions.sheet ~= (handle.revisions and handle.revisions.sheet)
+                or revisions.config ~= (handle.revisions and handle.revisions.config) then
+                handle.state = "failure"
+                handle.phase = "search"
+                handle.reason_codes = {"BP_FAIL_REVISION_CHANGED"}
+                update_capture(handle, nil, "failure", handle.reason_codes, handle.phase)
+                persist_handle(handle)
+                bridge_attempt(handle, false)
+            else
+                terminal_cancel(handle, "cancelled")
+            end
         end
     end
     return public_status(handle)
