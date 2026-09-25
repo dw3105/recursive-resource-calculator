@@ -45,9 +45,11 @@ for _, shape in ipairs(H.shapes()) do
         ProgressPanel.show(sheet_flow)
         H.equal(bar.visible, true, "the bar appears when work starts")
         H.equal(cancel.visible, true, "Cancel appears with the bar")
+        H.equal(child_named(sheet_flow, "hxrrc_progress_status") ~= nil, true, "status appears with the controls")
         ProgressPanel.hide(sheet_flow)
         H.equal(bar.visible, false, "hiding work hides the bar")
         H.equal(cancel.visible, false, "hiding work hides Cancel")
+        H.equal(child_named(sheet_flow, "hxrrc_progress_status"), nil, "hiding work removes status")
     end)
 
     H.test(shape .. " PP-02 caption names the phase and known totals are completed work over total", function()
@@ -55,7 +57,8 @@ for _, shape in ipairs(H.shapes()) do
         local ProgressPanel = require "gui.progress_panel"
         local bar = require("gui.sheet").progressbar_of(sheet_flow)
         ProgressPanel.update(sheet_flow, {phase = "expanding", done_units = 3, total_units = 10})
-        H.deep_equal(bar.caption[1], "hxrrc.progress_caption", "the caption says what job is doing")
+        H.deep_equal(bar.caption[1], "hxrrc.progress_bar_percent", "bar caption is percent only")
+        H.deep_equal(bar.caption[2], 30, "bar caption shows the percentage")
         H.near(bar.value, 0.3, "the bar is done over total")
         H.equal(bar.tooltip[1], "hxrrc.progress_tooltip", "the tooltip gives elapsed and estimated time")
     end)
@@ -212,8 +215,9 @@ for _, shape in ipairs(H.shapes()) do
         ProgressPanel.update(sheet_flow, {kind="blueprint", stage_key="pack", attempt=2, attempts=3, fraction=.42,
             elapsed_ticks=600, eta_ticks=300, best_entities=57})
         local bar=require("gui.sheet").progressbar_of(sheet_flow)
-        H.equal(bar.caption[1], "hxrrc.progress_caption", "caption uses the descriptive key")
-        H.equal(bar.caption[5][1], "hxrrc.progress_stage_pack", "caption names current stage")
+        H.equal(bar.caption[1], "hxrrc.progress_bar_percent", "bar uses the percentage key")
+        H.equal(child_named(sheet_flow, "hxrrc_progress_status").caption[1], "hxrrc.progress_status", "status names current stage")
+        H.equal(child_named(sheet_flow, "hxrrc_progress_status").caption[5][1], "hxrrc.progress_stage_pack", "status names current stage")
         ProgressPanel.set_best(sheet_flow, 57)
         H.equal(child_named(sheet_flow, "hxrrc_progress_best").caption[1], "hxrrc.progress_best", "best-so-far has its own line")
         ProgressPanel.set_note(sheet_flow, {"hxrrc.calc_canceled"})

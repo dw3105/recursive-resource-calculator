@@ -56,3 +56,7 @@ Commit on `lane/208_status_line`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3000s
+
+## Implementation
+
+The progressbar caption now shows only the percentage. The stage sentence sits in a wrapping label immediately after the controls grid, with a 400 pixel width limit. The panel removes that label when progress hides or the idle sweep runs. The label is added on demand, so repaired sheets saved before round 8 receive it when progress first appears.
