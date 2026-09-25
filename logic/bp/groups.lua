@@ -485,14 +485,35 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
                     if port_bound and face ~= nil then
                         local port_x, port_y = role == "input" and source_x or target_x,
                             role == "input" and source_y or target_y
+                        local endpoint_clear = true
+                        for _, member in ipairs(block.members or {}) do
+                            if cell_in_rect(member, port_x, port_y) then endpoint_clear = false; break end
+                        end
+                        if endpoint_clear then
+                            for _, member in ipairs(block.machines or {}) do
+                                local spec = lookup_entity(catalog, member.name, "machine")
+                                local box = Geometry.world_box(member, spec)
+                                if port_x + 1 > box.left and port_x < box.right
+                                    and port_y + 1 > box.top and port_y < box.bottom then
+                                    endpoint_clear = false
+                                    break
+                                end
+                            end
+                        end
+                        if endpoint_clear then
+                            for _, placed in ipairs(block.inserters or {}) do
+                                if cell_in_rect(placed, port_x, port_y) then endpoint_clear = false; break end
+                            end
+                        end
+                        face_ok = endpoint_clear
                         if face == "top" then
-                            face_ok = port_y < machine.y and port_x >= machine.x and port_x < machine.x + machine.w
+                            face_ok = face_ok and port_y < machine.y and port_x >= machine.x and port_x < machine.x + machine.w
                         elseif face == "bottom" then
-                            face_ok = port_y >= machine.y + machine.h and port_x >= machine.x and port_x < machine.x + machine.w
+                            face_ok = face_ok and port_y >= machine.y + machine.h and port_x >= machine.x and port_x < machine.x + machine.w
                         elseif face == "left" then
-                            face_ok = port_x < machine.x and port_y >= machine.y and port_y < machine.y + machine.h
+                            face_ok = face_ok and port_x < machine.x and port_y >= machine.y and port_y < machine.y + machine.h
                         else
-                            face_ok = port_x >= machine.x + machine.w and port_y >= machine.y and port_y < machine.y + machine.h
+                            face_ok = face_ok and port_x >= machine.x + machine.w and port_y >= machine.y and port_y < machine.y + machine.h
                         end
                     end
                     if target_ok and source_ok and face_ok then
