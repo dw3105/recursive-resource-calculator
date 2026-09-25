@@ -54,3 +54,9 @@ Commit on `lane/213_note_kinds`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 2400s
+
+## Implementation note
+
+`hxrrc_job_note` now stores its kind in `tags.kind`. Calc panel starts clear calc notes only, while blueprint starts
+clear blueprint notes through the registry note hook. The two-shape regression test covers the configuration-update
+note surviving 60 ticks and disappearing when blueprint work starts again.

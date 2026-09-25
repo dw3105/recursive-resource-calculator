@@ -76,6 +76,18 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(Sheet.progressbar_of(sheet).visible, true, "the running generation shows its bar")
         H.equal(Sheet.cancel_button_of(sheet).visible, true, "the running generation shows Cancel")
     end)
+
+    H.test(shape .. " PS4 sweep leaves a blueprint note beside a running calc job", function()
+        local _, sheet = world_for(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local sid = require("gui.sheet").id_of(sheet)
+        ProgressPanel.set_note(sheet, {"hxrrc.blueprint_stopped_update"})
+        storage[1].calc_jobs = {[sid] = {kind = "calc"}}
+        ProgressPanel.sweep(sheet)
+        local note = named(sheet, "hxrrc_job_note")
+        H.equal(note ~= nil, true, "active calc sweep preserves the blueprint note")
+        H.equal(note.tags.kind, "blueprint", "preserved note retains its kind")
+    end)
 end
 
 H.done("test_panel_sweep")
