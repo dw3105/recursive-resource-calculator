@@ -425,16 +425,16 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
         -- role-dependent because an input picks up outside and drops into the machine, while an output picks up
         -- inside and drops outside.  The one-tile margin in each branch is also the block perimeter ring.
         if face == "top" then
-            desired_x, desired_y = machine.x, machine.y - ih
+            desired_x, desired_y = machine.x + (math.max(1, face_column or 1) - 1) * iw, machine.y - ih
             preferred = role == "input" and SOUTH or NORTH
         elseif face == "bottom" then
-            desired_x, desired_y = machine.x, machine.y + machine.h
+            desired_x, desired_y = machine.x + (math.max(1, face_column or 1) - 1) * iw, machine.y + machine.h
             preferred = role == "input" and NORTH or SOUTH
         elseif face == "left" then
-            desired_x, desired_y = machine.x - iw, machine.y
+            desired_x, desired_y = machine.x - iw, machine.y + (math.max(1, face_column or 1) - 1) * ih
             preferred = role == "input" and EAST or WEST
         else
-            desired_x, desired_y = machine.x + machine.w, machine.y
+            desired_x, desired_y = machine.x + machine.w, machine.y + (math.max(1, face_column or 1) - 1) * ih
             preferred = role == "input" and WEST or EAST
         end
     elseif port_bound then
@@ -481,7 +481,21 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
                         target_ok = role == "input" and cell_in_rect(machine, target_x, target_y)
                             or not cell_in_rect(machine, target_x, target_y)
                     end
-                    if target_ok and source_ok then
+                    local face_ok = true
+                    if port_bound and face ~= nil then
+                        local port_x, port_y = role == "input" and source_x or target_x,
+                            role == "input" and source_y or target_y
+                        if face == "top" then
+                            face_ok = port_y < machine.y and port_x >= machine.x and port_x < machine.x + machine.w
+                        elseif face == "bottom" then
+                            face_ok = port_y >= machine.y + machine.h and port_x >= machine.x and port_x < machine.x + machine.w
+                        elseif face == "left" then
+                            face_ok = port_x < machine.x and port_y >= machine.y and port_y < machine.y + machine.h
+                        else
+                            face_ok = port_x >= machine.x + machine.w and port_y >= machine.y and port_y < machine.y + machine.h
+                        end
+                    end
+                    if target_ok and source_ok and face_ok then
                         local blocked = false
                         for _, other in ipairs(occupied) do
                             if other ~= machine and rectangles_overlap(rect, other) then blocked = true; break end
@@ -691,6 +705,33 @@ local function contains_flow(hand, flow_id)
     return hand and hand.flow_id == flow_id
 end
 
+local function new_face_allocator(machine, iw, ih, block)
+    local capacities = {
+        top = math.floor(machine.w / math.max(1, iw)),
+        bottom = math.floor(machine.w / math.max(1, iw)),
+        left = math.floor(machine.h / math.max(1, ih)),
+        right = math.floor(machine.h / math.max(1, ih)),
+    }
+    if machine.y <= 0 then capacities.top = 0 end
+    if block and block.has_bottom_beacon_row then capacities.bottom = 0 end
+    local used = {top = 0, bottom = 0, left = 0, right = 0}
+    return function(preferred)
+        local order = block and block.hand_face_spread
+            and {preferred, "top", "bottom", "left", "right"} or {preferred}
+        local seen = {}
+        for _, side in ipairs(order) do
+            if side and not seen[side] then
+                seen[side] = true
+                if used[side] < (capacities[side] or 0) then
+                    used[side] = used[side] + 1
+                    return side, used[side]
+                end
+            end
+        end
+        return nil
+    end
+end
+
 local function append_single_flow_inserters(block, step, machine, catalog, input, flows)
     local name, iw, ih = inserter_size(catalog, input and input.inserter)
     local inputs, outputs = {}, {}
@@ -700,14 +741,24 @@ local function append_single_flow_inserters(block, step, machine, catalog, input
     for _, port in ipairs(step.outputs or {}) do
         if not flow_is_fluid(port, flows) then outputs[#outputs + 1] = port end
     end
-    local face_column = 0
+    local allocate_face = new_face_allocator(machine, iw, ih, block)
     local function append(role, list)
         for index, port in ipairs(list) do
             local entry = {role = role, port = port}
             local port_bound, source_member, target_member = port_bound_for(block, machine, role, port, flows)
             local transfer_source_member = source_member
             if role == "output" then transfer_source_member = machine end
-            if port_bound then face_column = face_column + 1 end
+            local face, face_column
+            if port_bound then
+                local assigned = block.face_by_machine and block.face_by_machine[machine.id]
+                    and block.face_by_machine[machine.id][port.flow_id or port.full_name]
+                face, face_column = allocate_face(assigned)
+                if not face then
+                    block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                        detail = "no free machine face for " .. tostring(port.flow_id or port.full_name)}
+                    return
+                end
+            end
             local source_x, source_y = explicit_cell(port, role == "input"
                 and {"pickup_cell", "source_cell", "source_position"}
                 or {"drop_cell", "drain_cell", "drain_position"})
@@ -718,8 +769,7 @@ local function append_single_flow_inserters(block, step, machine, catalog, input
             local target_cell = target_x ~= nil and {target_x, target_y} or nil
             local placement = candidate_inserter(block, machine, role, index, iw, ih, catalog, input,
                 transfer_source_member, target_member, source_cell, target_cell, port_bound, face_column,
-                block.face_by_machine and block.face_by_machine[machine.id]
-                    and block.face_by_machine[machine.id][port.flow_id or port.full_name])
+                face)
             if not placement then
                 block.failure = {name = "inserter-reach", code = "BP_P_NO_FIT",
                     detail = "no catalog inserter reach for " .. tostring(step.step_id) .. ":"
@@ -758,11 +808,21 @@ local function append_multi_flow_inserters(block, step, machine, catalog, input,
     local groups = block.hand_groups_by_machine and block.hand_groups_by_machine[machine.id] or
         hand_groups_for(block, step, machine, catalog, input, flows)
     local machine_count = math.max(1, step._rate_machine_count or step.machine_count or 1)
-    local face_column = 0
+    local allocate_face = new_face_allocator(machine, iw, ih, block)
     for index, hand in ipairs(groups) do
         local port_bound, source_member, target_member = port_bound_for(block, machine, hand.role, hand.port, flows)
         hand.port_bound = port_bound
-        if port_bound then face_column = face_column + 1 end
+        local face, face_column
+        if port_bound then
+            local preferred = block.face_by_machine and block.face_by_machine[machine.id]
+                and block.face_by_machine[machine.id][hand.flow_ids[1]]
+            face, face_column = allocate_face(preferred)
+            if not face then
+                block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                    detail = "no free machine face for " .. tostring(hand.flow_ids[1])}
+                return
+            end
+        end
         local source_x, source_y = explicit_cell(hand.port, hand.role == "input"
             and {"pickup_cell", "source_cell", "source_position"}
             or {"drop_cell", "drain_cell", "drain_position"})
@@ -772,8 +832,6 @@ local function append_multi_flow_inserters(block, step, machine, catalog, input,
         local source_cell = source_x ~= nil and {source_x, source_y} or nil
         local target_cell = target_x ~= nil and {target_x, target_y} or nil
         local transfer_source_member = hand.role == "output" and machine or source_member
-        local face = block.face_by_machine and block.face_by_machine[machine.id]
-            and block.face_by_machine[machine.id][hand.flow_ids[1]]
         local placement = candidate_inserter(block, machine, hand.role, index, iw, ih, catalog, input,
             transfer_source_member, target_member, source_cell, target_cell, port_bound, face_column, face)
         if not placement then
@@ -1515,6 +1573,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     end
 
     if block.failure then return block end
+    block.hand_face_spread = face_layout
+    block.has_bottom_beacon_row = #bottom_rows > 0
     -- All machines are known before any transfer is solved.  That matters for an explicit machine-to-machine
     -- obligation: the inserter at the producer and the inserter at the consumer must each see the other machine
     -- as a real endpoint, even when the producer appears first in step order.

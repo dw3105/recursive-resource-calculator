@@ -55,3 +55,9 @@ Commit on `lane/218_hands_overflow`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3600s
+
+## Built
+
+- Port-bound inserters claim finite slots across available machine faces; candidates with no remaining slot fail as `inserter-face` / `BP_P_NO_FIT`.
+- Added overflow and exhausted-face regression coverage.
+- `player-inserter-10s-stack1` still reports `BP_R_PORT_BLOCKED` after packing; the required route milestone is not met yet.
