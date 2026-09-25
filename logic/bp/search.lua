@@ -1429,12 +1429,27 @@ function Search.begin(input)
     return state
 end
 
+--Layered pack (Pack.layered) goes first. On its first rejected candidate, or when no grid fits, the search
+--starts over with MaxRects from grid 1 and attempt 0, so the sheet ends no worse than MaxRects alone.
+local function pack_layered(state)
+    return Pack.layered and not state.work.layered_off
+end
+
+local function layered_fallback(state)
+    if not pack_layered(state) or state.incumbent then return false end
+    state.work.layered_off = true
+    state.work.attempt, state.work.grid_trials = 0, 0
+    state.work.grid_limit_hit, state.work.power_bound_hit = false, nil
+    state.cursor.grid_index = 1
+    return start_grid(state)
+end
+
 local function finish_grid_or_search(state)
     if state.work.power_bound_hit then finish_search_bound(state, "BP_FAIL_POWER_BOUND"); return end
     if next_grid(state) then return end
     if state.work.grid_limit_hit then finish_search_bound(state, "BP_FAIL_GRID_LIMIT"); return end
     if state.incumbent then begin_serialization(state)
-    else failure(state, "BP_FAIL_NO_LAYOUT", {reason_details = rejection_details(state)}) end
+    elseif not layered_fallback(state) then failure(state, "BP_FAIL_NO_LAYOUT", {reason_details = rejection_details(state)}) end
 end
 
 --A grid too small to hold the blocks and the rows their ports need can never produce a layout, and packing it
@@ -1447,7 +1462,11 @@ local function candidate_links(state, candidate)
     for _, block in ipairs(candidate.blocks or {}) do
         for _, port in ipairs(block.ports or {}) do
             local key = tostring(port.step_id) .. "|" .. tostring(port.flow_id or port.full_name) .. "|" .. tostring(port.role)
-            port_by_step_flow[key] = {block_id = block.id or block.block_id, port_id = port.port_id}
+            --One step can fill several blocks (casting-iron#1, #2); layered pack needs a link to each of them.
+            local list = port_by_step_flow[key] or {}
+            port_by_step_flow[key] = list
+            if not pack_layered(state) then list[1] = nil end
+            list[#list + 1] = {block_id = block.id or block.block_id, port_id = port.port_id}
             blocks_for_step[tostring(port.step_id)] = block.id or block.block_id
         end
     end
@@ -1458,12 +1477,14 @@ local function candidate_links(state, candidate)
         local fid = flow.flow_id or flow.full_name or flow.id
         local producers, consumers = {}, {}
         for _, p in ipairs(flow.producers or {}) do
-            local v = port_by_step_flow[tostring(p.step_id) .. "|" .. tostring(fid) .. "|out"]
-            if v then producers[#producers + 1] = v end
+            for _, v in ipairs(port_by_step_flow[tostring(p.step_id) .. "|" .. tostring(fid) .. "|out"] or {}) do
+                producers[#producers + 1] = v
+            end
         end
         for _, p in ipairs(flow.consumers or {}) do
-            local v = port_by_step_flow[tostring(p.step_id) .. "|" .. tostring(fid) .. "|in"]
-            if v then consumers[#consumers + 1] = v end
+            for _, v in ipairs(port_by_step_flow[tostring(p.step_id) .. "|" .. tostring(fid) .. "|in"] or {}) do
+                consumers[#consumers + 1] = v
+            end
         end
         for _, a in ipairs(producers) do for _, b in ipairs(consumers) do
             if a.block_id ~= b.block_id then links[#links + 1] = {a=a,b=b} end
@@ -1492,7 +1513,7 @@ local function prepare_candidate(state)
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
         zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links,
-        blocks = block_order, limits = state.work.input.limits or {}})
+        blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state)})
     set_phase(state, "pack")
     return true
 end
@@ -1503,6 +1524,7 @@ local function discard_candidate(state)
         record_discarded_attempt(state, score, score and "lower_score" or "rejected")
     end
     state.work.pack, state.work.route, state.work.power, state.work.validate, state.work.tidy = nil, nil, nil, nil, nil
+    if layered_fallback(state) then return end
     if (state.work.attempt or 0) < 2 then
         state.work.attempt = (state.work.attempt or 0) + 1
         state.cursor.grid_index = 1

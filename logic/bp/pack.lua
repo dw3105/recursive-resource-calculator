@@ -529,6 +529,134 @@ local function scan_one(state, block, region)
     return false
 end
 
+
+--Layered pack: a block's layer is the longest link chain from raw input to it. Layers are columns going right
+--from the input edge; inside its column a block aims at the mean row of its placed partners' ports. It takes the
+--nearest legal origin to that target, then looks EXTRA more rings out and keeps the lowest link cost. Buffer
+--rings already keep blocks apart, so no free-rectangle search is needed. Off unless RRC_PACK=col (trial).
+local mode = os and os.getenv and os.getenv("RRC_PACK")
+Pack.layered = mode == "col"
+local EXTRA = tonumber(os and os.getenv and os.getenv("RRC_PACK_EXTRA") or "") or 8
+
+local function layered_order(state)
+    local ids, pos = {}, {}
+    for i, b in ipairs(state.blocks) do ids[i] = tostring(b.block_id); pos[ids[i]] = i end
+    local preds = {}
+    for _, link in ipairs(state.links) do
+        if link.a.block_id ~= nil and link.b.block_id ~= nil then
+            local from, to = tostring(link.a.block_id), tostring(link.b.block_id)
+            preds[to] = preds[to] or {}; preds[to][from] = true
+        end
+    end
+    local layer = {}
+    for _, id in ipairs(ids) do layer[id] = 0 end
+    for _ = 1, #ids do
+        for _, id in ipairs(ids) do
+            for from in pairs(preds[id] or {}) do
+                if layer[from] and layer[from] + 1 > layer[id] then layer[id] = layer[from] + 1 end
+            end
+        end
+    end
+    local maxl = 0
+    for _, id in ipairs(ids) do if layer[id] > maxl then maxl = layer[id] end end
+    local order = {}
+    for i, b in ipairs(state.blocks) do order[i] = b end
+    table.sort(order, function(a, b)
+        local la, lb = layer[tostring(a.block_id)], layer[tostring(b.block_id)]
+        if la ~= lb then return la < lb end
+        return pos[tostring(a.block_id)] < pos[tostring(b.block_id)]
+    end)
+    state.blocks, state.layer_of, state.max_layer = order, layer, maxl
+end
+
+local function layered_target(state, block)
+    local L = state.layer_of[tostring(block.block_id)]
+    local area = state.area
+    local far, next_cross, n = nil, nil, 0
+    local sum = 0
+    for _, pl in ipairs(state.placements) do
+        local pl_layer = state.layer_of[tostring(pl.block_id)]
+        if pl_layer < L then far = math.max(far or 0, pl.x + pl.w) end
+        if pl_layer == L then next_cross = math.max(next_cross or 0, pl.y + pl.h) end
+    end
+    for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
+        local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
+        local other = mine == link.a and link.b or link.a
+        local partner = other.block_id and state.placement_by_id[tostring(other.block_id)]
+        if partner then
+            local pb = state.block_by_id[tostring(other.block_id)]
+            local px, py = port_tile(pb, partner, other)
+            sum = sum + py; n = n + 1
+        end
+    end
+    local x = far and far + 1 or area.x + 1
+    local y
+    if n > 0 then y = math.floor(sum / n + 0.5) - math.floor(block.h / 2)
+    else y = next_cross and next_cross + 1 or area.y + 1 end
+    return x, y
+end
+
+--One origin test. Returns the candidate (or nil) and the ops it cost: a cheap reject costs 1, an origin that
+--reaches port slot choice costs PORT_ORIGIN_OPS like a MaxRects origin, a legal one twice that.
+local function layered_legal(state, block, x, y, direction, tx, ty)
+    local w, h = Grid.rotate_size(block.w, block.h, direction)
+    local area = state.area
+    if x < area.x or y < area.y or x + w > area.x + area.w or y + h > area.y + area.h then return nil, 1 end
+    for cy = y, y + h - 1 do for cx = x, x + w - 1 do
+        if not state.free_cell_index[cell_key(cx, cy)] then return nil, 1 end
+    end end
+    if not placement_avoids_port_cells(state, x, y, w, h) then return nil, 1 end
+    local zones = rotate_buffer_zones(block, x, y, direction)
+    if not buffer_zones_fit(state, zones) or not zones_avoid_blockers(state, zones) then return nil, 1 end
+    local candidate = {x = x, y = y, dir = direction, w = w, h = h,
+        short_side = math.abs(x - tx) + math.abs(y - ty), long_side = 0}
+    if #block.ports > 0 then
+        local slots = choose_port_slots(state, block, x, y, direction)
+        if not slots then return nil, PORT_ORIGIN_OPS end
+        candidate.port_slots = slots
+    end
+    candidate.link_cost = linked_cost(state, block, candidate)
+    --A legal origin also pays for its link cost: twice a port origin keeps a tick near MaxRects' worst.
+    return candidate, 2 * PORT_ORIGIN_OPS
+end
+
+--Walks Manhattan rings around the target, one origin at a time, so a tick stops when its ops run out and the
+--next tick resumes at the same origin. Returns true once the walk is over; cursor.best then holds the pick.
+local function layered_scan(state, block, budget)
+    local ring = state.cursor.ring
+    if ring == nil then
+        local tx, ty = layered_target(state, block)
+        ring = {tx = tx, ty = ty, r = 0, dx = 0, side = 1, di = 1, rmax = state.area.w + state.area.h}
+        state.cursor.ring, state.cursor.best = ring, nil
+        state.counters.origins = state.counters.origins + 1
+    end
+    local dirs = block.allowed_dirs
+    while budget.ops > 0 do
+        if ring.r > ring.rmax or (ring.found_r and ring.r > ring.found_r + EXTRA) then return true end
+        local rest = ring.r - math.abs(ring.dx)
+        local dy = (rest == 0 or ring.side == 1) and -rest or rest
+        state.counters.evaluated_origins = state.counters.evaluated_origins + 1
+        local c, cost = layered_legal(state, block, ring.tx + ring.dx, ring.ty + dy, dirs[ring.di], ring.tx, ring.ty)
+        budget.ops = budget.ops - math.min(budget.ops, cost)
+        if c then
+            ring.found_r = ring.found_r or ring.r
+            if better(c, state.cursor.best) then state.cursor.best = c end
+        end
+        --advance: direction, then the second dy of this dx, then dx, then the ring
+        ring.di = ring.di + 1
+        if ring.di > #dirs then
+            ring.di = 1
+            if ring.side == 1 and rest ~= 0 then ring.side = 2
+            else
+                ring.side = 1
+                ring.dx = ring.dx + 1
+                if ring.dx > ring.r then ring.r = ring.r + 1; ring.dx = -ring.r end
+            end
+        end
+    end
+    return false
+end
+
 local function reset_region_cursor(cursor)
     cursor.direction_index, cursor.origin_x, cursor.origin_y, cursor.needs_offset = 1, nil, nil, false
 end
@@ -747,7 +875,7 @@ function Pack.begin(input)
         zone_blockers = copy_rects(input.zone_blockers),
         blocks = blocks,
         links = links, links_by_block = links_by_block, block_by_id = block_by_id,
-        placement_by_id = {}, has_links = #links > 0,
+        placement_by_id = {}, has_links = #links > 0, layered = input.layered == true,
         limits = limits,
         regions = regions,
         placements = {},
@@ -765,6 +893,7 @@ function Pack.begin(input)
         origin_seen = {}, disable_link_cut = input.disable_link_cut == true,
     }
     rebuild_indexes(state)
+    if state.layered and state.has_links then layered_order(state) end
 
     if limits.max_free_regions ~= nil and #regions > limits.max_free_regions then
         fail(state, "BP_P_REGION_LIMIT")
@@ -790,7 +919,13 @@ function Pack.step(state, budget)
             break
         end
 
-        if state.cursor.region_index <= #state.regions then
+        if state.layered and state.has_links then
+            if budget.ops == nil or budget.ops <= 0 then break end
+            if layered_scan(state, block, budget) then
+                state.cursor.ring = nil
+                start_place(state, block)
+            end
+        elseif state.cursor.region_index <= #state.regions then
             if budget.ops == nil or budget.ops <= 0 then break end
             local region = state.regions[state.cursor.region_index]
             if state.cursor.direction_index == 1 and state.cursor.origin_x == nil
