@@ -1,0 +1,9 @@
+gui/progress_panel.lua
+gui/sheet.lua
+locale/en/locale.cfg
+locale/cs/locale.cfg
+locale/ro/locale.cfg
+tests/test_panel_sweep.lua
+tests/test_progress_panel.lua
+tests/test_job_flow.lua
+docs/tasks/205_panel_sweep.md

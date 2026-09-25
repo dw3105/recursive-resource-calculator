@@ -916,6 +916,13 @@ function H.new_world(shape)
         on_init = function(handler) world.handlers.on_init = handler end,
         on_configuration_changed = function(handler) world.handlers.on_configuration_changed = handler end,
         on_event = function(event, handler) world.handlers.events[event] = handler end,
+        --Round 34: the engine fires nth-tick handlers after on_tick; the bar's only refresh rides on one, and a
+        --harness without it proved "the bar shows" through direct calls the game never makes.
+        on_nth_tick = function(period, handler)
+            world.handlers.nth_ticks = world.handlers.nth_ticks or {}
+            if period == nil then world.handlers.nth_ticks = {}; return end
+            world.handlers.nth_ticks[period] = handler
+        end,
     }, SCRIPT_MEMBERS)
     _G.settings = {get_player_settings = function() return {["hxrrc-displayed-floating-point-precision"] = {value = 12}} end}
 
@@ -2156,12 +2163,31 @@ end
 
 --Advances the tick and fires the mod's registered on_tick that many times, the way the game does. Every incremental
 --job is driven through this, so a test cannot accidentally prove progress by calling a step function directly.
+--Round 34: what a save made by 1.1.74 or older holds on a sheet. Factorio keeps GUI elements across a mod update,
+--so these survive into the new version: the old canceled label at index 1 of the horizontal output_flow (it shoved
+--the report right in the player's screenshot, 2026-09-25) and a bar and Cancel left visible.
+function H.legacy_save(sheet_flow, opts)
+    opts = opts or {}
+    local output_flow = sheet_flow.output_flow
+    output_flow.add{type = "label", name = "hxrrc_calc_canceled_label", caption = {"hxrrc.calc_canceled"}, index = 1}
+    if opts.visible_controls ~= false then
+        local Sheet = require "gui.sheet"
+        local bar, cancel = Sheet.progressbar_of(sheet_flow), Sheet.cancel_button_of(sheet_flow)
+        if bar then bar.visible = true; bar.value = opts.bar_value or 0.4 end
+        if cancel then cancel.visible = true end
+    end
+    return output_flow.hxrrc_calc_canceled_label
+end
+
 function H.run_ticks(world, count)
     local handler = world.handlers.events[defines.events.on_tick]
     for _ = 1, count or 1 do
         world.advance_tick(1)
         world.flush_cursor_events()
         if handler then handler({name = defines.events.on_tick, tick = world.tick}) end
+        for period, nth in pairs(world.handlers.nth_ticks or {}) do
+            if world.tick % period == 0 then nth({tick = world.tick, nth_tick = period}) end
+        end
     end
     return world.tick
 end

@@ -1,0 +1,7 @@
+logic/bp/groups.lua
+tools/entity_names.py
+tests/test_groups_row_inserter_name.lua
+tests/test_entity_names.py
+tests/test_groups.lua
+tests/test_groups_hand_count.lua
+docs/tasks/206_inserter_name.md

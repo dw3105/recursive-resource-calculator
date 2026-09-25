@@ -1,0 +1,9 @@
+control.lua
+logic/jobs.lua
+logic/bp/generation.lua
+tests/test_update_stops_jobs.lua
+tests/test_jobs.lua
+tests/test_control.lua
+tests/test_generation_interim.lua
+tests/test_job_flow.lua
+docs/tasks/204_update_stops_jobs.md
