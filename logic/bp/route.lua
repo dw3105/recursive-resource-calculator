@@ -3295,7 +3295,7 @@ prune_dead_route_segments = function(work)
                 if dx and sx then
                     local first = fed[coordinate_key(segment.splitter_anchor_x - dx, segment.splitter_anchor_y - dy)]
                     local second = fed[coordinate_key(sx - dx, sy - dy)]
-                    if not first and not second then splitter_remove[segment.segment_id] = true end
+                    if not first or not second then splitter_remove[segment.segment_id] = true end
                 end
             end
         end
