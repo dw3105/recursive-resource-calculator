@@ -165,7 +165,7 @@ FLUID_BOX_MEMBERS.hybrid = FLUID_BOX_MEMBERS["2.0"]
 local FORCE_RECIPE_MEMBERS = {"name", "valid", "productivity_bonus"}
 local FORCE_MEMBERS = {"name", "valid", "recipes", "players", "is_quality_unlocked",
     "inserter_stack_size_bonus", "bulk_inserter_capacity_bonus"}
-local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text", "cursor_ghost", "cursor_stack", "clear_cursor",
+local PLAYER_MEMBERS = {"index", "name", "valid", "force", "gui", "opened", "create_local_flying_text", "cursor_ghost", "cursor_stack", "clear_cursor", "add_to_clipboard", "activate_paste",
     "is_cursor_empty", "cursor_record"}
 --LuaItemStack per 2.0.77, the members the cursor stack mock serves; quality reads as LuaQualityPrototype
 local ITEM_STACK_MEMBERS = {"valid", "valid_for_read", "name", "quality", "count", "prototype",
@@ -1037,6 +1037,7 @@ function H.new_world(shape)
                 end end},
             })
         end
+        slots.destroy = function() slots.destroyed = true end
         return slots
     end
 
@@ -1470,6 +1471,7 @@ function H.new_world(shape)
                     local stack = cursor_of(index).stack
                     if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
                     if stack.name ~= "blueprint" then error("LuaItemStack::set_blueprint_entities can only be used if this is a blueprint", 3) end
+                    if world.throw_cursor_entities then error("injected cursor entity write failure", 3) end
                     stack.entities = entities
                 end
             end},
@@ -1491,6 +1493,8 @@ function H.new_world(shape)
                 queue_cursor_event(index)
                 return true
             end,
+            add_to_clipboard = function(stack) world.clipboard_stack = stack; return true end,
+            activate_paste = function() world.paste_activated = true; return true end,
             --its 2.0.77 description contradicts its name, so the harness refuses to pick a meaning
             is_cursor_empty = function() error("is_cursor_empty is not modelled: its documented description contradicts its name", 2) end,
         }, PLAYER_MEMBERS, nil, {
@@ -1522,7 +1526,7 @@ function H.new_world(shape)
                     queue_cursor_event(index)
                 end,
             },
-            cursor_stack = {read = function() return cursor_stack end},
+            cursor_stack = {read = function() if world.nil_cursor then return nil end return cursor_stack end},
             cursor_record = {read = function() return cursor_of(index).record end},
             --reads nil once the opened element is gone; assigning another value first raises on_gui_closed for the open GUI (order is an in-game check)
             opened = {

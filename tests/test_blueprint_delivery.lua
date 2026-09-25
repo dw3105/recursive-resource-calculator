@@ -302,8 +302,8 @@ for _, shape in ipairs(H.shapes()) do
         restore_cursor()
         game.create_inventory = create_inventory
 
-        H.equal(ok, false, "cursor setup refusal is rejected")
-        H.equal(reason, "blueprint_delivery_failed", "cursor setup refusal reports failure")
+        H.equal(ok, true, "cursor setup refusal falls back to clipboard")
+        H.equal(reason, "blueprint_on_clipboard", "cursor setup refusal reports clipboard")
         H.equal(player.cursor_stack.valid_for_read, false, "cursor setup refusal leaves the hand empty")
         H.equal(player.cursor_ghost, nil, "cursor setup refusal leaves no ghost")
         H.equal(player.cursor_record, nil, "cursor setup refusal leaves no record")
@@ -322,14 +322,10 @@ for _, shape in ipairs(H.shapes()) do
 
         restore_cursor()
 
-        H.equal(ok, false, "cursor setup refusal is rejected")
-        H.equal(reason, "blueprint_delivery_failed", "cursor setup refusal reports failure")
+        H.equal(ok, true, "cursor setup refusal falls back to clipboard")
+        H.equal(reason, "blueprint_on_clipboard", "cursor setup refusal reports clipboard")
         H.equal(player.cursor_stack.valid_for_read, false, "the failed handover leaves the hand empty")
-        H.equal(storage[1].blueprint_delivery == nil, true, "the refused result is dropped rather than kept")
-
-        local retry_ok, retry_reason = Delivery.retry(1)
-        H.equal(retry_ok, false, "a dropped result cannot be retried")
-        H.equal(retry_reason, "nothing_to_deliver", "retry reports that the dropped result is gone")
+        H.equal(world.paste_activated, true, "clipboard paste was activated")
     end)
 end
 
