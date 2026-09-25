@@ -2010,19 +2010,18 @@ local function check_physical_transfers(work, machine_index, final)
         while queue[head] do
             local current = queue[head]; head = head + 1
             mark_used(current, flow_id)
-            if transport_kind(current) == "belt" then
-                local x, y = transport_tile(current)
-                for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
-                    local nx, ny = x + delta[1], y + delta[2]
-                    for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(nx, ny)] or {}) do
-                        if candidate ~= current and transport_kind(candidate) == "belt"
-                            and transport_accepts_flow(candidate, flow_id) then
-                            local dx, dy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
-                            if dx == -delta[1] and dy == -delta[2] and not seen[candidate.id] then
-                                seen[candidate.id] = true; queue[#queue + 1] = candidate
-                            end
-                        end
-                    end
+            for _, candidate in ipairs(transport_neighbors(work, current, flow_id)) do
+                if not seen[candidate.id] then seen[candidate.id] = true; queue[#queue + 1] = candidate end
+            end
+            -- Exports sometimes publish the pair id on only one underground endpoint.
+            for _, candidate in ipairs(work.infos or {}) do
+                local entity, current_entity = candidate.entity or {}, current.entity or {}
+                local pair_id = entity.ug_pair_id or entity.underground_pair_id
+                local current_pair = current_entity.ug_pair_id or current_entity.underground_pair_id
+                if candidate ~= current and transport_kind(candidate) == "belt"
+                    and transport_accepts_flow(candidate, flow_id)
+                    and (pair_id == current.id or current_pair == candidate.id) and not seen[candidate.id] then
+                    seen[candidate.id] = true; queue[#queue + 1] = candidate
                 end
             end
         end
