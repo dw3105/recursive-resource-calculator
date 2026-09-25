@@ -117,7 +117,7 @@ end
 
 local function note_kind(caption)
     local key = type(caption) == "table" and caption[1] or nil
-    if type(key) == "string" and key:sub(1, 15) == "hxrrc.blueprint" then return "blueprint" end
+    if type(key) == "string" and key:match("^hxrrc%.blueprint_") then return "blueprint" end
     return "calc"
 end
 

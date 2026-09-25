@@ -205,12 +205,22 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.result.failures[1].name, "inserter-face", "the failure names the overfull inserter face")
     end)
 
-    H.test(shape .. " IG13 a bottom beacon row cannot claim the port-bound face", function()
+    --Round 36: beacon reach counts from the beacon's edge (engine), so one row above reaches a machine three times
+    --and no second row is placed on the hand face. The rule this guards: a beacon never stands on a hand tile.
+    H.test(shape .. " IG13 a three-beacon machine keeps its port-bound face free of beacons", function()
         local beacon_plan = plan(1, 1, {beacon_groups = {{signature = "bottom", name = "beacon",
             count_per_machine = 3, modules = {}}}})
-        local block, state = block_for({plan = beacon_plan, catalog = catalog()})
-        H.equal(block, nil, "a bottom beacon row does not displace external hands")
-        H.equal(state.result.failures[1].name, "beacon-face", "the failure names the claimed inserter face")
+        local block = block_for({plan = beacon_plan, catalog = catalog()})
+        H.equal(block ~= nil, true, "the block builds")
+        for _, beacon in ipairs(block.beacons) do
+            for _, hand in ipairs(block.inserters) do
+                H.equal(hand.x < beacon.x or hand.x >= beacon.x + beacon.w or hand.y < beacon.y or hand.y >= beacon.y + beacon.h,
+                    true, "no beacon covers hand " .. tostring(hand.id))
+            end
+        end
+        for _, machine in ipairs(block.machines) do
+            H.equal(#(block.beacon_coverage[machine.id] or {}) >= 3, true, "the machine is reached by three beacons")
+        end
     end)
 
     H.test(shape .. " IG11 machine-to-machine obligations bind both real machine endpoints", function()
