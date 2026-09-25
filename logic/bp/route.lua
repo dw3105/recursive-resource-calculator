@@ -3295,7 +3295,11 @@ prune_dead_route_segments = function(work)
                 if dx and sx then
                     local first = fed[coordinate_key(segment.splitter_anchor_x - dx, segment.splitter_anchor_y - dy)]
                     local second = fed[coordinate_key(sx - dx, sy - dy)]
-                    if not first or not second then splitter_remove[segment.segment_id] = true end
+                    --A branch splitter is fed on one input only; it is dead only when nothing feeds either input
+                    --and no hand drops onto it.
+                    local own = sources[coordinate_key(segment.splitter_anchor_x, segment.splitter_anchor_y)]
+                        or sources[segment.splitter_second_key or ""]
+                    if not first and not second and not own then splitter_remove[segment.segment_id] = true end
                 end
             end
         end

@@ -96,19 +96,28 @@ H.test("TJ2 call 1 has no transport overlaps or splitter chains", function()
     end end
 end)
 
-H.test("TJ3 bulk call 4 splitters have no unfed input", function()
+--TJ3: the dead trunk's splitter at (24,8) had NO live input after the sweep. A branch splitter is normally fed on
+--one input only, and a hand may drop straight onto a splitter tile, so the rule is: every splitter has at least one
+--fed input or a hand drop on one of its own tiles.
+H.test("TJ3 bulk call 4 every splitter is fed", function()
     local work=replay("tests/fixtures/route_ins10s_bulk_call4.json").work
+    local drops={}
+    for _,b in ipairs(work.bindings or {}) do
+        local src=work.endpoint_by_id and work.endpoint_by_id[b.source_port_id]
+        if src then drops[tostring(src.x)..":"..tostring(src.y)]=true end
+    end
     for _,s in ipairs(work.segments) do if s.splitter then
         local dx,dy=Grid.dir_vector(s.splitter_direction)
-        for _,input in ipairs({{s.splitter_anchor_x-dx,s.splitter_anchor_y-dy},
-            (function() local x,y=string.match(s.splitter_second_key,"^([^:]+):([^:]+)$"); return {tonumber(x)-dx,tonumber(y)-dy} end)()}) do
+        local sx,sy=string.match(s.splitter_second_key,"^([^:]+):([^:]+)$"); sx,sy=tonumber(sx),tonumber(sy)
+        local own={tostring(s.splitter_anchor_x)..":"..tostring(s.splitter_anchor_y), s.splitter_second_key}
+        local live=drops[own[1]] or drops[own[2]] or false
+        for _,input in ipairs({{s.splitter_anchor_x-dx,s.splitter_anchor_y-dy},{sx-dx,sy-dy}}) do
             local key=tostring(input[1])..":"..tostring(input[2])
-            local fed=false
             for other_key,other in pairs(work.segments_by_cell) do
-                if other~=s then for _,out in ipairs(edges(work,other_key,s.flow_id)) do if out==key then fed=true end end end
+                if other~=s then for _,out in ipairs(edges(work,other_key,s.flow_id)) do if out==key then live=true end end end
             end
-            H.equal(fed,true,"splitter input is fed: "..key)
         end
+        H.equal(live,true,"splitter "..own[1].." has a live input")
     end end
 end)
 
