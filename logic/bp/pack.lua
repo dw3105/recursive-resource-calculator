@@ -254,12 +254,19 @@ local function port_slots(block, port)
     local function add(slot)
         --A row's second head feed sits inside the envelope beside the head; it keeps its own heading.
         local interior_row_feed = (port.row_port or port.fluid_pinned) and not bounded_slot(slot, block.w, block.h)
-        if not bounded_slot(slot, block.w, block.h) and not interior_row_feed then return end
+        --Authored hand drop points can also sit inside the opaque envelope: the envelope includes the
+        --members around the machine, while the drop tile is still a real empty tile. Preserve its authored
+        --direction and let the free-cell/approach checks below prove that it can be used.
+        local interior_pinned = port.pinned and port.normal_dir ~= nil
+            and not bounded_slot(slot, block.w, block.h)
+        if not bounded_slot(slot, block.w, block.h) and not interior_row_feed and not interior_pinned then return end
         local key = slot_key(slot.attach_dx, slot.attach_dy)
         if seen[key] then return end
         seen[key] = true
-        local normal = interior_row_feed and slot.normal_dir or normal_for_slot(slot, block.w, block.h)
-        local travel = port.role == "in" and normal or Grid.dir_opposite(normal)
+        local normal = (interior_row_feed or interior_pinned) and slot.normal_dir
+            or normal_for_slot(slot, block.w, block.h)
+        local travel = (interior_row_feed or interior_pinned) and port.travel_dir
+            or (port.role == "in" and normal or Grid.dir_opposite(normal))
         if port.row_port and port.travel_dir ~= nil then travel = port.travel_dir end
         result[#result + 1] = {
             attach_dx = slot.attach_dx, attach_dy = slot.attach_dy,
@@ -592,8 +599,16 @@ local function layered_target(state, block)
     end
     local x = far and far + 1 or area.x + 1
     local y
-    if n > 0 then y = math.floor(sum / n + 0.5) - math.floor(block.h / 2)
-    else y = next_cross and next_cross + 1 or area.y + 1 end
+    if n > 0 then
+        y = math.floor(sum / n + 0.5) - math.floor(block.h / 2)
+    else
+        -- Independent blocks in one source layer are peers, not a vertical chain.  Stacking each
+        -- one below the previous block made several producers sit a whole machine-height apart;
+        -- their common consumer then needed long vertical feed belts.  Keep the peer row level and
+        -- advance across it.  The next dependency layer starts after this row via `far` above.
+        y = area.y + 1
+        if next_cross then x = next_cross + 1 end
+    end
     return x, y
 end
 
