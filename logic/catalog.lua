@@ -33,8 +33,12 @@ local Utils = require "logic.utils"
 local MISSING_PROTOTYPE = "CATALOG_MISSING_PROTOTYPE"
 local MISSING_QUALITY = "CATALOG_MISSING_QUALITY"
 local INCOMPLETE_CAPTURE = "BP_CAP_INCOMPLETE"
-local BELT_PICKUP_FACTOR = 0.55 -- chest-to-chest swings spend part of their cycle picking up and placing items
-local INSERTER_RATE_K = 1
+--One swing is one full turn (1 / rotation_speed ticks). K pins the vanilla fast inserter (rotation 0.04/tick) at the
+--wiki's chest-to-chest 2.31 items/s; the same K gives inserter (0.014) 0.81 and long-handed (0.02) 1.16.
+local INSERTER_RATE_K = 2.31 / (60 * 0.04)
+--Belt pickup against chest pickup. 1 until an in-game measurement says otherwise; a guess here changes every hand
+--count, so it stays one named number.
+local BELT_PICKUP_FACTOR = 1
 
 local function diagnostic(diagnostics, code, subject, detail, field)
     diagnostics[#diagnostics + 1] = {code = code, subject = subject, detail = detail, field = field}

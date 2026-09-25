@@ -47,7 +47,7 @@ for _, shape in ipairs(H.shapes()) do
         world.add_player(1)
         world.init()
         local catalog = Catalog.build(1, {inserter = "bulk-inserter"})
-        H.equal(math.abs(catalog.inserter.items_per_second - 6.93) <= 0.1, true, "bulk capacity bonus got " .. tostring(catalog.inserter.items_per_second))
+        H.equal(math.abs(catalog.inserter.items_per_second - 12.13) <= 0.1, true, "bulk capacity bonus got " .. tostring(catalog.inserter.items_per_second))
     end)
 
     H.test(shape .. " A1 unavailable speed facts use the documented fallback", function()

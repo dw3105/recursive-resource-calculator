@@ -1626,7 +1626,7 @@ function H.new_world(shape)
             bulk = spec.bulk == true,
              inserter_max_belt_stack_size = spec.max_belt_stack or 1,
              get_inserter_rotation_speed = not spec.no_speed and speed_for("rotation_speed",
-                 spec.name == "fast-inserter" and 0.07 or (spec.name == "long-handed-inserter" and 0.03485 or 0.02515)) or nil,
+                 spec.name == "fast-inserter" and 0.04 or (spec.name == "long-handed-inserter" and 0.02 or 0.014)) or nil,
              get_inserter_extension_speed = not spec.no_speed and speed_for("extension_speed", 0.0343) or nil,
              --the mod reads a rate from its own model; the prototype only carries geometry and bonuses
              energy_usage = (spec.energy_kw or 13) * 1000 / 60})
