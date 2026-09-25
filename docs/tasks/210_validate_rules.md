@@ -60,3 +60,7 @@ Commit on `lane/210_validate_rules`. **Run the checks as the very LAST action.**
 ```
 
 # bound: 3600s
+
+## Implementation note
+
+The validator now checks port approaches by transport kind, reports adjacent foreign fluids as `BP_V_FLUID_MIX` (respecting pipe-to-ground pairing), and records directionally connected incoming belt feeds when witnessing transfers. Focused tests cover each clause and retain a dead-end unused-belt control.

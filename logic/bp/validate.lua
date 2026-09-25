@@ -638,6 +638,18 @@ local function transport_neighbors(work, info, wanted_flow)
                     add_at(x + ox + dx, y + oy + dy)
                 end
             end
+            --A belt may also feed this tile from its side. The neighboring belt points into the
+            --current tile; include that incoming edge so every producer branch is witnessed.
+            for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+                local nx, ny = x + delta[1], y + delta[2]
+                for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(nx, ny)] or {}) do
+                    if candidate ~= info and transport_kind(candidate) == "belt"
+                        and transport_accepts_flow(candidate, wanted_flow) then
+                        local ndx, ndy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
+                        if ndx == -delta[1] and ndy == -delta[2] then add_at(nx, ny) end
+                    end
+                end
+            end
         end
     end
     return result
@@ -1986,7 +1998,29 @@ local function check_physical_transfers(work, machine_index, final)
     end
 
     local function mark_path(path, flow_id)
-        for _, info in ipairs(path or {}) do mark_used(info, flow_id) end
+        local queue, head, seen = {}, 1, {}
+        for _, info in ipairs(path or {}) do
+            if not seen[info.id] then seen[info.id] = true; queue[#queue + 1] = info end
+        end
+        while queue[head] do
+            local current = queue[head]; head = head + 1
+            mark_used(current, flow_id)
+            if transport_kind(current) == "belt" then
+                local x, y = transport_tile(current)
+                for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+                    local nx, ny = x + delta[1], y + delta[2]
+                    for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(nx, ny)] or {}) do
+                        if candidate ~= current and transport_kind(candidate) == "belt"
+                            and transport_accepts_flow(candidate, flow_id) then
+                            local dx, dy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
+                            if dx == -delta[1] and dy == -delta[2] and not seen[candidate.id] then
+                                seen[candidate.id] = true; queue[#queue + 1] = candidate
+                            end
+                        end
+                    end
+                end
+            end
+        end
     end
 
     local function witness_step(info)
@@ -2326,7 +2360,8 @@ local function check_port_approaches(work, port_index)
         if wanted_flow == nil then return end
         for _, info in ipairs(work.infos) do
             local kind = transport_kind(info)
-            if kind then
+            local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
+            if kind and ((fluid_port and kind == "pipe") or (not fluid_port and kind == "belt")) then
                 local tx, ty = tile_of(info)
                 local flow_id = info.entity.flow_id or info.entity.full_name
                 if tx == math.floor(x) and ty == math.floor(y) and flow_id ~= nil and flow_id ~= wanted_flow then
@@ -2335,13 +2370,16 @@ local function check_port_approaches(work, port_index)
             end
         end
         for _, segment in ipairs(work.segments) do
+            local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
+            local segment_kind = segment.kind == "pipe" and "pipe" or "belt"
             local flow_ids = {}
             if segment.flow_id ~= nil then flow_ids[segment.flow_id] = true end
             for _, allocation in ipairs(segment.allocations or {}) do
                 if allocation.flow_id ~= nil then flow_ids[allocation.flow_id] = true end
             end
             for flow_id, _ in pairs(flow_ids) do
-                if flow_id ~= wanted_flow then
+                if flow_id ~= wanted_flow and ((fluid_port and segment_kind == "pipe")
+                    or (not fluid_port and segment_kind == "belt")) then
                     local points = segment.cells or segment.tiles or segment.path or segment.positions
                     for _, point in ipairs(list_from(points)) do
                         local px, py
@@ -2367,6 +2405,45 @@ local function check_port_approaches(work, port_index)
             occupant_at(port, x, y)
             if port.role == "in" then occupant_at(port, x - dx, y - dy)
             elseif port.role == "out" then occupant_at(port, x + dx, y + dy) end
+        end
+    end
+    return true
+end
+
+-- Pipes join every orthogonally adjacent ordinary pipe.  A pipe-to-ground only joins its declared pair;
+-- its surface tile does not connect to nearby pipes.
+local function check_fluid_mix(work)
+    local pipes, underground = {}, {}
+    for _, info in ipairs(work.infos or {}) do
+        local entity = info.entity or {}
+        local name = tostring(name_of(entity) or "")
+        if transport_kind(info) == "pipe" then
+            local is_underground = name == "pipe-to-ground" or entity.type == "pipe-to-ground" or entity.kind == "pipe-to-ground"
+            if is_underground then underground[#underground + 1] = info else pipes[#pipes + 1] = info end
+        end
+    end
+    for _, info in ipairs(underground) do
+        local entity = info.entity or {}
+        local pair_id = entity.ug_pair_id or entity.underground_pair_id or entity.pipe_connection
+        local pair = pair_id and work.info_by_id[pair_id]
+        local flow_id, pair_flow = transport_flow(info), transport_flow(pair)
+        if pair and transport_kind(pair) == "pipe" and flow_id and pair_flow and flow_id ~= pair_flow
+            and tostring(info.id) < tostring(pair.id) then
+            error_record(work.errors, "BP_V_FLUID_MIX", {tostring(info.id), tostring(pair.id)},
+                {flow_a = flow_id, flow_b = pair_flow})
+        end
+    end
+    for i = 1, #pipes do
+        local a = pipes[i]
+        local ax, ay = transport_tile(a)
+        for j = i + 1, #pipes do
+            local b = pipes[j]
+            local bx, by = transport_tile(b)
+            local af, bf = transport_flow(a), transport_flow(b)
+            if af and bf and af ~= bf and math.abs(ax - bx) + math.abs(ay - by) == 1 then
+                error_record(work.errors, "BP_V_FLUID_MIX", {tostring(a.id), tostring(b.id)},
+                    {flow_a = af, flow_b = bf})
+            end
         end
     end
     return true
@@ -2614,7 +2691,7 @@ function Validate.step(state, budget)
         elseif phase == "power_coverage" then check_power_coverage(work); state.cursor.phase = "wire_legality"
         elseif phase == "wire_legality" then check_wire_legality(work); state.cursor.phase = "wire_connectivity"
         elseif phase == "wire_connectivity" then check_wire_connectivity(work); state.cursor.phase = "segments"
-        elseif phase == "segments" then check_segments(work); state.cursor.phase = "underground"
+        elseif phase == "segments" then check_segments(work); check_fluid_mix(work); state.cursor.phase = "underground"
         elseif phase == "underground" then check_underground(work); check_transport_shapes(work); state.cursor.phase = "port_approaches"
         elseif phase == "port_approaches" then
             local index = state.cursor.approach_index or 1
