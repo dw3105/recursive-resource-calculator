@@ -1,0 +1,3 @@
+BYTES player-red-science-1s 12e37b3b77cddc2562be0e6a93e4231ae149a16663e4e51bbfce8b82db7ea0a0
+BYTES player-green-science-1s 2292573c80739288b7e52f94bbdd4effc978e9868f25e143351fe20f1d438a97
+BYTES player-inserter-10s 76faa0c8ffb98e5cf18b70ec515f1102c201c48b16cade1a128a3801c1b7d733
