@@ -788,33 +788,51 @@ local function combine_adjacent_output_hands(demands)
     for _, demand in ipairs(demands) do
         local endpoint = demand.endpoint
         if endpoint and endpoint.step_id ~= "$external" and endpoint.kind ~= "fluid" then
-            local key = tostring(endpoint.step_id) .. "\0" .. tostring(endpoint.x)
+            local key = tostring(endpoint.step_id)
             groups[key] = groups[key] or {}
             groups[key][#groups[key] + 1] = demand
         end
     end
     local removed = {}
     for _, group in pairs(groups) do
-        table.sort(group, function(a, b) return a.endpoint.y < b.endpoint.y end)
-        local run = {}
-        local function flush()
-            if #run > 1 then
-                local total = 0
-                for _, member in ipairs(run) do total = total + member.remaining; removed[member] = true end
-                local chosen = run[#run].endpoint
+        local pending = {}
+        for _, member in ipairs(group) do pending[member] = true end
+        while next(pending) do
+            local seed
+            for member in pairs(pending) do seed = member; break end
+            local component, queue = {}, {seed}
+            pending[seed] = nil
+            while #queue > 0 do
+                local member = table.remove(queue)
+                component[#component + 1] = member
+                for other in pairs(pending) do
+                    local a, b = member.endpoint, other.endpoint
+                    if (a.x == b.x and math.abs(a.y - b.y) == 1)
+                        or (a.y == b.y and math.abs(a.x - b.x) == 1) then
+                        pending[other] = nil
+                        queue[#queue + 1] = other
+                    end
+                end
+            end
+            local collinear = true
+            for _, member in ipairs(component) do
+                if member.endpoint.x ~= component[1].endpoint.x and member.endpoint.y ~= component[1].endpoint.y then
+                    collinear = false
+                end
+            end
+            if #component > 1 and collinear then
+                local total, chosen_member = 0, component[1]
+                for _, member in ipairs(component) do
+                    total = total + member.remaining
+                    removed[member] = true
+                    local point, chosen = member.endpoint, chosen_member.endpoint
+                    if point.y > chosen.y or (point.y == chosen.y and point.x < chosen.x) then chosen_member = member end
+                end
+                local chosen = chosen_member.endpoint
                 demands[#demands + 1] = {endpoint = chosen, candidates = {chosen}, remaining = total,
-                    explicit_port_id = run[#run].explicit_port_id}
-            end
-            run = {}
-        end
-        for _, member in ipairs(group) do
-            if #run == 0 or member.endpoint.y == run[#run].endpoint.y + 1 then
-                run[#run + 1] = member
-            else
-                flush(); run[1] = member
+                    explicit_port_id = chosen_member.explicit_port_id}
             end
         end
-        flush()
     end
     if next(removed) then
         local kept = {}
