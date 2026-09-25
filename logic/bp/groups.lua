@@ -735,6 +735,7 @@ local function new_face_allocator(machine, iw, ih, block)
     }
     if machine.y <= 0 then capacities.top = 0 end
     if block and block.has_bottom_beacon_row then capacities.bottom = 0 end
+    if block and block.has_top_beacon_row then capacities.top = 0 end
     local used = {top = 0, bottom = 0, left = 0, right = 0}
     return function(preferred)
         local order = block and block.hand_face_spread
@@ -1596,6 +1597,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     if block.failure then return block end
     block.hand_face_spread = face_layout
     block.has_bottom_beacon_row = #bottom_rows > 0
+    --Beacon rows are placed after the hands; a face under a beacon row has no free port tiles (round 36: two copper
+    --cable hands overflowed onto a foundry's top face and their ports landed on its beacon row).
+    block.has_top_beacon_row = #top_rows > 0
     -- All machines are known before any transfer is solved.  That matters for an explicit machine-to-machine
     -- obligation: the inserter at the producer and the inserter at the consumer must each see the other machine
     -- as a real endpoint, even when the producer appears first in step order.
