@@ -497,6 +497,7 @@ local function normalize_endpoint(block, placement, port, catalog, work)
             and ((port.flow_ids and #port.flow_ids > 0 and #port.flow_ids <= 2) or (port_flow_id(port) ~= nil and port.flow_ids == nil))) or nil,
         block_id = block.block_id or block.id,
         step_id = port.step_id or block_step_id(block),
+        inserter_id = port.inserter_id,
         role = role,
         flow_id = port_flow_id(port),
         flow_ids = port.flow_ids,
@@ -794,7 +795,8 @@ local function combine_adjacent_output_hands(work, demands)
         end
     end
     local removed = {}
-    for _, group in pairs(groups) do
+    for _, group_key in ipairs(sorted_keys(groups)) do
+        local group = groups[group_key]
         local pending = {}
         for _, member in ipairs(group) do pending[member] = true end
         while next(pending) do
@@ -821,7 +823,11 @@ local function combine_adjacent_output_hands(work, demands)
                 end
             end
             if #component > 1 and collinear then
-                local total, chosen_member, port_ids = 0, component[1], {}
+                table.sort(component, function(a, b)
+                    if a.endpoint.y ~= b.endpoint.y then return a.endpoint.y > b.endpoint.y end
+                    return a.endpoint.x < b.endpoint.x
+                end)
+                local total, chosen_member, port_ids, members = 0, component[1], {}, {}
                 local vertical = true
                 for _, member in ipairs(component) do
                     if member.endpoint.y ~= component[1].endpoint.y then vertical = false end
@@ -830,12 +836,14 @@ local function combine_adjacent_output_hands(work, demands)
                     total = total + member.remaining
                     removed[member] = true
                     port_ids[member.endpoint.port_id] = true
+                    members[#members + 1] = {endpoint = member.endpoint, amount = member.remaining}
                     local point, chosen = member.endpoint, chosen_member.endpoint
                     if (vertical and point.y > chosen.y) or (not vertical and point.x < chosen.x) then chosen_member = member end
                 end
                 local chosen = chosen_member.endpoint
                 demands[#demands + 1] = {endpoint = chosen, candidates = {chosen}, remaining = total,
-                    explicit_port_id = chosen_member.explicit_port_id, collector_port_ids = port_ids}
+                    explicit_port_id = chosen_member.explicit_port_id, collector_port_ids = port_ids,
+                    collector_members = members}
                 local tiles = {}
                 table.sort(component, function(a, b)
                     if vertical then return a.endpoint.y > b.endpoint.y end
@@ -844,8 +852,12 @@ local function combine_adjacent_output_hands(work, demands)
                 for _, member in ipairs(component) do tiles[#tiles + 1] = {x = member.endpoint.x, y = member.endpoint.y} end
                 local direction = vertical and Grid.NORTH or Grid.EAST
                 work.belt_runs = work.belt_runs or {}
+                local hand_ids = {}
+                for _, member in ipairs(component) do
+                    if member.endpoint.inserter_id then hand_ids[#hand_ids + 1] = member.endpoint.inserter_id end
+                end
                 work.belt_runs[#work.belt_runs + 1] = {role = "out", dir = direction, flows = {chosen.flow_id},
-                    head = tiles[1], tiles = tiles, hand_ids = {}}
+                    head = tiles[1], tiles = tiles, hand_ids = hand_ids, synthetic_collector = true}
             end
         end
     end
@@ -939,7 +951,8 @@ local function build_demands(work, flows)
                     source_candidates = source_candidates, sink_candidates = sink_candidates,
                     source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
                     pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id,
-                    collector_port_ids = best.producer.collector_port_ids}
+                    collector_port_ids = best.producer.collector_port_ids,
+                    collector_members = best.producer.collector_members}
                 best.producer.remaining = best.producer.remaining - best.amount
                 best.consumer.remaining = best.consumer.remaining - best.amount
             end
@@ -1067,7 +1080,8 @@ local function advance_flow_demand_build(work, context)
             sink_candidates = candidate_first(prioritized_candidates(best.consumer.candidates, best.source), best.sink),
             source_index = 1, sink_index = 1, amount = best.amount, remaining = best.amount,
             pairing_cost = best.route_cost, sink_port_id = best.consumer.explicit_port_id,
-            collector_port_ids = best.producer.collector_port_ids}
+            collector_port_ids = best.producer.collector_port_ids,
+            collector_members = best.producer.collector_members}
         best.producer.remaining = best.producer.remaining - best.amount
         best.consumer.remaining = best.consumer.remaining - best.amount
         context.producer_index, context.consumer_index, context.best = 1, 1, nil
@@ -1144,7 +1158,10 @@ local function lay_belt_runs(work)
                     register_segment_flow(segment, flow_id)
                     for _, demand in ipairs(work.demands or {}) do
                         local endpoint = run.role == "in" and demand.sink or demand.source
-                        if demand.flow_id == flow_id and endpoint and endpoint.step_id ~= "$external" then
+                        if not run.synthetic_collector and demand.flow_id == flow_id and endpoint and endpoint.step_id ~= "$external" then
+                            add_allocation(segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
+                        elseif run.synthetic_collector and demand.flow_id == flow_id and endpoint
+                            and (tile.x ~= endpoint.x or tile.y ~= endpoint.y) then
                             add_allocation(segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
                         end
                     end
@@ -1821,6 +1838,23 @@ local function apply_bury(work, candidate, allow_port_adjacent)
     return true
 end
 
+local function append_collector_member_bindings(work, demand, sink, segment_id)
+    for _, member in ipairs(demand.collector_members or {}) do
+        if member.endpoint.port_id ~= demand.source.port_id then
+            work.bindings[#work.bindings + 1] = {source_port_id = member.endpoint.port_id,
+                sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
+                sink = sink, flow_id = demand.flow_id, segment_id = segment_id, rate_per_second = member.amount}
+        end
+    end
+end
+
+local function collector_source_rate(demand, total)
+    for _, member in ipairs(demand.collector_members or {}) do
+        if member.endpoint.port_id == demand.source.port_id then return member.amount end
+    end
+    return total
+end
+
 local function append_normal_path(work, demand, path, amount)
     local snapshot = route_snapshot(work)
     local function reject(reason)
@@ -1989,7 +2023,11 @@ local function append_normal_path(work, demand, path, amount)
         end
         if not allocated_segments[segment.segment_id] then
             register_segment_flow(segment, demand.flow_id)
-            add_allocation(segment, demand.flow_id, sink, amount)
+            local already_allocated = false
+            for _, allocation in ipairs(segment.allocations or {}) do
+                if allocation.flow_id == demand.flow_id and allocation.sink == sink then already_allocated = true; break end
+            end
+            if not already_allocated then add_allocation(segment, demand.flow_id, sink, amount) end
             allocated_segments[segment.segment_id] = true
         end
         first_segment = first_segment or segment
@@ -1999,7 +2037,9 @@ local function append_normal_path(work, demand, path, amount)
     if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
         work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
-            sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id, rate_per_second = amount}
+            sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id,
+            rate_per_second = collector_source_rate(demand, amount)}
+        append_collector_member_bindings(work, demand, sink, first_segment.segment_id)
     end
     --debug-disabled
     return true
@@ -2051,7 +2091,9 @@ local function append_underground(work, demand, candidate, amount)
     local sink = sink_key(demand.sink, work, demand.sink_port_id)
     add_allocation(segment, demand.flow_id, sink, amount)
     work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
-        sink = sink, flow_id = demand.flow_id, segment_id = segment.segment_id, rate_per_second = amount}
+        sink = sink, flow_id = demand.flow_id, segment_id = segment.segment_id,
+        rate_per_second = collector_source_rate(demand, amount)}
+    append_collector_member_bindings(work, demand, sink, segment.segment_id)
     return true
 end
 
@@ -2343,13 +2385,19 @@ local function same_flow_port_tile(work, demand, x, y)
 end
 
 local function transition_cost(work, demand, x, y, direction, previous_direction, mode, distance, amount)
+    local collector_alignment = demand.collector_members and demand.source.x == demand.sink.x
+        and y < demand.source.y and y > demand.sink.y and x ~= demand.source.x and 80 or 0
+    if demand.collector_members and demand.source.x == demand.sink.x then
+        if y < demand.sink.y then collector_alignment = collector_alignment + 200
+        elseif y == demand.sink.y and x ~= demand.sink.x then collector_alignment = collector_alignment + 5 end
+    end
     if mode == 1 then
         --Both endpoints and the underground span are real cost.  Crossings also carry the witness overhead.
         --A pair SURFACING on another same-flow port tile earns the same pass-through credit a plain step
         --does.  Without it, science machine 3's dive (6,8)->(6,3) onto machine 1's output tile tied with a
         --walk east along y=9, lost the tie, and machine 1 then laid its own second long run: measured
         --2026-09-23 on legalcopilot-dev, 6 entities above the player's hand fix.
-        return 2 + distance + 2 - (same_flow_port_tile(work, demand, x, y) and 0.5 or 0)
+        return 2 + distance + 2 - (same_flow_port_tile(work, demand, x, y) and 0.5 or 0) + collector_alignment
     end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     local cost = 1
@@ -2372,7 +2420,7 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
         --A side entry onto an underground output or a belt aimed into its side blocks one lane; keep it last.
         cost = cost + SIDELOAD_UNDERGROUND_COST
     end
-    return cost
+    return cost + collector_alignment
 end
 
 --Riding is a last resort only when there is something to ride: a same-flow belt underground already laid.
