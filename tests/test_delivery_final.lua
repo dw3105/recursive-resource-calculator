@@ -41,14 +41,7 @@ local function run(shape, mode)
         H.equal(storage[1].blueprint_delivery_last_reason, "blueprint_on_clipboard", "clipboard fallback reason is retained")
         local note = nil
         for _, child in ipairs(sheet.children) do if child.name == "hxrrc_job_note" then note = child end end
-        H.equal(note ~= nil, true, "failure note is shown")
-        local copy = false
-        for _, child in ipairs(note.children) do if child.name == "hxrrc_copy_blueprint_string" then copy = child end end
-        H.equal(copy, false, "successful clipboard fallback needs no copy-string button")
-        return
-        event_handlers.on_gui_click[copy.name]({element = copy, player_index = 1})
-        H.equal(player.opened.name, "hxrrc_export_dialog", "copy button opens the existing string box")
-        H.equal(player.opened.hxrrc_export_text.text:gsub("%s", ""), status.blueprint_string, "box contains blueprint string")
+        H.equal(note, nil, "successful clipboard fallback needs no failure note")
         return
     end
     if mode == "busy" then
