@@ -83,6 +83,11 @@ local function lookup_entity(catalog, name, kind)
     return {}
 end
 
+local function catalog_name(catalog, fallback)
+    local facts = catalog and catalog.entity and catalog.entity[fallback]
+    return facts and facts.name or fallback
+end
+
 local function flow_id_of(flow)
     return flow and (flow.flow_id or flow.full_name or flow.id)
 end
@@ -176,26 +181,26 @@ local function beacon_is_speed(group)
     return name:find("speed", 1, true) ~= nil
 end
 
-local function group_name(group)
-    return name_of(group.name or group.beacon or group.type or group.prototype) or "beacon"
+local function group_name(group, catalog)
+    return name_of(group.name or group.beacon or group.type or group.prototype) or catalog_name(catalog, "beacon")
 end
 
 local function group_signature(group, catalog)
     if group.signature ~= nil then return tostring(group.signature) end
-    local pieces = {group_name(group), tostring(group.quality or "normal")}
+    local pieces = {group_name(group, catalog), tostring(group.quality or "normal")}
     for _, module in ipairs(group_modules(group)) do
         pieces[#pieces + 1] = tostring(module.name) .. "@" .. tostring(module.quality) .. "x" .. tostring(module.count)
     end
     -- A catalog may distinguish two beacon profiles with the same prototype name.  The explicit signature
     -- remains authoritative, while this fallback is stable for the normal catalog shape.
-    local entity = lookup_entity(catalog, group_name(group), "beacon")
+    local entity = lookup_entity(catalog, group_name(group, catalog), "beacon")
     if entity.beacon and entity.beacon.counter then pieces[#pieces + 1] = tostring(entity.beacon.counter) end
     return table.concat(pieces, "|")
 end
 
 local function group_supply(catalog, group)
-    local entity = lookup_entity(catalog, group_name(group), "beacon")
-    local beacon = entity.beacon or (catalog and catalog.beacon and catalog.beacon[group_name(group)]) or {}
+    local entity = lookup_entity(catalog, group_name(group, catalog), "beacon")
+    local beacon = entity.beacon or (catalog and catalog.beacon and catalog.beacon[group_name(group, catalog)]) or {}
     local supply = group.supply_area_distance or group.supply_distance or group.supply_w
     local supply_h = group.supply_area_distance_h or group.supply_h
     return first_number({supply, beacon.supply_w, beacon.supply_area_distance, beacon.radius, 3}, 3),
@@ -214,7 +219,7 @@ end
 local function normalize_step(step, catalog)
     local result = copy(step or {})
     result.step_id = tostring(step.step_id or step.id or step.recipe or "step")
-    result.machine = name_of(step.machine or step.machine_name or step.entity) or "assembling-machine-1"
+    result.machine = name_of(step.machine or step.machine_name or step.entity) or catalog_name(catalog, "assembling-machine-1")
     result.machine_quality = step.machine_quality or "normal"
     result.machine_count = math.max(0, math.floor(finite(step.machine_count or step.machines, 0)))
     result.modules = list_copy(step.modules)
@@ -228,7 +233,7 @@ local function normalize_step(step, catalog)
     for _, group in ipairs(result.beacon_groups) do
         local normalized = {
             signature = group_signature(group, catalog),
-            name = group_name(group),
+            name = group_name(group, catalog),
             quality = group.quality or "normal",
             count_per_machine = math.max(0, math.ceil(finite(group.count_per_machine or group.count, 0))),
             has_speed_module = beacon_is_speed(group),
@@ -304,7 +309,8 @@ end
 local function inserter_size(catalog, input)
     local name = input and input.name
     if not name and catalog and catalog.inserter then name = catalog.inserter.name end
-    return name or "inserter", dimensions(catalog, name, "inserter", 1, 1)
+    name = name or catalog_name(catalog, "inserter")
+    return name, dimensions(catalog, name, "inserter", 1, 1)
 end
 
 local function point(value)
@@ -1513,7 +1519,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 local hx = machine.x + math.floor((machine.w - 1) / 2)
                 local hy = input_hand and machine.y - 1 or machine.y + machine.h
                 local id = member_id("inserter", spec.step.step_id, machine.ordinal, hand.role .. ":" .. tostring(index))
-                local hand_member = {id=id,kind="inserter",type="inserter",name=(input and input.inserter and input.inserter.name) or "inserter",
+                local hand_name = inserter_size(catalog, input and input.inserter)
+                local hand_member = {id=id,kind="inserter",type="inserter",name=hand_name,
                     step_id=spec.step.step_id,machine_id=machine.id,role=hand.role,flow_ids=list_copy(hand.flow_ids),
                     flow_id=#hand.flow_ids==1 and hand.flow_ids[1] or nil,
                     port_id=(input_hand and "row:in:" or "row:out:") .. tostring(hand.flow_ids[1]),
@@ -1876,7 +1883,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         --into its machine. The far belt above the row travels WEST so its head and side feeds sit right of the
         --row, clear of the near belt's own feeds; the far belt below the output belt travels EAST from the left.
         local long_facts = catalog and catalog.long_inserter or {}
-        local long_name = long_facts.name or "long-handed-inserter"
+        local long_name = long_facts.name or catalog_name(catalog, "long-handed-inserter")
         local far_w = 0
         local function add_far(far_flows, above)
             if #far_flows == 0 then return end
