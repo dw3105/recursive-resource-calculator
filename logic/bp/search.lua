@@ -616,14 +616,25 @@ local function mark_perimeter_port_cells(blocked, block)
             blocked[perimeter_cell_key(x, y)] = true
             local dx, dy = Grid.dir_vector(direction or Grid.NORTH)
             if dx ~= nil and dy ~= nil then
-                if port.role == "in" then
-                    blocked[perimeter_cell_key(x - dx, y - dy)] = true
-                elseif port.role == "out" then
-                    blocked[perimeter_cell_key(x + dx, y + dy)] = true
-                end
+                --The approach tile is kept for the port's own flow: an edge terminal of that flow standing there
+                --feeds the port straight on (red science 10/s, 2026-09-25: the only straight way into a foundry
+                --hand's port tile was that edge tile, and reserving it from every flow left the hand unfed).
+                local keep = port_flow_id(port) or true
+                local key
+                if port.role == "in" then key = perimeter_cell_key(x - dx, y - dy)
+                elseif port.role == "out" then key = perimeter_cell_key(x + dx, y + dy) end
+                if key then blocked[key] = blocked[key] == nil and keep or (blocked[key] == keep and keep or true) end
             end
         end
     end
+end
+
+--A reserved perimeter cell stays usable by a terminal of the one flow it was reserved for -- only once an attempt
+--has starved an edge flow (`edge_split_flows`); a sheet that routes as it is keeps its terminals.
+local function perimeter_cell_free(state, blocked, key, port)
+    local mark = blocked[key]
+    if mark == nil then return true end
+    return mark ~= true and state.work.edge_split_flows ~= nil and mark == port_flow_id(port)
 end
 
 local function perimeter_port_needs_route(port)
@@ -691,6 +702,11 @@ end
 local function terminal_branch_limit(state, network)
     local input = state and state.work and state.work.input or {}
     local port, flow = network.port or {}, network.flow or {}
+    --A flow from the map edge that route could not bring to every sink through one terminal gets one terminal per
+    --sink on the next try (marked in `note_edge_shortfalls`). Any flow, never a named one.
+    local split = state and state.work and state.work.edge_split_flows
+    local flow_key = port.flow_id or port.full_name or flow.flow_id or flow.full_name
+    if split and flow_key and split[flow_key] then return 1 end
     return first_positive({network, port, flow, input}, {
         "max_branches_per_terminal", "terminal_branch_capacity", "max_terminal_branches",
         "max_branching_factor", "branching_factor", "max_fanout", "fanout",
@@ -884,7 +900,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
         local best
         for _, slot in ipairs(slots[network.role]) do
             local key = perimeter_cell_key(slot.x, slot.y)
-            if not occupied[key] and (not perimeter_port_needs_route(network.port) or not blocked[key]) then
+            if not occupied[key] and (not perimeter_port_needs_route(network.port) or perimeter_cell_free(state, blocked, key, network.port)) then
                 local cost = slot_cost(slot, network.consumers)
                 if best == nil or cost < best then best = cost end
             end
@@ -920,7 +936,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
             local index, best_cost
             for candidate_index, candidate_slot in ipairs(slots[role]) do
                 local key = perimeter_cell_key(candidate_slot.x, candidate_slot.y)
-                if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then
+                if not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
                     local cost = slot_cost(candidate_slot, network.consumers)
                     if index == nil or cost < best_cost or (cost == best_cost and candidate_index < index) then
                         index, best_cost = candidate_index, cost
@@ -931,7 +947,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
             while index <= #slots[role] do
                 local slot = slots[role][index]
                 local key = perimeter_cell_key(slot.x, slot.y)
-                if not occupied[key] and (not perimeter_port_needs_route(port) or not blocked[key]) then break end
+                if not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then break end
                 index = index + 1
             end
             next_slot[role] = math.max(next_slot[role], index + 1)
@@ -1517,7 +1533,43 @@ local function prepare_candidate(state)
     return true
 end
 
+--Route writes off a demand it has no room for as a shortfall. When that demand starts at a map-edge terminal,
+--one terminal was shared by several sinks and the geometry left no way to branch to one of them (red science
+--10/s, 2026-09-25: a foundry hand's port tile walled in by a row belt and its own hand). Mark the flow so the
+--next attempt sizes one terminal per sink.
+local function note_edge_shortfalls(state)
+    local route = state.work.route
+    local shortfalls = route and route.result and route.result.shortfalls
+    if type(shortfalls) ~= "table" or #shortfalls == 0 then return end
+    local edge = {}
+    for _, port in ipairs(state.work.perimeter_ports or {}) do
+        if port.port_id then edge[port.port_id] = true end
+    end
+    local edge_short = false
+    for _, shortfall in ipairs(shortfalls) do
+        if shortfall.flow_id and shortfall.source_port_id and edge[shortfall.source_port_id] then edge_short = true end
+    end
+    if not edge_short then return end
+    --The starved flow is often not the one to split: a flow with several sinks that shares one terminal runs its
+    --trunk across the edge rows and walls a neighbour in (red science 10/s: a two-sink flow crossed the row of a
+    --one-sink flow). Every edge flow that feeds more than one sink gets one terminal per sink on the next try.
+    state.work.edge_split_flows = state.work.edge_split_flows or {}
+    local sinks = {}
+    for _, shortfall in ipairs(shortfalls) do
+        if shortfall.flow_id then sinks[shortfall.flow_id] = math.max(sinks[shortfall.flow_id] or 0, 2) end
+    end
+    for _, binding in ipairs(route.result.bindings or {}) do
+        if binding.flow_id and binding.source_port_id and edge[binding.source_port_id] then
+            sinks[binding.flow_id] = (sinks[binding.flow_id] or 0) + 1
+        end
+    end
+    for flow_id, count in pairs(sinks) do
+        if count > 1 then state.work.edge_split_flows[flow_id] = true end
+    end
+end
+
 local function discard_candidate(state)
+    note_edge_shortfalls(state)
     if not state.work.attempt_recorded then
         local score = state.work.validate and state.work.validate.result and state.work.validate.result.score
         record_discarded_attempt(state, score, score and "lower_score" or "rejected")

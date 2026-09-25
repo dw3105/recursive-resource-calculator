@@ -2507,6 +2507,13 @@ local function search_step(work, search)
                 --port keeps the old rule: its source tile is the tile an inserter drops onto, and that tile
                 --stays a plain belt.
                 local crossings = crossing_targets(work, search.demand, search, current, direction, search.amount)
+                --A side-fed underground entrance takes only the lane on its far side. A map-edge belt carries both
+                --lanes (the validator seeds it so), so a side-fed dive on its path always blocks one of them:
+                --BP_V_UNDERGROUND_SIDELOAD_BLOCKED on red science 10/s (2026-09-25). Such a path dives straight only.
+                if current.direction ~= nil and current.direction ~= direction and search.demand.source
+                    and search.demand.source.perimeter then
+                    crossings = {}
+                end
                 for _, crossing in ipairs(crossings) do
                     local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
                     if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
@@ -3123,7 +3130,14 @@ local function lift_binding(work, binding, allow_fixed)
         -- Ordinary improve trials refuse a path that touches a fixed run. A paired rear trial may lift its
         -- connector while retaining every fixed tile and allocation in place.
         if segment and segment.fixed and not allow_fixed then return nil end
-        if segment and not segment.fixed and not others[key] then
+        --A tile carrying another sink's allocation is shared even when that binding's own path walk misses it
+        --(a one-tile branch into an underground entrance): lifting it deleted that sink's rate and the validator
+        --then found the sink unfed (red science 10/s, 2026-09-25).
+        local carries_other = false
+        for _, allocation in ipairs(segment and segment.allocations or {}) do
+            if allocation.sink ~= nil and binding.sink ~= nil and allocation.sink ~= binding.sink then carries_other = true; break end
+        end
+        if segment and not segment.fixed and not others[key] and not carries_other then
             if segment.splitter then return nil end
             if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
         end
@@ -3675,7 +3689,6 @@ improve_step = function(work, st, ops)
                             end
                             local a_source=work.endpoint_by_id[st.pair.a.source_port_id]
                             local a_lane,a_lane_known=source_lane(work,a_source,st.da.flow_id)
-                            io.stderr:write("RRM ",tostring(a_lane)," known=",tostring(a_lane_known)," srcdir=",tostring(a_source and a_source.travel_dir)," reardir=",tostring(st.pair.rear.travel_dir),"\n")
                             if ok and merge_lane_witness(work,st.a_path,st.active_candidate,st.da.flow_id,a_lane) then
                                 local sink=sink_key(st.pair.rear,work,st.pair.rear.port_id)
                                 for i=target_index+1,#st.a_path do
