@@ -115,7 +115,20 @@ local function nondecreasing_value(bar, key, value)
     return value
 end
 
-function ProgressPanel.show(sheet_flow)
+local function note_kind(caption)
+    local key = type(caption) == "table" and caption[1] or nil
+    if type(key) == "string" and key:sub(1, 15) == "hxrrc.blueprint" then return "blueprint" end
+    return "calc"
+end
+
+local function clear_note_kind(sheet_flow, kind)
+    if not sheet_flow or sheet_flow.valid == false then return end
+    for _, child in ipairs(sheet_flow.children or {}) do
+        if child.name == NOTE_NAME and (child.tags or {}).kind == kind then child.destroy(); return end
+    end
+end
+
+function ProgressPanel.show(sheet_flow, kind)
     local bar, cancel = controls_of(sheet_flow)
     if not bar or not cancel or bar.valid == false or cancel.valid == false then
         return
@@ -123,7 +136,7 @@ function ProgressPanel.show(sheet_flow)
     bar.visible = true
     cancel.visible = true
     status_of(sheet_flow, true)
-    ProgressPanel.set_note(sheet_flow, nil)
+    clear_note_kind(sheet_flow, kind or "calc")
 end
 
 function ProgressPanel.hide(sheet_flow)
@@ -178,7 +191,7 @@ function ProgressPanel.update(sheet_flow, progress, job_id, interim)
     if tags.hxrrc_progress_tooltip_sig ~= tooltip_sig then bar.tooltip = tooltip; tags.hxrrc_progress_tooltip_sig = tooltip_sig end
     bar.tags = tags
     if bar.value ~= value then bar.value = value end
-    ProgressPanel.show(sheet_flow)
+    ProgressPanel.show(sheet_flow, progress.kind or "calc")
     ProgressPanel.set_offer(sheet_flow, job_id, interim)
 end
 
@@ -190,6 +203,7 @@ function ProgressPanel.set_note(sheet_flow, caption)
     if not note then note = sheet_flow.add{type="flow", name=NOTE_NAME, direction="vertical", index=sheet_flow.output_flow and sheet_flow.output_flow.get_index_in_parent() or #sheet_flow.children+1}; note.add{type="label", name="hxrrc_job_note_label"} end
     note.children[1].caption = caption
     note.children[1].style.single_line = false
+    note.tags = {kind = note_kind(caption)}
 end
 
 local function output_flow_of(sheet_flow)
@@ -317,7 +331,12 @@ local function refresh_all()
                 ProgressPanel.update(sheet_flow, progress, id, status and status.interim)
                 local best = (job and job.progress and job.progress.best_entities) or (status and status.interim and status.interim.entities)
                 if best then ProgressPanel.set_best(sheet_flow, best) else ProgressPanel.set_best(sheet_flow, nil) end
-                ProgressPanel.set_note(sheet_flow, nil)
+                if progress.kind == "blueprint" then
+                    local sheet_id = sheet.id_of(sheet_flow)
+                    if sheet_id and type(Registry.progress_note) == "function" then
+                        Registry.progress_note(player_index, sheet_id, nil)
+                    end
+                end
             else
                 ProgressPanel.sweep(sheet_flow)
             end
@@ -344,7 +363,12 @@ end
 Registry.progress_note = function(player_index, sheet_id, caption)
     local data = storage and storage[player_index]
     local pane = data and data.sheet_section and data.sheet_section.sheet_pane
-    for _, tab in ipairs(pane and pane.tabs or {}) do if Sheet().id_of(tab.content)==sheet_id then ProgressPanel.set_note(tab.content, caption); return true end end
+    for _, tab in ipairs(pane and pane.tabs or {}) do
+        if Sheet().id_of(tab.content)==sheet_id then
+            if caption == nil then clear_note_kind(tab.content, "blueprint") else ProgressPanel.set_note(tab.content, caption) end
+            return true
+        end
+    end
     return false
 end
 

@@ -224,6 +224,21 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(child_named(sheet_flow, "hxrrc_job_note") ~= nil, true, "note is a child of the sheet")
         H.equal(child_named(sheet_flow.output_flow, "hxrrc_job_note"), nil, "note never enters output flow")
     end)
+
+    H.test(shape .. " PP-16 calc starts preserve blueprint notes and blueprint starts clear them", function()
+        local _, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        ProgressPanel.set_note(sheet_flow, {"hxrrc.blueprint_stopped_update"})
+        local note = child_named(sheet_flow, "hxrrc_job_note")
+        H.equal(note.tags.kind, "blueprint", "blueprint caption stores its kind on the note flow")
+        ProgressPanel.show(sheet_flow, "calc")
+        H.equal(child_named(sheet_flow, "hxrrc_job_note"), note, "calc start leaves blueprint note visible")
+        ProgressPanel.show(sheet_flow, "blueprint")
+        H.equal(child_named(sheet_flow, "hxrrc_job_note"), nil, "blueprint start clears blueprint note")
+        ProgressPanel.set_note(sheet_flow, {"hxrrc.calc_canceled"})
+        note = child_named(sheet_flow, "hxrrc_job_note")
+        H.equal(note.tags.kind, "calc", "other captions are tagged calc")
+    end)
 end
 
 H.done("test_progress_panel")
