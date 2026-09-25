@@ -510,7 +510,9 @@ local function covers(beacon, machine, machine_spec, supply_w, supply_h)
     -- Supply is measured from the beacon centre, but the supplied entity is its collision box.  Keeping the
     -- conversion in Geometry is important: a tile footprint is a deliberate fallback, not a second predicate.
     local beacon_x, beacon_y = Geometry.center(beacon)
-    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y, supply_w, supply_h)
+    --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9), unlike a pole's.
+    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y,
+        (supply_w or 0) + (beacon.w or 3) / 2, (supply_h or supply_w or 0) + (beacon.h or beacon.w or 3) / 2)
 end
 
 --Contract 28.1 and 28.3: one hand may serve two item flows that ride one belt, using both belt lanes, which
@@ -1244,7 +1246,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 local beacon = {x = 0, y = row.y, w = row.w, h = row.h}
                 local box = Geometry.world_box({x = 0, y = machine_y, w = spec.w, h = spec.h}, spec.machine_spec)
                 local beacon_x, beacon_y = Geometry.center(beacon)
-                local supply = Geometry.supply_box(beacon_x, beacon_y, row.group.supply_w, row.group.supply_h)
+                local supply = Geometry.supply_box(beacon_x, beacon_y, row.group.supply_w + row.w / 2,
+                    (row.group.supply_h or row.group.supply_w) + row.h / 2)
                 local y_overlap = box.top < supply.bottom + Geometry.EPSILON
                     and supply.top - Geometry.EPSILON < box.bottom
                 if requests and not y_overlap then
