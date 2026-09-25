@@ -64,3 +64,16 @@ Commit on `lane/210_validate_rules`. **Run the checks as the very LAST action.**
 ## Implementation note
 
 The validator now checks port approaches by transport kind, reports adjacent foreign fluids as `BP_V_FLUID_MIX` (respecting pipe-to-ground pairing), and records directionally connected incoming belt feeds when witnessing transfers. Focused tests cover each clause and retain a dead-end unused-belt control.
+
+## Left (measured by reviewer, legalcopilot-dev 2026-09-25) — finish this
+
+F1, F2, F3 as committed (131b0ce) pass their tests, red and green gates. The inserter-10s gate FAILS:
+`lua5.2 tools/stage_fail.lua tests/golden/cases/player-inserter-10s/prepared_input.json` → first validate verdict
+`BP_V_TRANSPORT_UNUSED=26`, all `item/copper-cable` (15/s from the casting-copper-cable foundry to the
+electromagnetic plant, split over several hands): belts x=12..27 on y=9 and y=10 (two parallel lines), and 6 hands
+"inserter serves no required transfer" at outward cells (13,9) (13,10) (21,9) (27,9) (27,10) (27,11).
+`extra_hands` in `check_physical_transfers` marks a further hand used only when `connection_path(work, flow_id,
+role, cell_x, cell_y, "belt")` from its belt cell reaches a port. Find why the second line's hands and belts are not
+reached (print the path/port for one of the hands above), fix the witness so a connected producer-hand → belt →
+consumer-hand line is used, keep a real dead-end stub reported, add a case to `tests/test_validate_two_feeds.lua`,
+and pass the inserter-10s gate (`sh tools/gate_sheet.sh player-inserter-10s 373`, first validate verdict ok=true).
