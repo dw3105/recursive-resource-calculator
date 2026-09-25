@@ -257,8 +257,9 @@ for _, shape in ipairs(H.shapes()) do
         if not state.ok then return end
         local geometry = measure(shape .. " RC8", state)
         H.equal(state.work.multi_flow_hands, false, "the seam forces multi-flow hands off")
-        --RE-MEASURED 2026-09-23: straight-fed crossing search now publishes 88 surface belts.
-        H.equal(geometry.surface, 88, "forced-off surface belts stay at the measured 88")
+        --RE-MEASURED 2026-09-25 (round 36): no side-fed underground entrance anywhere (a side-fed entrance blocks the
+        --lane on its near half) moves this candidate to 80 surface belts; was 88 since 2026-09-23.
+        H.equal(geometry.surface, 80, "forced-off surface belts stay at the measured 80")
         --Same measurement as RC2: the foreign-flow crossing at (14,2) is dived under, never split through.
         H.equal(geometry.underground, 6, "forced-off underground endpoints stay at the measured 6")
         H.equal(geometry.splitters <= 1, true, "forced-off geometry forks at most once")
