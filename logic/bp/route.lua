@@ -2725,7 +2725,9 @@ local function audit_route_work(work)
     return work
 end
 
-local function result_for(work)
+--`publish` is set only by tidy's final result: the twin-edge fold rewrites segments, so doing it at the end of
+--first routing left tidy working on a half-folded state that dropped the splitter (round 37, red-10s route call 3).
+local function result_for(work, publish)
     --Fold two neighbouring, straight edge feeds of the same flow into the physical splitter the player
     --would place by hand.  This is deliberately a final publication tidy: path search and its retries
     --remain unchanged, and an incomplete/blocked footprint is left for validation to reject.
@@ -2817,7 +2819,7 @@ local function result_for(work)
             end
         end
     end
-    fold_edge_twins()
+    if publish then fold_edge_twins() end
     audit_route_work(work)
     --A belt that serves two flows keeps its legacy scalar flow for consumers that only know the old shape, and
     --also publishes the complete set for the validator and physical witness.  Build this at publication time so
@@ -3275,7 +3277,7 @@ function Route.tidy_step(state, budget)
     if work.improved then
         unbury_empty_pairs(work)
         prune_dead_route_segments(work)
-        state.result, state.done, state.ok = result_for(work), true, true
+        state.result, state.done, state.ok = result_for(work, true), true, true
         state.progress.phase = "done"
     end
     budget.ops = math.max(0, ops)
