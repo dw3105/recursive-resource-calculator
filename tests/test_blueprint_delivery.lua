@@ -91,6 +91,19 @@ for _, shape in ipairs(H.shapes()) do
         H.deep_equal(last_text(world), {"hxrrc.blueprint_cursor_busy"}, "busy cursor is reported")
     end)
 
+    H.test(shape .. " BP-18 a new result replaces a stale pending delivery", function()
+        local world, Delivery = fixture(shape)
+        local player = game.players[1]
+        local old = {entities = {{entity_number = 90, name = "assembling-machine-1", position = {x = 90.5, y = 0.5}}},
+            label = "old", icons = {}, description = "old"}
+        storage[1].blueprint_delivery = old
+        local blueprint = result()
+        local ok = Delivery.deliver(1, blueprint)
+        H.equal(ok, true, "newest result is delivered")
+        H.equal(player.cursor_stack.get_blueprint_entities()[1].entity_number, 1, "new result reaches the cursor")
+        H.equal(storage[1].blueprint_delivery, nil, "old pending record is cleared")
+    end)
+
     H.test(shape .. " BP-18 a kept result is handed over by retry once the hand is empty", function()
         local world, Delivery = fixture(shape)
         local player = game.players[1]
