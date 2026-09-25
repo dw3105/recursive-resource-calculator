@@ -39,6 +39,16 @@ local function finish(input)
     return state
 end
 
+--Round 37: these fragments are a bare crossing or approach belt with nothing feeding them, so the round-37 rule
+--BP_V_BELT_NO_SOURCE (a belt run nothing feeds) fires on every one of them. The contract here is about crossings
+--and approaches, so a fragment passes when that is its only complaint.
+local function ok_but_unfed(state)
+    for _, error in ipairs(state.errors or {}) do
+        if error.code ~= "BP_V_BELT_NO_SOURCE" then return false end
+    end
+    return true
+end
+
 local function has_code(state, code)
     for _, error in ipairs(state.errors or {}) do
         if error.code == code then return true end
@@ -81,7 +91,7 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " L1 all cardinal underground crossings with an opposing middle flow are legal", function()
         for _, direction in ipairs({Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}) do
             local state = finish(crossing(direction, "item/other"))
-            H.equal(state.ok, true, "cardinal crossing is accepted")
+            H.equal(ok_but_unfed(state), true, "cardinal crossing is accepted")
         end
     end)
 
@@ -123,7 +133,7 @@ for _, shape in ipairs(H.shapes()) do
             {port_id = "in:item/a", role = "in", flow_id = "item/a", x = 2, y = 1, travel_dir = Grid.EAST},
         }, entities = {{id = "same-flow", name = "belt", kind = "belt", flow_id = "item/a",
             position = {x = 1.5, y = 1.5}, direction = Grid.EAST}}})
-        H.equal(legal.ok, true, "same-flow approach belt remains legal")
+        H.equal(ok_but_unfed(legal), true, "same-flow approach belt remains legal")
     end)
 
     H.test(shape .. " L5 one item trunk may serve two consumers but fluids may not mix", function()

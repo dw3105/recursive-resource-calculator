@@ -1,6 +1,6 @@
 --Round 37 (2026-09-25): one collector belt per machine output flow is the player's shape (red science 10/s: 275
 --entities against 298), but on the inserter 10/s sheet the collector layout finishes at 401 entities against 373
---without it. Search routes a validated collector candidate once more without collectors and keeps the better
+--without it (375 once the junk tidy turns chained splitters into straight belts). Search routes a validated collector candidate once more without collectors and keeps the better
 --finished one (Validate.compare). Without that trial in logic/bp/search.lua this test fails with 401.
 local H = require "tests.harness"
 
@@ -20,7 +20,7 @@ H.test("CT1 inserter 10/s keeps the smaller layout without collectors", function
     local result = generate("player-inserter-10s")
     H.equal(result.ok, true, "sheet builds")
     local n = #((result.result or {}).entities or {})
-    H.equal(n <= 373, true, "entities " .. n .. " <= 373")
+    H.equal(n <= 375, true, "entities " .. n .. " <= 375")
 end)
 
 H.done("test_collector_trial")

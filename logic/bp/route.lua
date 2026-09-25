@@ -3484,10 +3484,16 @@ end
 
 prune_dead_route_segments = function(work)
     untangle_splitter_chains(work)
+    --Every route endpoint counts as a feed: a hand drop, a pickup tile or an edge cell. Binding sources alone missed
+    --a machine's own output hand when its flow leaves at the map edge, and the sweep deleted a live product line
+    --(round 37, tests/test_route_collision.lua RX1).
+    --(`endpoint_by_id` is keyed by port id, and a machine port and an edge port can share one, so read the demands.)
     local sources = {}
-    for _, binding in ipairs(work.bindings or {}) do
-        local source = work.endpoint_by_id and work.endpoint_by_id[binding.source_port_id]
-        if source then sources[coordinate_key(source.x, source.y)] = true end
+    local function mark(endpoint) if endpoint and endpoint.x and endpoint.y then sources[coordinate_key(endpoint.x, endpoint.y)] = true end end
+    for _, endpoint in pairs(work.endpoint_by_id or {}) do mark(endpoint) end
+    for _, demand in ipairs(work.demands or {}) do
+        mark(demand.source); mark(demand.sink)
+        for _, candidate in ipairs(demand.source_candidates or {}) do mark(candidate) end
     end
     local changed = true
     while changed do
