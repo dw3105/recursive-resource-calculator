@@ -2589,6 +2589,89 @@ local function audit_route_work(work)
 end
 
 local function result_for(work)
+    --Fold two neighbouring, straight edge feeds of the same flow into the physical splitter the player
+    --would place by hand.  This is deliberately a final publication tidy: path search and its retries
+    --remain unchanged, and an incomplete/blocked footprint is left for validation to reject.
+    local function fold_edge_twins()
+        if not (work.belt and work.belt.splitter) then return end
+        local by_cell = work.segments_by_cell or {}
+        local segment_by_id, entity_by_id = {}, {}
+        for _,s in ipairs(work.segments or {}) do segment_by_id[s.segment_id]=s end
+        for _,e in ipairs(work.entities or {}) do entity_by_id[e.segment_id]=e end
+        local function key(x,y) return tostring(x) .. ":" .. tostring(y) end
+        local function live(seg) return seg and seg.kind == "belt" and not seg.underground and not seg.splitter end
+        local function allocations(seg, flow)
+            local out = {}; for _,a in ipairs(seg and seg.allocations or {}) do if a.flow_id == flow then out[#out+1]=a end end; return out
+        end
+        local function only_flow(seg, flow)
+            for _,a in ipairs(seg and seg.allocations or {}) do if a.flow_id ~= flow then return false end end
+            return true
+        end
+        local function entity_for(seg)
+            return seg and entity_by_id[seg.segment_id]
+        end
+        local edges = {}
+        for _,e in ipairs(work.entities or {}) do
+            local x,y=math.floor(e.position.x),math.floor(e.position.y)
+            if x==0 or y==0 or x==work.grid.w-1 or y==work.grid.h-1 then
+                local seg=segment_by_id[e.segment_id]
+                if live(seg) and e.direction then
+                    for _,a in ipairs(seg.allocations or {}) do
+                        local dx,dy=Grid.dir_vector(e.direction)
+                        local ix,iy=x+dx,y+dy
+                        if (x==0 and dx==1) or (x==work.grid.w-1 and dx==-1) or (y==0 and dy==1) or (y==work.grid.h-1 and dy==-1) then
+                            edges[#edges+1]={x=x,y=y,ix=ix,iy=iy,dir=e.direction,flow=a.flow_id,seg=seg,entity=e}; break
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(edges,function(a,b) if a.flow~=b.flow then return a.flow<b.flow end if a.y~=b.y then return a.y<b.y end return a.x<b.x end)
+        for i=1,#edges do
+            local a=edges[i]
+            if a.used~=true then
+                for j=i+1,#edges do
+                    local b=edges[j]
+                    if not b.used and b.flow==a.flow and b.dir==a.dir and math.abs(a.x-b.x)+math.abs(a.y-b.y)==1 then
+                        local one,two=by_cell[key(a.ix,a.iy)],by_cell[key(b.ix,b.iy)]
+                        local eone,etwo=entity_for(one),entity_for(two)
+                        if live(one) and live(two) and eone and etwo and one~=two
+                            and one.direction==a.dir and two.direction==a.dir
+                            and only_flow(a.seg,a.flow) and only_flow(b.seg,a.flow)
+                            and only_flow(one,a.flow) and only_flow(two,a.flow)
+                            and #allocations(a.seg,a.flow)>0 and #allocations(b.seg,b.flow)>0
+                            and not (work.obstacles and (work.obstacles[key(a.ix,a.iy)] or work.obstacles[key(b.ix,b.iy)])) then
+                            local dx,dy=Grid.dir_vector(a.dir)
+                            -- Remove the redundant edge belt and merge its complete rate promises.
+                            for _,al in ipairs(b.seg.allocations or {}) do if al.flow_id==a.flow then a.seg.allocations[#a.seg.allocations+1]=al end end
+                            b.seg.allocations={}; b.seg._route_removed=true; b.entity._route_removed=true
+                            for _,binding in ipairs(work.bindings or {}) do if binding.segment_id==b.seg.segment_id then binding.segment_id=a.seg.segment_id end end
+                            -- One splitter occupies the two first inside tiles.  Keep one segment identity.
+                            for _,al in ipairs(two.allocations or {}) do one.allocations[#one.allocations+1]=al end
+                            two.allocations={}; two._route_removed=true; etwo._route_removed=true
+                            one.splitter=true; one.splitter_direction=a.dir; one.direction=a.dir
+                            one.capacity_per_second=2*(one.capacity_per_second or 0)
+                            one.splitter_anchor_x=a.ix; one.splitter_anchor_y=a.iy
+                            one.splitter_second_key=key(b.ix,b.iy)
+                            eone.name=work.belt.splitter
+                            eone.position={x=a.ix+0.5,y=a.iy+0.5}
+                            -- Splitter prototypes are centred between their two tiles.
+                            if dx~=0 then eone.position.y=eone.position.y+(b.y-a.y)*0.5
+                            else eone.position.x=eone.position.x+(b.x-a.x)*0.5 end
+                            eone.direction=a.dir
+                            for _,binding in ipairs(work.bindings or {}) do
+                                if binding.segment_id==two.segment_id then binding.segment_id=one.segment_id end
+                            end
+                            by_cell[key(b.ix,b.iy)]=one
+                            a.used,b.used=true,true
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    fold_edge_twins()
     audit_route_work(work)
     --A belt that serves two flows keeps its legacy scalar flow for consumers that only know the old shape, and
     --also publishes the complete set for the validator and physical witness.  Build this at publication time so
