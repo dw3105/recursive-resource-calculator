@@ -1550,10 +1550,46 @@ local function check_transport_shapes(work)
                 if dx == tile.x and dy == tile.y then hand_fed = true; break end
             end
             if not hand_fed then
+                local edge = tile.x == 0 or tile.y == 0 or tile.x == (work.grid_w or 0)-1 or tile.y == (work.grid_h or 0)-1
+                if not edge then
+                    error_record(work.errors, "BP_V_BELT_NO_SOURCE", {tostring(tile.info.id)}, {x=tile.x,y=tile.y})
+                end
                 for _, flow_id in ipairs(declared) do
                     local tag = #declared > 1 and (tostring(flow_id) .. "?") or flow_id
                     add(key, "L", tag); add(key, "R", tag)
                 end
+            end
+        end
+    end
+    --A splitter fed on both of its input halves by the two outputs of one splitter is redundant.
+    local checked = {}
+    for _, tile in pairs(tiles) do
+        if tile.kind == "splitter" and not checked[tile.info.id] then
+            checked[tile.info.id] = true
+            local input_sources, input_counts = {}, {}
+            for source_key in pairs(tiles) do
+                for _, dest in ipairs(outputs(source_key)) do
+                    if dest == tile_key(tile.x, tile.y) or dest == tile.other then
+                        local source = tiles[source_key]
+                        input_counts[dest] = (input_counts[dest] or 0) + 1
+                        if source and source.kind == "splitter" then
+                            input_sources[tile.info.id .. ":" .. dest] = {id=source.info.id, key=source_key}
+                        end
+                    end
+                end
+            end
+            local a=input_sources[tile.info.id .. ":" .. tile_key(tile.x,tile.y)]
+            local b=input_sources[tile.info.id .. ":" .. tile.other]
+            local same_flow = false
+            if a and b and a.id==b.id then
+                local upstream = tiles[a.key]
+                local left, right = declared_flow_ids(tile.info), declared_flow_ids(upstream.info)
+                for _, flow_id in ipairs(left) do for _, source_flow in ipairs(right) do if flow_id==source_flow then same_flow=true end end end
+            end
+            if a and b and input_counts[tile_key(tile.x,tile.y)]==1 and input_counts[tile.other]==1
+                and a.id==b.id and a.key~=b.key and same_flow
+                and #declared_flow_ids(tile.info)==1 and #declared_flow_ids(tiles[a.key].info)==1 then
+                error_record(work.errors,"BP_V_SPLITTER_CHAIN",{tostring(tile.info.id),tostring(a.id)})
             end
         end
     end

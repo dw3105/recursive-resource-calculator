@@ -46,6 +46,7 @@ ReasonCodes.VIOLATION = {
     "BP_V_TRANSPORT_UNUSED", "BP_V_BEACON_REDUNDANT",
     "BP_V_UNDERGROUND_SIDELOAD_BLOCKED", "BP_V_UNDERGROUND_BACK_TO_BACK", "BP_V_ROUTE_LOOP", "BP_V_LANE_MIX", "BP_V_BELT_BLEED",
     "BP_V_FLUID_MIX",
+    "BP_V_SPLITTER_CHAIN", "BP_V_BELT_NO_SOURCE",
 }
 
 --The locale key a code is shown with. Codes a player can see (REJECT and FAIL) have one; an internal retry signal
