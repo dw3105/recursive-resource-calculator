@@ -254,12 +254,19 @@ local function port_slots(block, port)
     local function add(slot)
         --A row's second head feed sits inside the envelope beside the head; it keeps its own heading.
         local interior_row_feed = (port.row_port or port.fluid_pinned) and not bounded_slot(slot, block.w, block.h)
-        if not bounded_slot(slot, block.w, block.h) and not interior_row_feed then return end
+        --Authored hand drop points can also sit inside the opaque envelope: the envelope includes the
+        --members around the machine, while the drop tile is still a real empty tile. Preserve its authored
+        --direction and let the free-cell/approach checks below prove that it can be used.
+        local interior_pinned = port.pinned and port.normal_dir ~= nil
+            and not bounded_slot(slot, block.w, block.h)
+        if not bounded_slot(slot, block.w, block.h) and not interior_row_feed and not interior_pinned then return end
         local key = slot_key(slot.attach_dx, slot.attach_dy)
         if seen[key] then return end
         seen[key] = true
-        local normal = interior_row_feed and slot.normal_dir or normal_for_slot(slot, block.w, block.h)
-        local travel = port.role == "in" and normal or Grid.dir_opposite(normal)
+        local normal = (interior_row_feed or interior_pinned) and slot.normal_dir
+            or normal_for_slot(slot, block.w, block.h)
+        local travel = (interior_row_feed or interior_pinned) and port.travel_dir
+            or (port.role == "in" and normal or Grid.dir_opposite(normal))
         if port.row_port and port.travel_dir ~= nil then travel = port.travel_dir end
         result[#result + 1] = {
             attach_dx = slot.attach_dx, attach_dy = slot.attach_dy,
@@ -573,12 +580,12 @@ end
 local function layered_target(state, block)
     local L = state.layer_of[tostring(block.block_id)]
     local area = state.area
-    local far, next_cross, n = nil, nil, 0
-    local sum = 0
+    local far, peer_right, n = nil, nil, 0
+    local sum, future_sum, future_n = 0, 0, 0
     for _, pl in ipairs(state.placements) do
         local pl_layer = state.layer_of[tostring(pl.block_id)]
         if pl_layer < L then far = math.max(far or 0, pl.x + pl.w) end
-        if pl_layer == L then next_cross = math.max(next_cross or 0, pl.y + pl.h) end
+        if pl_layer == L then peer_right = math.max(peer_right or 0, pl.x + pl.w) end
     end
     for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
         local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
@@ -588,12 +595,26 @@ local function layered_target(state, block)
             local pb = state.block_by_id[tostring(other.block_id)]
             local px, py = port_tile(pb, partner, other)
             sum = sum + py; n = n + 1
+        elseif other.block_id ~= nil then
+            local pb = state.block_by_id[tostring(other.block_id)]
+            if pb then
+                local py = math.floor(pb.h / 2)
+                for _, port in ipairs(pb.ports or {}) do
+                    if tostring(port.port_id) == tostring(other.port_id) then
+                        py = port.attach_dy or py
+                        future_sum = future_sum + py
+                        future_n = future_n + 1
+                        break
+                    end
+                end
+            end
         end
     end
-    local x = far and far + 1 or area.x + 1
+    local x = far and far + 1 or (future_n == 0 and peer_right and peer_right + 1 or area.x + 1)
     local y
     if n > 0 then y = math.floor(sum / n + 0.5) - math.floor(block.h / 2)
-    else y = next_cross and next_cross + 1 or area.y + 1 end
+    elseif future_n > 0 then y = math.floor(future_sum / future_n + 0.5) - math.floor(block.h / 2)
+    else y = area.y + math.floor((area.h - block.h) / 2) end
     return x, y
 end
 
