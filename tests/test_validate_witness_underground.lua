@@ -27,6 +27,9 @@ local function run(shape)
         belt("side-feed",10,5,Grid.NORTH)
         belt("exit",10,6,Grid.NORTH,{name="underground-belt",ug_pair_id="entrance"})
         belt("entrance",10,8,Grid.NORTH,{name="underground-belt",ug_pair_id="exit"})
+    elseif shape == "dangle" then
+        --fed by the used tail, going nowhere: items pile up there, it is waste
+        belt("dangle",12,4,Grid.EAST)
     else
         belt("stub",10,2,Grid.NORTH)
     end
@@ -65,5 +68,10 @@ end)
 H.test("a stub ending in nothing remains unused", function()
     local state=run("stub")
     H.equal(unused(state,"stub"),true)
+end)
+H.test("a belt downstream of the used line that leads nowhere remains unused", function()
+    local state=run("dangle")
+    H.equal(unused(state,"tail"),false)
+    H.equal(unused(state,"dangle"),true)
 end)
 H.done("test_validate_witness_underground")
