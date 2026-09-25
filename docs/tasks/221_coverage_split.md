@@ -44,6 +44,12 @@ split" -- nobody does. Proof: patching in memory so that step is split into one-
 3. Sheets that build today must not change: bytes hash for the five sheets in `tests/fixtures/bytes_round36.txt`
    unchanged.
 
+## Implementation note
+
+The grouping builder now retries a shared block with invalid beacon coverage as one-machine fragments. Each
+fragment keeps aggregate rate accounting and a physical ordinal; a single-machine failure remains a
+`BP_P_NO_FIT`. The frozen groups-input regression checks every machine's coverage by beacon signature.
+
 ## Files this lane owns
 
 logic/bp/groups.lua, tests/test_groups_coverage_split.lua, tests/test_groups.lua, docs/tasks/221_coverage_split.md.
