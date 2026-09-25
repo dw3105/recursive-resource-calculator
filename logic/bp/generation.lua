@@ -1261,6 +1261,9 @@ local function publish(job)
             if data then data.blueprint_delivered_sequence = handle.delivered_sequence end
         else
             handle.delivery_reason = reason
+            local data = type(storage) == "table" and storage[handle.player_index]
+            --The waiting note names this sheet; control.lua clears it when the hand empties and the hand-off lands.
+            if data and reason == "blueprint_cursor_busy" then data.blueprint_delivery_sheet = handle.sheet_id end
             local caption = reason == "blueprint_cursor_busy" and {"hxrrc.blueprint_waiting_hand"}
                 or {"hxrrc.blueprint_not_delivered", tostring(reason)}
             if type(Registry.progress_note) == "function" then

@@ -60,6 +60,11 @@ local function run(shape, mode)
         world.flush_cursor_events()
     end
     H.equal(#player.cursor_stack.get_blueprint_entities(), #status.result.entities, "final result is in hand")
+    if mode == "busy" then
+        local left
+        for _, child in ipairs(sheet.children) do if child.name == "hxrrc_job_note" then left = child end end
+        H.equal(left, nil, "the waiting note goes once the blueprint lands in the hand")
+    end
 end
 
 for _, shape in ipairs(H.shapes()) do

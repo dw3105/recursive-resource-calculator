@@ -119,7 +119,14 @@ script.on_event(defines.events.on_player_cursor_stack_changed, function(event)
     local player = game.get_player(event.player_index)
     if player and not (player.cursor_stack and player.cursor_stack.valid_for_read)
         and player.cursor_ghost == nil and player.cursor_record == nil then
-        BlueprintDelivery.retry(event.player_index)
+        if BlueprintDelivery.retry(event.player_index) then
+            local data = storage[event.player_index]
+            local sheet_id = data and data.blueprint_delivery_sheet
+            if sheet_id ~= nil and type(Registry.progress_note) == "function" then
+                Registry.progress_note(event.player_index, sheet_id, nil)
+            end
+            if data then data.blueprint_delivery_sheet = nil end
+        end
     end
 end)
 
