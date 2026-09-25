@@ -56,7 +56,8 @@ H.test("a ten-machine row keeps both hands and gets three shared beacons", funct
         local got = 0
         for _, beacon in ipairs(block.beacons) do
             local bx, by = Geometry.center(beacon)
-            local supply = Geometry.supply_box(bx, by, beacon.supply_w, beacon.supply_h)
+            --Engine: a beacon's supply_area_distance counts from its edge (vanilla 3x3, distance 3 -> 9x9).
+            local supply = Geometry.supply_box(bx, by, beacon.supply_w + beacon.w / 2, beacon.supply_h + beacon.h / 2)
             if Geometry.box_overlaps_supply(box, supply) then got = got + 1 end
         end
         H.equal(got >= 3, true, "each machine receives at least three supply boxes")
