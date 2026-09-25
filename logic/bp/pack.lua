@@ -580,12 +580,12 @@ end
 local function layered_target(state, block)
     local L = state.layer_of[tostring(block.block_id)]
     local area = state.area
-    local far, next_cross, n = nil, nil, 0
-    local sum = 0
+    local far, peer_right, n = nil, nil, 0
+    local sum, future_sum, future_n = 0, 0, 0
     for _, pl in ipairs(state.placements) do
         local pl_layer = state.layer_of[tostring(pl.block_id)]
         if pl_layer < L then far = math.max(far or 0, pl.x + pl.w) end
-        if pl_layer == L then next_cross = math.max(next_cross or 0, pl.y + pl.h) end
+        if pl_layer == L then peer_right = math.max(peer_right or 0, pl.x + pl.w) end
     end
     for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
         local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
@@ -595,20 +595,26 @@ local function layered_target(state, block)
             local pb = state.block_by_id[tostring(other.block_id)]
             local px, py = port_tile(pb, partner, other)
             sum = sum + py; n = n + 1
+        elseif other.block_id ~= nil then
+            local pb = state.block_by_id[tostring(other.block_id)]
+            if pb then
+                local py = math.floor(pb.h / 2)
+                for _, port in ipairs(pb.ports or {}) do
+                    if tostring(port.port_id) == tostring(other.port_id) then
+                        py = port.attach_dy or py
+                        future_sum = future_sum + py
+                        future_n = future_n + 1
+                        break
+                    end
+                end
+            end
         end
     end
-    local x = far and far + 1 or area.x + 1
+    local x = far and far + 1 or (future_n == 0 and peer_right and peer_right + 1 or area.x + 1)
     local y
-    if n > 0 then
-        y = math.floor(sum / n + 0.5) - math.floor(block.h / 2)
-    else
-        -- Independent blocks in one source layer are peers, not a vertical chain.  Stacking each
-        -- one below the previous block made several producers sit a whole machine-height apart;
-        -- their common consumer then needed long vertical feed belts.  Keep the peer row level and
-        -- advance across it.  The next dependency layer starts after this row via `far` above.
-        y = area.y + 1
-        if next_cross then x = next_cross + 1 end
-    end
+    if n > 0 then y = math.floor(sum / n + 0.5) - math.floor(block.h / 2)
+    elseif future_n > 0 then y = math.floor(future_sum / future_n + 0.5) - math.floor(block.h / 2)
+    else y = area.y + math.floor((area.h - block.h) / 2) end
     return x, y
 end
 
