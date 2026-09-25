@@ -261,7 +261,8 @@ for _, shape in ipairs(H.shapes()) do
         --lane on its near half) moves this candidate to 80 surface belts; was 88 since 2026-09-23.
         H.equal(geometry.surface, 80, "forced-off surface belts stay at the measured 80")
         --Same measurement as RC2: the foreign-flow crossing at (14,2) is dived under, never split through.
-        H.equal(geometry.underground, 6, "forced-off underground endpoints stay at the measured 6")
+        --Round 36: one pair fewer (4 endpoints) with side-fed entrances banned; RC2 still proves the dive at (14,2).
+        H.equal(geometry.underground, 4, "forced-off underground endpoints stay at the measured 4")
         H.equal(geometry.splitters <= 1, true, "forced-off geometry forks at most once")
         H.equal(broken_count(state), 0, "forced-off bindings keep directed chains")
     end)
