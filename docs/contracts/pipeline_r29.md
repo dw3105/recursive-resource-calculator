@@ -108,6 +108,9 @@ dialog beside the inserter one. Validate resolves pickup/drop offsets per entity
 - Attempt `a` = 0, 1, 2 with `ring_bump = a` passed to Groups and Validate.
 - Pack `BP_P_NO_FIT` -> next grid, same attempt. Route, hands, power, tidy or validate failure -> attempt + 1, back
   to groups. Attempt 2 fails -> `BP_FAIL_NO_LAYOUT` with every rejection in `errors[1].reason_details`.
+- Layered pack (round 35, default; `RRC_PACK=maxrects` turns it off) goes first. Its first rejected candidate, or
+  no grid fitting it, restarts the search with MaxRects at grid 1, attempt 0; the rules above then apply unchanged.
+  So a sheet that never validates is tried 4 times: layered at bump 0, then MaxRects at bump 0, 1, 2.
 - Pack input: `zone_blockers` = roboport footprints; `links` = one link per flow between a producer block's output
   port and a consumer block's input port, plus a link from each raw-input port to `input_edge` and each product
   port to `output_edge`.
