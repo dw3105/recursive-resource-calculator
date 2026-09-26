@@ -120,7 +120,10 @@ local function fluid_connection(catalog, step, entry, role)
     local wanted_connection = entry.connection_index or entry.pipe_connection_index
     local preferred = role == "input" and "input" or "output"
     local fallback
-    for box_index, box in ipairs(boxes) do
+    local first, last, increment = 1, #boxes, 1
+    if role ~= "input" then first, last, increment = #boxes, 1, -1 end
+    for box_index = first, last, increment do
+        local box = boxes[box_index]
         if wanted_box == nil or wanted_box == box.index or wanted_box == box_index then
             local production = tostring(box.production_type or box.flow_direction or ""):lower()
             local matches_role = production == preferred or production:find(preferred, 1, true) ~= nil
