@@ -3,6 +3,8 @@ local H = require "tests.harness"
 local PipeRuns = require "logic.bp.pipe_runs"
 local Grid = require "logic.bp.grid"
 
+print("PP1 pipe prune regression cases")
+
 local function make_work()
     return {segments = {}, entities = {}, bindings = {}, segments_by_cell = {}, port_cells = {}}
 end
