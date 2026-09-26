@@ -30,8 +30,112 @@ local function required_for(beacon)
     return result
 end
 
-function BeaconPrune.run(entities, catalog)
+function BeaconPrune.share(entities, route_entities, catalog)
     entities = entities or {}
+    local occupied = {}
+    local function mark(entity, value)
+        if type(entity.x) == "number" and type(entity.y) == "number" then
+            local w, h = entity.w, entity.h
+            if type(w) == "number" and type(h) == "number" then
+                for x = entity.x, entity.x + w - 1 do
+                    for y = entity.y, entity.y + h - 1 do occupied[x .. ":" .. y] = value end
+                end
+            else
+                occupied[entity.x .. ":" .. entity.y] = value
+            end
+        elseif type(entity.position) == "table" and type(entity.position.x) == "number"
+            and type(entity.position.y) == "number" then
+            occupied[math.floor(entity.position.x) .. ":" .. math.floor(entity.position.y)] = value
+        end
+    end
+    for _, entity in ipairs(entities) do mark(entity, entity) end
+    for _, entity in ipairs(route_entities or {}) do mark(entity, entity) end
+
+    local machines, beacons = {}, {}
+    for _, entity in ipairs(entities) do
+        if entity.kind == "machine" then machines[entity.id] = entity end
+        if entity.kind == "beacon" then beacons[#beacons + 1] = entity end
+    end
+    table.sort(beacons, function(a, b) return tostring(a.id) < tostring(b.id) end)
+    local moved = 0
+    for _, beacon in ipairs(beacons) do
+        if beacon.signature and type(beacon.required_for) == "table" and not beacon._gone then
+            for _, other in ipairs(beacons) do
+                if other ~= beacon and not other._gone and other.signature == beacon.signature
+                    and type(other.required_for) == "table" then
+                    local already_reaches = true
+                    for _, id in ipairs(other.required_for) do
+                        if not machines[id] or not reaches(beacon, machines[id], catalog) then
+                            already_reaches = false
+                            break
+                        end
+                    end
+                    if not already_reaches then
+                        local best
+                        for dy = -2, 2 do
+                            for dx = -2, 2 do
+                                if not best then
+                                    local candidate = {x = beacon.x + dx, y = beacon.y + dy,
+                                        w = beacon.w, h = beacon.h, supply_w = beacon.supply_w,
+                                        supply_h = beacon.supply_h, name = entity_name(beacon)}
+                                    local free = true
+                                    for x = candidate.x, candidate.x + candidate.w - 1 do
+                                        for y = candidate.y, candidate.y + candidate.h - 1 do
+                                            local occupant = occupied[x .. ":" .. y]
+                                            if occupant and occupant ~= beacon then free = false end
+                                        end
+                                    end
+                                    if free then
+                                        local covers = true
+                                        for _, id in ipairs(beacon.required_for) do
+                                            if not machines[id] or not reaches(candidate, machines[id], catalog) then covers = false; break end
+                                        end
+                                        if covers then
+                                            for _, id in ipairs(other.required_for) do
+                                                if not machines[id] or not reaches(candidate, machines[id], catalog) then covers = false; break end
+                                            end
+                                        end
+                                        if covers then best = candidate end
+                                    end
+                                end
+                            end
+                        end
+                        if best then
+                            mark(beacon, nil)
+                            local dx, dy = best.x - beacon.x, best.y - beacon.y
+                            beacon.x, beacon.y = best.x, best.y
+                            if type(beacon.cx) == "number" then beacon.cx = beacon.cx + dx end
+                            if type(beacon.cy) == "number" then beacon.cy = beacon.cy + dy end
+                            if type(beacon.position) == "table" then
+                                beacon.position = {x = beacon.position.x + dx, y = beacon.position.y + dy}
+                            end
+                            mark(beacon, beacon)
+                            for _, field in ipairs({"required_for", "covered_members", "member_ids", "members"}) do
+                                if type(beacon[field]) == "table" then
+                                    for _, value in ipairs(other[field] or {}) do beacon[field][#beacon[field] + 1] = value end
+                                end
+                            end
+                            other._gone = true
+                            moved = moved + 1
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    if moved > 0 then
+        local kept = {}
+        for _, entity in ipairs(entities) do if not entity._gone then kept[#kept + 1] = entity end end
+        for index = #entities, 1, -1 do entities[index] = nil end
+        for index, entity in ipairs(kept) do entities[index] = entity end
+    end
+    return moved
+end
+
+function BeaconPrune.run(entities, catalog, route_entities)
+    entities = entities or {}
+    BeaconPrune.share(entities, route_entities, catalog)
     local machines, beacons, needs = {}, {}, {}
     for _, entity in ipairs(entities) do
         if entity.kind == "machine" then machines[entity.id] = entity end
