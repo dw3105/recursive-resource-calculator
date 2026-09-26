@@ -617,7 +617,30 @@ local function transport_neighbors(work, info, wanted_flow)
     end
     if kind == "pipe" then
         local x, y = transport_tile(info)
-        for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do add_at(x + delta[1], y + delta[2]) end
+        local function is_pipe_to_ground(candidate)
+            local candidate_entity = candidate.entity or {}
+            local candidate_name = tostring(name_of(candidate_entity) or ""):lower()
+            return candidate_name:find("pipe-to-ground", 1, true) ~= nil or candidate_entity.type == "pipe-to-ground"
+        end
+        local function opens_toward(candidate, tx, ty)
+            if not is_pipe_to_ground(candidate) then return true end
+            local cx, cy = transport_tile(candidate)
+            local dx, dy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
+            return cx + dx == tx and cy + dy == ty
+        end
+        for _, delta in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+            local nx, ny = x + delta[1], y + delta[2]
+            if opens_toward(info, nx, ny) then
+                local before = #result
+                add_at(nx, ny)
+                for k = #result, before + 1, -1 do
+                    if not opens_toward(result[k], x, y) then
+                        seen[result[k].id] = nil
+                        table.remove(result, k)
+                    end
+                end
+            end
+        end
     else
         local direction = entity_direction(info)
         local dx, dy = Grid.dir_vector(direction or Grid.NORTH)
@@ -1908,6 +1931,18 @@ local function connection_path(work, flow_id, role, x, y, kind)
     return found_port, found_path, found_machine
 end
 
+local function pipe_to_ground_faces_away(work, connection)
+    if connection.direction == nil then return false end
+    for _, info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(connection.x, connection.y)] or {}) do
+        local entity = info.entity or {}
+        local entity_name = tostring(name_of(entity) or ""):lower()
+        if entity_name:find("pipe-to-ground", 1, true) ~= nil or entity.type == "pipe-to-ground" then
+            return entity_direction(info) ~= Grid.dir_opposite(connection.direction)
+        end
+    end
+    return false
+end
+
 local function transfer_role(info, machine)
     local entity = info.entity or {}
     if entity.role == "input" or entity.role == "output" then return entity.role end
@@ -2259,6 +2294,7 @@ local function check_physical_transfers(work, machine_index, final)
                 if flow_is_fluid(flow_id, entry, work) then
                     local reached = false
                     for _, connection in ipairs(fluid_connection_cells(machine, entry, "input")) do
+                        if pipe_to_ground_faces_away(work, connection) then goto continue_ptg_input end
                         local port, path, source_machine = connection_path(work, flow_id, "input", connection.x, connection.y, "pipe")
                         if port then
                             mark_path(path, flow_id)
@@ -2273,6 +2309,7 @@ local function check_physical_transfers(work, machine_index, final)
                             reached = true
                             break
                         end
+                        ::continue_ptg_input::
                     end
                     if not reached then
                         failed_transfer(machine, flow_id, "BP_V_FLUID_DISCONNECTED", "fluid connection")
@@ -2351,6 +2388,7 @@ local function check_physical_transfers(work, machine_index, final)
                 if flow_is_fluid(flow_id, entry, work) then
                     local reached = false
                     for _, connection in ipairs(fluid_connection_cells(machine, entry, "output")) do
+                        if pipe_to_ground_faces_away(work, connection) then goto continue_ptg_output end
                         local port, path, target_machine = connection_path(work, flow_id, "output", connection.x, connection.y, "pipe")
                         if port then
                             mark_path(path, flow_id)
@@ -2365,6 +2403,7 @@ local function check_physical_transfers(work, machine_index, final)
                             reached = true
                             break
                         end
+                        ::continue_ptg_output::
                     end
                     if not reached then
                         failed_transfer(machine, flow_id, "BP_V_FLUID_DISCONNECTED", "fluid connection")
