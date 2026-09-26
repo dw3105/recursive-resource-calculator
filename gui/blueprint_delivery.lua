@@ -123,7 +123,8 @@ local function stage(result)
         if not staged.is_blueprint then error("staging did not create a blueprint") end
         staged.set_blueprint_entities(result.entities)
         staged.label = result.label
-        staged.preview_icons = result.icons
+        --2.0.77 refuses an empty icon list on a blueprint holding entities (headless, round 42); the engine keeps its own
+        if next(result.icons) ~= nil then staged.preview_icons = result.icons end
         staged.blueprint_description = result.description
         if not staged.is_blueprint_setup() then error("staging did not set up the blueprint") end
     end)
@@ -151,7 +152,8 @@ local function publish(player_index, result)
         if not cursor.is_blueprint then error("cursor did not receive a blueprint") end
         cursor.set_blueprint_entities(result.entities)
         cursor.label = result.label
-        cursor.preview_icons = result.icons
+        --2.0.77 refuses an empty icon list on a blueprint holding entities (headless, round 42); the engine keeps its own
+        if next(result.icons) ~= nil then cursor.preview_icons = result.icons end
         cursor.blueprint_description = result.description
         if not cursor.is_blueprint_setup() then error("cursor blueprint is not set up") end
     end)

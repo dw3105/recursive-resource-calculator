@@ -164,7 +164,7 @@ for _, shape in ipairs(H.shapes()) do
 
     H.test(shape .. " QP13 quality limits that permit a decrease are refused by name", function()
         local _, supported, reason = QualityPolicy.effective_quality(step(),
-            with_receiver(verified({branch = "2.1", quality_limits = {min = -1, max = 1}})))
+            with_receiver(verified({branch = "2.1", quality_limits = {low = -1, high = 1}})))
         H.equal(supported, false, "a receiver that may lower quality is outside the supported model")
         H.equal(reason:find("decrease", 1, true) ~= nil, true, "the reason names the behaviour")
     end)
@@ -179,7 +179,7 @@ for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " QP15 a non-negative lower bound keeps an ordinary 2.1 machine supported", function()
         local value, supported = QualityPolicy.effective_quality(
             step({modules = {{name = "speed-module-3", count = 4}}}),
-            with_receiver(verified({branch = "2.1", quality_limits = {min = 0, max = 1},
+            with_receiver(verified({branch = "2.1", quality_limits = {low = 0, high = 1},
                 uses_local_effects = true})))
         H.equal(supported, true, "a limit that cannot lower quality changes nothing for this rule")
         H.equal(value > 0, false, "the ordinary penalty is still ordinary on 2.1")

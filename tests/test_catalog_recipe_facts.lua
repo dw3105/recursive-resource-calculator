@@ -11,7 +11,7 @@ local function recipe_world(shape)
     world.add_item("fresh-plate", nil, {result = "spoiled-plate", ticks = 600,
         ticks_by_quality = {normal = 600, legendary = 1200}})
     world.add_machine({name = "assembler", categories = {"crafting"}, speed = 1, base_quality = 0,
-        quality_limits = {min = 0}})
+        quality_limits = {low = 0, high = 1000}})  -- real 2.1.20 shape (headless probe, round 42)
     world.add_machine({name = "uncaptured", categories = {"crafting"}, speed = 1, no_effect_receiver = true})
     world.add_recipe({name = "plate", category = "crafting", energy = 2,
         ingredients = {{name = "ore", amount = 2}, {name = "fresh-plate", amount = 1}},

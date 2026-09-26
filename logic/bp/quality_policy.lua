@@ -104,7 +104,9 @@ local function quality_limit_reason(receiver)
     local limits = type(record) == "table" and record.quality_limits or nil
     if limits == nil then return nil end
     if type(limits) ~= "table" then return "quality limits are not a table" end
-    local lower = limits.min
+    --2.1.20 gives {low = 0, high = 1000} (headless probe, round 42); min/minimum/[1] stay for older captures
+    local lower = limits.low
+    if lower == nil then lower = limits.min end
     if lower == nil then lower = limits.minimum end
     if lower == nil then lower = limits[1] end
     if type(lower) ~= "number" then return "quality limits carry no readable lower bound" end

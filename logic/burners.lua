@@ -58,7 +58,11 @@ function Burners.accepts(entity_name, product_full_name)
     local entity = prototypes.entity[entity_name]
     if type == "item" then
         local burner = entity.burner_prototype
-        return burner ~= nil and prototype.fuel_category ~= nil and burner.fuel_categories[prototype.fuel_category] == true
+        if burner == nil then return false end
+        for _, category in ipairs(Utils.fuel_categories(prototype)) do
+            if burner.fuel_categories[category] == true then return true end
+        end
+        return false
     end
     local source = entity.fluid_energy_source_prototype
     if not (source and source.burns_fluid) then

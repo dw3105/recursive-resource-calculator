@@ -243,7 +243,8 @@ for _, shape in ipairs(H.shapes()) do
             if case == "entity removed" then
                 prototypes.entity.tower = nil
             elseif case == "fuel category changed" then
-                prototypes.item.fuel.fuel_category = "nuclear"
+                if shape == "2.1" then prototypes.item.fuel.fuel_categories = {"nuclear"}
+                else prototypes.item.fuel.fuel_category = "nuclear" end
             elseif case == "fuel value removed" then
                 prototypes.item.fuel.fuel_value = 0
             else

@@ -172,7 +172,13 @@ H.test("H5 burner and fluid energy source mocks follow their version's members, 
         world.add_burner({name = "engine", type = "burner-generator", max_power_kw = 900, burner = {fuel_categories = {"chemical"}}})
         world.add_burner({name = "train", type = "locomotive", energy_kw = 600, burner = {fuel_categories = {"chemical"}}})
         H.equal(prototypes.item.rock.fuel_value, 0, shape .. ": plain item has no fuel value")
-        H.equal(prototypes.item.rock.fuel_category, nil, shape .. ": plain item has no fuel category")
+        --2.1.20 dropped fuel_category for the fuel_categories array (headless probe, round 42)
+        if shape == "2.1" then
+            H.deep_equal(prototypes.item.rock.fuel_categories, {}, shape .. ": plain item has no fuel category")
+            H.errors(function() return prototypes.item.rock.fuel_category end, "LuaItemPrototype doesn't contain key fuel_category", shape .. ": item strict")
+        else
+            H.equal(prototypes.item.rock.fuel_category, nil, shape .. ": plain item has no fuel category")
+        end
         H.equal(prototypes.item.fuel.fuel_emissions_multiplier, 1, shape .. ": default emissions multiplier")
         local tower = prototypes.entity.tower
         H.equal(tower.burner_prototype.fuel_categories.chemical, true, shape .. ": fuel categories as a set")

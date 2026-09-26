@@ -81,11 +81,23 @@ local ENTITY_MEMBERS = {"name", "type", "valid", "localised_name", "crafting_cat
     "get_inserter_rotation_speed", "get_inserter_extension_speed",
     "logistic_radius", "construction_radius", "connection_distance",
     "quality_affects_supply_area_distance", "get_supply_area_distance", "get_max_wire_distance"}
-local ITEM_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
-    "fuel_value", "fuel_category", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter",
+local ITEM_BASE_MEMBERS = {"name", "type", "valid", "localised_name", "module_effects", "get_module_effects", "category",
+    "fuel_value", "burnt_result", "fuel_emissions_multiplier", "hidden", "parameter",
     --Spoilage: preflight reads spoil_result to refuse a spoiling ingredient or product. The tick count is a
     --method in the pinned extract (get_spoil_ticks), never an attribute.
     "spoil_result", "get_spoil_ticks"}
+--2.0 items name one fuel_category; 2.1.20 dropped it for fuel_categories, an array of names (headless probe, round 42)
+local function with(list, extra)
+    local out = {}
+    for _, v in ipairs(list) do out[#out + 1] = v end
+    for _, v in ipairs(extra) do out[#out + 1] = v end
+    return out
+end
+local ITEM_MEMBERS_BY_SHAPE = {
+    ["2.0"] = with(ITEM_BASE_MEMBERS, {"fuel_category"}),
+    ["2.1"] = with(ITEM_BASE_MEMBERS, {"fuel_categories"}),
+    ["hybrid"] = with(ITEM_BASE_MEMBERS, {"fuel_category"}),
+}
 local QUALITY_MEMBERS = {"name", "valid", "localised_name", "level", "next", "next_probability", "crafting_machine_module_slots_bonus", "beacon_module_slots_bonus",
     "beacon_power_usage_multiplier", "hidden"}
 
@@ -1016,7 +1028,11 @@ function H.new_world(shape)
                 label = {read = function() return held and held.label end,
                     write = function(_, value) if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end held.label = value end},
                 preview_icons = {read = function() return held and held.icons end,
-                    write = function(_, value) if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end held.icons = value end},
+                    write = function(_, value) if not held then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                        --2.0.77 headless (round 42): an empty icon list on a blueprint holding entities is refused
+                        if raw_type(value) == "table" and next(value) == nil and held.entities and next(held.entities) then
+                            error("Cannot set empty preview icons for a non-empty blueprint.", 3) end
+                        held.icons = value end},
                 set_stack = {read = function() return function(spec)
                     if spec == nil then held = nil return true end
                     local name = raw_type(spec) == "table" and spec.name or spec
@@ -1051,14 +1067,17 @@ function H.new_world(shape)
     --spoil: {result = "<item name>", ticks = <number>}; absent means the item never spoils, as in vanilla
     function world.add_item(name, fuel, spoil)
         prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name},
-            fuel_value = fuel and fuel.value or 0, fuel_category = fuel and fuel.category, fuel_emissions_multiplier = fuel and fuel.emissions_multiplier or 1,
+            fuel_value = fuel and fuel.value or 0,
+            fuel_category = shape ~= "2.1" and fuel and fuel.category or nil,
+            fuel_categories = shape == "2.1" and (fuel and fuel.category and {fuel.category} or {}) or nil,
+            fuel_emissions_multiplier = fuel and fuel.emissions_multiplier or 1,
             spoil_result = spoil and spoil.result,
             get_spoil_ticks = function(quality)
                 local per_quality = spoil and spoil.ticks_by_quality and spoil.ticks_by_quality[quality or "normal"]
                 return per_quality or (spoil and spoil.ticks) or 0
             end,
             hidden = false, parameter = false},
-            ITEM_MEMBERS, ITEM_GATES)
+            ITEM_MEMBERS_BY_SHAPE[shape] or ITEM_MEMBERS_BY_SHAPE["2.0"], ITEM_GATES)
     end
 
     --flags: {hidden = boolean, parameter = boolean}, as LuaPrototypeBase reads them
@@ -1078,7 +1097,7 @@ function H.new_world(shape)
             get_module_effects = function(quality)
                 if quality ~= nil and not prototypes.quality[quality] then error("Unknown quality " .. tostring(quality), 2) end
                 return (effects_by_quality and effects_by_quality[quality or "normal"]) or module_effects
-            end}, ITEM_MEMBERS, ITEM_GATES)
+            end}, ITEM_MEMBERS_BY_SHAPE[shape] or ITEM_MEMBERS_BY_SHAPE["2.0"], ITEM_GATES)
         prototypes.item[name] = module
         modules[name] = module
     end
@@ -1449,6 +1468,9 @@ function H.new_world(shape)
                 write = function(_, value)
                     local stack = cursor_of(index).stack
                     if not stack then error("LuaItemStack API call when LuaItemStack was invalid for read", 3) end
+                    --2.0.77 headless (round 42): an empty icon list on a blueprint holding entities is refused
+                    if raw_type(value) == "table" and next(value) == nil and stack.entities and next(stack.entities) then
+                        error("Cannot set empty preview icons for a non-empty blueprint.", 3) end
                     stack.icons = value
                 end},
             set_stack = {read = function()

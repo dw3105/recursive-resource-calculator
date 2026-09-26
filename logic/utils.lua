@@ -9,6 +9,19 @@ function Utils.id_name(id)
     return id.name
 end
 
+--The fuel category names of an item prototype, as a list (empty when it is no fuel). 2.0 items carry one fuel_category;
+--2.1 dropped that key for fuel_categories, an array, and reading a missing key raises (2.1.20 headless, round 42).
+function Utils.fuel_categories(item)
+    local ok, list = pcall(function() return item.fuel_categories end)
+    if ok then
+        local names = {}
+        for _, category in ipairs(list or {}) do names[#names + 1] = Utils.id_name(category) end
+        return names
+    end
+    local single = Utils.id_name(item.fuel_category)
+    return single and {single} or {}
+end
+
 Utils.module_effect_names = {"consumption", "speed", "productivity", "pollution", "quality"}
 
 --Factorio 2.1 renamed recipe and product members, and LuaObjects throw on unknown members, so the API shape is chosen by game version instead of probing

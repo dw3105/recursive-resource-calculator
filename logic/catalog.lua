@@ -336,7 +336,9 @@ local function project_effect_receiver(entity)
         local limits = receiver.quality_limits
         local lower
         if type(limits) == "table" then
-            lower = limits.min
+            --2.1.20 gives {low = 0, high = 1000} (headless probe, round 42); min/minimum/[1] stay for older captures
+            lower = limits.low
+            if lower == nil then lower = limits.min end
             if lower == nil then lower = limits.minimum end
             if lower == nil then lower = limits[1] end
         end
@@ -497,7 +499,7 @@ local function project_item(catalog, diagnostics, request, quality_name, quality
         type = item.type,
         quality = quality_name,
         fuel_value = item.fuel_value,
-        fuel_category = Utils.id_name(item.fuel_category),
+        fuel_category = Utils.fuel_categories(item)[1],
         fuel_emissions_multiplier = item.fuel_emissions_multiplier,
         burnt_result = Utils.id_name(item.burnt_result),
         spoil_result = Utils.id_name(item.spoil_result),
