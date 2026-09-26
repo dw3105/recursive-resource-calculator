@@ -803,6 +803,7 @@ local function block_port_geometry(errors, root, placements)
                 --A hand hop (round 31) moves a single machine's hand to another face: its port is the belt tile next
                 --to that hand, anywhere around the machine, not on the grouping's boundary ring.
                 if port.hopped then bounded, interior_row_feed = true, true end
+                if port.interior_free then bounded, interior_row_feed = true, true end
                 --A fluid port is the pipe tile in front of its machine's fluid box, often in the gap row between
                 --a beacon row and the machine. The fluid-connection check proves that tile; the ring does not apply.
                 if port.fluid_pinned or port.kind == "fluid" or port.is_fluid == true then bounded, interior_row_feed = true, true end

@@ -1976,7 +1976,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         if #flows_in > 2 then flows_in = {flows_in[1], flows_in[2]} end
         local pickup_y, drop_y = machine_y - 2, machine_y + max_machine_h + 1
         local first_x = block.machines[1].x + math.floor((block.machines[1].w - 1) / 2)
-        local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
+        local last_x = block.machines[#block.machines].x + math.floor((block.machines[#block.machines].w - 1) / 2)
         local tiles_in, tiles_out = {}, {}
         for x = first_x - 1, last_x do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
         --The output run reaches the block's right edge so its port lies on the boundary (attach_dx == w).
@@ -2140,6 +2140,19 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     table.sort(block.machines, function(a, b) return a.id < b.id end)
     table.sort(block.beacons, function(a, b) return a.id < b.id end)
     table.sort(block.inserters, function(a, b) return a.id < b.id end)
+    for _, port in ipairs(block.ports or {}) do
+        local dx, dy = port.attach_dx, port.attach_dy
+        if dx and dy and port.kind ~= "fluid" and dx >= 0 and dx < block.w and dy >= 0 and dy < block.h then
+            local covered = false
+            for _, list in ipairs({block.members or {}, block.inserters or {}}) do
+                for _, member in ipairs(list) do
+                    if member.x and member.w and dx >= member.x and dx < member.x + member.w
+                        and dy >= member.y and dy < member.y + member.h then covered = true end
+                end
+            end
+            if not covered then port.interior_free = true end
+        end
+    end
     table.sort(block.ports, function(a, b) return tostring(a.port_id) < tostring(b.port_id) end)
     -- Keep explicit recipe-aware buffer facts beside the block in its local frame.  Recipes live on
     -- steps (including furnaces, whose blueprint entities intentionally have no recipe field).
