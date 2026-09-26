@@ -15,11 +15,22 @@ local function bind_science()
         {"transport-belt", "transport-belt"},
         {"inserter", "inserter"},
         {"electronic-circuit", "electronic-circuit"},
+        {"copper-cable", "copper-cable"},
     }
     for _, entry in ipairs(recipes) do S.bind("item/" .. entry[1], entry[2]) end
 end
 
+local function clear_row(sheet, index)
+    local row = sheet.input_container.children[index]
+    if not row then return end
+    row.rate_textfield.text = "0"
+    row.hxrrc_desired_item_button.elem_value = nil
+    event_handlers.on_gui_elem_changed[row.hxrrc_desired_item_button.name](
+        {element = row.hxrrc_desired_item_button, player_index = 1})
+end
+
 local function calculate(sheet, item, rate)
+    clear_row(sheet, 2)
     bind_science()
     S.fill_row(sheet, 1, item, rate, "/s")
     S.calculate(sheet)
