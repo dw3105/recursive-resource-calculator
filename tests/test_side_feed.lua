@@ -31,6 +31,10 @@ H.test("SF4 behind/ahead and belt pointing away do not count", function()
         [key(3,4)]={kind="belt",direction=Grid.NORTH},
     }
     H.equal(SideFeed.into(cells,key,run,Grid.EAST),false,"longitudinal and away belts ignored")
+    cells[key(3,4)]={kind="pipe",direction=Grid.SOUTH}
+    H.equal(SideFeed.into(cells,key,run,Grid.EAST),false,"pipe side neighbor ignored")
+    cells[key(3,4)]={kind="belt",direction=Grid.SOUTH,splitter=true}
+    H.equal(SideFeed.into(cells,key,run,Grid.EAST),false,"splitter side neighbor ignored")
 end)
 
 H.test("SF5 underground entrance outputs nothing but exit can feed", function()
@@ -64,7 +68,7 @@ H.test("SF6 route preserves side feed when crossing buries the run", function()
     local state=Route.begin(crossing_with_side_source()); local ticks=0
     while not state.done and ticks<20000 do ticks=ticks+1; Route.step(state,{ops=10000}) end
     H.equal(state.done,true,"route completes")
-    H.equal(state.ok,true,"route succeeds "..tostring(state.errors and state.errors[1] and state.errors[1].code))
+    H.equal(state.ok,true,"route succeeds")
     local cells=state.work.segments_by_cell
     local directions={Grid.NORTH,Grid.EAST,Grid.SOUTH,Grid.WEST}
     local saw_entrance=false
