@@ -49,7 +49,14 @@ function BeaconPrune.share(entities, route_entities, catalog)
         end
     end
     for _, entity in ipairs(entities) do mark(entity, entity) end
-    for _, entity in ipairs(route_entities or {}) do mark(entity, entity) end
+    for _, entity in ipairs(route_entities or {}) do
+        if type(entity.position) == "table" and type(entity.position.x) == "number"
+            and type(entity.position.y) == "number" then
+            occupied[math.floor(entity.position.x) .. ":" .. math.floor(entity.position.y)] = entity
+        else
+            mark(entity, entity)
+        end
+    end
 
     local machines, beacons = {}, {}
     for _, entity in ipairs(entities) do

@@ -2,6 +2,13 @@
 local H = require "tests.harness"
 local BeaconPrune = require "logic.bp.beacon_prune"
 
+local function reaches(beacon, machine)
+    return machine.x + machine.w > beacon.x - beacon.supply_w
+        and machine.x < beacon.x + beacon.w + beacon.supply_w
+        and machine.y + machine.h > beacon.y - beacon.supply_h
+        and machine.y < beacon.y + beacon.h + beacon.supply_h
+end
+
 local function fixture(signature1, signature2)
     return {
         {id = "m1", kind = "machine", x = 0, y = 0, w = 5, h = 5},
@@ -24,6 +31,8 @@ H.test("same-signature blocks share one beacon and membership is merged", functi
     H.equal(beacons[1].required_for[1], "m1", "first machine remains covered")
     H.equal(beacons[1].required_for[2], "m2", "second machine coverage is appended")
     H.equal(beacons[1].members[2], "m2", "second machine membership is appended")
+    H.equal(reaches(beacons[1], entities[1]), true, "remaining beacon reaches the first machine")
+    H.equal(reaches(beacons[1], entities[2]), true, "remaining beacon reaches the second machine")
     H.equal(beacons[1].cx, beacons[1].x + 1, "center x shifts with beacon x")
     H.equal(beacons[1].cy, beacons[1].y + 1, "center y shifts with beacon y")
     H.equal(beacons[1].position.x, beacons[1].x + 1, "position x shifts with beacon x")
@@ -33,7 +42,7 @@ end)
 H.test("route occupancy prevents sharing at the only common spot", function()
     local entities = fixture()
     local route = {}
-    for x = -2, 12 do for y = 7, 9 do route[#route + 1] = {x = x, y = y, w = 1, h = 1} end end
+    for x = -2, 12 do for y = 7, 9 do route[#route + 1] = {position = {x = x + 0.5, y = y + 0.5}} end end
     BeaconPrune.run(entities, {}, route)
     local count = 0
     for _, entity in ipairs(entities) do if entity.kind == "beacon" then count = count + 1 end end
