@@ -1,0 +1,4 @@
+logic/bp/beacon_prune.lua
+logic/bp/search.lua
+tests/test_beacon_prune.lua
+docs/tasks/225_beacon_prune.md
