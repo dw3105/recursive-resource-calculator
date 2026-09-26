@@ -13,7 +13,13 @@ ROOT=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$ROOT/build/load-$FV
 rm -rf "${OUT:?}"
 mkdir -p "$OUT/mods" "$OUT/write"
-cp "$ZIP" "$OUT/mods/"
+# Factorio loads a zip only under <name>_<version>.zip; delivered test zips carry a -test suffix.
+CANON=$(python3 -c '
+import json, sys, zipfile
+z = zipfile.ZipFile(sys.argv[1])
+info = json.loads(z.read(next(n for n in z.namelist() if n.count("/") == 1 and n.endswith("/info.json"))))
+print("%s_%s.zip" % (info["name"], info["version"]))' "$ZIP")
+cp "$ZIP" "$OUT/mods/$CANON"
 python3 - "$FACTORIO/data" "$OUT/mods" <<'PY'
 import json, os, sys
 data, mods = sys.argv[1:]
