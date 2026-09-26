@@ -174,3 +174,6 @@
 | `232` | `rrc/agent` | validate: a pipe-to-ground joins only its open side and partner; fluid box refuses one opening away | 2026-09-26 |
 | `233` | `rrc/agent` | groups: k-th recipe fluid takes k-th box; even-width row head clears its first hand | 2026-09-26 |
 | `234` | `rrc/agent` | pipe_runs: a straight run of plain pipes is buried as one pipe-to-ground pair at publication | 2026-09-26 |
+| `235` | `rrc/agent` | route: fluids around a crowded machine get out, cross and join (fronts, dive-only, network join, order) | 2026-09-26 |
+| `236` | `rrc/agent` | search: two fluid doors of different fluids never touch | 2026-09-26 |
+| `237` | `rrc/agent` | groups/validate: inside port on free ground valid; row belt ends at last hand | 2026-09-26 |

@@ -1,0 +1,301 @@
+diff --git logic/bp/route.lua tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/route.lua
+index 721b2d2..bf4b5a4 100644
+--- logic/bp/route.lua
++++ tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/route.lua
+@@ -1720,7 +1720,7 @@ end
+ local function route_chain_reaches_sink(work, demand, path)
+     if type(path) ~= "table" or #path == 0 or not demand.sink then return false end
+     local last = path[#path]
+-    if last.x ~= demand.sink.x or last.y ~= demand.sink.y then return false end
++    if (last.x ~= demand.sink.x or last.y ~= demand.sink.y) and not (os.getenv("PROBE_NET") and demand.kind == "pipe") then return false end
+     return route_chain_reaches_tiles(work, demand.source, demand.sink, demand.flow_id)
+ end
+ 
+@@ -2108,7 +2108,26 @@ local function append_underground(work, demand, candidate, amount)
+ end
+ 
+ local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
+-    if FluidTouch.path_blocked(work.segments_by_cell, coordinate_key, demand, x, y) then search.saw_fluid_mix = true; return false end
++    local touch_ok = search and search.touch_ok
++    if search then search.touch_refused = false end
++    if not touch_ok and FluidTouch.path_blocked(work.segments_by_cell, coordinate_key, demand, x, y) then
++        search.saw_fluid_mix = true; search.touch_refused = true; return false
++    end
++    --PROBE_CROWD: no pipe beside another fluid's claimed front tile or crowded port tile.
++    if os.getenv("PROBE_CROWD") and not touch_ok and demand.kind == "pipe" and work.port_cells then
++        for _, d in ipairs(DIRECTIONS) do
++            local ddx, ddy = Grid.dir_vector(d)
++            local r = work.port_cells[coordinate_key(x + ddx, y + ddy)]
++            if r and r._fluid_front then
++                for fid in pairs(r._fluid_front) do
++                    if fid ~= demand.flow_id then search.saw_fluid_mix = true; search.touch_refused = true; return false end
++                end
++            end
++            if r and r._crowded and r._port_owners and not r["flow:" .. tostring(demand.flow_id)] then
++                search.saw_fluid_mix = true; search.touch_refused = true; return false
++            end
++        end
++    end
+     local owner = static_owner(work, x, y)
+     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
+     local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+@@ -2293,7 +2312,8 @@ local function begin_search(work, demand, amount, order_index)
+             local segment = work.segments_by_cell[key]
+             local x, y = coordinate_from_key(key)
+             --A refused seed is skipped, never fatal: the run may be full at one tile and free at the next.
+-            if x ~= nil and segment and segment_allows(work, segment, demand, amount) then
++            if x ~= nil and segment and segment_allows(work, segment, demand, amount)
++                and not (os.getenv("PROBE_NOUGSEED") and segment.kind == "pipe" and segment.underground) then
+                 local heading = segment.splitter and segment.splitter_direction or segment.direction
+                 local seed_cost = 0
+                 if x == demand.sink.x and y == demand.sink.y
+@@ -2344,6 +2364,12 @@ end
+ --One scratch table, reused: the probe below runs on the hot path and a fresh table per tile is pure garbage.
+ local PROBE = {}
+ 
++local function crowded_demand(work, demand)
++    local cb = work.crowded_blocks or {}
++    return os.getenv("PROBE_CROWD") and demand.kind == "pipe"
++        and ((demand.source and cb[demand.source.block_id]) or (demand.sink and cb[demand.sink.block_id])) and true or false
++end
++
+ local function crossing_targets(work, demand, search, current, direction, amount)
+     local reach = underground_reach(work, demand)
+     if reach < 2 then return {} end
+@@ -2387,8 +2413,14 @@ local function crossing_targets(work, demand, search, current, direction, amount
+         --for: measured 2026-09-23 on legalcopilot-dev, science 2 reached (13,2) first through a side-fed dive
+         --at (13,7) costing 20, so the straight feed (14,8) W, (13,8) N, dive at (13,7), costing 13, was never
+         --offered.
+-        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and faces_ok(x, y)
+-            and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
++        local exit_free = false
++        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and faces_ok(x, y) then
++            --PROBE_CROWD: an underground end joins only along its line, so side contact is harmless.
++            if crowded_demand(work, demand) then search.touch_ok = true end
++            exit_free = path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search)
++            search.touch_ok = nil
++        end
++        if exit_free then
+             targets[#targets + 1] = {x = x, y = y, distance = distance}
+         end
+     end
+@@ -2471,6 +2503,19 @@ local function search_step(work, search)
+         end
+         return reconstruct(search, current.key)
+     end
++    --PROBE_NET: a fluid network is undirected; touching a pipe of it that already reaches the sink serves the sink.
++    if os.getenv("PROBE_NET") and search.demand.kind == "pipe" and current.key ~= search.source_key then
++        local here = work.segments_by_cell[coordinate_key(current.x, current.y)]
++        if here and here.kind == "pipe" and segment_has_flow(here, search.demand.flow_id) then
++            search.net_memo = search.net_memo or {}
++            local memo = search.net_memo[current.key]
++            if memo == nil then
++                memo = route_chain_walk(work, {x = current.x, y = current.y}, search.demand.sink, search.demand.flow_id) == true
++                search.net_memo[current.key] = memo
++            end
++            if memo then return reconstruct(search, current.key) end
++        end
++    end
+     --Riding a same-flow trunk straight into its own underground entrance carries the items through the pair:
+     --the next tile of the path is the pair's exit, exactly as the laid chain walks it.  `search.allow_ride`
+     --(begin_search): in first routing only after the demand found no path without it; offered there first it
+@@ -2622,6 +2667,20 @@ local function search_step(work, search)
+                 and direction ~= Grid.dir_opposite(entering.direction)
+             local free = path_cell_free(work, search.demand, nx, ny,
+                 body_jump and leaving.direction or direction, target, search.amount, search)
++            --PROBE_CROWD: a tile refused only for touching another fluid may still be entered to dive straight on.
++            if crowded_demand(work, search.demand) then
++                if current.mode == 3 then
++                    free, body_jump, merge = false, false, false
++                elseif not free and search.touch_refused and not target then
++                    search.touch_ok = true
++                    local dive_ok = path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search)
++                    search.touch_ok = nil
++                    if dive_ok then
++                        enqueue_state(search, nx, ny, direction, 3, current.key,
++                            current.cost + transition_cost(work, search.demand, nx, ny, direction, current.direction, 0, 0, search.amount))
++                    end
++                end
++            end
+             local refused_body = leaving ~= nil and leaving.kind ~= "pipe" and splitter_can_absorb(leaving)
+                 and current.direction ~= nil and leaving.direction == current.direction
+                 and direction ~= current.direction and work.belt and work.belt.splitter and not body_jump
+@@ -2644,7 +2703,8 @@ local function search_step(work, search)
+                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
+                     current.direction, 0, 0, search.amount)
+                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
+-            elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2 then
++            elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2
++                and not (current.mode == 3 and direction ~= current.direction) then
+                 local bury_key = coordinate_key(nx, ny)
+                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets
+                 --smaller.  Offered during first routing it reshuffled every later path and took the player's
+@@ -2973,6 +3033,26 @@ end
+ --the allocation rules are written for, and claiming against it would forbid sharing outright.
+ local function reserve_port_cells(work)
+     local reserved = {}
++    --PROBE_CROWD: a block is crowded when it carries 3 or more fluid ports (refinery, crackers).
++    work.crowded_blocks = {}
++    if os.getenv("PROBE_CROWD") then
++        local per = {}
++        for _, by_role in pairs(work.endpoint_index or {}) do
++            for _, role in ipairs({"in", "out"}) do
++                for _, ep in ipairs(by_role[role] or {}) do
++                    if ep.kind == "fluid" and ep.block_id and ep.port_id then
++                        per[ep.block_id] = per[ep.block_id] or {}
++                        per[ep.block_id][ep.port_id] = true
++                    end
++                end
++            end
++        end
++        for block_id, set in pairs(per) do
++            local n = 0
++            for _ in pairs(set) do n = n + 1 end
++            if n >= 3 then work.crowded_blocks[block_id] = true end
++        end
++    end
+     local function claim(x, y, endpoint, owns_tile)
+         if endpoint.port_id == nil or not inside_grid(work, x, y) then return end
+         local key = coordinate_key(x, y)
+@@ -2996,6 +3076,23 @@ local function reserve_port_cells(work)
+             claim(endpoint.x, endpoint.y, endpoint, true)
+             local key = coordinate_key(endpoint.x, endpoint.y)
+             if reserved[key] and endpoint.fluid_travel_dir ~= nil then reserved[key]._fluid_dir = endpoint.fluid_travel_dir end
++            local crowded = work.crowded_blocks[endpoint.block_id]
++            if crowded and reserved[key] then reserved[key]._crowded = true end
++            --PROBE_CROWD front claim: the first tile outward past the block's own members is this flow's.
++            if crowded and endpoint.fluid_travel_dir ~= nil then
++                local dx, dy = Grid.dir_vector(endpoint.fluid_travel_dir)
++                if endpoint.role == "in" then dx, dy = -dx, -dy end
++                local ax, ay, steps = endpoint.x + dx, endpoint.y + dy, 0
++                while steps < 9 and inside_grid(work, ax, ay) and static_owner(work, ax, ay) ~= nil do
++                    ax, ay, steps = ax + dx, ay + dy, steps + 1
++                end
++                if inside_grid(work, ax, ay) then
++                    claim(ax, ay, endpoint, false)
++                    local front = coordinate_key(ax, ay)
++                    reserved[front]._fluid_front = reserved[front]._fluid_front or {}
++                    reserved[front]._fluid_front[endpoint.flow_id] = true
++                end
++            end
+             return
+         end
+         claim_approach(endpoint.travel_dir)
+@@ -3244,7 +3341,33 @@ local function finish_demand_build(work)
+     -- `build_demands` has already applied its stable route-cost ordering per flow. The old sort
+     -- was global; preserve that exact ordering across flows by applying its same comparator once.
+     for index, demand in ipairs(work.demands) do demand._build_order = index end
++    --PROBE_ORD: fluid demands touching a machine with 3+ fluid ports are routed first.
++    local crowd = {}
++    if os.getenv("PROBE_ORD") then
++        local ports = {}
++        for _, demand in ipairs(work.demands) do
++            for _, ep in ipairs({demand.source, demand.sink}) do
++                if ep and ep.kind == "fluid" and ep.block_id and ep.port_id then
++                    ports[ep.block_id] = ports[ep.block_id] or {}
++                    ports[ep.block_id][ep.port_id] = true
++                end
++            end
++        end
++        for _, demand in ipairs(work.demands) do
++            local best = 0
++            for _, ep in ipairs({demand.source, demand.sink}) do
++                if ep and ep.kind == "fluid" and ep.block_id and ports[ep.block_id] and not ep.perimeter then
++                    local n = 0
++                    for _ in pairs(ports[ep.block_id]) do n = n + 1 end
++                    if demand.source and demand.source.perimeter then n = math.min(n, 1) end
++                    best = math.max(best, n >= 3 and n or 0)
++                end
++            end
++            crowd[demand] = best
++        end
++    end
+     table.sort(work.demands, function(left, right)
++        if (crowd[left] or 0) ~= (crowd[right] or 0) then return (crowd[left] or 0) > (crowd[right] or 0) end
+         if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end
+         return left._build_order < right._build_order
+     end)
+diff --git logic/bp/search.lua tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/search.lua
+index cf209cf..c3da63b 100644
+--- logic/bp/search.lua
++++ tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/search.lua
+@@ -901,6 +901,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
+     }
+     local next_slot = {["in"] = 1, ["out"] = 1}
+     local occupied = {}
++    local fluid_doors = {}
+     local external = {}
+     local sizing = {}
+     local networks = terminal_networks(state)
+@@ -945,7 +946,15 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
+             local index, best_cost
+             for candidate_index, candidate_slot in ipairs(slots[role]) do
+                 local key = perimeter_cell_key(candidate_slot.x, candidate_slot.y)
+-                if not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
++                --PROBE_DOORGAP: a fluid door never sits next to another fluid's door.
++                local fluid_near = false
++                if os.getenv("PROBE_DOORGAP") and tostring(port_flow_id(port)):sub(1, 6) == "fluid/" then
++                    for _, d in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
++                        local f = fluid_doors[perimeter_cell_key(candidate_slot.x + d[1], candidate_slot.y + d[2])]
++                        if f and f ~= port_flow_id(port) then fluid_near = true end
++                    end
++                end
++                if not fluid_near and not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
+                     local cost = slot_cost(candidate_slot, network.consumers)
+                     if index == nil or cost < best_cost or (cost == best_cost and candidate_index < index) then
+                         index, best_cost = candidate_index, cost
+@@ -966,6 +975,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
+ 
+             local slot = slots[role][index]
+             occupied[perimeter_cell_key(slot.x, slot.y)] = true
++            if tostring(port_flow_id(port)):sub(1, 6) == "fluid/" then fluid_doors[perimeter_cell_key(slot.x, slot.y)] = port_flow_id(port) end
+             local point = copy(port) or {}
+             point.port_id = copy_index == 1 and base_id or (tostring(base_id) .. ":" .. tostring(copy_index))
+             point.x, point.y = slot.x, slot.y
+diff --git logic/bp/groups.lua tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/groups.lua
+index 25f4d49..60cd903 100644
+--- logic/bp/groups.lua
++++ tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/groups.lua
+@@ -1976,7 +1976,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
+         if #flows_in > 2 then flows_in = {flows_in[1], flows_in[2]} end
+         local pickup_y, drop_y = machine_y - 2, machine_y + max_machine_h + 1
+         local first_x = block.machines[1].x + math.floor((block.machines[1].w - 1) / 2)
+-        local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
++        local last_x = block.machines[#block.machines].x + (os.getenv("PROBE_LX") and math.floor((block.machines[#block.machines].w - 1) / 2) or math.floor(block.machines[#block.machines].w / 2))
+         local tiles_in, tiles_out = {}, {}
+         for x = first_x - 1, last_x do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
+         --The output run reaches the block's right edge so its port lies on the boundary (attach_dx == w).
+@@ -2140,6 +2140,21 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
+     table.sort(block.machines, function(a, b) return a.id < b.id end)
+     table.sort(block.beacons, function(a, b) return a.id < b.id end)
+     table.sort(block.inserters, function(a, b) return a.id < b.id end)
++    --PROBE_IFREE: an item port on free ground inside the envelope (no member on its tile) is reachable.
++    if os.getenv("PROBE_IFREE") then
++        for _, port in ipairs(block.ports or {}) do
++            local dx, dy = port.attach_dx, port.attach_dy
++            if dx and dy and port.kind ~= "fluid" and dx >= 0 and dx < block.w and dy >= 0 and dy < block.h then
++                local covered = false
++                for _, list in ipairs({block.members or {}, block.inserters or {}}) do
++                    for _, m in ipairs(list) do
++                        if m.x and m.w and dx >= m.x and dx < m.x + m.w and dy >= m.y and dy < m.y + m.h then covered = true end
++                    end
++                end
++                if not covered then port.interior_free = true end
++            end
++        end
++    end
+     table.sort(block.ports, function(a, b) return tostring(a.port_id) < tostring(b.port_id) end)
+     -- Keep explicit recipe-aware buffer facts beside the block in its local frame.  Recipes live on
+     -- steps (including furnaces, whose blueprint entities intentionally have no recipe field).
+diff --git logic/bp/validate.lua tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/validate.lua
+index 1ca7c78..ffc7f8d 100644
+--- logic/bp/validate.lua
++++ tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/ea63242f-bbda-4a6f-bb62-614899447978/scratchpad/p5/logic/bp/validate.lua
+@@ -803,6 +803,7 @@ local function block_port_geometry(errors, root, placements)
+                 --A hand hop (round 31) moves a single machine's hand to another face: its port is the belt tile next
+                 --to that hand, anywhere around the machine, not on the grouping's boundary ring.
+                 if port.hopped then bounded, interior_row_feed = true, true end
++                if os.getenv("PROBE_IFREE") and port.interior_free then bounded, interior_row_feed = true, true end
+                 --A fluid port is the pipe tile in front of its machine's fluid box, often in the gap row between
+                 --a beacon row and the machine. The fluid-connection check proves that tile; the ring does not apply.
+                 if port.fluid_pinned or port.kind == "fluid" or port.is_fluid == true then bounded, interior_row_feed = true, true end
