@@ -74,11 +74,15 @@ exactly `w = first_x + last_x + 1` wide, so the row is mirror-symmetric about it
 
 ## §Reversal
 
-`Groups.reverse_run(block, role)` (`role` "in" or "out") returns a COPY of a row block whose `role` run flows the other
-way; `block` is untouched. Mirror about the centre line `x' = first_x + last_x - x` applies to that run's tiles (order
-reversed), head, feeds and port; its `dir` and every EAST/WEST port heading flip; every port whose id starts
-`row:<role>:` moves with it (attach_dx mirrored, normal/travel flipped). Reversing twice gives the block back. Nil when
-the block is no symmetric row. Ports stay on the boundary: -1 <-> w.
+`logic/bp/run_dir.lua` provides `RunDir.reverse(block, role)` and `RunDir.choose(...)`. `RunDir.reverse` (`role` "in" or
+"out") returns a COPY of a row block whose `role` run flows the other way; `block` is untouched. Mirror about the
+centre line `x' = first_x + last_x - x` applies to that run's tiles (order reversed), head, feeds and port; its `dir`
+and every EAST/WEST port heading flip; every port whose id starts `row:<role>:` moves with it (attach_dx mirrored,
+normal/travel flipped). Reversing twice gives the block back. Nil when the block is no symmetric row. Ports stay on
+the boundary: -1 <-> w.
+
+`RunDir.choose` selects each row run's direction toward its flow partners. It runs after pack, inside
+`materialize_candidate`, immediately before `Groups.materialize` places the block.
 
 ## Far belt (round 29, 2026-09-24)
 
