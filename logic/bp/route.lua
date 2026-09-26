@@ -14,6 +14,8 @@ local Route = {}
 
 local Grid = require "logic.bp.grid"
 local Flags = require "logic.bp.flags"
+local FluidTouch = require "logic.bp.fluid_touch"
+local SideFeed = require "logic.bp.side_feed"
 
 local EPSILON = 1e-9
 --The search was Dijkstra: cost only, no estimate of what is left.  One tile of straight belt costs 1, so
@@ -1766,6 +1768,7 @@ local function bury_candidate(work, x, y, cross_direction, allow_port_adjacent)
         return static_owner(work, px, py) ~= nil
     end
     for _, p in ipairs({{bx,by},{x,y},{ax,ay}}) do if port_or_obstacle(p[1],p[2]) then return nil end end
+    if SideFeed.into(work.segments_by_cell, coordinate_key, {{bx,by},{x,y},{ax,ay}}, b.direction) then return nil end
     local feed = seg(BBx, BBy)
     if not feed then return nil end
     if feed.underground then
@@ -2104,6 +2107,7 @@ local function append_underground(work, demand, candidate, amount)
 end
 
 local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
+    if FluidTouch.path_blocked(work.segments_by_cell, coordinate_key, demand, x, y) then search.saw_fluid_mix = true; return false end
     local owner = static_owner(work, x, y)
     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
     local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
@@ -2900,6 +2904,12 @@ local function unbury_empty_pairs(work)
             if work.segments_by_cell[key] or static_owner(work, x, y) ~= nil or indexed_cell(work.grid, x, y)
                 or other_port then occupied = true end
             x, y = x + dx, y + dy
+        end
+        if not occupied then
+            local tiles = {{x = pair.underground_entry_x, y = pair.underground_entry_y}}
+            for _, cell in ipairs(covered) do tiles[#tiles + 1] = cell end
+            tiles[#tiles + 1] = {x = pair.underground_exit_x, y = pair.underground_exit_y}
+            if FluidTouch.unbury_blocked(work.segments_by_cell, coordinate_key, pair, tiles) then occupied = true end
         end
         if not occupied then
             local cells = {{x = pair.underground_entry_x, y = pair.underground_entry_y}}

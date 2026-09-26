@@ -1,0 +1,3 @@
+logic/bp/side_feed.lua
+tests/test_side_feed.lua
+docs/tasks/230_side_feed.md

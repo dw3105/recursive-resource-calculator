@@ -168,3 +168,5 @@
 | `226` | `rrc/agent` | run_dir: a row run flows toward its partner (reversal restored after lane 189 deleted it) | 2026-09-26 |
 | `227` | `rrc/agent` | seat: an item input hand sits on the machine face nearest where its flow enters | 2026-09-26 |
 | `228` | `rrc/agent` | groups output fluid box from the other end; beacon_prune slides a beacon to serve two blocks | 2026-09-26 |
+| `229` | `rrc/agent` | fluid_touch: no pipe laid or unburied beside another fluid's pipe | 2026-09-26 |
+| `230` | `rrc/agent` | side_feed: a belt run fed from its side is never buried under a crossing | 2026-09-26 |

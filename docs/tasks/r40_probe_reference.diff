@@ -1,0 +1,58 @@
+--- a/logic/bp/route.lua (main ef7fec8)
++++ b/logic/bp/route.lua (round 40 probe; PROBE_A/PROBE_C = lane 229, PROBE_B = lane 230)
+@@ -1766,6 +1766,18 @@
+         return static_owner(work, px, py) ~= nil
+     end
+     for _, p in ipairs({{bx,by},{x,y},{ax,ay}}) do if port_or_obstacle(p[1],p[2]) then return nil end end
++    if os.getenv("PROBE_B") then
++        for _, p in ipairs({{bx,by},{x,y},{ax,ay}}) do
++            for _, direction in ipairs(DIRECTIONS) do
++                local ddx, ddy = Grid.dir_vector(direction)
++                if direction ~= b.direction and direction ~= Grid.dir_opposite(b.direction) then
++                    local side = seg(p[1] - ddx, p[2] - ddy)
++                    if side and side.kind == "belt" and not side.splitter and side.direction == direction
++                        and not (side.underground and side.underground_entry_key == coordinate_key(p[1] - ddx, p[2] - ddy)) then return nil end
++                end
++            end
++        end
++    end
+     local feed = seg(BBx, BBy)
+     if not feed then return nil end
+     if feed.underground then
+@@ -2103,7 +2115,18 @@
+     return true
+ end
+ 
++local function foreign_pipe_beside(work, demand, x, y)
++    if os.getenv("PROBE_A") == nil or demand.kind ~= "pipe" then return false end
++    for _, direction in ipairs(DIRECTIONS) do
++        local dx, dy = Grid.dir_vector(direction)
++        local other = work.segments_by_cell[coordinate_key(x + dx, y + dy)]
++        if other and other.kind == "pipe" and not other.underground and not segment_has_flow(other, demand.flow_id) then return true end
++    end
++    return false
++end
++
+ local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
++    if foreign_pipe_beside(work, demand, x, y) then search.saw_fluid_mix = true; return false end
+     local owner = static_owner(work, x, y)
+     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
+     local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+@@ -2901,6 +2924,17 @@
+                 or other_port then occupied = true end
+             x, y = x + dx, y + dy
+         end
++        if not occupied and os.getenv("PROBE_C") and pair.kind == "pipe" then
++            local all = {{x = pair.underground_entry_x, y = pair.underground_entry_y}, {x = pair.underground_exit_x, y = pair.underground_exit_y}}
++            for _, cell in ipairs(covered) do all[#all + 1] = cell end
++            for _, cell in ipairs(all) do
++                for _, direction in ipairs(DIRECTIONS) do
++                    local ddx, ddy = Grid.dir_vector(direction)
++                    local other = work.segments_by_cell[coordinate_key(cell.x + ddx, cell.y + ddy)]
++                    if other and other ~= pair and other.kind == "pipe" and not segment_has_flow(other, pair.flow_id) then occupied = true end
++                end
++            end
++        end
+         if not occupied then
+             local cells = {{x = pair.underground_entry_x, y = pair.underground_entry_y}}
+             for _, cell in ipairs(covered) do cells[#cells + 1] = cell end
