@@ -207,3 +207,8 @@ script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
         Calculator.recompute_everything(event.player_index)
     end
 end)
+
+--Headless tests (tools/game_test.sh) stage the mod with "? factorio-test"; a release zip never loads that mod, so this
+--branch is dead in the shipped game. Parse-time require only, as Factorio demands.
+local factorio_test_init = script.active_mods["factorio-test"] and require("__factorio-test__/init")
+if factorio_test_init then factorio_test_init(require("tests.game.index"), {load_luassert = true}) end

@@ -14,4 +14,16 @@ python3 -m unittest discover -s tests/tools -p 'test_*.py' -t . || status=1
 for file in data.lua settings.lua; do
     luac5.2 -p "$file" || status=1
 done
+# Game test files on the mock first (seconds), then headless on the real engine, both versions (round 42). Headless is
+# integrator only: tools/game_test.sh refuses under LANE_RUN_ID, and a host without the binary prints game-skip.
+for game_file in tests/game/test_*.lua; do
+    lua5.2 tests/game/offline.lua "$game_file" || status=1
+done
+for fv in 2.0 2.1; do
+    if [ -x "${FACTORIO_ROOT:-$HOME/factorio-$fv/factorio}/bin/x64/factorio" ]; then
+        sh tools/game_test.sh "$fv" --full || status=1
+    else
+        echo "game-skip $fv: no headless Factorio (sh tools/fetch_factorio.sh $fv)"
+    fi
+done
 exit $status
