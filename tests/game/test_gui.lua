@@ -83,18 +83,19 @@ describe("gui", function()
     it("module picker opens and closes", function()
         local sheet = S.first_sheet()
         S.bind("item/automation-science-pack", "automation-science-pack")
+        --The real game defaults to assembling-machine-1, which has no module slots, so its report row has no module
+        --button (headless 2.0.77 + 2.1.20, round 42). Pick a machine with slots, as a player would.
+        storage[1].identifiers_of_chosen_crafting_machines_by_recipe_name["automation-science-pack"] = {name = "assembling-machine-2"}
         S.fill_row(sheet, 1, "automation-science-pack", 1, "/s")
         S.calculate(sheet)
         S.wait_until(function() return S.report_rows(sheet) > 0 end, 600, function()
             local button = S.find(sheet.output_flow, "hxrrc_choose_module_button")
             assert.is_not_nil(button, "report module button exists")
-            if RRC_OFFLINE then
-                event_handlers.on_gui_click[button.name]({element = button, player_index = 1})
-                assert.is_not_nil(storage[1].module_picker, "module picker opened")
-                ModulePicker.close(1, false)
-            else
-                event_handlers.on_gui_elem_changed[button.name]({element = button, elem_value = "speed-module", player_index = 1})
-            end
+            --A slot is a plain button that opens the picker (headless: elem_value on it raises "Only callable on
+            --choose-elem-button."), so both runs click it.
+            event_handlers.on_gui_click[button.name]({element = button, player_index = 1})
+            assert.is_not_nil(storage[1].module_picker, "module picker opened")
+            ModulePicker.close(1, false)
             close_calculator()
         end, "report rows")
     end)

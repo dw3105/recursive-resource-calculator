@@ -40,8 +40,8 @@ world.add_item("copper-plate")
 world.add_item("iron-gear-wheel")
 world.add_item("automation-science-pack")
 world.add_item("coal", {value = 4e6, category = "chemical"})
-world.add_machine({name = "assembling-machine-1", categories = {"crafting"}, speed = 0.5})
-world.add_machine({name = "assembling-machine-2", categories = {"crafting"}, speed = 0.75})
+world.add_machine({name = "assembling-machine-1", categories = {"crafting"}, speed = 0.5, module_slots = 0})  -- vanilla: no slots (headless, round 42)
+world.add_machine({name = "assembling-machine-2", categories = {"crafting"}, speed = 0.75, module_slots = 2})
 world.add_recipe({name = "iron-gear-wheel", category = "crafting", energy = 0.5,
     ingredients = {{name = "iron-plate", amount = 2}}, products = {{name = "iron-gear-wheel", amount = 1}}})
 world.add_recipe({name = "automation-science-pack", category = "crafting", energy = 5,
