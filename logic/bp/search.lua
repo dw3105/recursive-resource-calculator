@@ -21,6 +21,7 @@ local Validate = require "logic.bp.validate"
 local Serialize = require "logic.bp.serialize"
 local Hands = require "logic.bp.hands"
 local Ends = require "logic.bp.ends"
+local BeaconPrune = require "logic.bp.beacon_prune"
 
 local PHASES = {
     plan = "planning", preflight = "preflight", groups = "grouping", pack = "packing", route = "routing",
@@ -1742,6 +1743,7 @@ function Search.step(container, budget)
                 end
             end
         elseif state.phase == "hands" then
+            BeaconPrune.run(state.work.materialized.entities, state.work.input.catalog)
             local all = list_copy(state.work.materialized.entities)
             append_all(all, state.work.route.result and state.work.route.result.entities)
             state.work.hand_entities = all
