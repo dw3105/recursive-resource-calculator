@@ -901,6 +901,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
     }
     local next_slot = {["in"] = 1, ["out"] = 1}
     local occupied = {}
+    local fluid_doors = {}
     local external = {}
     local sizing = {}
     local networks = terminal_networks(state)
@@ -945,7 +946,14 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
             local index, best_cost
             for candidate_index, candidate_slot in ipairs(slots[role]) do
                 local key = perimeter_cell_key(candidate_slot.x, candidate_slot.y)
-                if not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
+                local fluid_near = false
+                if tostring(port_flow_id(port)):sub(1, 6) == "fluid/" then
+                    for _, d in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+                        local neighbor = fluid_doors[perimeter_cell_key(candidate_slot.x + d[1], candidate_slot.y + d[2])]
+                        if neighbor and neighbor ~= port_flow_id(port) then fluid_near = true end
+                    end
+                end
+                if not fluid_near and not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
                     local cost = slot_cost(candidate_slot, network.consumers)
                     if index == nil or cost < best_cost or (cost == best_cost and candidate_index < index) then
                         index, best_cost = candidate_index, cost
@@ -966,6 +974,9 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
 
             local slot = slots[role][index]
             occupied[perimeter_cell_key(slot.x, slot.y)] = true
+            if tostring(port_flow_id(port)):sub(1, 6) == "fluid/" then
+                fluid_doors[perimeter_cell_key(slot.x, slot.y)] = port_flow_id(port)
+            end
             local point = copy(port) or {}
             point.port_id = copy_index == 1 and base_id or (tostring(base_id) .. ":" .. tostring(copy_index))
             point.x, point.y = slot.x, slot.y
