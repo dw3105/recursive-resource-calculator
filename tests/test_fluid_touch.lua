@@ -42,12 +42,12 @@ local function route_input()
         return {flow_id = id, is_fluid = true, producers = {{step_id = source, share_per_second = 5}},
             consumers = {{step_id = sink, share_per_second = 5}}}
     end
-    return {grid = Grid.new(14, 8), catalog = {pipe = {pipe = "plain", underground = "buried", throughput_per_second = 100,
+    return {grid = Grid.new(14, 14), catalog = {pipe = {pipe = "plain", underground = "buried", throughput_per_second = 100,
         underground_max_distance = 5}}, blocks = {
-        block("as", 1, 2, "out", "fluid/a", 1, 0, Grid.WEST, Grid.EAST),
-        block("at", 12, 2, "in", "fluid/a", -1, 0, Grid.EAST, Grid.EAST),
-        block("bs", 1, 3, "out", "fluid/b", 1, 0, Grid.WEST, Grid.EAST),
-        block("bt", 12, 3, "in", "fluid/b", -1, 0, Grid.EAST, Grid.EAST)},
+        block("as", 1, 6, "out", "fluid/a", 1, 0, Grid.WEST, Grid.EAST),
+        block("at", 12, 6, "in", "fluid/a", -1, 0, Grid.EAST, Grid.EAST),
+        block("bs", 1, 8, "out", "fluid/b", 1, 0, Grid.WEST, Grid.EAST),
+        block("bt", 12, 8, "in", "fluid/b", -1, 0, Grid.EAST, Grid.EAST)},
         flows = {flow("fluid/a", "as", "at"), flow("fluid/b", "bs", "bt")}}
 end
 
@@ -56,7 +56,7 @@ H.test("FT6 route keeps different-flow plain pipes from touching", function()
     local ticks = 0
     while not state.done and ticks < 2000 do ticks = ticks + 1; Route.step(state, {ops = 10000}) end
     H.equal(state.done, true, "route completes")
-    H.equal(state.ok, true, "both fluid routes succeed")
+    H.equal(state.ok, true, "both fluid routes succeed: " .. tostring(state.errors and state.errors[1] and state.errors[1].code))
     local cells = state.work.segments_by_cell or {}
     for cell_key, segment_value in pairs(cells) do
         if not segment_value.underground then
