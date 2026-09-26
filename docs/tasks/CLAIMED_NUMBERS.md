@@ -164,3 +164,7 @@
 | `177` | `rrc/agent` | validate: BP_V_BUFFER_ZONE refuses a machine inside another's buffer zone | 2026-09-23 |
 | `178` | `rrc/agent` | tests: test_search BP-20 comparison rows validate their two candidates | 2026-09-23 |
 | `179` | `rrc/agent` | tests: test_corpus_setups fluid-byproduct-chain capture finishes | 2026-09-23 |
+| `180-225` | `rrc/agent` | claimed by the task files in this directory (rounds 24-38); rows were never written here | 2026-09-26 |
+| `226` | `rrc/agent` | run_dir: a row run flows toward its partner (reversal restored after lane 189 deleted it) | 2026-09-26 |
+| `227` | `rrc/agent` | seat: an item input hand sits on the machine face nearest where its flow enters | 2026-09-26 |
+| `228` | `rrc/agent` | groups output fluid box from the other end; beacon_prune slides a beacon to serve two blocks | 2026-09-26 |

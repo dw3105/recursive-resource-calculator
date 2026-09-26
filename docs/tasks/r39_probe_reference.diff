@@ -1,0 +1,438 @@
+diff --git a/logic/bp/beacon_prune.lua b/logic/bp/beacon_prune.lua
+index af7052c..efe3eb5 100644
+--- a/logic/bp/beacon_prune.lua
++++ b/logic/bp/beacon_prune.lua
+@@ -80,4 +80,63 @@ function BeaconPrune.run(entities, catalog)
+     return removed
+ end
+ 
++function BeaconPrune.share(entities, others, catalog)
++    local occ = {}
++    local function mark(e, v) if type(e.x)=="number" and type(e.w)=="number" then for x=e.x,e.x+e.w-1 do for y=e.y,e.y+(e.h or 1)-1 do occ[x..":"..y]=v end end
++        elseif type(e.x)=="number" then occ[e.x..":"..e.y]=v
++        elseif e.position then occ[math.floor(e.position.x)..":"..math.floor(e.position.y)]=v end end
++    for _, e in ipairs(entities) do mark(e, e) end
++    for i, e in ipairs(others or {}) do if i<3 then local ks={} for k,v in pairs(e) do ks[#ks+1]=k.."="..tostring(v) end io.stderr:write("ROUTE_E "..table.concat(ks," ").."\n") end mark(e, e) end
++    local machines, beacons = {}, {}
++    for _, e in ipairs(entities) do if e.kind=="machine" then machines[e.id]=e end if e.kind=="beacon" then beacons[#beacons+1]=e end end
++    table.sort(beacons, function(a,b) return tostring(a.id)<tostring(b.id) end)
++    local moved = 0
++    for _, b in ipairs(beacons) do
++        if b.signature and b.required_for and not b._gone then
++            for _, o in ipairs(beacons) do
++                if o ~= b and not o._gone and o.signature == b.signature and o.required_for then
++                    local best
++                    local already = true
++                    for _, id in ipairs(o.required_for) do if not machines[id] or not reaches(b, machines[id], catalog) then already=false end end
++                    if not already then
++                    for dy=-2,2 do for dx=-2,2 do if not best then
++                        local t = {x=b.x+dx,y=b.y+dy,w=b.w,h=b.h,supply_w=b.supply_w,supply_h=b.supply_h,name=b.name}
++                        local free = true
++                        for x=t.x,t.x+t.w-1 do for y=t.y,t.y+t.h-1 do local v=occ[x..":"..y]; if v and v~=b then free=false end end end
++                        if free then
++                            local ok = true
++                            for _, id in ipairs(b.required_for) do if not machines[id] or not reaches(t, machines[id], catalog) then ok=false end end
++                            for _, id in ipairs(o.required_for) do if not machines[id] or not reaches(t, machines[id], catalog) then ok=false end end
++                            if ok then best=t end
++                        end
++                    end end end
++                    if best then
++                        io.stderr:write(string.format("PROBE_BEAC move %s (%d,%d)->(%d,%d) covers %s\n", tostring(b.id), b.x,b.y,best.x,best.y, tostring(o.id)))
++                        mark(b, nil)
++                        local ddx, ddy = best.x - b.x, best.y - b.y
++                        b.x, b.y = best.x, best.y
++                        if type(b.cx)=="number" then b.cx, b.cy = b.cx+ddx, b.cy+ddy end
++                        if type(b.position)=="table" then b.position = {x=b.position.x+ddx, y=b.position.y+ddy} end
++                        mark(b, b)
++                        moved = moved + 1
++                        for _, field in ipairs({"required_for","covered_members","member_ids","members"}) do
++                            if type(b[field])=="table" then for _, id in ipairs(o[field] or {}) do b[field][#b[field]+1]=id end end
++                        end
++                        o._gone = true
++                        break
++                    end
++                    end
++                end
++            end
++        end
++    end
++    if moved > 0 then
++        local kept = {}
++        for _, e in ipairs(entities) do if not e._gone then kept[#kept+1]=e end end
++        for i=#entities,1,-1 do entities[i]=nil end
++        for i,e in ipairs(kept) do entities[i]=e end
++    end
++    return moved
++end
++
+ return BeaconPrune
+diff --git a/logic/bp/groups.lua b/logic/bp/groups.lua
+index 0878624..221fca8 100644
+--- a/logic/bp/groups.lua
++++ b/logic/bp/groups.lua
+@@ -120,7 +120,11 @@ local function fluid_connection(catalog, step, entry, role)
+     local wanted_connection = entry.connection_index or entry.pipe_connection_index
+     local preferred = role == "input" and "input" or "output"
+     local fallback
+-    for box_index, box in ipairs(boxes) do
++    local order = {}
++    for i = 1, #boxes do order[i] = i end
++    if os.getenv('PROBE_FBOX') and role ~= "input" then for i = 1, #boxes do order[i] = #boxes + 1 - i end end
++    if os.getenv('PROBE_FBOX_IN') and role == "input" then for i = 1, #boxes do order[i] = #boxes + 1 - i end end
++    for _, box_index in ipairs(order) do local box = boxes[box_index]
+         if wanted_box == nil or wanted_box == box.index or wanted_box == box_index then
+             local production = tostring(box.production_type or box.flow_direction or ""):lower()
+             local matches_role = production == preferred or production:find(preferred, 1, true) ~= nil
+@@ -2525,4 +2529,47 @@ function Groups.materialize(block, placement)
+     return placed
+ end
+ 
++function Groups.reverse_run(block, role)
++    local row = block and block.row
++    if not row or row.first_x == nil or row.last_x == nil then return nil end
++    local axis = row.first_x + row.last_x
++    if axis + 1 ~= block.w then return nil end
++    local result = copy(block)
++    local function mirror_x(x) return axis - x end
++    local function flip(d)
++        if d == EAST then return WEST elseif d == WEST then return EAST end
++        return d
++    end
++    local found = false
++    for _, run in ipairs(result.belt_runs or {}) do
++        if run.role == role then
++            found = true
++            local tiles = {}
++            for index = #run.tiles, 1, -1 do
++                local t = run.tiles[index]
++                tiles[#tiles + 1] = {x = mirror_x(t.x), y = t.y}
++            end
++            run.tiles, run.dir = tiles, flip(run.dir)
++            if run.head then run.head = {x = mirror_x(run.head.x), y = run.head.y} end
++            for _, feed in ipairs(run.feeds or {}) do
++                feed.side_tile = {x = mirror_x(feed.side_tile.x), y = feed.side_tile.y}
++                feed.travel_dir = flip(feed.travel_dir)
++            end
++            if run.port then
++                run.port = {x = mirror_x(run.port.x), y = run.port.y, travel_dir = flip(run.port.travel_dir)}
++            end
++            run.reversed = not run.reversed
++        end
++    end
++    if not found then return nil end
++    local prefix = "row:" .. role .. ":"
++    for _, port in ipairs(result.ports or {}) do
++        if port.row_port and tostring(port.port_id):sub(1, #prefix) == prefix then
++            port.attach_dx = mirror_x(port.attach_dx)
++            port.normal_dir, port.travel_dir = flip(port.normal_dir), flip(port.travel_dir)
++        end
++    end
++    return result
++end
++
+ return Groups
+diff --git a/logic/bp/search.lua b/logic/bp/search.lua
+index 4702d3f..9f51d60 100644
+--- a/logic/bp/search.lua
++++ b/logic/bp/search.lua
+@@ -377,14 +377,140 @@ end
+ 
+ -- Pick each row run independently. The partner locations come from the flow graph; external
+ -- partners sit on the same perimeter edge used later to make router terminals.
++local function entry_id_(entry) return entry and (entry.step_id or entry.id or entry.block_id) end
++
++local function choose_row_runs(block, placement, all_blocks, all_placements, grid, flows, input_edge, output_edge)
++    if not block.row then return block end
++    local placed_by_id = {}
++    for index, other in ipairs(all_blocks or {}) do
++        local p = all_placements[index]
++        if p then placed_by_id[other.id or other.block_id] = {block = other, placement = p} end
++    end
++    local result = block
++    local function port_point(candidate, port)
++        local q = Grid.place_port(candidate, placement, port)
++        return {x = q.x, y = q.y}
++    end
++    local function partners(role, flow_id)
++        local f
++        for _, candidate in ipairs(flows or {}) do if (candidate.flow_id or candidate.id) == flow_id then f = candidate; break end end
++        local entries = f and (role == "out" and f.consumers or f.producers) or {}
++        local points = {}
++        for _, entry in ipairs(entries or {}) do
++            local id = entry_id_(entry)
++            if id == "$external" then
++                local edge = role == "out" and output_edge or input_edge
++                local axis_x = edge == "left" and 0 or edge == "right" and grid.w - 1
++                local axis_y = edge == "top" and 0 or edge == "bottom" and grid.h - 1
++                if axis_x then points[#points+1] = {x=axis_x,y=math.max(0,math.min(grid.h-1, placement.y))}
++                else points[#points+1] = {x=math.max(0,math.min(grid.w-1, placement.x)),y=axis_y or 0} end
++            else
++                local found = placed_by_id[id]
++                if found then points[#points+1] = {x=found.placement.x+found.block.w/2,y=found.placement.y+found.block.h/2} end
++            end
++        end
++        return points
++    end
++    for _, role in ipairs({"in", "out"}) do
++        local original_port, original_run
++        for _, p in ipairs(result.ports or {}) do
++            if p.row_port and p.role == role and (role ~= "out" or tostring(p.port_id):find("row:out:",1,true)) then original_port = p; break end
++        end
++        for _, run in ipairs(result.belt_runs or {}) do if run.role == role then original_run = run; break end end
++        if original_port and original_run then
++            local flow_ids = original_run.flows or {}
++            local targets = {}
++            for _, fid in ipairs(flow_ids) do for _, point in ipairs(partners(role, fid)) do targets[#targets+1] = point end end
++            if role == "in" and original_port.rear ~= true then
++                local feeds = original_run.feeds or {}
++                if #feeds > 0 then
++                    local x,y=0,0; for _, feed in ipairs(feeds) do x=x+feed.side_tile.x; y=y+feed.side_tile.y end
++                    original_port = {attach_dx=x/#feeds,attach_dy=y/#feeds,normal_dir=Grid.WEST}
++                end
++            end
++            if #targets > 0 then
++                local reversed = Groups.reverse_run(result, role)
++                if reversed then
++                    local rp
++                    for _, p in ipairs(reversed.ports or {}) do if p.row_port and p.role == role and (role ~= "out" or tostring(p.port_id):find("row:out:",1,true)) then rp=p; break end end
++                    if rp then
++                        local a,b=port_point(result,original_port),port_point(reversed,rp)
++                        local da,db=math.huge,math.huge
++                        for _, target in ipairs(targets) do da=math.min(da,manhattan(a,target)); db=math.min(db,manhattan(b,target)) end
++                        local valid=true
++                        for _, p in ipairs(reversed.ports or {}) do
++                            if p.row_port and p.role == role then
++                                local q=Grid.place_port(reversed,placement,p)
++                                local vx,vy=Grid.dir_vector(q.dir)
++                                for _, tile in ipairs({{x=q.x,y=q.y},{x=q.x+vx,y=q.y+vy}}) do
++                                    if tile.x < 1 or tile.y < 1 or tile.x >= grid.w-1 or tile.y >= grid.h-1 then valid=false end
++                                    for _, other in ipairs(all_blocks or {}) do
++                                        local op=placed_by_id[other.id or other.block_id]
++                                        if op and other ~= block and tile.x>=op.placement.x and tile.y>=op.placement.y and tile.x<op.placement.x+other.w and tile.y<op.placement.y+other.h then valid=false end
++                                    end
++                                end
++                            end
++                        end
++                        if valid and db < da then result=reversed end
++                    end
++                end
++            end
++        end
++    end
++    return result
++end
++
+ local function materialize_candidate(state, candidate, placements)
+     local by_id = block_map(candidate.blocks)
+     local blocks, entities, ports = {}, {}, {}
+     local placement_by_id = {}
+     for _, p in ipairs(placements or {}) do placement_by_id[p.block_id or p.id] = p end
++    if os.getenv('PROBE_ROT2') then
++        local grid = state.work.grid
++        local function port_of(block, id) for _, p in ipairs(block.ports or {}) do if tostring(p.port_id) == tostring(id) then return p end end end
++        local function cost_of(block, placement)
++            local c = 0
++            for _, link in ipairs(state.work.pack_links or {}) do
++                local mine, other
++                if link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.id or block.block_id) then mine, other = link.a, link.b
++                elseif link.b.block_id ~= nil and tostring(link.b.block_id) == tostring(block.id or block.block_id) then mine, other = link.b, link.a end
++                local mp = mine and port_of(block, mine.port_id)
++                if mp then
++                    local q = Grid.place_port(block, placement, mp)
++                    if other.edge then
++                        if other.edge == "left" then c = c + q.x elseif other.edge == "top" then c = c + q.y
++                        elseif other.edge == "right" then c = c + (grid.w - 1 - q.x) else c = c + (grid.h - 1 - q.y) end
++                    else
++                        local ob, opl = by_id[other.block_id], placement_by_id[other.block_id]
++                        local op = ob and opl and port_of(ob, other.port_id)
++                        if op then local r = Grid.place_port(ob, opl, op); c = c + math.abs(q.x - r.x) + math.abs(q.y - r.y) end
++                    end
++                end
++            end
++            return c
++        end
++        for _, placement in ipairs(placements or {}) do
++            local block = by_id[placement.block_id or placement.id]
++            if block and not block.row then
++                local fin = false
++                for _, p in ipairs(block.ports or {}) do if p.role == "in" and p.kind == "fluid" then fin = true end end
++                if fin then
++                    local flipped = {}
++                    for k, v in pairs(placement) do flipped[k] = v end
++                    flipped.dir = ((placement.dir or 0) + 8) % 16
++                    local a, b = cost_of(block, placement), cost_of(block, flipped)
++                    io.stderr:write(string.format("ROT2 %s dir=%s cost=%d flipped=%d\n", tostring(block.id), tostring(placement.dir), a, b))
++                    if b < a then placement.dir = flipped.dir end
++                end
++            end
++        end
++    end
+     for _, placement in ipairs(placements or {}) do
+         local block = by_id[placement.block_id or placement.id]
+         if block then
++            if os.getenv('PROBE_REV') then block = choose_row_runs(block, placement, candidate.blocks, (function() local r={} for _, b in ipairs(candidate.blocks or {}) do r[#r+1]=placement_by_id[b.id or b.block_id] end return r end)(), state.work.grid, state.work.plan_result.flows,
++                (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left",
++                (state.work.input.settings or {}).output_edge or state.work.input.output_edge or "top") end
+             local placed = Groups.materialize(block, placement)
+             blocks[#blocks + 1] = {
+                 block_id = block.id or block.block_id, id = block.id or block.block_id,
+@@ -635,7 +761,7 @@ end
+ local function perimeter_cell_free(state, blocked, key, port)
+     local mark = blocked[key]
+     if mark == nil then return true end
+-    return mark ~= true and state.work.edge_split_flows ~= nil and mark == port_flow_id(port)
++    return mark ~= true and (state.work.edge_split_flows ~= nil or os.getenv('PROBE_APPR') ~= nil) and mark == port_flow_id(port)
+ end
+ 
+ local function perimeter_port_needs_route(port)
+@@ -1014,6 +1140,8 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
+         external, complete = generated_perimeter_ports(state, grid, input_edge, output_edge, pitch,
+             perimeter_blocked_cells(blocks, obstacles))
+         state.work.perimeter_ports = external
++        if os.getenv('PROBE_DBG') then for _, p in ipairs(external) do io.stderr:write(string.format("TERM %s %s (%s,%s) dir=%s\n", tostring(p.port_id), tostring(p.role), tostring(p.x), tostring(p.y), tostring(p.travel_dir))) end
++            for _, p in ipairs(ports or {}) do if tostring(p.flow_id):find("ore") or tostring(p.flow_id):find("calcite") then io.stderr:write(string.format("PORT %s (%s,%s) td=%s nd=%s hopped=%s\n", tostring(p.port_id), tostring(p.x), tostring(p.y), tostring(p.travel_dir), tostring(p.normal_dir), tostring(p.hopped))) end end end
+         if not complete then
+             local requested = 0
+             for _, entry in ipairs(state.work.terminal_sizing or {}) do requested = requested + (entry.terminal_count or 1) end
+@@ -1522,6 +1650,24 @@ local function prepare_candidate(state)
+     state.work.pack_links = candidate_links(state, candidate)
+     state.work.candidate_rejection_start = #(state.work.rejections or {}) + 1
+     state.work.attempt_recorded = false
++    if os.getenv('PROBE_ROT1') then
++        for _, b in ipairs(candidate.blocks or {}) do
++            if not b.row then
++                local fin, iin = false, false
++                for _, p in ipairs(b.ports or {}) do if p.role=='in' then if p.kind=='fluid' then fin=true else iin=true end end end
++                if fin and not iin then b.allowed_dirs={0,8}; io.stderr:write('PROBE_ROT1 '..tostring(b.id)..'\n') end
++            end
++        end
++    end
++    if os.getenv('PROBE_ROT') then
++        for _, b in ipairs(candidate.blocks or {}) do
++            if not b.row then
++                local fl=false
++                for _, p in ipairs(b.ports or {}) do if p.kind=='fluid' and p.role=='in' then fl=true end end
++                if fl then b.allowed_dirs={0,8}; io.stderr:write('PROBE_ROT '..tostring(b.id)..'\n') end
++            end
++        end
++    end
+     local block_order = greedy_block_order(state, candidate)
+     local obstacles = bare_rects(state.work.robo_obstacles)
+     append_all(obstacles, bare_rects(state.work.input.obstacles))
+@@ -1669,6 +1815,11 @@ function Search.step(container, budget)
+                         state.work.pack.result and state.work.pack.result.placements)
+                     state.work.materialized = {blocks = blocks, entities = entities, ports = ports}
+                     Hands.offer_slides(state.work.materialized, state.work.grid)
++                    if os.getenv('PROBE_SEAT') then
++                        local n = require("logic.bp.seat").run(state.work.materialized, state.work.grid, state.work.plan_result.flows,
++                            (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left")
++                        if n > 0 then Hands.offer_slides(state.work.materialized, state.work.grid) end
++                    end
+                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
+                     if route_input then
+                         state.work.route_args = {blocks = blocks, ports = ports}
+@@ -1684,6 +1835,12 @@ function Search.step(container, budget)
+         elseif state.phase == "route" then
+             run_stage(state, "route", Route, budget)
+             if stage_done(state.work.route) then
++                if os.getenv('PROBE_DBG') then
++                    local r = state.work.route.result or {}
++                    for k, v in pairs(r) do if type(v)=="table" and (k:find("short") or k:find("fail") or k:find("unrouted") or k:find("missing")) then io.stderr:write("RRES "..k.." n="..#v.."\n"); for i, x in ipairs(v) do if i<6 then local ks={} for a,b in pairs(x) do ks[#ks+1]=a.."="..tostring(b) end io.stderr:write("   "..table.concat(ks," ").."\n") end end end end
++                    local n=0 for _, e in ipairs(r.entities or {}) do if tostring(e.flow_id):find("ore") then n=n+1 end end
++                    io.stderr:write("ORE_ENT "..n.."\n")
++                end
+                 if not state.work.route.ok then
+                     record_rejection(state, state.work.route.errors, "route")
+                     discard_candidate(state)
+@@ -1743,6 +1900,7 @@ function Search.step(container, budget)
+                 end
+             end
+         elseif state.phase == "hands" then
++            if os.getenv('PROBE_BEAC') then BeaconPrune.share(state.work.materialized.entities, state.work.route.result and state.work.route.result.entities, state.work.input.catalog) end
+             BeaconPrune.run(state.work.materialized.entities, state.work.input.catalog)
+             local all = list_copy(state.work.materialized.entities)
+             append_all(all, state.work.route.result and state.work.route.result.entities)
+diff --git a/logic/bp/seat.lua b/logic/bp/seat.lua
+new file mode 100644
+index 0000000..076dee8
+--- /dev/null
++++ b/logic/bp/seat.lua
+@@ -0,0 +1,78 @@
++local Hands = require "logic.bp.hands"
++local Seat = {}
++local function finite(v, f) if type(v)=="number" and v==v then return v end return f end
++function Seat.run(materialized, grid, flows, input_edge)
++    local by_id = {}
++    for _, e in ipairs(materialized.entities or {}) do by_id[tostring(e.id)] = e end
++    local external = {}
++    for _, f in ipairs(flows or {}) do
++        for _, p in ipairs(f.producers or {}) do if p.step_id == "$external" then external[f.flow_id or f.full_name or f.id] = true end end
++    end
++    local list, machines_by_flow = {}, {}
++    for _, port in ipairs(materialized.ports or {}) do
++        local hand = port.inserter_id and (by_id["m:" .. tostring(port.inserter_id)] or by_id[tostring(port.inserter_id)])
++        local machine = hand and by_id[tostring(hand.machine_id)]
++        if hand and machine and port.role == "in" and port.kind ~= "fluid" and not port.row_port and port.hop_options
++            and external[port.flow_id] then
++            list[#list+1] = {port=port, hand=hand, machine=machine}
++            machines_by_flow[port.flow_id] = machines_by_flow[port.flow_id] or {}
++            machines_by_flow[port.flow_id][machine] = true
++        end
++    end
++    local per = {}
++    for _, it in ipairs(list) do local k = tostring(it.machine.id) .. "|" .. tostring(it.port.flow_id); per[k] = (per[k] or 0) + 1 end
++    local kept = {}
++    for _, it in ipairs(list) do if per[tostring(it.machine.id) .. "|" .. tostring(it.port.flow_id)] == 1 then kept[#kept+1] = it end end
++    list = kept
++    local function nmach(fid) local n=0 for _ in pairs(machines_by_flow[fid] or {}) do n=n+1 end return n end
++    local function box_dist(x, y, m) local dx=math.max(m.x-x,0,x-(m.x+finite(m.w,1)-1)); local dy=math.max(m.y-y,0,y-(m.y+finite(m.h,1)-1)); return dx+dy end
++    local function src_dist(px, py)
++        if input_edge == "left" or input_edge == nil then return px end
++        if input_edge == "top" then return py end
++        if input_edge == "right" then return grid.w - 1 - px end
++        return grid.h - 1 - py
++    end
++    table.sort(list, function(a, b)
++        local sa, sb = nmach(a.port.flow_id) >= 2, nmach(b.port.flow_id) >= 2
++        if sa ~= sb then return sa end
++        if a.machine.id ~= b.machine.id then return tostring(a.machine.id) < tostring(b.machine.id) end
++        return tostring(a.port.flow_id) < tostring(b.port.flow_id)
++    end)
++    local used, shared_ports, slides = {}, {}, {}
++    for _, item in ipairs(list) do
++        local port, hand, machine = item.port, item.hand, item.machine
++        local shared = nmach(port.flow_id) >= 2
++        local options = {{hand_x=hand.x, hand_y=hand.y, port_x=port.x, port_y=port.y, turns=0, stay=true}}
++        for _, o in ipairs(port.hop_options) do options[#options+1] = o end
++        local best, bk
++        for _, o in ipairs(options) do
++            local key = o.hand_x .. ":" .. o.hand_y
++            local pkey = o.port_x .. ":" .. o.port_y
++            if not used[key] and not used[pkey] then
++                local k1 = src_dist(o.port_x, o.port_y)
++                local k2 = 0
++                if shared then
++                    k2 = math.huge
++                    for m in pairs(machines_by_flow[port.flow_id]) do if m ~= machine then k2 = math.min(k2, box_dist(o.port_x, o.port_y, m)) end end
++                else
++                    for _, sp in ipairs(shared_ports[machine] or {}) do k2 = k2 - (math.abs(sp.x-o.port_x)+math.abs(sp.y-o.port_y)) end
++                end
++                local k = {k1, k2, o.stay and 0 or 1, o.hand_y, o.hand_x}
++                local better = not bk
++                if bk then for i=1,#k do if k[i] ~= bk[i] then better = k[i] < bk[i]; break end end end
++                if better then best, bk = o, k end
++            end
++        end
++        if best then
++            used[best.hand_x .. ":" .. best.hand_y] = true; used[best.port_x .. ":" .. best.port_y] = true
++            if shared then shared_ports[machine] = shared_ports[machine] or {}; table.insert(shared_ports[machine], {x=best.port_x, y=best.port_y}) end
++            if not best.stay then
++                slides[#slides+1] = {port_id = port.port_id, hop = best}
++                io.stderr:write(string.format("SEAT %s hand (%d,%d)->(%d,%d)\n", tostring(port.port_id), hand.x, hand.y, best.hand_x, best.hand_y))
++            end
++        end
++    end
++    if #slides > 0 then Hands.place(materialized, {port_slides = slides}) end
++    return #slides
++end
++return Seat

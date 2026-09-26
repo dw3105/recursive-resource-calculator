@@ -1,0 +1,3 @@
+logic/bp/seat.lua
+tests/test_seat.lua
+docs/tasks/227_seat.md

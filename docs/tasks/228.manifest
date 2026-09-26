@@ -1,0 +1,5 @@
+logic/bp/groups.lua
+logic/bp/beacon_prune.lua
+tests/test_fluid_box.lua
+tests/test_beacon_share.lua
+docs/tasks/228_fluid_box_beacon_share.md

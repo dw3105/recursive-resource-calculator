@@ -22,6 +22,8 @@ local Serialize = require "logic.bp.serialize"
 local Hands = require "logic.bp.hands"
 local Ends = require "logic.bp.ends"
 local BeaconPrune = require "logic.bp.beacon_prune"
+local RunDir = require "logic.bp.run_dir"
+local Seat = require "logic.bp.seat"
 
 local PHASES = {
     plan = "planning", preflight = "preflight", groups = "grouping", pack = "packing", route = "routing",
@@ -380,11 +382,17 @@ end
 local function materialize_candidate(state, candidate, placements)
     local by_id = block_map(candidate.blocks)
     local blocks, entities, ports = {}, {}, {}
-    local placement_by_id = {}
+    local placement_by_id, placed_in_order = {}, {}
     for _, p in ipairs(placements or {}) do placement_by_id[p.block_id or p.id] = p end
+    for _, b in ipairs(candidate.blocks or {}) do placed_in_order[#placed_in_order + 1] = placement_by_id[b.id or b.block_id] end
+    local settings = state.work.input.settings or {}
+    local input_edge = settings.input_edge or state.work.input.input_edge or "left"
+    local output_edge = settings.output_edge or state.work.input.output_edge or "top"
     for _, placement in ipairs(placements or {}) do
         local block = by_id[placement.block_id or placement.id]
         if block then
+            block = RunDir.choose(block, placement, candidate.blocks, placed_in_order, state.work.grid,
+                state.work.plan_result.flows, input_edge, output_edge)
             local placed = Groups.materialize(block, placement)
             blocks[#blocks + 1] = {
                 block_id = block.id or block.block_id, id = block.id or block.block_id,
@@ -635,7 +643,7 @@ end
 local function perimeter_cell_free(state, blocked, key, port)
     local mark = blocked[key]
     if mark == nil then return true end
-    return mark ~= true and state.work.edge_split_flows ~= nil and mark == port_flow_id(port)
+    return mark ~= true and Seat.approach_open(state) and mark == port_flow_id(port)
 end
 
 local function perimeter_port_needs_route(port)
@@ -1669,6 +1677,11 @@ function Search.step(container, budget)
                         state.work.pack.result and state.work.pack.result.placements)
                     state.work.materialized = {blocks = blocks, entities = entities, ports = ports}
                     Hands.offer_slides(state.work.materialized, state.work.grid)
+                    local settings = state.work.input.settings or {}
+                    if Seat.run(state.work.materialized, state.work.grid, state.work.plan_result.flows,
+                        settings.input_edge or state.work.input.input_edge or "left") > 0 then
+                        Hands.offer_slides(state.work.materialized, state.work.grid)
+                    end
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input then
                         state.work.route_args = {blocks = blocks, ports = ports}
@@ -1743,7 +1756,8 @@ function Search.step(container, budget)
                 end
             end
         elseif state.phase == "hands" then
-            BeaconPrune.run(state.work.materialized.entities, state.work.input.catalog)
+            BeaconPrune.run(state.work.materialized.entities, state.work.input.catalog,
+                state.work.route.result and state.work.route.result.entities)
             local all = list_copy(state.work.materialized.entities)
             append_all(all, state.work.route.result and state.work.route.result.entities)
             state.work.hand_entities = all
