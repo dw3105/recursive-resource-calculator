@@ -16,6 +16,7 @@ local Grid = require "logic.bp.grid"
 local Flags = require "logic.bp.flags"
 local FluidTouch = require "logic.bp.fluid_touch"
 local SideFeed = require "logic.bp.side_feed"
+local PipeRuns = require "logic.bp.pipe_runs"
 
 local EPSILON = 1e-9
 --The search was Dijkstra: cost only, no estimate of what is left.  One tile of straight belt costs 1, so
@@ -2833,6 +2834,10 @@ local function result_for(work, publish)
                 end
             end
         end
+    end
+    if publish then
+        PipeRuns.bury(work, {key = coordinate_key, coordinate_from_key = coordinate_from_key, next_segment_id = next_segment_id,
+            next_entity_id = next_entity_id, entity_position = entity_position, infrastructure = infrastructure, finite = finite})
     end
     if publish then fold_edge_twins() end
     audit_route_work(work)

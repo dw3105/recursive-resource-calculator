@@ -1,0 +1,124 @@
+--- a/logic/bp/route.lua (int/r41 after wave 1)
++++ b/logic/bp/route.lua (probe: PROBE_PIPERUN = lane 234; PROBE_KEEPPIPE refuted)
+@@ -2834,6 +2834,112 @@
+             end
+         end
+     end
++    local function bury_pipe_runs()
++        local by_cell = work.segments_by_cell or {}
++        local function key(x, y) return tostring(x) .. ":" .. tostring(y) end
++        local entity_by_seg = {}
++        for _, e in ipairs(work.entities or {}) do if e.segment_id and not e._route_removed then entity_by_seg[e.segment_id] = e end end
++        local function plain(seg) return seg and seg.kind == "pipe" and not seg.underground and not seg._route_removed end
++        local function flow_of(seg) return seg and seg.flow_id end
++        local function port_tile(x, y)
++            local r = work.port_cells and work.port_cells[key(x, y)]
++            return r and r._port_owners ~= nil
++        end
++        local reach = math.floor(finite(work.pipe and work.pipe.underground_max_distance, 10))
++        local function connects_back(x, y, tx, ty, flow)
++            local seg = by_cell[key(x, y)]
++            if not seg or seg._route_removed or seg.kind ~= "pipe" or flow_of(seg) ~= flow then return false end
++            if not seg.underground then return true end
++            local e
++            for _, cand in ipairs(work.entities or {}) do
++                if cand.segment_id == seg.segment_id and not cand._route_removed and math.floor(cand.position.x) == x and math.floor(cand.position.y) == y then e = cand end
++            end
++            if not e then return false end
++            local dx, dy = Grid.dir_vector(e.direction)
++            return dx ~= nil and x + dx == tx and y + dy == ty
++        end
++        local done = {}
++        for _, dir in ipairs({Grid.EAST, Grid.SOUTH}) do
++            local dx, dy = Grid.dir_vector(dir)
++            local cells = {}
++            for k, seg in pairs(by_cell) do if plain(seg) then cells[#cells + 1] = k end end
++            table.sort(cells)
++            for _, k in ipairs(cells) do
++                local seg = by_cell[k]
++                local x, y = coordinate_from_key(k)
++                local flow = flow_of(seg)
++                local prev = by_cell[key(x - dx, y - dy)]
++                --start of a maximal line of plain pipes of one flow
++                if plain(seg) and not done[k] and not (plain(prev) and flow_of(prev) == flow) then
++                    local run = {}
++                    local cx, cy = x, y
++                    while true do
++                        local s2 = by_cell[key(cx, cy)]
++                        if not (plain(s2) and flow_of(s2) == flow) then break end
++                        run[#run + 1] = {x = cx, y = cy, seg = s2}
++                        cx, cy = cx + dx, cy + dy
++                    end
++                    --a tile is usable inside a buried span only when its only neighbours of this flow lie on the line
++                    local function side_clean(t)
++                        if port_tile(t.x, t.y) then return false end
++                        for _, sd in ipairs({{dy, dx}, {-dy, -dx}}) do
++                            local n = by_cell[key(t.x + sd[1], t.y + sd[2])]
++                            if n and n.kind == "pipe" and flow_of(n) == flow then return false end
++                            if port_tile(t.x + sd[1], t.y + sd[2]) then return false end
++                        end
++                        return true
++                    end
++                    local i = 1
++                    while i <= #run do
++                        local j = i
++                        while j <= #run and side_clean(run[j]) and (j - i) < reach do j = j + 1 end
++                        j = j - 1
++                        if j - i + 1 >= 3 then
++                            local a, b = run[i], run[j]
++                            local ax, ay, bx, by = a.x - dx, a.y - dy, b.x + dx, b.y + dy
++                            if connects_back(ax, ay, a.x, a.y, flow) and connects_back(bx, by, b.x, b.y, flow) then
++                                local pair = {segment_id = next_segment_id(work), kind = "pipe", capacity_per_second = a.seg.capacity_per_second,
++                                    allocations = {}, flow_id = flow, flow_ids = a.seg.flow_ids, direction = dir, underground = true, length = j - i,
++                                    underground_entry_x = a.x, underground_entry_y = a.y, underground_exit_x = b.x, underground_exit_y = b.y,
++                                    underground_entry_key = key(a.x, a.y), underground_exit_key = key(b.x, b.y)}
++                                local seen_alloc = {}
++                                for t = i, j do
++                                    local ts = run[t].seg
++                                    for _, al in ipairs(ts.allocations or {}) do
++                                        local ak = tostring(al.flow_id) .. "\0" .. tostring(al.sink)
++                                        if not seen_alloc[ak] then seen_alloc[ak] = true; pair.allocations[#pair.allocations + 1] = {flow_id = al.flow_id, sink = al.sink, rate_per_second = al.rate_per_second} end
++                                    end
++                                    ts._route_removed = true
++                                    local te = entity_by_seg[ts.segment_id]
++                                    if te then te._route_removed = true end
++                                    for _, binding in ipairs(work.bindings or {}) do if binding.segment_id == ts.segment_id then binding.segment_id = pair.segment_id end end
++                                    by_cell[key(run[t].x, run[t].y)] = nil
++                                    done[key(run[t].x, run[t].y)] = true
++                                end
++                                local name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or infrastructure(work, "pipe")
++                                local first_id, second_id = next_entity_id(work), next_entity_id(work)
++                                work.entities[#work.entities + 1] = {id = first_id, name = name, position = entity_position(a.x, a.y),
++                                    direction = Grid.dir_opposite(dir), dir = Grid.dir_opposite(dir), flow_id = flow, ug_role = "input", ug_pair_id = second_id, segment_id = pair.segment_id}
++                                work.entities[#work.entities + 1] = {id = second_id, name = name, position = entity_position(b.x, b.y),
++                                    direction = dir, dir = dir, flow_id = flow, ug_role = "output", ug_pair_id = first_id, segment_id = pair.segment_id}
++                                work.segments[#work.segments + 1] = pair
++                                by_cell[key(a.x, a.y)] = pair
++                                by_cell[key(b.x, b.y)] = pair
++                                work.underground_cells[key(a.x, a.y)] = true
++                                work.underground_cells[key(b.x, b.y)] = true
++                                work.entity_by_segment[pair.segment_id] = work.entities[#work.entities - 1]
++                            end
++                        end
++                        i = math.max(j + 1, i + 1)
++                    end
++                end
++            end
++        end
++        local kept = {}
++        for _, s2 in ipairs(work.segments) do if not s2._route_removed then kept[#kept + 1] = s2 end end
++        work.segments = kept
++    end
++    if publish and os.getenv("PROBE_PIPERUN") then bury_pipe_runs() end
+     if publish then fold_edge_twins() end
+     audit_route_work(work)
+     --A belt that serves two flows keeps its legacy scalar flow for consumers that only know the old shape, and
+@@ -2887,7 +2993,7 @@
+     for _, segment in ipairs(work.segments or {}) do
+         --An endpoint pair requested by underground port connections is part of the blueprint's port shape.
+         --UNBURY applies to optional crossing pairs, which are the expensive geometry the player called out.
+-        if segment.underground and not segment.explicit then underground_pairs[#underground_pairs + 1] = segment end
++        if segment.underground and not segment.explicit and not (os.getenv("PROBE_KEEPPIPE") and segment.kind == "pipe") then underground_pairs[#underground_pairs + 1] = segment end
+     end
+     table.sort(underground_pairs, function(a, b) return a.underground_entry_key < b.underground_entry_key end)
+     for _, pair in ipairs(underground_pairs) do

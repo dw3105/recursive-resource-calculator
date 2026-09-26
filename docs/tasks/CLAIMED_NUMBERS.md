@@ -173,3 +173,4 @@
 | `231` | `rrc/agent` | route: a pipe-to-ground on a fluid port tile opens into its machine; fluid may dive from its port | 2026-09-26 |
 | `232` | `rrc/agent` | validate: a pipe-to-ground joins only its open side and partner; fluid box refuses one opening away | 2026-09-26 |
 | `233` | `rrc/agent` | groups: k-th recipe fluid takes k-th box; even-width row head clears its first hand | 2026-09-26 |
+| `234` | `rrc/agent` | pipe_runs: a straight run of plain pipes is buried as one pipe-to-ground pair at publication | 2026-09-26 |
