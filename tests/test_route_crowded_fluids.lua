@@ -63,8 +63,11 @@ H.test("CF3 underground pipe ends are never branch seeds",function()
         if e.ug_role then buried[math.floor(e.position.x)..":"..math.floor(e.position.y)]=true end
     end
     for _,binding in ipairs(s.result.bindings or {}) do
-        local p=binding.path or {}
-        if p[1] then H.equal(buried[math.floor(p[1].x)..":"..math.floor(p[1].y)] or false,false,"branch does not seed underground") end
+        local first
+        for _,segment in ipairs(s.result.segments or {}) do
+            if segment.segment_id==binding.segment_id then first=segment; break end
+        end
+        H.equal(first and first.underground or false,false,"branch does not seed underground")
     end
 end)
 
