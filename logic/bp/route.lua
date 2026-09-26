@@ -1720,7 +1720,7 @@ end
 local function route_chain_reaches_sink(work, demand, path)
     if type(path) ~= "table" or #path == 0 or not demand.sink then return false end
     local last = path[#path]
-    if last.x ~= demand.sink.x or last.y ~= demand.sink.y then return false end
+    if (last.x ~= demand.sink.x or last.y ~= demand.sink.y) and demand.kind ~= "pipe" then return false end
     return route_chain_reaches_tiles(work, demand.source, demand.sink, demand.flow_id)
 end
 
@@ -2108,7 +2108,25 @@ local function append_underground(work, demand, candidate, amount)
 end
 
 local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
-    if FluidTouch.path_blocked(work.segments_by_cell, coordinate_key, demand, x, y) then search.saw_fluid_mix = true; return false end
+    local touch_ok = search and search.touch_ok
+    if search then search.touch_refused = false end
+    if not touch_ok and FluidTouch.path_blocked(work.segments_by_cell, coordinate_key, demand, x, y) then
+        search.saw_fluid_mix = true; search.touch_refused = true; return false
+    end
+    if not touch_ok and demand.kind == "pipe" and work.port_cells then
+        for _, d in ipairs(DIRECTIONS) do
+            local ddx, ddy = Grid.dir_vector(d)
+            local r = work.port_cells[coordinate_key(x + ddx, y + ddy)]
+            if r and r._fluid_front then
+                for fid in pairs(r._fluid_front) do
+                    if fid ~= demand.flow_id then search.saw_fluid_mix = true; search.touch_refused = true; return false end
+                end
+            end
+            if r and r._crowded and r._port_owners and not r["flow:" .. tostring(demand.flow_id)] then
+                search.saw_fluid_mix = true; search.touch_refused = true; return false
+            end
+        end
+    end
     local owner = static_owner(work, x, y)
     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
     local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
@@ -2293,7 +2311,8 @@ local function begin_search(work, demand, amount, order_index)
             local segment = work.segments_by_cell[key]
             local x, y = coordinate_from_key(key)
             --A refused seed is skipped, never fatal: the run may be full at one tile and free at the next.
-            if x ~= nil and segment and segment_allows(work, segment, demand, amount) then
+            if x ~= nil and segment and segment_allows(work, segment, demand, amount)
+                and not (segment.kind == "pipe" and segment.underground) then
                 local heading = segment.splitter and segment.splitter_direction or segment.direction
                 local seed_cost = 0
                 if x == demand.sink.x and y == demand.sink.y
@@ -2344,6 +2363,12 @@ end
 --One scratch table, reused: the probe below runs on the hot path and a fresh table per tile is pure garbage.
 local PROBE = {}
 
+local function crowded_demand(work, demand)
+    local cb = work.crowded_blocks or {}
+    return demand.kind == "pipe"
+        and ((demand.source and cb[demand.source.block_id]) or (demand.sink and cb[demand.sink.block_id])) and true or false
+end
+
 local function crossing_targets(work, demand, search, current, direction, amount)
     local reach = underground_reach(work, demand)
     if reach < 2 then return {} end
@@ -2387,8 +2412,13 @@ local function crossing_targets(work, demand, search, current, direction, amount
         --for: measured 2026-09-23 on legalcopilot-dev, science 2 reached (13,2) first through a side-fed dive
         --at (13,7) costing 20, so the straight feed (14,8) W, (13,8) N, dive at (13,7), costing 13, was never
         --offered.
-        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and faces_ok(x, y)
-            and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
+        local exit_free = false
+        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and faces_ok(x, y) then
+            if crowded_demand(work, demand) then search.touch_ok = true end
+            exit_free = path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search)
+            search.touch_ok = nil
+        end
+        if exit_free then
             targets[#targets + 1] = {x = x, y = y, distance = distance}
         end
     end
@@ -2461,6 +2491,18 @@ local function search_step(work, search)
     if search.closed[current.key] then return "continue" end
     if search.best[current.key] ~= current.cost then return "continue" end
     search.closed[current.key] = true
+    if search.demand.kind == "pipe" and current.key ~= search.source_key then
+        local here = work.segments_by_cell[coordinate_key(current.x, current.y)]
+        if here and here.kind == "pipe" and segment_has_flow(here, search.demand.flow_id) then
+            search.net_memo = search.net_memo or {}
+            local memo = search.net_memo[current.key]
+            if memo == nil then
+                memo = route_chain_walk(work, {x = current.x, y = current.y}, search.demand.sink, search.demand.flow_id) == true
+                search.net_memo[current.key] = memo
+            end
+            if memo then return reconstruct(search, current.key) end
+        end
+    end
     if current.x == search.demand.sink.x and current.y == search.demand.sink.y then
         --The second copper branch once pointed back into its own seeded trunk, closing a 14-tile belt ring.
         --A pipe network is undirected, so it always "reaches its root"; a loop of pipe is harmless.
@@ -2622,6 +2664,17 @@ local function search_step(work, search)
                 and direction ~= Grid.dir_opposite(entering.direction)
             local free = path_cell_free(work, search.demand, nx, ny,
                 body_jump and leaving.direction or direction, target, search.amount, search)
+            if crowded_demand(work, search.demand) then
+                if current.mode == 3 then
+                    free, body_jump, merge = false, false, false
+                elseif not free and search.touch_refused and not target then
+                    search.touch_ok = true
+                    local dive_ok = path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search)
+                    search.touch_ok = nil
+                    if dive_ok then enqueue_state(search, nx, ny, direction, 3, current.key,
+                        current.cost + transition_cost(work, search.demand, nx, ny, direction, current.direction, 0, 0, search.amount)) end
+                end
+            end
             local refused_body = leaving ~= nil and leaving.kind ~= "pipe" and splitter_can_absorb(leaving)
                 and current.direction ~= nil and leaving.direction == current.direction
                 and direction ~= current.direction and work.belt and work.belt.splitter and not body_jump
@@ -2644,7 +2697,8 @@ local function search_step(work, search)
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
-            elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2 then
+            elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2
+                and not (current.mode == 3 and direction ~= current.direction) then
                 local bury_key = coordinate_key(nx, ny)
                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets
                 --smaller.  Offered during first routing it reshuffled every later path and took the player's
@@ -2973,6 +3027,23 @@ end
 --the allocation rules are written for, and claiming against it would forbid sharing outright.
 local function reserve_port_cells(work)
     local reserved = {}
+    work.crowded_blocks = {}
+    local per = {}
+    for _, by_role in pairs(work.endpoint_index or {}) do
+        for _, role in ipairs({"in", "out"}) do
+            for _, ep in ipairs(by_role[role] or {}) do
+                if ep.kind == "fluid" and ep.block_id and ep.port_id then
+                    per[ep.block_id] = per[ep.block_id] or {}
+                    per[ep.block_id][ep.port_id] = true
+                end
+            end
+        end
+    end
+    for block_id, set in pairs(per) do
+        local n = 0
+        for _ in pairs(set) do n = n + 1 end
+        if n >= 3 then work.crowded_blocks[block_id] = true end
+    end
     local function claim(x, y, endpoint, owns_tile)
         if endpoint.port_id == nil or not inside_grid(work, x, y) then return end
         local key = coordinate_key(x, y)
@@ -2996,6 +3067,22 @@ local function reserve_port_cells(work)
             claim(endpoint.x, endpoint.y, endpoint, true)
             local key = coordinate_key(endpoint.x, endpoint.y)
             if reserved[key] and endpoint.fluid_travel_dir ~= nil then reserved[key]._fluid_dir = endpoint.fluid_travel_dir end
+            local crowded = work.crowded_blocks[endpoint.block_id]
+            if crowded and reserved[key] then reserved[key]._crowded = true end
+            if crowded and endpoint.fluid_travel_dir ~= nil then
+                local dx, dy = Grid.dir_vector(endpoint.fluid_travel_dir)
+                if endpoint.role == "in" then dx, dy = -dx, -dy end
+                local ax, ay, steps = endpoint.x + dx, endpoint.y + dy, 0
+                while steps < 9 and inside_grid(work, ax, ay) and static_owner(work, ax, ay) ~= nil do
+                    ax, ay, steps = ax + dx, ay + dy, steps + 1
+                end
+                if inside_grid(work, ax, ay) then
+                    claim(ax, ay, endpoint, false)
+                    local front = coordinate_key(ax, ay)
+                    reserved[front]._fluid_front = reserved[front]._fluid_front or {}
+                    reserved[front]._fluid_front[endpoint.flow_id] = true
+                end
+            end
             return
         end
         claim_approach(endpoint.travel_dir)
@@ -3244,7 +3331,29 @@ local function finish_demand_build(work)
     -- `build_demands` has already applied its stable route-cost ordering per flow. The old sort
     -- was global; preserve that exact ordering across flows by applying its same comparator once.
     for index, demand in ipairs(work.demands) do demand._build_order = index end
+    local crowd, ports = {}, {}
+    for _, demand in ipairs(work.demands) do
+        for _, ep in ipairs({demand.source, demand.sink}) do
+            if ep and ep.kind == "fluid" and ep.block_id and ep.port_id then
+                ports[ep.block_id] = ports[ep.block_id] or {}
+                ports[ep.block_id][ep.port_id] = true
+            end
+        end
+    end
+    for _, demand in ipairs(work.demands) do
+        local best = 0
+        for _, ep in ipairs({demand.source, demand.sink}) do
+            if ep and ep.kind == "fluid" and ep.block_id and ports[ep.block_id] and not ep.perimeter then
+                local n = 0
+                for _ in pairs(ports[ep.block_id]) do n = n + 1 end
+                if demand.source and demand.source.perimeter then n = math.min(n, 1) end
+                if n >= 3 then best = math.max(best, n) end
+            end
+        end
+        crowd[demand] = best
+    end
     table.sort(work.demands, function(left, right)
+        if (crowd[left] or 0) ~= (crowd[right] or 0) then return (crowd[left] or 0) > (crowd[right] or 0) end
         if left.pairing_cost ~= right.pairing_cost then return left.pairing_cost > right.pairing_cost end
         return left._build_order < right._build_order
     end)
