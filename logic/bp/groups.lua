@@ -119,6 +119,28 @@ local function fluid_connection(catalog, step, entry, role)
     local wanted_box = entry.fluidbox_index or entry.box_index
     local wanted_connection = entry.connection_index or entry.pipe_connection_index
     local preferred = role == "input" and "input" or "output"
+    if wanted_box == nil then
+        local recipe = catalog and catalog.recipe and catalog.recipe[step.recipe or step.recipe_name or ""]
+        local list = recipe and (role == "input" and recipe.ingredients or (recipe.results or recipe.products)) or {}
+        local ordinal, fluid_count = nil, 0
+        for _, item in ipairs(list) do
+            if item.type == "fluid" then
+                fluid_count = fluid_count + 1
+                if ("fluid/" .. tostring(item.name)) == (entry.flow_id or entry.full_name or entry.id)
+                    or item.name == entry.name then ordinal = fluid_count end
+            end
+        end
+        if fluid_count >= 2 and ordinal then
+            local role_index = 0
+            for box_index, box in ipairs(boxes) do
+                local production = tostring(box.production_type or box.flow_direction or ""):lower()
+                if production == preferred then
+                    role_index = role_index + 1
+                    if role_index == ordinal then wanted_box = box.index or box_index; break end
+                end
+            end
+        end
+    end
     local fallback
     local first, last, increment = 1, #boxes, 1
     if role ~= "input" then first, last, increment = #boxes, 1, -1 end
@@ -1953,7 +1975,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         if flows_in[3] then far_in[1] = flows_in[3] end
         if #flows_in > 2 then flows_in = {flows_in[1], flows_in[2]} end
         local pickup_y, drop_y = machine_y - 2, machine_y + max_machine_h + 1
-        local first_x = block.machines[1].x + math.floor(block.machines[1].w / 2)
+        local first_x = block.machines[1].x + math.floor((block.machines[1].w - 1) / 2)
         local last_x = block.machines[#block.machines].x + math.floor(block.machines[#block.machines].w / 2)
         local tiles_in, tiles_out = {}, {}
         for x = first_x - 1, last_x do tiles_in[#tiles_in+1] = {x=x,y=pickup_y} end
