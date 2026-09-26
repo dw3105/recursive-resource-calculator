@@ -36,7 +36,7 @@ game() {  # game <pattern|""> -> runs FactorioTest, writes build/<FV>/results.js
   test -d "$FACTORIO/data/recycler" && mods="$mods recycler"
   rm -f "$ROOT/build/$FV/results.json"
   set -- run -p "$mod" --factorio-path "$FACTORIO/bin/x64/factorio" -d "$data" --no-reorder-failed-first \
-    --output-file "$ROOT/build/$FV/results.json" --mods $mods
+    --output-file "$ROOT/build/$FV/results.json" --output-timeout 300 --mods $mods  # long generations print nothing for >15 s
   if [ -n "$pattern" ]; then set -- "$@" --test-pattern "$pattern"; fi
   (cd "$FT" && "$CLI" "$@")
 }

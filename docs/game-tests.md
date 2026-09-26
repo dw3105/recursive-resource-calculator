@@ -39,6 +39,14 @@ for 2.1 from `~/share/sushi-packer`), copied from `~/sushi-packer-mod`. Tests ru
 | `--full` 8 tests | 23.6 s, 358 MB | 20.9 s, 427 MB |
 | offline shim, 5 probes | 6.3 s | — |
 
+## Timeouts
+
+- FactorioTest default test timeout is 3600 ticks; `control.lua` passes `default_timeout = 36000` (offline shim same).
+- FactorioTest CLI kills Factorio after 15 s without output; `tools/game_test.sh` passes `--output-timeout 300`
+  (one generation step can print nothing for longer).
+- Probe: green science 1/s typed into a plain sheet (default machines, no beacons) ends `BP_FAIL_NO_LAYOUT` after
+  315 s on 2.0.77 (legalcopilot-dev, 2026-09-26) — generator gap, open item, not a test target.
+
 ## Engine facts the mock missed (found by first headless run, 2026-09-26)
 
 1. 2.0.77 + 2.1.20: `LuaItemStack.preview_icons = {}` on a blueprint with entities raises "Cannot set empty preview

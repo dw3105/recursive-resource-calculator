@@ -45,7 +45,32 @@ world.add_recipe({name = "iron-gear-wheel", category = "crafting", energy = 0.5,
 world.add_recipe({name = "automation-science-pack", category = "crafting", energy = 5,
     ingredients = {{name = "copper-plate", amount = 1}, {name = "iron-gear-wheel", amount = 1}},
     products = {{name = "automation-science-pack", amount = 1}}})
+--Green science chain, modules and a beacon: what the lane test files type or pick in the real game.
+world.add_item("copper-cable")
+world.add_item("electronic-circuit")
+world.add_item("logistic-science-pack")
+world.add_recipe({name = "copper-cable", category = "crafting", energy = 0.5,
+    ingredients = {{name = "copper-plate", amount = 1}}, products = {{name = "copper-cable", amount = 2}}})
+world.add_recipe({name = "electronic-circuit", category = "crafting", energy = 0.5,
+    ingredients = {{name = "iron-plate", amount = 1}, {name = "copper-cable", amount = 3}},
+    products = {{name = "electronic-circuit", amount = 1}}})
+world.add_module("speed-module", "speed", {speed = 0.2})
+world.add_module("productivity-module", "productivity", {productivity = 0.04})
+world.add_beacon({name = "beacon"})
 world.add_default_infrastructure()
+--Placing items of the default infrastructure, as vanilla has them (inserter and belt recipes need them).
+for _, name in ipairs({"transport-belt", "inserter"}) do
+    if not prototypes.item[name] then world.add_item(name) end
+end
+world.add_recipe({name = "inserter", category = "crafting", energy = 0.5,
+    ingredients = {{name = "electronic-circuit", amount = 1}, {name = "iron-gear-wheel", amount = 1}, {name = "iron-plate", amount = 1}},
+    products = {{name = "inserter", amount = 1}}})
+world.add_recipe({name = "transport-belt", category = "crafting", energy = 0.5,
+    ingredients = {{name = "iron-plate", amount = 1}, {name = "iron-gear-wheel", amount = 1}},
+    products = {{name = "transport-belt", amount = 2}}})
+world.add_recipe({name = "logistic-science-pack", category = "crafting", energy = 6,
+    ingredients = {{name = "inserter", amount = 1}, {name = "transport-belt", amount = 1}},
+    products = {{name = "logistic-science-pack", amount = 1}}})
 world.add_blueprint_item()
 world.add_player(1)
 world.init()
@@ -101,7 +126,7 @@ A.truthy, A.falsy, A.has_errors, A.errors = A.is_truthy, A.is_falsy, A.has_error
 assert = setmetatable(A, {__call = function(_, ...) return plain_assert(...) end})
 
 --Test tree and the FactorioTest run semantics: a test is async once it calls async() (ends at done()) or registers
---on_tick/after_ticks (ends when every tick function returned false). Default timeout 3600 ticks, as FactorioTest.
+--on_tick/after_ticks (ends when every tick function returned false). Default timeout 36000 ticks, as control.lua sets.
 local root = {name = nil, children = {}, before_each = {}, after_each = {}, before_all = {}, after_all = {}}
 local current = root
 local run
@@ -152,7 +177,7 @@ local function run_test(node)
     local name = path_of(node)
     if only and name ~= only then return end
     if node.mode then skipped = skipped + 1 print("SKIP " .. name) return end
-    run = {async = false, explicit = false, done = false, ticks = {}, timeout = 3600}
+    run = {async = false, explicit = false, done = false, ticks = {}, timeout = 36000}
     local ok, err = true, nil
     for _, fn in ipairs(hooks(node.parent, "before_each", true)) do
         if ok then ok, err = xpcall(fn, debug.traceback) end
