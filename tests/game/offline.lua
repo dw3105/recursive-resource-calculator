@@ -9,6 +9,8 @@ local file, only = arg[1], arg[2]
 if not file then io.stderr:write("usage: lua5.2 tests/game/offline.lua tests/game/<file>.lua [\"<describe> > <it>\"]\n") os.exit(2) end
 
 local H = require "tests.harness"
+--Game tests read this to skip engine-only calls the mock lacks (surface building, build_blueprint); headless never sets it.
+RRC_OFFLINE = true
 
 --Fixture modules the stage step writes (tools/game_stage.sh): prepared input JSON and expected entity lines.
 local function read(path)
