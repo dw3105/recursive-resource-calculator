@@ -170,3 +170,6 @@
 | `228` | `rrc/agent` | groups output fluid box from the other end; beacon_prune slides a beacon to serve two blocks | 2026-09-26 |
 | `229` | `rrc/agent` | fluid_touch: no pipe laid or unburied beside another fluid's pipe | 2026-09-26 |
 | `230` | `rrc/agent` | side_feed: a belt run fed from its side is never buried under a crossing | 2026-09-26 |
+| `231` | `rrc/agent` | route: a pipe-to-ground on a fluid port tile opens into its machine; fluid may dive from its port | 2026-09-26 |
+| `232` | `rrc/agent` | validate: a pipe-to-ground joins only its open side and partner; fluid box refuses one opening away | 2026-09-26 |
+| `233` | `rrc/agent` | groups: k-th recipe fluid takes k-th box; even-width row head clears its first hand | 2026-09-26 |

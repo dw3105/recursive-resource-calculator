@@ -1,0 +1,3 @@
+logic/bp/validate.lua
+tests/test_validate_ptg_sides.lua
+docs/tasks/232_validate_ptg_sides.md

@@ -1,6 +1,7 @@
 #!/bin/sh
 # Fast probe: run the player's sheet until the FIRST candidate's validator verdict, print it, exit. ~5 s.
-# Usage (repository root): sh tools/first_verdict.sh   -- prints FIRST-VERDICT ok=... <code>=<count>...
+# Usage (repository root): sh tools/first_verdict.sh [case]   -- prints FIRST-VERDICT ok=... <code>=<count>...
+# case defaults to player-red-science-1s (round 41 added the argument).
 lua5.2 -e '
 package.path = "./?.lua;./?/init.lua;" .. package.path
 local V = require "logic.bp.validate"
@@ -18,6 +19,6 @@ V.step = function(state, budget)
   end
   return r
 end
-arg = {[0] = "tests/golden/generate.lua", "--input", "tests/golden/cases/player-red-science-1s/prepared_input.json", "--output", "/dev/null"}
+arg = {[0] = "tests/golden/generate.lua", "--input", "tests/golden/cases/'"${1:-player-red-science-1s}"'/prepared_input.json", "--output", "/dev/null"}
 dofile("tests/golden/generate.lua")
 ' 2>&1 >/dev/null | grep FIRST-VERDICT
