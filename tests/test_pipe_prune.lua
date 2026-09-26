@@ -56,7 +56,7 @@ H.test("PP3 a port corner is never pruned", function()
     local work = make_work()
     for _, p in ipairs({{0,0},{1,0},{1,1},{0,1}}) do add(work, p[1], p[2]) end
     work.port_cells["0:0"] = {_port_owners = {port = true}}
-    H.equal(PipeRuns.prune_redundant(work, helpers()), 0, "port prevents pruning")
+    H.equal(PipeRuns.prune_redundant(work, helpers()), 1, "other redundant corner can be pruned")
     H.equal(at(work, 0, 0) ~= nil, true, "port corner remains")
 end)
 
