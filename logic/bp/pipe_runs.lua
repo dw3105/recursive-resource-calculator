@@ -6,8 +6,118 @@ local function flow_of(segment)
     return segment and segment.flow_id
 end
 
+-- Drop plain pipe tiles whose neighbours remain connected without them.
+function PipeRuns.prune_redundant(work, h)
+    local by_cell = work.segments_by_cell or {}
+    local function key(x, y) return h.key(x, y) end
+    local entity_by_segment = {}
+    for _, entity in ipairs(work.entities or {}) do
+        if entity.segment_id and not entity._route_removed then entity_by_segment[entity.segment_id] = entity end
+    end
+    local function live(segment)
+        return segment and segment.kind == "pipe" and not segment._route_removed
+    end
+    local function opens_to(segment, x, y, tx, ty)
+        if not segment.underground then return true end
+        local entity = nil
+        for _, candidate in ipairs(work.entities or {}) do
+            if candidate.segment_id == segment.segment_id and not candidate._route_removed
+                and math.floor(candidate.position.x) == x and math.floor(candidate.position.y) == y then
+                entity = candidate
+                break
+            end
+        end
+        if not entity or entity._route_removed then return false end
+        local dx, dy = Grid.dir_vector(entity.direction)
+        return dx ~= nil and x + dx == tx and y + dy == ty
+    end
+    local function neighbours(x, y, flow, skip)
+        local result, here = {}, by_cell[key(x, y)]
+        for _, d in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+            local nx, ny = x + d[1], y + d[2]
+            local nk = key(nx, ny)
+            local other = by_cell[nk]
+            if nk ~= skip and live(other) and flow_of(other) == flow
+                and opens_to(here, x, y, nx, ny) and opens_to(other, nx, ny, x, y) then
+                result[#result + 1] = {x = nx, y = ny}
+            end
+        end
+        if here and here.underground then
+            local partner_key = key(x, y) == here.underground_entry_key
+                and here.underground_exit_key or here.underground_entry_key
+            local partner = partner_key and by_cell[partner_key]
+            if partner_key and partner_key ~= skip and live(partner) and flow_of(partner) == flow then
+                local px, py = h.coordinate_from_key(partner_key)
+                result[#result + 1] = {x = px, y = py}
+            end
+        end
+        return result
+    end
+    local function connected(a, b, flow, skip)
+        local seen, queue, head = {[key(a.x, a.y)] = true}, {a}, 1
+        while queue[head] and head <= 64 do
+            local cell = queue[head]
+            head = head + 1
+            if cell.x == b.x and cell.y == b.y then return true end
+            for _, n in ipairs(neighbours(cell.x, cell.y, flow, skip)) do
+                local nk = key(n.x, n.y)
+                if not seen[nk] then seen[nk] = true; queue[#queue + 1] = n end
+            end
+        end
+        return false
+    end
+    local removed, changed = 0, true
+    while changed do
+        changed = false
+        local cells = {}
+        for cell_key, segment in pairs(by_cell) do
+            if live(segment) and not segment.underground then cells[#cells + 1] = cell_key end
+        end
+        table.sort(cells)
+        for _, cell_key in ipairs(cells) do
+            local segment = by_cell[cell_key]
+            local x, y = h.coordinate_from_key(cell_key)
+            local reserved = work.port_cells and work.port_cells[cell_key]
+            if live(segment) and not (reserved and reserved._port_owners) then
+                local around = neighbours(x, y, flow_of(segment), nil)
+                local redundant = #around >= 2
+                for i = 2, #around do
+                    if redundant and not connected(around[1], around[i], flow_of(segment), cell_key) then
+                        redundant = false
+                    end
+                end
+                if redundant then
+                    segment._route_removed = true
+                    local entity = entity_by_segment[segment.segment_id]
+                    if entity then entity._route_removed = true end
+                    local heir = by_cell[key(around[1].x, around[1].y)]
+                    for _, binding in ipairs(work.bindings or {}) do
+                        if binding.segment_id == segment.segment_id then binding.segment_id = heir.segment_id end
+                    end
+                    by_cell[cell_key] = nil
+                    removed, changed = removed + 1, true
+                end
+            end
+        end
+    end
+    if removed > 0 then
+        local kept = {}
+        for _, segment in ipairs(work.segments or {}) do
+            if not segment._route_removed then kept[#kept + 1] = segment end
+        end
+        work.segments = kept
+        local kept_entities = {}
+        for _, entity in ipairs(work.entities or {}) do
+            if not entity._route_removed then kept_entities[#kept_entities + 1] = entity end
+        end
+        work.entities = kept_entities
+    end
+    return removed
+end
+
 --`work` is route's mutable work table. `h` supplies route's private geometry and id helpers.
 function PipeRuns.bury(work, h)
+    PipeRuns.prune_redundant(work, h)
     local by_cell = work.segments_by_cell or {}
     local function key(x, y) return h.key(x, y) end
     local entity_by_segment = {}
