@@ -177,3 +177,4 @@
 | `235` | `rrc/agent` | route: fluids around a crowded machine get out, cross and join (fronts, dive-only, network join, order) | 2026-09-26 |
 | `236` | `rrc/agent` | search: two fluid doors of different fluids never touch | 2026-09-26 |
 | `237` | `rrc/agent` | groups/validate: inside port on free ground valid; row belt ends at last hand | 2026-09-26 |
+| `238` | `rrc/agent` | pipe_runs: a pipe tile that connects nothing new is dropped before burial | 2026-09-26 |
