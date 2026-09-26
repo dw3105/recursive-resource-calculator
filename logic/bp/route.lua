@@ -525,7 +525,7 @@ local function normalize_endpoint(block, placement, port, catalog, work)
     end
     --A pipe has no heading: it joins every neighbour, and the port tile joins the machine's fluid box whichever
     --way the path arrives. A belt heading here only forbids legal arrivals and claims a tile no pipe needs.
-    if endpoint.kind == "fluid" then endpoint.travel_dir, endpoint.validator_travel_dir = nil, nil end
+    if endpoint.kind == "fluid" then endpoint.fluid_travel_dir = endpoint.travel_dir; endpoint.travel_dir, endpoint.validator_travel_dir = nil, nil end
     return endpoint
 end
 
@@ -2350,6 +2350,17 @@ local function crossing_targets(work, demand, search, current, direction, amount
     --shape whenever the feeding lane lands on the blocked half (BP_V_UNDERGROUND_SIDELOAD_BLOCKED), and a map-edge
     --belt carries both lanes. Route and tidy therefore dive straight on only (slow hands, 2.31/s, 2026-09-25).
     if current.direction ~= nil and current.direction ~= direction then return {} end
+    local function faces_ok(x, y)
+        if demand.kind ~= "pipe" then return true end
+        local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+        if not (reserved and reserved._port_owners) then return true end
+        local fluid = false
+        for key in pairs(reserved) do
+            if type(key) == "string" and key:sub(1, 11) == "flow:fluid/" then fluid = true; break end
+        end
+        return not fluid or (reserved._fluid_dir ~= nil and reserved._fluid_dir == direction)
+    end
+    if not faces_ok(current.x, current.y) then return {} end
     local current_key = coordinate_key(current.x, current.y)
     if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return {} end
     local dx, dy = Grid.dir_vector(direction)
@@ -2375,7 +2386,7 @@ local function crossing_targets(work, demand, search, current, direction, amount
         --for: measured 2026-09-23 on legalcopilot-dev, science 2 reached (13,2) first through a side-fed dive
         --at (13,7) costing 20, so the straight feed (14,8) W, (13,8) N, dive at (13,7), costing 13, was never
         --offered.
-        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key]
+        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and faces_ok(x, y)
             and path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search) then
             targets[#targets + 1] = {x = x, y = y, distance = distance}
         end
@@ -2632,7 +2643,7 @@ local function search_step(work, search)
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
-            elseif (not first or search.demand.source.perimeter) and current.mode ~= 2 then
+            elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2 then
                 local bury_key = coordinate_key(nx, ny)
                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets
                 --smaller.  Offered during first routing it reshuffled every later path and took the player's
@@ -2976,7 +2987,12 @@ local function reserve_port_cells(work)
             if endpoint.role == "in" then claim(endpoint.x - dx, endpoint.y - dy, endpoint, false)
             else claim(endpoint.x + dx, endpoint.y + dy, endpoint, false) end
         end
-        if endpoint.kind == "fluid" then claim(endpoint.x, endpoint.y, endpoint, true); return end
+        if endpoint.kind == "fluid" then
+            claim(endpoint.x, endpoint.y, endpoint, true)
+            local key = coordinate_key(endpoint.x, endpoint.y)
+            if reserved[key] and endpoint.fluid_travel_dir ~= nil then reserved[key]._fluid_dir = endpoint.fluid_travel_dir end
+            return
+        end
         claim_approach(endpoint.travel_dir)
         if endpoint.validator_travel_dir ~= nil and endpoint.validator_travel_dir ~= endpoint.travel_dir then
             claim_approach(endpoint.validator_travel_dir)
