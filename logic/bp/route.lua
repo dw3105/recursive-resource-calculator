@@ -1628,7 +1628,12 @@ local function route_chain_walk(work, source, sink, flow_id)
                     return nil
                 end
                 if segment.underground then
-                    enqueue(key == segment.underground_entry_key and segment.underground_exit_key or segment.underground_entry_key)
+                    --A pipe network is undirected: enqueue both recorded endpoints from either half. A normal
+                    --path can encounter an endpoint through a shared cell whose segment reference was retained
+                    --from the earlier route; selecting the partner by entry/exit identity then misses the new
+                    --exit. Entity headings are also exposed-side headings, not the pair's fluid direction.
+                    enqueue(segment.underground_entry_key)
+                    enqueue(segment.underground_exit_key)
                     local behind, ahead = exposed_key(segment)
                     enqueue(key == segment.underground_entry_key and behind or ahead)
                 else
@@ -1721,6 +1726,39 @@ local function route_chain_reaches_sink(work, demand, path)
     if type(path) ~= "table" or #path == 0 or not demand.sink then return false end
     local last = path[#path]
     if (last.x ~= demand.sink.x or last.y ~= demand.sink.y) and demand.kind ~= "pipe" then return false end
+    if demand.kind == "pipe" then
+        --The pipe network is undirected, so validate the route's own cell sequence. This also avoids treating
+        --the entry and exit of a just-materialised pipe-to-ground pair as separate directed chain edges.
+        local first = path[1]
+        if not demand.source or first.x ~= demand.source.x or first.y ~= demand.source.y then return false end
+        for index = 1, #path do
+            local cell, next_cell = path[index], path[index + 1]
+            local segment = work.segments_by_cell[coordinate_key(cell.x, cell.y)]
+            if not segment or not segment_has_flow(segment, demand.flow_id) then
+                return false
+            end
+            if next_cell then
+                local next_key = coordinate_key(next_cell.x, next_cell.y)
+                local key = coordinate_key(cell.x, cell.y)
+                local distance = math.abs(next_cell.x - cell.x) + math.abs(next_cell.y - cell.y)
+                if distance > 1 then
+                    local pair = segment.underground and segment
+                        or work.segments_by_cell[next_key]
+                    if not pair or not pair.underground or not segment_has_flow(pair, demand.flow_id)
+                        or not ((pair.underground_entry_key == key and pair.underground_exit_key == next_key)
+                            or (pair.underground_exit_key == key and pair.underground_entry_key == next_key)) then
+                        return false
+                    end
+                else
+                    local next_segment = work.segments_by_cell[next_key]
+                    if not next_segment or not segment_has_flow(next_segment, demand.flow_id) then
+                        return false
+                    end
+                end
+            end
+        end
+        return last.x == demand.sink.x and last.y == demand.sink.y
+    end
     return route_chain_reaches_tiles(work, demand.source, demand.sink, demand.flow_id)
 end
 
@@ -1894,11 +1932,17 @@ local function append_normal_path(work, demand, path, amount)
     while index < #path do
         index = index + 1
         local cell = path[index]
-        local ridden = is_crossing_step(cell, path[index + 1]) and work.segments_by_cell[coordinate_key(cell.x, cell.y)]
-        if ridden and ridden.underground and ridden.kind ~= "pipe"
-            and ridden.underground_entry_key == coordinate_key(cell.x, cell.y)
-            and ridden.underground_exit_key == coordinate_key(path[index + 1].x, path[index + 1].y) then
-            --An existing same-flow pair the path rides through: it builds nothing, it only carries more.
+        local next_cell = path[index + 1]
+        local ridden = is_crossing_step(cell, next_cell) and work.segments_by_cell[coordinate_key(cell.x, cell.y)]
+        local here_key = coordinate_key(cell.x, cell.y)
+        local next_key = next_cell and coordinate_key(next_cell.x, next_cell.y)
+        local same_pair_forward = ridden and ridden.underground
+            and ridden.underground_entry_key == here_key and ridden.underground_exit_key == next_key
+        local same_pair_reverse = demand.kind == "pipe" and ridden and ridden.underground
+            and ridden.underground_exit_key == here_key and ridden.underground_entry_key == next_key
+        if same_pair_forward or same_pair_reverse then
+            --An existing same-flow underground pair is one edge. Belts ride it in their recorded direction;
+            --pipes have no direction, so the reverse endpoint order is the same connected fluid network.
             if not allocated_segments[ridden.segment_id] then
                 local allowed, reason = segment_allows(work, ridden, demand, amount)
                 if not allowed then return reject(reason or "occupied") end
@@ -2174,7 +2218,8 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
                 --BP_R_NO_PATH on the player's sheet, measured 2026-09-22 on legalcopilot-dev.  Only the
                 --head-on entry is impossible.  TAKING items off a run is the other half, and that is not
                 --decided here: it is the body jump in `search_step`, because a splitter never turns flow.
-                if move_direction == Grid.dir_opposite(segment.direction) then
+                --Only belts have a facing head; pipes carry fluid through every touching side, including head-on.
+                if demand.kind ~= "pipe" and move_direction == Grid.dir_opposite(segment.direction) then
                     search.saw_blocked = true
                     return false
                 end
@@ -2697,7 +2742,11 @@ local function search_step(work, search)
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
+            --A pipe-to-ground exit is one entity on one tile: it cannot also be the entrance of the next pair. Diving
+            --from the tile the search just surfaced on laid (76,63)->(85,63) and (85,63)->(95,63) for light oil on the
+            --player's gray + magenta sheet (2026-09-27), and the router then refused its own path as discontinuous.
             elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2
+                and not (current.mode == 1 and search.demand.kind == "pipe")
                 and not (current.mode == 3 and direction ~= current.direction) then
                 local bury_key = coordinate_key(nx, ny)
                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets
