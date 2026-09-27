@@ -760,7 +760,20 @@ local function new_face_allocator(machine, iw, ih, block)
     }
     if machine.y <= 0 then capacities.top = 0 end
     if block and block.has_bottom_beacon_row then capacities.bottom = 0 end
-    if block and block.has_top_beacon_row then capacities.top = 0 end
+    if block and block.has_top_beacon_row then
+        if block.padded_beacon_row then
+            local free = 0
+            for slot = 0, capacities.top - 1 do
+                local x1, x2 = machine.x + slot * math.max(1, iw), machine.x + (slot + 1) * math.max(1, iw)
+                local blocked = false
+                for _, beacon in ipairs(block.beacons or {}) do
+                    if x1 < beacon.x + beacon.w and x2 > beacon.x then blocked = true; break end
+                end
+                if not blocked then free = free + 1 end
+            end
+            capacities.top = free
+        else capacities.top = 0 end
+    end
     local used = {top = 0, bottom = 0, left = 0, right = 0}
     return function(preferred)
         local order = block and block.hand_face_spread
@@ -1638,6 +1651,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --Beacon rows are placed after the hands; a face under a beacon row has no free port tiles (round 36: two copper
     --cable hands overflowed onto a foundry's top face and their ports landed on its beacon row).
     block.has_top_beacon_row = #top_rows > 0
+    if steps[1]._beacon_pad_faces then block.padded_beacon_row = true end
     -- All machines are known before any transfer is solved.  That matters for an explicit machine-to-machine
     -- obligation: the inserter at the producer and the inserter at the consumer must each see the other machine
     -- as a real endpoint, even when the producer appears first in step order.
@@ -2408,12 +2422,15 @@ local function make_candidates_once(input, work)
                 for offset = #fragments, 1, -1 do
                     table.insert(work.buckets, work.bucket_index + offset, fragments[offset])
                 end
-            elseif block.invalid_coverage and not block.failure and not group[1]._beacon_pad then
+            elseif ((block.invalid_coverage and not block.failure)
+                or (machine_total == 1 and block.failure and block.failure.name == "inserter-face" and block.has_top_beacon_row))
+                and not group[1]._beacon_pad then
                 --A face layout strip starts flush with the block's left edge, so its beacon row reaches a lone
-                --machine from one side only; 3 beacons per row never fit. The padded retry gives the row a
-                --beacon width on the left.
+                --machine from one side only; 3 beacons per row never fit. Since 2026-09-27, the same retry also
+                --moves a lone short of face slots beside its top beacon row and preserves uncovered top columns.
                 local padded = copy(group[1])
                 padded._beacon_pad = true
+                if block.failure and block.failure.name == "inserter-face" then padded._beacon_pad_faces = true end
                 table.insert(work.buckets, work.bucket_index + 1, {padded})
             else
                 work.failures[#work.failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}

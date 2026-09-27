@@ -49,7 +49,20 @@ H.test("PF1 lone beaconed plant retries with free top face columns", function()
                 H.equal(on_tile, false, "hand avoids beacon tile")
             end
         end
-        H.equal(next(found.beacon_coverage or {}) ~= nil, true, "machine retains beacon coverage")
+        for _, port in ipairs(found.ports or {}) do
+            if port.inserter_id then
+                for _, beacon in ipairs(found.beacons or {}) do
+                    local x, y = port.attach_dx, port.attach_dy
+                    local on_tile = x and y and x >= beacon.x and x < beacon.x + beacon.w
+                        and y >= beacon.y and y < beacon.y + beacon.h
+                    H.equal(on_tile, false, "hand port avoids beacon tile")
+                end
+            end
+        end
+        for _, machine in ipairs(found.machines or {}) do
+            H.equal(#(found.beacon_coverage[machine.id] or {} ) > 0, true,
+                "machine retains beacon coverage: " .. tostring(machine.id))
+        end
     end
 end)
 
