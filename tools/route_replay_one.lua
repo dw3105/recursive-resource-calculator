@@ -2,7 +2,15 @@
 package.path = "./?.lua;" .. package.path
 local H = require "tests.harness"
 if #arg ~= 1 then io.stderr:write("usage: lua5.2 tools/route_replay_one.lua <snapshot>\n"); os.exit(2) end
-local record = assert(loadfile(arg[1]))()
+local function load_snapshot(path)
+    if path:match("%.gz$") then
+        local p = assert(io.popen("gzip -dc " .. string.format("%q", path), "r"))
+        local text = p:read("*a"); p:close()
+        return assert(load(text, "@" .. path))()
+    end
+    return assert(loadfile(path))()
+end
+local record = load_snapshot(arg[1])
 local state, index = record.state, record.demand_index
 local work, demand = state.work, assert(state.work.demands[index], "snapshot demand missing")
 local function transform(source)
