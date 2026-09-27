@@ -255,6 +255,12 @@ function PipeRuns.bury(work, h)
     -- Synthetic callers omit demands, so only real route work receives this cleanup.
     if work.demands then
         local endpoint_cells = {}
+        local entity_by_cell = {}
+        for _, entity in ipairs(work.entities or {}) do
+            if entity.segment_id and not entity._route_removed and entity.position then
+                entity_by_cell[key(math.floor(entity.position.x), math.floor(entity.position.y))] = entity
+            end
+        end
         local function protect(point)
             if type(point) == "table" and point.x and point.y then
                 endpoint_cells[key(math.floor(point.x), math.floor(point.y))] = true
@@ -284,13 +290,13 @@ function PipeRuns.bury(work, h)
                         if other and not other._route_removed and other.kind == "pipe" and flow_of(other) == flow_of(segment) then
                             local here_ok, other_ok = true, true
                             if other.underground then
-                                local entity = entity_by_segment[other.segment_id]
+                                local entity = entity_by_cell[key(nx, ny)]
                                 local vx, vy
                                 if entity then vx, vy = Grid.dir_vector(entity.direction) end
                                 other_ok = vx ~= nil and nx + vx == x and ny + vy == y
                             end
                             if segment.underground then
-                                local entity = entity_by_segment[segment.segment_id]
+                                local entity = entity_by_cell[cell_key]
                                 local vx, vy
                                 if entity then vx, vy = Grid.dir_vector(entity.direction) end
                                 here_ok = vx ~= nil and x + vx == nx and y + vy == ny
