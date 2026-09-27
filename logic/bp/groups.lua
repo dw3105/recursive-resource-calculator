@@ -1481,13 +1481,15 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
                 detail = "more distinct port-bound item flows than machine faces for " .. tostring(block.id)}
         elseif not face_layout then
-            -- A horizontal strip exposes only its top and bottom faces to every machine. More than two flows
-            -- therefore cannot be made perimeter-safe for all members; the caller must try a different
-            -- partition. Do not manufacture a logical side and leave the hand on the old shared bottom row.
+            -- A horizontal strip exposes each uncovered long face to every machine; the caller must try a
+            -- different partition when there are more flows than free faces.
             --machine_y is no longer required to be 0 here: it is exactly 1 whenever a hand will use the
             --top face, which is the condition that makes that face usable. Demanding 0 and insetting the
             --row are contradictory, and holding both refused every strip that needed a top face.
-            if #flow_ids > 2 or #bottom_rows > 0 then
+            local strip_sides = {}
+            if #top_rows == 0 then strip_sides[#strip_sides + 1] = "top" end
+            if #bottom_rows == 0 then strip_sides[#strip_sides + 1] = "bottom" end
+            if #flow_ids > #strip_sides then
                 block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
                     detail = "more port-bound item flows than perimeter faces for " .. tostring(block.id)}
             else
@@ -1495,7 +1497,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 block.face_by_machine = {}
                 for _, machine in ipairs(block.machines) do block.face_by_machine[machine.id] = {} end
                 for index, flow_id in ipairs(flow_ids) do
-                    local side = index == 1 and "top" or "bottom"
+                    local side = strip_sides[index]
                     block.face_by_flow[flow_id] = side
                     for machine_id, _ in pairs(flow_machines[flow_id]) do
                         set_face(machine_id, flow_id, side)
@@ -1548,8 +1550,17 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                         if top_available and vertical_sides.top == nil then side = "top"
                         elseif bottom_available and vertical_sides.bottom == nil then side = "bottom" end
                         if side == nil then
-                            block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
-                                detail = "no free machine face is on the block perimeter for " .. tostring(entry.flow_id)}
+                            -- A long machine face has room for more than one hand; the beacon row took the short face.
+                            local horizontal_count = #horizontal
+                            if vertical_sides.left == nil and horizontal_count >= 1 then side = "left"
+                            elseif vertical_sides.right == nil and horizontal_count >= 2 then side = "right" end
+                            if side == nil then
+                                block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
+                                    detail = "no free machine face is on the block perimeter for " .. tostring(entry.flow_id)}
+                            else
+                                entry.endpoint_side = side
+                                vertical_sides[side] = entry.flow_id
+                            end
                         else
                             entry.endpoint_side = side
                             vertical_sides[side] = entry.flow_id
@@ -2352,9 +2363,9 @@ local function make_candidates_once(input, work)
         if block.invalid_coverage or block.failure then
             local machine_total = 0
             for _, step in ipairs(group) do machine_total = machine_total + math.max(1, step.machine_count or 1) end
-            if block.invalid_coverage and machine_total > 1 then
-                -- Shared placement can leave some machines without their requested beacon count even
-                -- when each machine fits on its own. Retry the physical instances individually.
+            if (block.invalid_coverage or (block.failure and block.failure.name == "inserter-face")) and machine_total > 1 then
+                -- Shared placement can miss beacon coverage or run out of usable machine faces; retry each
+                -- physical instance separately so the planner can find a fitting layout.
                 local fragments = {}
                 for _, step in ipairs(group) do
                     local count = math.max(1, step.machine_count or 1)
