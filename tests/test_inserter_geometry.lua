@@ -200,7 +200,9 @@ for _, shape in ipairs(H.shapes()) do
     end)
 
     H.test(shape .. " IG12 too many port-bound flows refuse the machine face by name", function()
-        local block, state = block_for({plan = plan(3, 2), catalog = catalog()})
+        --Round 45 (lane 254, 2026-09-27): a lone machine now takes up to 6 flows (4 faces + one extra flow on each
+        --long side), so 5 flows build; 7 flows must still be refused by name.
+        local block, state = block_for({plan = plan(5, 2), catalog = catalog()})
         H.equal(block, nil, "an overfull machine face does not fall back to an interior hand")
         H.equal(state.result.failures[1].name, "inserter-face", "the failure names the overfull inserter face")
     end)

@@ -3,7 +3,7 @@ local H = require "tests.harness"
 H.test("AM1 am2 chain delivers a blueprint", function()
     local out = os.tmpname()
     local err = os.tmpname()
-    os.execute("lua5.2 tests/golden/generate.lua --input tests/golden/cases/player-am2-chain/prepared_input.json --output " .. out .. " >/dev/null 2>" .. err)
+    os.execute("lua5.2 tests/golden/generate.lua --input tests/golden/cases/player-am2-chain-repaired/prepared_input.json --output " .. out .. " >/dev/null 2>" .. err)
     local f = io.open(out); local text = f and f:read("*a") or ""; if f then f:close() end
     local ef = io.open(err); local error_text = ef and ef:read("*a") or ""; if ef then ef:close() end
     os.remove(out); os.remove(err)
