@@ -6,7 +6,7 @@ local Route = require "logic.bp.route"
 local function fluid_input()
     return {grid=Grid.new(13,7),catalog={pipe={pipe="pipe",underground="pipe-to-ground",
         throughput_per_second=100,underground_max_distance=5}},
-        obstacles={{x=0,y=0,w=13,h=2,owner="wall"},{x=0,y=4,w=13,h=3,owner="wall"}},
+        obstacles={{x=0,y=0,w=13,h=2,owner="wall"},{x=0,y=3,w=13,h=1,owner="wall"},{x=0,y=4,w=13,h=3,owner="wall"}},
         blocks={
             {block_id="left",machines={{step_id="left"}},x=1,y=2,w=1,h=1,ports={{port_id="left-out",role="out",kind="fluid",flow_id="fluid/a",rate_per_second=1,attach_dx=1,attach_dy=0,travel_dir=Grid.EAST}}},
             {block_id="right",machines={{step_id="right"}},x=10,y=2,w=1,h=1,ports={{port_id="right-out",role="out",kind="fluid",flow_id="fluid/a",rate_per_second=1,attach_dx=-1,attach_dy=0,travel_dir=Grid.WEST}}},
@@ -29,8 +29,13 @@ H.test("PJ1 same-fluid producers join the sink pipe from opposite sides",functio
 end)
 
 H.test("PJ2 buried crossing pipe remains connected to its entry and exit",function()
-    local s=finish(fluid_input())
+    local input=fluid_input()
+    input.obstacles[#input.obstacles+1]={x=4,y=2,w=1,h=1,owner="fluid-wall"}
+    local s=finish(input)
     H.equal(s.ok,true,"pipe network passes the buried crossing")
+    local buried=false
+    for _,e in ipairs(s.result.entities or {}) do if e.ug_role then buried=true end end
+    H.equal(buried,true,"the route crosses the wall with a pipe-to-ground pair")
     H.equal(not (s.work.last_route_rejection and s.work.last_route_rejection.reason=="route-discontinuous"),true,
         "the route is not rejected as discontinuous")
 end)
@@ -56,6 +61,7 @@ H.test("PJ4 frozen gray and magenta route places the light-oil cracking demand",
         if placed or s.done or os.clock()>=deadline then break end
         Route.step(s,{ops=2000})
     until false
+    if not placed then io.stderr:write("PJ4 state done="..tostring(s.done).." ok="..tostring(s.ok).." error="..tostring(s.errors and s.errors[1] and s.errors[1].code).." reject="..tostring(s.work.last_route_rejection and s.work.last_route_rejection.reason).."\n") end
     H.equal(placed,true,"target fluid demand is placed before the CPU deadline")
 end)
 

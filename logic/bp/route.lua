@@ -1726,6 +1726,42 @@ local function route_chain_reaches_sink(work, demand, path)
     if type(path) ~= "table" or #path == 0 or not demand.sink then return false end
     local last = path[#path]
     if (last.x ~= demand.sink.x or last.y ~= demand.sink.y) and demand.kind ~= "pipe" then return false end
+    if demand.kind == "pipe" then
+        --The pipe network is undirected, so validate the route's own cell sequence. This also avoids treating
+        --the entry and exit of a just-materialised pipe-to-ground pair as separate directed chain edges.
+        local first = path[1]
+        if not demand.source or first.x ~= demand.source.x or first.y ~= demand.source.y then return false end
+        for index = 1, #path do
+            local cell, next_cell = path[index], path[index + 1]
+            local segment = work.segments_by_cell[coordinate_key(cell.x, cell.y)]
+            if not segment or not segment_has_flow(segment, demand.flow_id) then
+                if demand.sink.x==104 and demand.sink.y==63 then io.stderr:write("WITNESS missing "..index.." "..cell.x..":"..cell.y.."\n") end
+                return false
+            end
+            if next_cell then
+                local next_key = coordinate_key(next_cell.x, next_cell.y)
+                local key = coordinate_key(cell.x, cell.y)
+                local distance = math.abs(next_cell.x - cell.x) + math.abs(next_cell.y - cell.y)
+                if distance > 1 then
+                    local pair = segment.underground and segment
+                        or work.segments_by_cell[next_key]
+                    if not pair or not pair.underground or not segment_has_flow(pair, demand.flow_id)
+                        or not ((pair.underground_entry_key == key and pair.underground_exit_key == next_key)
+                            or (pair.underground_exit_key == key and pair.underground_entry_key == next_key)) then
+                        if demand.sink.x==104 and demand.sink.y==63 then io.stderr:write("WITNESS gap "..index.." "..key.." -> "..next_key.." pair="..tostring(pair and pair.underground_entry_key).."/"..tostring(pair and pair.underground_exit_key).."\n") end
+                        return false
+                    end
+                else
+                    local next_segment = work.segments_by_cell[next_key]
+                    if not next_segment or not segment_has_flow(next_segment, demand.flow_id) then
+                        if demand.sink.x==104 and demand.sink.y==63 then io.stderr:write("WITNESS adjacent "..index.." "..key.." -> "..next_key.."\n") end
+                        return false
+                    end
+                end
+            end
+        end
+        return last.x == demand.sink.x and last.y == demand.sink.y
+    end
     return route_chain_reaches_tiles(work, demand.source, demand.sink, demand.flow_id)
 end
 
@@ -1899,11 +1935,17 @@ local function append_normal_path(work, demand, path, amount)
     while index < #path do
         index = index + 1
         local cell = path[index]
-        local ridden = is_crossing_step(cell, path[index + 1]) and work.segments_by_cell[coordinate_key(cell.x, cell.y)]
-        if ridden and ridden.underground and ridden.kind ~= "pipe"
-            and ridden.underground_entry_key == coordinate_key(cell.x, cell.y)
-            and ridden.underground_exit_key == coordinate_key(path[index + 1].x, path[index + 1].y) then
-            --An existing same-flow pair the path rides through: it builds nothing, it only carries more.
+        local next_cell = path[index + 1]
+        local ridden = is_crossing_step(cell, next_cell) and work.segments_by_cell[coordinate_key(cell.x, cell.y)]
+        local here_key = coordinate_key(cell.x, cell.y)
+        local next_key = next_cell and coordinate_key(next_cell.x, next_cell.y)
+        local same_pair_forward = ridden and ridden.underground
+            and ridden.underground_entry_key == here_key and ridden.underground_exit_key == next_key
+        local same_pair_reverse = demand.kind == "pipe" and ridden and ridden.underground
+            and ridden.underground_exit_key == here_key and ridden.underground_entry_key == next_key
+        if same_pair_forward or same_pair_reverse then
+            --An existing same-flow underground pair is one edge. Belts ride it in their recorded direction;
+            --pipes have no direction, so the reverse endpoint order is the same connected fluid network.
             if not allocated_segments[ridden.segment_id] then
                 local allowed, reason = segment_allows(work, ridden, demand, amount)
                 if not allowed then return reject(reason or "occupied") end
