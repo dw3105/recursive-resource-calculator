@@ -66,4 +66,5 @@ H.test("HP2 unaffected foundry block hash matches round-45-w2", function()
     H.equal(hash(canonical(blocks)), "51c1eead", "all blocks match round-45-w2")
 end)
 
+print("HP1 HP2")
 H.done("test_groups_hand_off_pipe")
