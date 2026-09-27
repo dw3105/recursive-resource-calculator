@@ -23,6 +23,7 @@ local Flags = require "logic.bp.flags"
 local Buffer = require "logic.bp.buffer"
 
 local NORTH, EAST, SOUTH, WEST = Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST
+local fluid_pipe_tile
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
@@ -751,7 +752,41 @@ local function contains_flow(hand, flow_id)
     return hand and hand.flow_id == flow_id
 end
 
-local function new_face_allocator(machine, iw, ih, block)
+fluid_pipe_tile = function(machine, connection)
+    local position = connection and point(connection.position or connection.pos)
+    if not machine or not position then return nil end
+    local dx, dy = Grid.rotate_vector(position.x, position.y, machine.dir or NORTH)
+    local connection_x = cell_of(machine.x + machine.w / 2 + dx)
+    local connection_y = cell_of(machine.y + machine.h / 2 + dy)
+    local outward = Grid.rotate_dir(connection.direction or connection.dir or NORTH, machine.dir or NORTH)
+    local ox, oy = Grid.dir_vector(outward)
+    local inside = connection_x >= machine.x and connection_x < machine.x + machine.w
+        and connection_y >= machine.y and connection_y < machine.y + machine.h
+    if not inside then ox, oy = 0, 0 end
+    return connection_x + (ox or 0), connection_y + (oy or 0), connection_x, connection_y, outward
+end
+
+local function machine_fluid_pipe_tiles(machine, step, catalog, flows)
+    local tiles = {}
+    for _, pair in ipairs({{step.inputs or {}, "input"}, {step.outputs or {}, "output"}}) do
+        local list, role = pair[1], pair[2]
+        for _, port in ipairs(list) do
+            if flow_is_fluid(port, flows) then
+                local facts = fluid_connection(catalog, step, port, role)
+                local connection = facts and facts.connection or port.connection
+                if connection and connection.connection then connection = connection.connection end
+                if connection and not (connection.position or connection.pos) and type(connection.positions) == "table" then
+                    connection = {position = connection.positions[1], direction = connection.direction or connection.dir}
+                end
+                local x, y = fluid_pipe_tile(machine, connection)
+                if x then tiles[x .. ":" .. y] = true end
+            end
+        end
+    end
+    return tiles
+end
+
+local function new_face_allocator(machine, iw, ih, block, step, catalog, flows)
     local capacities = {
         top = math.floor(machine.w / math.max(1, iw)),
         bottom = math.floor(machine.w / math.max(1, iw)),
@@ -774,7 +809,14 @@ local function new_face_allocator(machine, iw, ih, block)
             capacities.top = free
         else capacities.top = 0 end
     end
-    local used = {top = 0, bottom = 0, left = 0, right = 0}
+    local used = {top = {}, bottom = {}, left = {}, right = {}}
+    local pipe_tiles = machine_fluid_pipe_tiles(machine, step or {}, catalog, flows)
+    local limits = {
+        top = math.floor(machine.w / math.max(1, iw)),
+        bottom = math.floor(machine.w / math.max(1, iw)),
+        left = math.floor(machine.h / math.max(1, ih)),
+        right = math.floor(machine.h / math.max(1, ih)),
+    }
     return function(preferred)
         local order = block and block.hand_face_spread
             and {preferred, "top", "bottom", "left", "right"} or {preferred}
@@ -782,9 +824,20 @@ local function new_face_allocator(machine, iw, ih, block)
         for _, side in ipairs(order) do
             if side and not seen[side] then
                 seen[side] = true
-                if used[side] < (capacities[side] or 0) then
-                    used[side] = used[side] + 1
-                    return side, used[side]
+                if used[side] then
+                    for slot = 1, math.min(limits[side], capacities[side] or 0) do
+                        if not used[side][slot] then
+                            local x, y
+                            if side == "top" then x, y = machine.x + (slot - 1) * iw, machine.y - ih
+                            elseif side == "bottom" then x, y = machine.x + (slot - 1) * iw, machine.y + machine.h
+                            elseif side == "left" then x, y = machine.x - iw, machine.y + (slot - 1) * ih
+                            else x, y = machine.x + machine.w, machine.y + (slot - 1) * ih end
+                            if not pipe_tiles[x .. ":" .. y] then
+                                used[side][slot] = true
+                                return side, slot
+                            end
+                        end
+                    end
                 end
             end
         end
@@ -801,7 +854,7 @@ local function append_single_flow_inserters(block, step, machine, catalog, input
     for _, port in ipairs(step.outputs or {}) do
         if not flow_is_fluid(port, flows) then outputs[#outputs + 1] = port end
     end
-    local allocate_face = new_face_allocator(machine, iw, ih, block)
+    local allocate_face = new_face_allocator(machine, iw, ih, block, step, catalog, flows)
     local function append(role, list)
         for index, port in ipairs(list) do
             local entry = {role = role, port = port}
@@ -868,7 +921,7 @@ local function append_multi_flow_inserters(block, step, machine, catalog, input,
     local groups = block.hand_groups_by_machine and block.hand_groups_by_machine[machine.id] or
         hand_groups_for(block, step, machine, catalog, input, flows)
     local machine_count = math.max(1, step._rate_machine_count or step.machine_count or 1)
-    local allocate_face = new_face_allocator(machine, iw, ih, block)
+    local allocate_face = new_face_allocator(machine, iw, ih, block, step, catalog, flows)
     for index, hand in ipairs(groups) do
         local port_bound, source_member, target_member = port_bound_for(block, machine, hand.role, hand.port, flows)
         hand.port_bound = port_bound
@@ -1096,38 +1149,29 @@ local function block_ports(block, steps, ports, flows)
                 end
             end
             local machine = member_for(block, selected_port.member_id)
-            local fluid_pipe_tile
+            local pipe_orientation
             if source.kind == "fluid" or source.is_fluid == true then
                 local connection = source.connection
-                local position = connection and point(connection.position or connection.pos)
-                if not position and connection and type(connection.positions) == "table" then
-                    position = point(connection.positions[1])
+                if connection and not (connection.position or connection.pos) and type(connection.positions) == "table" then
+                    connection = copy(connection)
+                    connection.position = connection.positions[1]
                 end
-                if machine and position then
-                    local dx, dy = Grid.rotate_vector(position.x, position.y, machine.dir or NORTH)
-                    local connection_x = cell_of(machine.x + machine.w / 2 + dx)
-                    local connection_y = cell_of(machine.y + machine.h / 2 + dy)
-                    source.connection_position = {x = connection_x, y = connection_y}
-                    --The catalog position is the machine's OWN tile that carries the fluid box; the pipe that
-                    --connects to it sits one tile further along the connection's direction. That pipe tile is
-                    --the port, wherever it falls: on the block edge or in a gap row inside the envelope.
-                    --The old test accepted the machine tile only when it lay OUTSIDE the block, which never
-                    --happens, so every fluid port fell back to the arbitrary top/left fallback slot.
-                    local outward = Grid.rotate_dir(connection.direction or connection.dir or NORTH, machine.dir or NORTH)
-                    local ox, oy = Grid.dir_vector(outward)
-                    local inside = connection_x >= machine.x and connection_x < machine.x + machine.w
-                        and connection_y >= machine.y and connection_y < machine.y + machine.h
-                    if not inside then ox, oy = 0, 0 end
-                    if ox then
-                        x, y = connection_x + ox, connection_y + oy
-                        fluid_pipe_tile = {normal = Grid.dir_opposite(outward),
-                            travel = role == "in" and Grid.dir_opposite(outward) or outward}
+                if machine and connection then
+                    local pipe_x, pipe_y, connection_x, connection_y, outward = fluid_pipe_tile(machine, connection)
+                    if pipe_x then
+                        source.connection_position = {x = connection_x, y = connection_y}
+                        -- 2026-09-27: block:casting-copper-cable hand (2,9) overlapped its molten-copper pipe tile.
+                        x, y = pipe_x, pipe_y
+                        if outward then
+                            pipe_orientation = {normal = Grid.dir_opposite(outward),
+                                travel = role == "in" and Grid.dir_opposite(outward) or outward}
+                        end
                     end
                 end
             end
             local actual_normal, actual_travel = normal, travel
-            if fluid_pipe_tile then actual_normal, actual_travel = fluid_pipe_tile.normal, fluid_pipe_tile.travel end
-            if fluid_pipe_tile then
+            if pipe_orientation then actual_normal, actual_travel = pipe_orientation.normal, pipe_orientation.travel end
+            if pipe_orientation then
             elseif x == -1 then actual_normal, actual_travel = EAST, role == "in" and EAST or WEST
             elseif x == block.w then actual_normal, actual_travel = WEST, role == "in" and WEST or EAST
             elseif y == -1 then actual_normal, actual_travel = SOUTH, role == "in" and SOUTH or NORTH
@@ -1155,7 +1199,7 @@ local function block_ports(block, steps, ports, flows)
                 step_id = selected_port.step_id,
                 attach_dx = x, attach_dy = y, normal_dir = actual_normal, travel_dir = actual_travel,
                 member_id = selected_port.member_id, inserter_id = inserter_id,
-                fluid_pinned = fluid_pipe_tile ~= nil or nil,
+                fluid_pinned = pipe_orientation ~= nil or nil,
             }
             local machine_count = machine_count_by_step[selected_port.step_id]
             if block_port.rate_per_second ~= nil and machine_count and machine_count > 0 then

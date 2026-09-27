@@ -32,11 +32,18 @@ end
 H.test("HP1 machine hands leave every fluid pipe tile clear", function()
     local state = replay("tests/fixtures/groups_ins_stack1.json")
     H.equal(state.ok, true, "fixture generates groups")
+    local casting_found = false
     for _, candidate in ipairs(state.result.candidates or {}) do
         for _, block in ipairs(candidate.blocks or {}) do
-            local hands = 0
+            if block.id == "block:casting-copper-cable" then
+                casting_found = true
+                local hands = 0
+                for _, hand in ipairs(block.inserters or {}) do
+                    if hand.role == "output" then hands = hands + 1 end
+                end
+                H.equal(hands, 7, "casting copper cable retains seven output hands")
+            end
             for _, hand in ipairs(block.inserters or {}) do
-                if hand.machine_id == "machine:block:casting-copper-cable" then hands = hands + 1 end
                 for _, port in ipairs(block.ports or {}) do
                     if port.kind == "fluid" then
                         H.equal(hand.x == port.attach_dx and hand.y == port.attach_dy, false,
@@ -44,11 +51,9 @@ H.test("HP1 machine hands leave every fluid pipe tile clear", function()
                     end
                 end
             end
-            if block.id == "block:casting-copper-cable" then
-                H.equal(hands, 7, "casting copper cable retains seven output hands")
-            end
         end
     end
+    H.equal(casting_found, true, "casting copper cable block found")
 end)
 
 H.test("HP2 unaffected foundry block hash matches round-45-w2", function()
