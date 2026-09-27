@@ -88,4 +88,5 @@ H.test("members of each block do not overlap", function()
     end
 end)
 
+io.write("BP1 grouping completes with covered, bounded, non-overlapping members\n")
 H.done("test_groups_beacon_pad")

@@ -1364,7 +1364,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
         if needs_tighter_row then machine_y = beacon_rows_h end
     end
-    --Offset the machine strip by one beacon width when any group needs beacons, so a row starting at x=0
+    --Offset non-face layouts by one beacon width for beacons; a lone face layout uses that pad only on retry,
+    --with its beacon row at x=1, so the row straddles the shifted machine strip. A normal face row stays flush.
     --straddles the machines instead of starting flush with them. Supply reach is measured from the beacon
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
@@ -1374,6 +1375,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     local machine_x0 = row_layout and 0 or (face_layout and 1 or 0)
     for _, row in ipairs(beacon_row_specs) do
         if not face_layout then machine_x0 = math.max(machine_x0, row.w) end
+        if face_layout and steps[1]._beacon_pad then machine_x0 = math.max(machine_x0, 1 + row.w) end
     end
     local x, y = machine_x0, machine_y
     for _, spec in ipairs(machine_specs) do
@@ -1712,11 +1714,12 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         bottom_row_y = bottom_row_y + row.h + 1
     end
 
-    --Anchored at the machine strip, never centred in a width the row itself sets. Centring made the block
+    --Anchored at the machine strip, never centred in a width the row itself sets. The lone-machine padded
+    --retry starts its row at x=1 while shifting the machine strip right one beacon width. Centring made the block
     --widen as the row grew, which re-centred the row and moved beacons AWAY from the machine that still
     --needed one, so coverage was not monotone in row.count and the old loop could never converge.
     local function row_x(row)
-        return face_layout and machine_x0 or 0
+        return face_layout and (steps[1]._beacon_pad and 1 or machine_x0) or 0
     end
 
     local function required_count(machine, group)
@@ -1822,7 +1825,13 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     --The machine strip starts at machine_x0, so the block is that offset wider than the strip itself.
     --Leaving it out let a machine and its inserters end outside block.w, and the validator then saw a member
     --sticking out of its own placed envelope.
-    w = math.max(1, machine_x0 + machine_w + (face_layout and 1 or 0), rows_width(), input_count,
+    local placed_rows_width = rows_width()
+    if face_layout then
+        for _, row in ipairs(beacon_row_specs) do
+            placed_rows_width = math.max(placed_rows_width, row_x(row) + row_width(row))
+        end
+    end
+    w = math.max(1, machine_x0 + machine_w + (face_layout and 1 or 0), placed_rows_width, input_count,
         output_count, input_count + output_count)
 
     local group_beacon_indices = {}
@@ -2361,6 +2370,13 @@ local function make_candidates_once(input, work)
                 for offset = #fragments, 1, -1 do
                     table.insert(work.buckets, work.bucket_index + offset, fragments[offset])
                 end
+            elseif block.invalid_coverage and not block.failure and not group[1]._beacon_pad then
+                --A face layout strip starts flush with the block's left edge, so its beacon row reaches a lone
+                --machine from one side only; 3 beacons per row never fit. The padded retry gives the row a
+                --beacon width on the left.
+                local padded = copy(group[1])
+                padded._beacon_pad = true
+                table.insert(work.buckets, work.bucket_index + 1, {padded})
             else
                 work.failures[#work.failures + 1] = block.failure or {name="beacon-split",code="BP_P_NO_FIT",detail="configured beacon coverage cannot be split"}
             end
