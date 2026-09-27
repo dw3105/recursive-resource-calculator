@@ -23,11 +23,13 @@ end
 H.test("NS1 frozen fail4 route is placed", function()
     local output = replay("tests/fixtures/route_snaps/gray_magenta_154_fail4.lua.gz")
     H.equal(output:match("REPLAY placed") ~= nil, true, "fail4 replay places")
+    io.write("NS1\n")
 end)
 
 H.test("NS2 frozen fail3 route is placed", function()
     local output = replay("tests/fixtures/route_snaps/gray_magenta_154_fail3.lua.gz")
     H.equal(output:match("REPLAY placed") ~= nil, true, "fail3 replay places")
+    io.write("NS2\n")
 end)
 
 H.test("NS3 fail4 placed path never visits a tile twice", function()
@@ -37,6 +39,7 @@ H.test("NS3 fail4 placed path never visits a tile twice", function()
         H.equal(seen[cell], nil, "path tile is unique: " .. cell)
         seen[cell] = true
     end
+    io.write("NS3\n")
 end)
 
 H.done("test_route_no_self_cross")
