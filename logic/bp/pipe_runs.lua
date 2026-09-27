@@ -251,6 +251,75 @@ function PipeRuns.bury(work, h)
         if not segment._route_removed then kept[#kept + 1] = segment end
     end
     work.segments = kept
+    -- Route publication buries pipes after route pruning; remove dangling plain-pipe leaves here.
+    -- Synthetic callers omit demands, so only real route work receives this cleanup.
+    if work.demands then
+        local function endpoint(segment, x, y)
+            if segment.endpoint or segment.route_endpoint then return true end
+            local function matches(point)
+                return type(point) == "table" and point.x and point.y
+                    and math.floor(point.x) == x and math.floor(point.y) == y
+            end
+            for _, demand in ipairs(work.demands) do
+                if matches(demand.source) or matches(demand.sink) then return true end
+                for _, point in ipairs(demand.source_candidates or {}) do if matches(point) then return true end end
+                for _, point in ipairs(demand.sink_candidates or {}) do if matches(point) then return true end end
+            end
+            for _, point in pairs(work.endpoint_by_id or {}) do if matches(point) then return true end end
+            return false
+        end
+        local removed_any = false
+        local changed = true
+        while changed do
+            changed = false
+            local leaves = {}
+            for cell_key, segment in pairs(by_cell) do
+                if plain(segment) then
+                    local x, y = h.coordinate_from_key(cell_key)
+                    local degree = 0
+                    for _, d in ipairs({{1,0},{-1,0},{0,1},{0,-1}}) do
+                        local nx, ny = x + d[1], y + d[2]
+                        local other = by_cell[key(nx, ny)]
+                        if other and not other._route_removed and other.kind == "pipe" and flow_of(other) == flow_of(segment) then
+                            local here_ok, other_ok = true, true
+                            if other.underground then
+                                local entity = entity_by_segment[other.segment_id]
+                                local vx, vy = entity and Grid.dir_vector(entity.direction)
+                                other_ok = vx ~= nil and nx + vx == x and ny + vy == y
+                            end
+                            if segment.underground then
+                                local entity = entity_by_segment[segment.segment_id]
+                                local vx, vy = entity and Grid.dir_vector(entity.direction)
+                                here_ok = vx ~= nil and x + vx == nx and y + vy == ny
+                            end
+                            if here_ok and other_ok then degree = degree + 1 end
+                        end
+                    end
+                    local xcoord, ycoord = h.coordinate_from_key(cell_key)
+                    if degree <= 1 and not endpoint(segment, xcoord, ycoord) and not port_tile(xcoord, ycoord) then
+                        leaves[#leaves + 1] = cell_key
+                    end
+                end
+            end
+            for _, cell_key in ipairs(leaves) do
+                local segment = by_cell[cell_key]
+                if segment and plain(segment) then
+                    segment._route_removed = true
+                    local entity = entity_by_segment[segment.segment_id]
+                    if entity then entity._route_removed = true end
+                    by_cell[cell_key] = nil
+                    removed_any = true
+                    changed = true
+                end
+            end
+        end
+        if removed_any then
+            local live_segments, live_entities = {}, {}
+            for _, segment in ipairs(work.segments) do if not segment._route_removed then live_segments[#live_segments + 1] = segment end end
+            for _, entity in ipairs(work.entities or {}) do if not entity._route_removed then live_entities[#live_entities + 1] = entity end end
+            work.segments, work.entities = live_segments, live_entities
+        end
+    end
     return pairs_laid
 end
 

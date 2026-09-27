@@ -17,7 +17,7 @@ local function work(with_demands)
     add(1, 0, "run")
     add(2, 0, "stub")
     add(1, 1, "sink")
-    w.endpoint_by_id = {source = true, sink = true}
+    w.endpoint_by_id = {source = {x=0.5,y=0.5}, sink = {x=1.5,y=1.5}}
     w.port_cells["1:1"] = {_port_owners = {p=true}}
     return w
 end
