@@ -2295,12 +2295,22 @@ local function begin_search(work, demand, amount, order_index)
         --the keep-if-cheaper re-route pass (`allow_bury` marks it).  Refused in that pass, a trial that needed
         --the ride searched the whole grid before failing: player-inserter-10s first-verdict tidy 18 s -> 77 s.
         allow_ride = demand.allow_ride == true or work.allow_bury == true}
-    search.source_key = state_key(demand.source.x, demand.source.y, demand.source.travel_dir or 0, demand.kind, 0)
+    local seed_heading = demand.source.travel_dir or 0
+    if demand.strict_branch and demand.kind ~= "pipe" then
+        local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
+        if source_segment and source_segment.kind == "belt" and not source_segment.underground
+            and source_segment.direction ~= nil then
+            --BC2: on tile 1 of the frozen gray + magenta sheet (2026-09-27), this coal demand starts on its own
+            --source belt; follow its heading so a strict retry cannot turn off the source tile without a splitter.
+            seed_heading = source_segment.direction
+        end
+    end
+    search.source_key = state_key(demand.source.x, demand.source.y, seed_heading, demand.kind, 0)
     search.points[search.source_key] = {x = demand.source.x, y = demand.source.y}
     search.best[search.source_key] = 0
     search.parent[search.source_key] = nil
     heap_push(search, {key = search.source_key, x = demand.source.x, y = demand.source.y,
-        direction = demand.source.travel_dir or 0, mode = 0, cost = 0,
+        direction = seed_heading, mode = 0, cost = 0,
         priority = heuristic(search, demand.source.x, demand.source.y)})
     local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
     if source_segment then
@@ -2687,7 +2697,8 @@ local function search_step(work, search)
                         current.cost + transition_cost(work, search.demand, nx, ny, direction, current.direction, 0, 0, search.amount)) end
                 end
             end
-            local refused_body = leaving ~= nil and leaving.kind ~= "pipe" and splitter_can_absorb(leaving)
+            local refused_body = leaving ~= nil and leaving.kind ~= "pipe"
+                and (search.demand.strict_branch or splitter_can_absorb(leaving))
                 and current.direction ~= nil and leaving.direction == current.direction
                 and direction ~= current.direction and work.belt and work.belt.splitter and not body_jump
             if free and body_jump then
@@ -2713,7 +2724,9 @@ local function search_step(work, search)
             --from the tile the search just surfaced on laid (76,63)->(85,63) and (85,63)->(95,63) for light oil on the
             --player's gray + magenta sheet (2026-09-27), and the router then refused its own path as discontinuous.
             elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2
-                and not (current.mode == 1 and search.demand.kind == "pipe")
+                --BC1: on the frozen gray + magenta sheet, (2026-09-27), the exit at (85,69) also became
+                --an entrance at (85,69); one tile cannot hold both underground-belt entities.
+                and not (current.mode == 1 and (search.demand.kind == "pipe" or search.demand.no_chain_dive))
                 and not (current.mode == 3 and direction ~= current.direction) then
                 local bury_key = coordinate_key(nx, ny)
                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets
@@ -4484,7 +4497,31 @@ function Route.step(state, budget)
                                 work.current = begin_search(work, demand, amount, 1)
                             end
                         end
-                        if work.current == nil then fail_demand(state, work, demand, "BP_R_NO_PATH") end
+                        if work.current == nil then
+                            if demand.strict_branch then
+                                fail_demand(state, work, demand, "BP_R_NO_PATH")
+                            elseif not restart_with_priority(state, work, demand) then
+                                demand.strict_branch = true
+                                work.current = begin_search(work, demand, amount, 1)
+                            end
+                        end
+                    elseif not placed and reason == "route-discontinuous" and not demand.no_chain_dive then
+                        local two_crossings = false
+                        for i = 2, #outcome - 1 do
+                            if is_crossing_step(outcome[i - 1], outcome[i])
+                                and is_crossing_step(outcome[i], outcome[i + 1]) then
+                                two_crossings = true
+                                break
+                            end
+                        end
+                        if two_crossings then
+                            if not restart_with_priority(state, work, demand) then
+                                demand.no_chain_dive = true
+                                work.current = begin_search(work, demand, amount, 1)
+                            end
+                        else
+                            fail_demand(state, work, demand, "BP_R_NO_PATH")
+                        end
                     elseif not placed then
                         fail_demand(state, work, demand, reason == "capacity" and "BP_R_CAPACITY" or "BP_R_NO_PATH")
                     else demand.remaining = demand.remaining - amount end
