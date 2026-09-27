@@ -2278,6 +2278,17 @@ local function enqueue_state(search, x, y, arrival_direction, mode, parent_key, 
     local key = state_key(x, y, arrival_direction, search.demand.kind, mode)
     local previous = search.best[key]
     if previous ~= nil and cost >= previous - EPSILON then return false end
+    --On the frozen gray + magenta sheet (2026-09-27), iron stick's route returned to (123,18) with another
+    --heading. The search may represent that state, but one committed path cannot place two entities on that tile.
+    if search.demand.no_self_cross and parent_key ~= nil then
+        local walk = parent_key
+        while walk do
+            local point = search.points[walk]
+            if point and point.x == x and point.y == y then return false end
+            if walk == search.source_key then break end
+            walk = search.parent[walk]
+        end
+    end
     search.best[key] = cost
     search.parent[key] = parent_key
     search.points[key] = {x = x, y = y}
@@ -2726,7 +2737,10 @@ local function search_step(work, search)
             elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2
                 --BC1: on the frozen gray + magenta sheet, (2026-09-27), the exit at (85,69) also became
                 --an entrance at (85,69); one tile cannot hold both underground-belt entities.
-                and not (current.mode == 1 and (search.demand.kind == "pipe" or search.demand.no_chain_dive))
+                and not (current.mode == 1 and (search.demand.kind == "pipe" or search.demand.no_chain_dive or search.demand.strict_dive))
+                --Steel plate tried to dive from its own occupied (65,25); molten iron did the same at (86,20)
+                --on the frozen gray + magenta sheet (2026-09-27). Strict retry entrances must be free tiles.
+                and not (search.demand.strict_dive and work.segments_by_cell[coordinate_key(current.x, current.y)] ~= nil)
                 and not (current.mode == 3 and direction ~= current.direction) then
                 local bury_key = coordinate_key(nx, ny)
                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets
@@ -4478,6 +4492,12 @@ function Route.step(state, budget)
                         end
                         if demand.crossing_retries <= 4 then
                             work.current = begin_search(work, demand, amount, 1)
+                        elseif not demand.strict_dive then
+                            --Steel plate repeatedly aimed at the occupied (65,25) and molten iron at (86,20),
+                            --frozen gray + magenta sheet (2026-09-27): retry once with free-tile entrances.
+                            demand.strict_dive, demand.no_self_cross = true, true
+                            demand.crossing_retries = 0
+                            work.current = begin_search(work, demand, amount, 1)
                         else
                             fail_demand(state, work, demand, "BP_R_NO_PATH")
                         end
@@ -4505,18 +4525,26 @@ function Route.step(state, budget)
                                 work.current = begin_search(work, demand, amount, 1)
                             end
                         end
-                    elseif not placed and reason == "route-discontinuous" and not demand.no_chain_dive then
-                        local two_crossings = false
-                        for i = 2, #outcome - 1 do
-                            if is_crossing_step(outcome[i - 1], outcome[i])
+                    elseif not placed and reason == "route-discontinuous" and (not demand.no_chain_dive or not demand.no_self_cross) then
+                        local two_crossings, revisit = false, false
+                        local visited = {}
+                        for i = 1, #outcome do
+                            local key = coordinate_key(outcome[i].x, outcome[i].y)
+                            if visited[key] then revisit = true end
+                            visited[key] = true
+                            if i > 1 and i < #outcome and is_crossing_step(outcome[i - 1], outcome[i])
                                 and is_crossing_step(outcome[i], outcome[i + 1]) then
                                 two_crossings = true
-                                break
                             end
                         end
-                        if two_crossings then
+                        two_crossings = two_crossings and not demand.no_chain_dive
+                        revisit = revisit and not demand.no_self_cross
+                        if two_crossings or revisit then
                             if not restart_with_priority(state, work, demand) then
-                                demand.no_chain_dive = true
+                                --Iron stick's route revisited (123,18) after surfacing on the frozen gray + magenta
+                                --sheet (2026-09-27); only the relevant failed-path shape gets a retry flag.
+                                if two_crossings then demand.no_chain_dive = true end
+                                if revisit then demand.no_self_cross = true end
                                 work.current = begin_search(work, demand, amount, 1)
                             end
                         else
