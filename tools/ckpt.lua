@@ -35,7 +35,14 @@ local function main()
     end
     local digest=sha(input_path); local events, step_index={},0; local stopped, listing=false,false
     local saved, resumed
-    if command=="resume" then saved=Graph.load(snap) end
+    if command=="resume" then
+        saved=Graph.load(snap)
+        if not o.ops then ops=tonumber(saved.meta.ops_per_step) or ops end
+        local env=saved.meta.env or {}
+        if env.RRC_PACK~=os.getenv("RRC_PACK") or env.RRC_PACK_EXTRA~=os.getenv("RRC_PACK_EXTRA") then
+            io.stderr:write("WARNING pack environment differs from checkpoint\n")
+        end
+    end
     local until_spec=o["until"] or (command=="save" and at)
     local criteria=parse_spec(until_spec)
     local nth=tonumber(criteria.nth) or 1; criteria.nth=nil
@@ -56,6 +63,7 @@ local function main()
         local hooks={{"local function begin_search(work, demand, amount, order_index)","route-demand","demand"},
           {"local function fail_demand(state, work, demand, code, detail)","reject","code"},
           {"local function restart_with_priority(state, work, demand)","route-restart","demand"}}
+        if o.patch then local fn=assert(loadfile(o.patch))(); src=assert(fn("logic.bp.route",src)) end
         for _,h in ipairs(hooks) do local a,b=src:find(h[1],1,true); assert(a,"missing Route hook "..h[1]);
             local expr=h[3]=="demand" and "demand and demand.flow_id" or "code"
             src=src:sub(1,b).." if _G.__ckpt then _G.__ckpt("..quote(h[2])..", state, "..expr..") end"..src:sub(b+1)
@@ -81,6 +89,7 @@ local function main()
           {"local function record_rejection(state, errors, stage)","reject"},
           {"local function start_grid(state)","grid"},
           {"local function discard_candidate(state)","stage-begin"}}
+        if o.patch then local fn=assert(loadfile(o.patch))(); src=assert(fn("logic.bp.search",src)) end
         for _,h in ipairs(hooks) do local a,b=src:find(h[1],1,true); assert(a,"missing Search hook "..h[1]); local call=(h[2]=="phase" and "phase" or (h[2]=="reject" and "errors and errors[1] and (errors[1].code or errors[1].reason)" or "nil")); src=src:sub(1,b).." if _G.__ckpt then _G.__ckpt("..quote(h[2])..", state, "..call..") end"..src:sub(b+1) end
         local loader=assert(load(src,"@logic/bp/search.lua")); local Search=loader()
         local begin,step=Search.begin,Search.step
@@ -100,7 +109,7 @@ local function main()
     local rf=assert(io.open(path,"r")); local text=rf:read("*a"); rf:close()
     local ok=text:match('"ok":(true)')~=nil; local ticks=step_index
     local used=(_G.__ckpt_last_state and _G.__ckpt_last_state.ops_used) or 0; local sha_out=text:match('"canonical_sha256":"(%w+)"') or "unknown"
-    local entities=0; for _ in text:gmatch('"entity_number"%s*:') do entities=entities+1 end
+    local entities=0; for _ in text:gmatch('"entity_number"%s*:') do entities=entities+1 end; entities=math.floor(entities/2)
     io.write(string.format("RESUMED %s END ok=%s ticks=%d ops_used=%d sha=%s entities=%d\n",command, tostring(ok),ticks,used,sha_out,entities))
 end
 local ok,err=pcall(main); if not ok then io.stderr:write(tostring(err).."\n"); os.exit(1) end

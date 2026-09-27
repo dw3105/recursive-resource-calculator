@@ -1,7 +1,7 @@
 --CK1-CK4 are expected to fail on base code: resumable Search checkpoints and graph_dump do not exist there.
 local passed,failed=0,0
 local function equal(a,b,label) if a==b then passed=passed+1 else failed=failed+1; io.write("FAIL ",label," expected=",tostring(b)," got=",tostring(a),"\n") end end
-local H={equal=equal,test=function(_,name,fn) local ok,e=pcall(fn); if not ok then failed=failed+1; io.write("FAIL ",name," ",tostring(e),"\n") end end,done=function(name) io.write(name..": "..passed.." passed, "..failed.." failed\n") end}
+local H={equal=equal,test=function(name,fn) local ok,e=pcall(fn); if not ok then failed=failed+1; io.write("FAIL ",name," ",tostring(e),"\n") end end,done=function(name) io.write(name..": "..passed.." passed, "..failed.." failed\n") end}
 local function run(cmd)
     local p=assert(io.popen(cmd.." 2>&1","r")); local s=p:read("*a"); p:close(); return s
 end
@@ -17,6 +17,7 @@ H.test("CK1 named phase snapshots resume to the uninterrupted result",function()
     io.write("CK1\n")
     for _,phase in ipairs({"route","tidy","validate"}) do local a,b=save_resume(phase)
         H.equal(a:match("SAVED")~=nil,true,"saved at "..phase)
+        H.equal(endline(b)~=nil,true,"resume reports END after "..phase)
         H.equal(endline(b),endline(baseline),"same end after "..phase)
     end
 end)
@@ -26,6 +27,7 @@ H.test("CK2 checkpoint can be resumed through a later named phase",function()
     run("lua5.2 tools/ckpt.lua save player-red-science-1s phase=route "..a)
     run("lua5.2 tools/ckpt.lua resume "..a.." --until phase=validate --save "..b)
     local resumed=run("lua5.2 tools/ckpt.lua resume "..b)
+    H.equal(endline(resumed)~=nil,true,"chained resume reports END")
     H.equal(endline(resumed),endline(baseline),"chained resume matches baseline")
     os.remove(a); os.remove(b)
 end)
