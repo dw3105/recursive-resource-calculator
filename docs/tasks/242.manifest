@@ -1,0 +1,5 @@
+# bound: 1800s
+logic/bp/groups.lua
+tests/test_groups_beacon_pad.lua
+tests/test_red1s_foundry_delivers.lua
+docs/tasks/242_groups_beacon_pad.md

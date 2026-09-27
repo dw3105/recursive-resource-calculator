@@ -181,3 +181,4 @@
 | `239` | `rrc/agent` | game tests: calculator GUI on the real engine (offline-checked) | 2026-09-26 |
 | `240` | `rrc/agent` | game tests: sheet to cursor through real jobs, ghosts, cancel, busy cursor | 2026-09-26 |
 | `241` | `rrc/agent` | game tests: in-game blueprint equals offline for two golden sheets | 2026-09-26 |
+| `242` | `rrc/agent` | groups: a lone machine short of beacons retries with a beacon width on its left | 2026-09-27 |
