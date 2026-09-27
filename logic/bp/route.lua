@@ -1735,7 +1735,6 @@ local function route_chain_reaches_sink(work, demand, path)
             local cell, next_cell = path[index], path[index + 1]
             local segment = work.segments_by_cell[coordinate_key(cell.x, cell.y)]
             if not segment or not segment_has_flow(segment, demand.flow_id) then
-                if demand.sink.x==104 and demand.sink.y==63 then io.stderr:write("WITNESS missing "..index.." "..cell.x..":"..cell.y.."\n") end
                 return false
             end
             if next_cell then
@@ -1748,13 +1747,11 @@ local function route_chain_reaches_sink(work, demand, path)
                     if not pair or not pair.underground or not segment_has_flow(pair, demand.flow_id)
                         or not ((pair.underground_entry_key == key and pair.underground_exit_key == next_key)
                             or (pair.underground_exit_key == key and pair.underground_entry_key == next_key)) then
-                        if demand.sink.x==104 and demand.sink.y==63 then io.stderr:write("WITNESS gap "..index.." "..key.." -> "..next_key.." pair="..tostring(pair and pair.underground_entry_key).."/"..tostring(pair and pair.underground_exit_key).."\n") end
                         return false
                     end
                 else
                     local next_segment = work.segments_by_cell[next_key]
                     if not next_segment or not segment_has_flow(next_segment, demand.flow_id) then
-                        if demand.sink.x==104 and demand.sink.y==63 then io.stderr:write("WITNESS adjacent "..index.." "..key.." -> "..next_key.."\n") end
                         return false
                     end
                 end
@@ -2745,7 +2742,11 @@ local function search_step(work, search)
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
                     current.direction, 0, 0, search.amount)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
+            --A pipe-to-ground exit is one entity on one tile: it cannot also be the entrance of the next pair. Diving
+            --from the tile the search just surfaced on laid (76,63)->(85,63) and (85,63)->(95,63) for light oil on the
+            --player's gray + magenta sheet (2026-09-27), and the router then refused its own path as discontinuous.
             elseif (not first or search.demand.source.perimeter or search.demand.kind == "pipe") and current.mode ~= 2
+                and not (current.mode == 1 and search.demand.kind == "pipe")
                 and not (current.mode == 3 and direction ~= current.direction) then
                 local bury_key = coordinate_key(nx, ny)
                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets

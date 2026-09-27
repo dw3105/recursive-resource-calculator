@@ -3,16 +3,27 @@ local H = require "tests.harness"
 local Grid = require "logic.bp.grid"
 local Route = require "logic.bp.route"
 
+--A one-row corridor (y = 2) with the sink block ABOVE it: the sink's port tile (5,2) is open from the west and
+--from the east. The left producer arrives heading east; the right producer can only arrive heading west, head-on
+--into the left pipe. The PJ2 variant adds a one-tile wall in the corridor that only a pipe-to-ground crosses.
 local function fluid_input()
-    return {grid=Grid.new(13,7),catalog={pipe={pipe="pipe",underground="pipe-to-ground",
+    return {grid=Grid.new(13,5),catalog={pipe={pipe="pipe",underground="pipe-to-ground",
         throughput_per_second=100,underground_max_distance=5}},
-        obstacles={{x=0,y=0,w=13,h=2,owner="wall"},{x=0,y=3,w=13,h=1,owner="wall"},{x=0,y=4,w=13,h=3,owner="wall"}},
+        obstacles={{x=0,y=0,w=13,h=1,owner="wall"},{x=0,y=1,w=5,h=1,owner="wall"},{x=6,y=1,w=7,h=1,owner="wall"},
+            {x=0,y=3,w=13,h=2,owner="wall"}},
         blocks={
             {block_id="left",machines={{step_id="left"}},x=1,y=2,w=1,h=1,ports={{port_id="left-out",role="out",kind="fluid",flow_id="fluid/a",rate_per_second=1,attach_dx=1,attach_dy=0,travel_dir=Grid.EAST}}},
-            {block_id="right",machines={{step_id="right"}},x=10,y=2,w=1,h=1,ports={{port_id="right-out",role="out",kind="fluid",flow_id="fluid/a",rate_per_second=1,attach_dx=-1,attach_dy=0,travel_dir=Grid.WEST}}},
-            {block_id="sink",machines={{step_id="sink"}},x=6,y=2,w=1,h=1,ports={{port_id="sink-in",role="in",kind="fluid",flow_id="fluid/a",rate_per_second=2,attach_dx=-1,attach_dy=0,travel_dir=Grid.EAST}}}},
+            {block_id="right",machines={{step_id="right"}},x=11,y=2,w=1,h=1,ports={{port_id="right-out",role="out",kind="fluid",flow_id="fluid/a",rate_per_second=1,attach_dx=-1,attach_dy=0,travel_dir=Grid.WEST}}},
+            {block_id="sink",machines={{step_id="sink"}},x=5,y=1,w=1,h=1,ports={{port_id="sink-in",role="in",kind="fluid",flow_id="fluid/a",rate_per_second=2,attach_dx=0,attach_dy=1,travel_dir=Grid.NORTH}}}},
         flows={{flow_id="fluid/a",is_fluid=true,producers={{step_id="left",share_per_second=1},{step_id="right",share_per_second=1}},consumers={{step_id="sink",share_per_second=2}}}}
     }
+end
+
+local function shortfalls(s)
+    local n = 0
+    for _ in ipairs(s.work and s.work.shortfalls or {}) do n = n + 1 end
+    for _ in ipairs(s.errors or {}) do n = n + 1 end
+    return n
 end
 
 local function finish(input, ops)
@@ -25,14 +36,15 @@ end
 H.test("PJ1 same-fluid producers join the sink pipe from opposite sides",function()
     local s=finish(fluid_input())
     H.equal(s.ok,true,"both source paths join one fluid network")
-    H.equal(#(s.result.bindings or {}),2,"both demands bind")
+    H.equal(shortfalls(s),0,"neither producer is left unrouted")
 end)
 
 H.test("PJ2 buried crossing pipe remains connected to its entry and exit",function()
     local input=fluid_input()
-    input.obstacles[#input.obstacles+1]={x=4,y=2,w=1,h=1,owner="fluid-wall"}
+    input.obstacles[#input.obstacles+1]={x=8,y=2,w=1,h=1,owner="fluid-wall"}
     local s=finish(input)
     H.equal(s.ok,true,"pipe network passes the buried crossing")
+    H.equal(shortfalls(s),0,"the right producer crosses the wall and joins")
     local buried=false
     for _,e in ipairs(s.result.entities or {}) do if e.ug_role then buried=true end end
     H.equal(buried,true,"the route crosses the wall with a pipe-to-ground pair")
@@ -46,7 +58,7 @@ H.test("PJ3 belts still refuse a head-on join",function()
     for _,b in ipairs(input.blocks) do for _,p in ipairs(b.ports) do p.kind="item";p.flow_id="item/a" end end
     input.flows={{flow_id="item/a",is_fluid=false,producers={{step_id="left",share_per_second=1},{step_id="right",share_per_second=1}},consumers={{step_id="sink",share_per_second=2}}}}
     local s=finish(input)
-    H.equal(s.ok,false,"belt head-on merge remains forbidden")
+    H.equal(shortfalls(s) > 0,true,"belt head-on merge remains forbidden (the right belt is left unrouted)")
 end)
 
 H.test("PJ4 frozen gray and magenta route places the light-oil cracking demand",function()
