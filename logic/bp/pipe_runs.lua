@@ -254,19 +254,20 @@ function PipeRuns.bury(work, h)
     -- Route publication buries pipes after route pruning; remove dangling plain-pipe leaves here.
     -- Synthetic callers omit demands, so only real route work receives this cleanup.
     if work.demands then
-        local function endpoint(segment, x, y)
-            if segment.endpoint or segment.route_endpoint then return true end
-            local function matches(point)
-                return type(point) == "table" and point.x and point.y
-                    and math.floor(point.x) == x and math.floor(point.y) == y
+        local endpoint_cells = {}
+        local function protect(point)
+            if type(point) == "table" and point.x and point.y then
+                endpoint_cells[key(math.floor(point.x), math.floor(point.y))] = true
             end
-            for _, demand in ipairs(work.demands) do
-                if matches(demand.source) or matches(demand.sink) then return true end
-                for _, point in ipairs(demand.source_candidates or {}) do if matches(point) then return true end end
-                for _, point in ipairs(demand.sink_candidates or {}) do if matches(point) then return true end end
-            end
-            for _, point in pairs(work.endpoint_by_id or {}) do if matches(point) then return true end end
-            return false
+        end
+        for _, demand in ipairs(work.demands) do
+            protect(demand.source); protect(demand.sink)
+            for _, point in ipairs(demand.source_candidates or {}) do protect(point) end
+            for _, point in ipairs(demand.sink_candidates or {}) do protect(point) end
+        end
+        for _, point in pairs(work.endpoint_by_id or {}) do protect(point) end
+        local function endpoint(segment, cell_key)
+            return segment.endpoint or segment.route_endpoint or endpoint_cells[cell_key]
         end
         local removed_any = false
         local changed = true
@@ -298,7 +299,7 @@ function PipeRuns.bury(work, h)
                         end
                     end
                     local xcoord, ycoord = h.coordinate_from_key(cell_key)
-                    if degree <= 1 and not endpoint(segment, xcoord, ycoord) and not port_tile(xcoord, ycoord) then
+                    if degree <= 1 and not endpoint(segment, cell_key) and not port_tile(xcoord, ycoord) then
                         leaves[#leaves + 1] = cell_key
                     end
                 end
