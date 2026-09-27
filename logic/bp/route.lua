@@ -1628,6 +1628,8 @@ local function route_chain_walk(work, source, sink, flow_id)
                     return nil
                 end
                 if segment.underground then
+                    --Walk the recorded normal-path endpoint keys directly: pipe-to-ground entities face their
+                    --exposed sides, so their rendered headings are not a reliable way to find the partner.
                     enqueue(key == segment.underground_entry_key and segment.underground_exit_key or segment.underground_entry_key)
                     local behind, ahead = exposed_key(segment)
                     enqueue(key == segment.underground_entry_key and behind or ahead)
@@ -2174,7 +2176,8 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
                 --BP_R_NO_PATH on the player's sheet, measured 2026-09-22 on legalcopilot-dev.  Only the
                 --head-on entry is impossible.  TAKING items off a run is the other half, and that is not
                 --decided here: it is the body jump in `search_step`, because a splitter never turns flow.
-                if move_direction == Grid.dir_opposite(segment.direction) then
+                --Only belts have a facing head; pipes carry fluid through every touching side, including head-on.
+                if demand.kind ~= "pipe" and move_direction == Grid.dir_opposite(segment.direction) then
                     search.saw_blocked = true
                     return false
                 end

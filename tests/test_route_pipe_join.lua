@@ -31,7 +31,7 @@ end)
 H.test("PJ2 buried crossing pipe remains connected to its entry and exit",function()
     local s=finish(fluid_input())
     H.equal(s.ok,true,"pipe network passes the buried crossing")
-    H.equal(s.work.last_route_rejection and s.work.last_route_rejection.reason,"route-discontinuous",
+    H.equal(not (s.work.last_route_rejection and s.work.last_route_rejection.reason=="route-discontinuous"),true,
         "the route is not rejected as discontinuous")
 end)
 
@@ -45,7 +45,9 @@ H.test("PJ3 belts still refuse a head-on join",function()
 end)
 
 H.test("PJ4 frozen gray and magenta route places the light-oil cracking demand",function()
-    local input=dofile("tests/fixtures/route_gray_magenta_154.json")
+    H.new_world(H.shapes()[1])
+    local file=assert(io.open("tests/fixtures/route_gray_magenta_154.json","r"))
+    local input=assert(helpers.json_to_table(file:read("*a"))); file:close()
     local s=Route.begin(input); local deadline=os.clock()+90; local placed=false
     local wanted_source="heavy-oil-cracking:out:fluid/light-oil:machine:heavy-oil-cracking:1"
     local wanted_sink="light-oil-cracking:in:fluid/light-oil:machine:light-oil-cracking:1"
