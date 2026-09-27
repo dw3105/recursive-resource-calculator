@@ -284,12 +284,14 @@ function PipeRuns.bury(work, h)
                             local here_ok, other_ok = true, true
                             if other.underground then
                                 local entity = entity_by_segment[other.segment_id]
-                                local vx, vy = entity and Grid.dir_vector(entity.direction)
+                                local vx, vy
+                                if entity then vx, vy = Grid.dir_vector(entity.direction) end
                                 other_ok = vx ~= nil and nx + vx == x and ny + vy == y
                             end
                             if segment.underground then
                                 local entity = entity_by_segment[segment.segment_id]
-                                local vx, vy = entity and Grid.dir_vector(entity.direction)
+                                local vx, vy
+                                if entity then vx, vy = Grid.dir_vector(entity.direction) end
                                 here_ok = vx ~= nil and x + vx == nx and y + vy == ny
                             end
                             if here_ok and other_ok then degree = degree + 1 end
