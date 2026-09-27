@@ -2399,7 +2399,7 @@ local function make_candidates_once(input, work)
                     for ordinal = 1, count do
                         local fragment = copy(step)
                         fragment.machine_count = 1
-                        fragment._physical_ordinal = count == 1 and step._physical_ordinal or ordinal
+                        fragment._physical_ordinal = count == 1 and step._physical_ordinal or ((step._ordinal_offset or 0) + ordinal)
                         fragment._rate_machine_count = step._rate_machine_count or count
                         fragment._force_block = true
                         fragments[#fragments + 1] = {fragment}
