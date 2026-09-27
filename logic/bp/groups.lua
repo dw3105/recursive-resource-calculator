@@ -1171,6 +1171,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     table.sort(steps, function(a, b) return a.step_id < b.step_id end)
     local block = {
         id = block_id, block_id = block_id, members = {}, machines = {}, beacons = {}, inserters = {}, ports = {},
+        belt_runs = {},
         beacon_coverage = {}, physical_beacon_count = 0,
         allowed_dirs = {NORTH},
     }
@@ -1477,7 +1478,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 end
             end
         end
-        if #flow_ids > 4 then
+        -- 2026-09-27 lone-machine five-flow block report: long faces have spare slots.
+        if #flow_ids > (#block.machines == 1 and 6 or 4) then
             block.failure = {name = "inserter-face", code = "BP_P_NO_FIT",
                 detail = "more distinct port-bound item flows than machine faces for " .. tostring(block.id)}
         elseif not face_layout then
