@@ -187,3 +187,5 @@
 | `245` | `rrc/agent` | route: a second pipe of one fluid joins the first from any side, over its own pipe-to-ground | 2026-09-27 |
 | `246` | `rrc/agent` | route: a belt never dives on the tile it surfaced on, nor turns off its source tile without a splitter | 2026-09-27 |
 | `248` | `rrc/agent` | tools: one failed route demand is saved and replayed alone in seconds | 2026-09-27 |
+| `249` | `rrc/agent` | route: a pipe joins a pipe-to-ground only on its exposed side | 2026-09-27 |
+| `250` | `rrc/agent` | route: a path never steps on its own tile twice, and dives only from a free tile | 2026-09-27 |

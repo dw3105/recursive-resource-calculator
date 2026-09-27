@@ -1,0 +1,4 @@
+# bound: 3000s
+logic/bp/route.lua
+tests/test_route_no_self_cross.lua
+docs/tasks/250_route_no_self_cross.md
