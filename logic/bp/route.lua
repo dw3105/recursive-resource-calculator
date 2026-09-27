@@ -2149,6 +2149,29 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             return false
         end
     end
+    --On the frozen gray + magenta sheet (legalcopilot-dev, 2026-09-27), iron left the buried side of the
+    --pair (45,35)->(45,42) at (45,42) and continued west to (44,42). A pipe-to-ground endpoint can leave
+    --only toward its exposed tile or its paired endpoint, just as entry is checked below.
+    if demand.kind == "pipe" and move_direction ~= nil then
+        local mdx, mdy = Grid.dir_vector(move_direction)
+        local from = mdx and work.segments_by_cell[coordinate_key(x - mdx, y - mdy)]
+        if from and from.kind == "pipe" and from.underground and from.underground_entry_x ~= nil then
+            local sdx, sdy = Grid.dir_vector(from.direction)
+            local from_key = coordinate_key(x - mdx, y - mdy)
+            local here = coordinate_key(x, y)
+            local ok = true
+            if sdx ~= nil then
+                if from_key == from.underground_entry_key then
+                    ok = here == coordinate_key(from.underground_entry_x - sdx, from.underground_entry_y - sdy)
+                        or here == from.underground_exit_key
+                elseif from_key == from.underground_exit_key then
+                    ok = here == coordinate_key(from.underground_exit_x + sdx, from.underground_exit_y + sdy)
+                        or here == from.underground_entry_key
+                end
+            end
+            if not ok then search.saw_blocked = true; return false end
+        end
+    end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
     --On the frozen gray + magenta sheet (legalcopilot-dev, 2026-09-27), paths ended at (36,49) and
     --(66,40) from the buried side of pairs (26,49)->(36,49) and (66,30)->(66,40). A pipe-to-ground's
@@ -2319,6 +2342,20 @@ local function enqueue_state(search, x, y, arrival_direction, mode, parent_key, 
 end
 
 local function begin_search(work, demand, amount, order_index)
+    --On the frozen gray + magenta sheet (legalcopilot-dev, 2026-09-27), piercing's straight feed at (84,54)
+    --was a machine, blocking sink (85,54). Enable its feed curve before the first search.
+    if demand.kind ~= "pipe" and demand.sink and demand.sink.feed_curve and not demand.curve_allowed
+        and demand.sink.travel_dir ~= nil then
+        local dx, dy = Grid.dir_vector(demand.sink.travel_dir)
+        if dx and static_owner(work, demand.sink.x - dx, demand.sink.y - dy) ~= nil then demand.curve_allowed = true end
+    end
+    --On the same sheet, plastic output (146,70) faced machine tile (145,70). Enable a free source heading
+    --before searching when a non-perimeter, non-row port's straight-ahead tile is occupied.
+    if demand.kind ~= "pipe" and demand.source and not demand.source.perimeter and not demand.source.row_port
+        and not demand.free_heading and demand.source.travel_dir ~= nil then
+        local dx, dy = Grid.dir_vector(demand.source.travel_dir)
+        if dx and static_owner(work, demand.source.x + dx, demand.source.y + dy) ~= nil then demand.free_heading = true end
+    end
     order_index = order_index or 1
     local search = {demand = demand, amount = amount, heap = {}, serial = 0, best = {}, parent = {}, points = {},
         saw_capacity = false, saw_fluid_mix = false, saw_blocked = false,
