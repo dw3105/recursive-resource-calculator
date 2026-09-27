@@ -1,0 +1,4 @@
+# bound: 2400s
+logic/bp/route.lua
+tests/test_route_belt_chain.lua
+docs/tasks/246_route_belt_chain.md

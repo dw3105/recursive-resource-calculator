@@ -185,3 +185,5 @@
 | `243` | `rrc/agent` | groups: a belt hand never takes a machine face that a beacon row covers | 2026-09-27 |
 | `244` | `rrc/agent` | groups: a step whose item flow needs more than one belt splits into belt-sized blocks | 2026-09-27 |
 | `245` | `rrc/agent` | route: a second pipe of one fluid joins the first from any side, over its own pipe-to-ground | 2026-09-27 |
+| `246` | `rrc/agent` | route: a belt never dives on the tile it surfaced on, nor turns off its source tile without a splitter | 2026-09-27 |
+| `248` | `rrc/agent` | tools: one failed route demand is saved and replayed alone in seconds | 2026-09-27 |
