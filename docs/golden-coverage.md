@@ -26,7 +26,6 @@ coverage. Branches are the branches claimed by the required matrix.
 | matrix | retained baseline case | basic-canonical | 2.0 | production | accepted | accepted baseline corpus case |
 | matrix | retained baseline case | import-build-round-trip | 2.0, 2.1 | production | draft | open gap: capture pending; content arrives with capture; not coverage |
 | matrix | retained baseline case | export-decode | 2.0, 2.1 | export | draft | open gap: capture pending; content arrives with capture; not coverage |
-| matrix | player's exported speed-module chain | player-speed-module-chain | 2.0 | production | draft | open gap: capture pending; content arrives with capture; not coverage |
 | matrix | player's exported AM2 chain, the round 11 incident | player-am2-chain | 2.0 | production | captured | open gap: captured from the player's game; today it does not deliver a blueprint; engine observation pending; not coverage |
 | matrix | player's red science sheet, four steps with no modules and no beacons | player-red-science-1s | 2.0 | production | captured | open gap: captured from the player's game; today it does not deliver a blueprint; engine observation pending; not coverage |
 

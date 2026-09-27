@@ -326,23 +326,6 @@
    "branches": [
     "2.0"
    ],
-   "case_id": "player-speed-module-chain",
-   "clauses": [
-    "PLAYER-EXPORT"
-   ],
-   "mods": [
-    "base",
-    "quality",
-    "space-age"
-   ],
-   "outcome_kind": "production",
-   "prepared_input": null,
-   "state": "draft"
-  },
-  {
-   "branches": [
-    "2.0"
-   ],
    "case_id": "player-am2-chain",
    "clauses": [
     "PLAYER-AM2"
