@@ -1171,6 +1171,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
     table.sort(steps, function(a, b) return a.step_id < b.step_id end)
     local block = {
         id = block_id, block_id = block_id, members = {}, machines = {}, beacons = {}, inserters = {}, ports = {},
+        belt_runs = {},
         beacon_coverage = {}, physical_beacon_count = 0,
         allowed_dirs = {NORTH},
     }
