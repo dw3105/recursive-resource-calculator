@@ -2150,6 +2150,27 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         end
     end
     local segment = work.segments_by_cell[coordinate_key(x, y)]
+    --On the frozen gray + magenta sheet (legalcopilot-dev, 2026-09-27), paths ended at (36,49) and
+    --(66,40) from the buried side of pairs (26,49)->(36,49) and (66,30)->(66,40). A pipe-to-ground's
+    --exposed side joins normal pipe; its buried side joins only its partner.
+    if segment and demand.kind == "pipe" and segment.kind == "pipe" and segment.underground
+        and move_direction ~= nil and segment.underground_entry_x ~= nil then
+        local mdx, mdy = Grid.dir_vector(move_direction)
+        local sdx, sdy = Grid.dir_vector(segment.direction)
+        if mdx ~= nil and sdx ~= nil then
+            local fx, fy = x - mdx, y - mdy
+            local here = coordinate_key(x, y)
+            local ok
+            if here == segment.underground_entry_key then
+                ok = (fx == segment.underground_entry_x - sdx and fy == segment.underground_entry_y - sdy)
+                    or coordinate_key(fx, fy) == segment.underground_exit_key
+            else
+                ok = (fx == segment.underground_exit_x + sdx and fy == segment.underground_exit_y + sdy)
+                    or coordinate_key(fx, fy) == segment.underground_entry_key
+            end
+            if not ok then search.saw_blocked = true; return false end
+        end
+    end
     if segment then
         --An underground input consumes its feed into the pair; stepping onto it from the side cannot continue.
         if segment.underground and segment.underground_entry_key == coordinate_key(x, y)
