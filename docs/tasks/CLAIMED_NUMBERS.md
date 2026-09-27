@@ -191,3 +191,4 @@
 | `250` | `rrc/agent` | route: a path never steps on its own tile twice, and dives only from a free tile | 2026-09-27 |
 | `251` | `rrc/agent` | route: a second flow of a shared input hand side-joins the belt at its hand tile | 2026-09-27 |
 | `252` | `rrc/agent` | route: no pipe leaves a pipe-to-ground sideways; blocked straight feeds curve or turn at once | 2026-09-27 |
+| `253` | `rrc/agent` | route: a self-crossing path refused for any reason retries without self-crossing | 2026-09-27 |

@@ -1,0 +1,4 @@
+# bound: 3000s
+logic/bp/route.lua
+tests/test_route_self_cross_occupied.lua
+docs/tasks/253_route_self_cross_occupied.md
