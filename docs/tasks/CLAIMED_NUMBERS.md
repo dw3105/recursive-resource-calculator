@@ -196,3 +196,4 @@
 | `255` | `rrc/agent` | groups: a lone machine short of face slots under a beacon row retries with its beacon beside it | 2026-09-27 |
 | `256` | `rrc/agent` | tools: save the whole generation state at any named step and resume from it | 2026-09-27 |
 | `257` | `rrc/agent` | tools: profile one golden generation into JSON and render all profiles as one HTML page | 2026-09-27 |
+| `258` | `rrc/agent` | groups: a machine hand never sits on the tile where its fluid pipe connects | 2026-09-27 |
