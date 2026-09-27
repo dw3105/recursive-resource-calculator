@@ -1,0 +1,4 @@
+# bound: 1800s
+logic/bp/groups.lua
+tests/test_groups_faces_beacon_rows.lua
+docs/tasks/243_groups_faces_beacon_rows.md
