@@ -1364,9 +1364,9 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         end
         if needs_tighter_row then machine_y = beacon_rows_h end
     end
-    --Offset non-face layouts by one beacon width for beacons; a lone face layout uses that pad only on retry,
-    --with its beacon row at x=1, so the row straddles the shifted machine strip. A normal face row stays flush.
-    --straddles the machines instead of starting flush with them. Supply reach is measured from the beacon
+    --Offset the machine strip by one beacon width when any group needs beacons, so a row starting at x=0
+    --straddles the machines instead of starting flush with them. A face layout stays flush at x=1 except on the
+    --padded retry (_beacon_pad), where the strip moves one beacon width right and its row starts at x=1. Supply reach is measured from the beacon
     --CENTRE, so a flush row puts its last beacon's centre past the far edge of a narrow machine and that
     --beacon covers nothing: a 3-wide machine could be reached by only two beacons however many were placed.
     --A row starts flush at x=0 so it is mirror-symmetric about its machines' centre line: its head sits one tile
