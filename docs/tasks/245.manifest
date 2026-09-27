@@ -1,0 +1,4 @@
+# bound: 2400s
+logic/bp/route.lua
+tests/test_route_pipe_join.lua
+docs/tasks/245_route_pipe_join.md
