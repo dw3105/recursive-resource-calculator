@@ -1,0 +1,5 @@
+# bound: 3000s
+tools/golden_profile.lua
+tools/golden_report.py
+tests/test_golden_profile.lua
+docs/tasks/257_golden_profile.md

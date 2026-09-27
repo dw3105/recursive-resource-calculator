@@ -1,0 +1,7 @@
+# bound: 3000s
+logic/bp/groups.lua
+logic/bp/pipe_runs.lua
+tests/test_groups_lone_slots.lua
+tests/test_pipe_leaf_prune.lua
+tests/test_am2_chain_delivers.lua
+docs/tasks/254_groups_lone_slots.md

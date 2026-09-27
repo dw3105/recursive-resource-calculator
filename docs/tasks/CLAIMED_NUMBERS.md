@@ -192,3 +192,7 @@
 | `251` | `rrc/agent` | route: a second flow of a shared input hand side-joins the belt at its hand tile | 2026-09-27 |
 | `252` | `rrc/agent` | route: no pipe leaves a pipe-to-ground sideways; blocked straight feeds curve or turn at once | 2026-09-27 |
 | `253` | `rrc/agent` | route: a self-crossing path refused for any reason retries without self-crossing | 2026-09-27 |
+| `254` | `rrc/agent` | groups: a lone machine with five item flows fits by face slots; route: dead-end pipe stubs pruned after bury | 2026-09-27 |
+| `255` | `rrc/agent` | groups: a lone machine short of face slots under a beacon row retries with its beacon beside it | 2026-09-27 |
+| `256` | `rrc/agent` | tools: save the whole generation state at any named step and resume from it | 2026-09-27 |
+| `257` | `rrc/agent` | tools: profile one golden generation into JSON and render all profiles as one HTML page | 2026-09-27 |
