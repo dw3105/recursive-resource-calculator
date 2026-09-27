@@ -1242,7 +1242,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
         for _, entry in ipairs(step.inputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for _, entry in ipairs(step.outputs or {}) do layout_w = math.max(layout_w, step_inserter_w) end
         for ordinal = 1, step.machine_count do
-            local physical_ordinal = step._physical_ordinal or ordinal
+            local physical_ordinal = step._physical_ordinal or ((step._ordinal_offset or 0) + ordinal)
             local spec = {step = step, ordinal = physical_ordinal, w = mw, h = mh, layout_w = layout_w,
                 machine_spec = machine_spec}
             spec.id = member_id("machine", step.step_id, physical_ordinal)
@@ -2333,9 +2333,35 @@ local function make_candidates_once(input, work)
                 layout_steps[#layout_steps + 1] = fragment
             end
         else
-            local physical = copy(step)
-            physical._rate_machine_count = step.machine_count
-            layout_steps[#layout_steps + 1] = physical
+            local belt_capacity = finite(catalog and catalog.belt and catalog.belt.items_per_second)
+            local chunks = 1
+            if step.machine_count > 1 and belt_capacity and belt_capacity > 0 then
+                for _, role in ipairs({"inputs", "outputs"}) do
+                    for _, entry in ipairs(step[role] or {}) do
+                        if not flow_is_fluid(entry, flows) then
+                            chunks = math.max(chunks, math.ceil(flow_entry_rate(entry) / belt_capacity - 1e-9))
+                        end
+                    end
+                end
+                chunks = math.min(chunks, step.machine_count)
+            end
+            if chunks > 1 then
+                -- Each block has one belt port per flow, so a flow above one belt needs several blocks.
+                local n = step.machine_count
+                for i = 1, chunks do
+                    local size = math.floor(n / chunks) + (i <= n % chunks and 1 or 0)
+                    local fragment = copy(step)
+                    fragment.machine_count = size
+                    fragment._ordinal_offset = (i - 1) * math.floor(n / chunks) + math.min(i - 1, n % chunks)
+                    fragment._rate_machine_count = n
+                    fragment._force_block = true
+                    layout_steps[#layout_steps + 1] = fragment
+                end
+            else
+                local physical = copy(step)
+                physical._rate_machine_count = step.machine_count
+                layout_steps[#layout_steps + 1] = physical
+            end
         end
     end
     local buckets = {}
@@ -2357,7 +2383,8 @@ local function make_candidates_once(input, work)
     if group then
         local ids = {}
         for _, step in ipairs(group) do
-            ids[#ids + 1] = tostring(step.step_id) .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal)) or "")
+            ids[#ids + 1] = tostring(step.step_id) .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal))
+                or (step._ordinal_offset ~= nil and ("@" .. tostring(step._ordinal_offset)) or ""))
         end
         local block = build_block(group, work.catalog, relevant_ports(group, work.ports, work.flows), work.flows, input, "block:" .. table.concat(ids, "+"))
         if block.invalid_coverage or block.failure then
