@@ -1,7 +1,7 @@
 -- Capture the whole reachable routing state at the first requested fail_demand call.
 package.path = "./?.lua;" .. package.path
 local H = require "tests.harness"
-if #arg ~= 3 then io.stderr:write("usage: lua5.2 tools/route_fail_snapshot.lua <route_input.json> <N> <out>\n"); os.exit(2) end
+if #arg ~= 3 then io.stderr:write("usage: lua5.2 tools/route_fail_snapshot.lua <route_input.json> <N|0=every failure> <out>\n"); os.exit(2) end
 local input_path, wanted, output = arg[1], assert(tonumber(arg[2])), arg[3]
 local function transformed(source)
     local patch = os.getenv("PATCH")
@@ -56,7 +56,17 @@ end
 local nfail, stopped = 0, false
 _G.__route_fail_hook = function(state, work, demand, code)
     nfail = nfail + 1
-    if nfail == wanted then
+    if wanted == 0 then
+        --N=0: save every failure to <out>.<k> and keep routing (env LIMIT caps CPU seconds), so one run collects
+        --the whole tail of a sheet whose failures each restart every demand.
+        local i = 0; for j, d in ipairs(work.demands) do if d == demand then i = j; break end end
+        local keep = output
+        output = keep .. "." .. nfail
+        save_graph(state, i, code)
+        io.write("SNAPSHOT "..output.." demand="..i.." flow="..tostring(demand.flow_id).." code="..code.." sink="..tostring(demand.sink and demand.sink.port_id).." t="..string.format("%.3f", os.clock()-started).."s\n")
+        io.stdout:flush()
+        output = keep
+    elseif nfail == wanted then
         local i = 0; for j, d in ipairs(work.demands) do if d == demand then i = j; break end end
         local nodes = save_graph(state, i, code)
         io.write("SNAPSHOT "..output.." demand="..i.." flow="..tostring(demand.flow_id).." code="..code.." sink="..tostring(demand.sink and demand.sink.port_id).." t="..string.format("%.3f", os.clock()-started).."s\n")
@@ -65,6 +75,8 @@ _G.__route_fail_hook = function(state, work, demand, code)
 end
 started = os.clock()
 local state = Route.begin(input)
-while not state.done and not stopped do Route.step(state, {ops=2000}) end
+local limit = tonumber(os.getenv("LIMIT") or "")
+while not state.done and not stopped and not (limit and os.clock() - started > limit) do Route.step(state, {ops=2000}) end
+if wanted == 0 then io.write("ROUTE done=" .. tostring(state.done) .. " ok=" .. tostring(state.ok) .. " failures=" .. nfail .. " t=" .. string.format("%.1f", os.clock() - started) .. "s\n"); os.exit(0) end
 _G.__route_fail_hook = nil
 if not stopped then io.stderr:write("route ended before failure "..wanted.."\n"); os.exit(1) end

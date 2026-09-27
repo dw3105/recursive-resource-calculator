@@ -41,9 +41,11 @@ _G.__route_path_hook, _G.__route_fail_hook = nil, nil
 local placed = demand.remaining <= 1e-9
 local rejection = work.last_route_rejection or {}
 local cells = {}
-for _, c in ipairs(path or {}) do
+for i, c in ipairs(path or {}) do
     local x, y = c.x or c[1], c.y or c[2]
-    if x ~= nil and y ~= nil then cells[#cells+1] = tostring(x)..","..tostring(y)..(c.jump and (" J"..tostring(c.jump)) or "") end
+    local n = path[i + 1]
+    local jump = n and (math.abs(n.x - x) + math.abs(n.y - y)) or 0
+    if x ~= nil and y ~= nil then cells[#cells+1] = tostring(x)..","..tostring(y)..(jump > 1 and ("J"..tostring(jump)) or "") end
 end
 io.write("REPLAY "..(placed and "placed" or "failed").." code="..tostring(failed_code or record.code).." reason="..tostring(rejection.reason).." path="..#cells.." cells t="..string.format("%.3f", os.clock()-start).."s\n")
 io.write(table.concat(cells, " ").."\n")
@@ -56,10 +58,12 @@ if os.getenv("MAP") == "1" then
         local key=tostring(x)..":"..tostring(y); local ch = "."
         if work.obstacles and work.obstacles[key] then ch="#"
         elseif work.port_cells and work.port_cells[key] then ch="p"
-        elseif work.pipe and work.pipe[key] then ch="="
-        elseif work.belt and work.belt[key] then ch="-" end
+        else
+            local seg = work.segments_by_cell and work.segments_by_cell[key]
+            if seg then ch = (seg.flow_id == demand.flow_id) and "+" or (seg.kind == "pipe" and "=" or "-") end
+        end
         if x==sx and y==sy then ch="S" elseif x==tx and y==ty then ch="T" end
-        for _, c in ipairs(path or {}) do if (c.x or c[1])==x and (c.y or c[2])==y then ch="*" end end
+        for _, c in ipairs(path or {}) do if (c.x or c[1])==x and (c.y or c[2])==y and ch ~= "S" and ch ~= "T" then ch="*" end end
         row[#row+1]=ch
     end; io.write(table.concat(row).."\n") end
 end
