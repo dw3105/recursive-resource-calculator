@@ -2211,7 +2211,13 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
                     search.saw_blocked = true
                     return false
                 end
-                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) and not search.merge_target then
+                --On the frozen 154x154 gray + magenta route (85,39), 2026-09-27 on legalcopilot-dev,
+                --the first flow lays a belt through the shared hand and the second flow must side-join there.
+                local shared_cell = is_target and work.port_cells and work.port_cells[coordinate_key(x, y)]
+                local shared_hand = shared_cell and shared_cell[demand.sink and demand.sink.port_id]
+                    and segment.flow_id ~= nil and shared_cell["flow:" .. tostring(segment.flow_id)]
+                if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) and not search.merge_target
+                    and not shared_hand then
                     search.saw_blocked = true
                     return false
                 end
