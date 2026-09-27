@@ -46,7 +46,7 @@ end
 local start = os.clock()
 while not state.done and demand.remaining > 1e-9 do Route.step(state, {ops=2000}) end
 _G.__route_path_hook, _G.__route_fail_hook = nil, nil
-local placed = demand.remaining <= 1e-9
+local placed = demand.remaining <= 1e-9 and demand.unroutable == nil
 local rejection = work.last_route_rejection or {}
 local cells = {}
 for i, c in ipairs(path or {}) do

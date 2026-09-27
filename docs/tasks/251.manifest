@@ -1,0 +1,4 @@
+# bound: 3000s
+logic/bp/route.lua
+tests/test_route_shared_hand.lua
+docs/tasks/251_route_shared_hand.md
