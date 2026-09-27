@@ -18,41 +18,17 @@ local route_chunk = assert(load(transformed(source), "@logic/bp/route.lua"))
 local Route = route_chunk()
 H.new_world("2.0")
 local f = assert(io.open(input_path, "r")); local input = assert(helpers.json_to_table(f:read("*a"))); f:close()
-local function scalar(v)
-    if type(v) == "string" then return string.format("%q", v) end
-    if type(v) == "number" then return tostring(v) end
-    if type(v) == "boolean" then return tostring(v) end
-    if v == nil then return "nil" end
-end
+local GraphDump = require "tools.lib.graph_dump"
 local function save_graph(state, index, code)
-    local ids, nodes, omitted = {}, {}, {}
-    local function ref(v)
-        if type(v) ~= "table" then return scalar(v) end
-        if ids[v] then return "T[" .. ids[v] .. "]" end
-        local id = #nodes + 1; ids[v] = id; nodes[id] = v
-        return "T[" .. id .. "]"
-    end
-    ref(state)
-    local serialized = {}
-    for id, node in ipairs(nodes) do
-        local entries = {}
-        for k, v in pairs(node) do
-            local kt = type(k); local vt = type(v)
-            if (kt == "string" or kt == "number" or kt == "boolean") and (vt == "table" or scalar(v) ~= nil) then
-                entries[#entries+1] = "[" .. ref(k) .. "]=" .. ref(v)
-            else omitted[#omitted+1] = "node=" .. id .. " key=" .. tostring(k) .. " key_type=" .. kt .. " value_type=" .. vt end
-        end
-        serialized[id] = entries
-    end
-    local out = assert(io.open(output, "w"))
-    out:write("local T={}\n")
-    for i=1,#nodes do out:write("T["..i.."]={}\n") end
-    for i=1,#nodes do for _, entry in ipairs(serialized[i]) do out:write("T["..i.."]["..entry:match("^%[(.-)%]=").."]="..entry:match("=(.*)$").."\n") end end
-    out:write("return {state=T[1],demand_index=" .. tostring(index) .. ",code=" .. string.format("%q", code) .. "}\n")
-    out:close()
-    for _, line in ipairs(omitted) do io.stderr:write("SNAPSHOT_SKIPPED " .. line .. "\n") end
-    return #nodes
+    local wrapper = output .. ".graph"
+    local nodes = GraphDump.dump(state, wrapper)
+    local f = assert(io.open(wrapper, "r")); local graph = f:read("*a"); f:close(); os.remove(wrapper)
+    graph = graph:gsub("return T%[1%]", "local state=T[1]", 1)
+    local out = assert(io.open(output, "w")); out:write(graph)
+    out:write("\nreturn {state=state,demand_index=" .. string.format("%.0f", index) .. ",code=" .. string.format("%q", code) .. "}\n")
+    out:close(); return nodes
 end
+
 local nfail, stopped = 0, false
 _G.__route_fail_hook = function(state, work, demand, code)
     nfail = nfail + 1
