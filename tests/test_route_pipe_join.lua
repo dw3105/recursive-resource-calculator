@@ -77,4 +77,21 @@ H.test("PJ4 frozen gray and magenta route places the light-oil cracking demand",
     H.equal(placed,true,"target fluid demand is placed before the CPU deadline")
 end)
 
+--PJ5 (round 44): a pipe path may end on its own fluid network, not only on the sink tile. Lane 245's rewrite of the
+--pipe witness demanded the sink tile and sent molten iron (4 producers, 13 consumers) into 21 restarts before
+--demand 13 of 92 on the frozen 154x154 input; the network walk reaches demand 13 with 0 restarts (~24 s).
+H.test("PJ5 frozen gray and magenta route reaches demand 13 without a restart",function()
+    local f=assert(io.open("tests/fixtures/route_gray_magenta_154.json","r"))
+    local input=assert(helpers.json_to_table(f:read("*a")))
+    f:close()
+    local s=Route.begin(input)
+    local t0=os.clock()
+    while not s.done and os.clock()-t0<90 do
+        Route.step(s,{ops=2000})
+        if s.cursor and s.cursor.demand_index and s.cursor.demand_index>12 and s.progress.phase=="routing" then break end
+    end
+    H.equal(s.cursor.demand_index>12,true,"route passes demand 12 within 90 s CPU")
+    H.equal(s.work.counters.restarts,0,"no restart on the way")
+end)
+
 H.done("test_route_pipe_join")

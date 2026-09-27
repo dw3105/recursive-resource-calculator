@@ -1726,39 +1726,6 @@ local function route_chain_reaches_sink(work, demand, path)
     if type(path) ~= "table" or #path == 0 or not demand.sink then return false end
     local last = path[#path]
     if (last.x ~= demand.sink.x or last.y ~= demand.sink.y) and demand.kind ~= "pipe" then return false end
-    if demand.kind == "pipe" then
-        --The pipe network is undirected, so validate the route's own cell sequence. This also avoids treating
-        --the entry and exit of a just-materialised pipe-to-ground pair as separate directed chain edges.
-        local first = path[1]
-        if not demand.source or first.x ~= demand.source.x or first.y ~= demand.source.y then return false end
-        for index = 1, #path do
-            local cell, next_cell = path[index], path[index + 1]
-            local segment = work.segments_by_cell[coordinate_key(cell.x, cell.y)]
-            if not segment or not segment_has_flow(segment, demand.flow_id) then
-                return false
-            end
-            if next_cell then
-                local next_key = coordinate_key(next_cell.x, next_cell.y)
-                local key = coordinate_key(cell.x, cell.y)
-                local distance = math.abs(next_cell.x - cell.x) + math.abs(next_cell.y - cell.y)
-                if distance > 1 then
-                    local pair = segment.underground and segment
-                        or work.segments_by_cell[next_key]
-                    if not pair or not pair.underground or not segment_has_flow(pair, demand.flow_id)
-                        or not ((pair.underground_entry_key == key and pair.underground_exit_key == next_key)
-                            or (pair.underground_exit_key == key and pair.underground_entry_key == next_key)) then
-                        return false
-                    end
-                else
-                    local next_segment = work.segments_by_cell[next_key]
-                    if not next_segment or not segment_has_flow(next_segment, demand.flow_id) then
-                        return false
-                    end
-                end
-            end
-        end
-        return last.x == demand.sink.x and last.y == demand.sink.y
-    end
     return route_chain_reaches_tiles(work, demand.source, demand.sink, demand.flow_id)
 end
 
