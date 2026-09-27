@@ -1628,9 +1628,12 @@ local function route_chain_walk(work, source, sink, flow_id)
                     return nil
                 end
                 if segment.underground then
-                    --Walk the recorded normal-path endpoint keys directly: pipe-to-ground entities face their
-                    --exposed sides, so their rendered headings are not a reliable way to find the partner.
-                    enqueue(key == segment.underground_entry_key and segment.underground_exit_key or segment.underground_entry_key)
+                    --A pipe network is undirected: enqueue both recorded endpoints from either half. A normal
+                    --path can encounter an endpoint through a shared cell whose segment reference was retained
+                    --from the earlier route; selecting the partner by entry/exit identity then misses the new
+                    --exit. Entity headings are also exposed-side headings, not the pair's fluid direction.
+                    enqueue(segment.underground_entry_key)
+                    enqueue(segment.underground_exit_key)
                     local behind, ahead = exposed_key(segment)
                     enqueue(key == segment.underground_entry_key and behind or ahead)
                 else
