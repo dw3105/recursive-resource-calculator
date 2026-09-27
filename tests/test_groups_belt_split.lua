@@ -25,6 +25,7 @@ local function grouped(rate, count)
     return state.result.candidates[1].blocks
 end
 
+io.write("BS1\n")
 H.test("BS1 15/s over a 10/s belt splits three machines into 2+1", function()
     local blocks = grouped(15, 3)
     local own = {}
@@ -40,6 +41,7 @@ H.test("BS1 15/s over a 10/s belt splits three machines into 2+1", function()
     H.equal(own[1].count, 2, "first block has two machines")
     H.equal(own[2].count, 1, "second block has one machine")
 end)
+io.write("BS2\n")
 H.test("BS2 each physical machine id occurs once", function()
     local seen = {}
     for _, block in ipairs(grouped(15, 3)) do for _, m in ipairs(block.machines) do
@@ -47,11 +49,13 @@ H.test("BS2 each physical machine id occurs once", function()
     end end
     for i = 1, 3 do H.equal(seen["machine:s:" .. i], 1, "machine id " .. i .. " occurs once") end
 end)
+io.write("BS3\n")
 H.test("BS3 blocks retain all three machines", function()
     local n = 0
     for _, block in ipairs(grouped(15, 3)) do for _, m in ipairs(block.machines) do if m.step_id == "s" then n = n + 1 end end end
     H.equal(n, 3, "three machines retained")
 end)
+io.write("BS4\n")
 H.test("BS4 below-capacity flow stays together", function()
     local blocks = grouped(9, 3)
     local n = 0
@@ -59,10 +63,12 @@ H.test("BS4 below-capacity flow stays together", function()
     H.equal(#blocks, 1, "one block")
     H.equal(n, 3, "all machines in block")
 end)
+io.write("BS5\n")
 H.test("BS5 one machine cannot split further", function()
     local blocks = grouped(15, 1)
     H.equal(#blocks, 1, "one machine stays one block")
 end)
+io.write("BS6\n")
 H.test("BS6 two producer and consumer blocks route 15/s", function()
     local input = {grid = Grid.new(20, 7), catalog = {belt = {belt = "belt", items_per_second = 10, lane_items_per_second = 5}}, blocks = {}, flows = {
         {flow_id = "item/x", is_fluid = false, producers = {{step_id = "p", share_per_second = 15}}, consumers = {{step_id = "c", share_per_second = 15}}}}}
