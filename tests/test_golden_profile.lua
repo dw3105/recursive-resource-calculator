@@ -10,7 +10,7 @@ failures=0
 local tmp=os.tmpname(); os.remove(tmp); assert(os.execute('mkdir -p '..tmp))
 local out=tmp..'/one.json'; local log,ok=run('lua5.2 tools/golden_profile.lua player-red-science-1s '..out)
 local fields='case git_head ops_per_step ok error_codes entities canonical_sha256 ticks cpu_total ops_used capped worst_tick phases grids stages route route_demands_top calls rejections search'
-local py="python3 -c \"import json,sys;d=json.load(open(sys.argv[1])); req='"..fields.."'.split(); assert all(k in d for k in req); assert d['ok'] is True; assert d['ticks']>0; assert 'Route.step' in d['calls']; assert abs(sum(p['cpu'] for p in d['phases'])-d['cpu_total']) <= d['cpu_total']*.1\" "..out
+local py="python3 -c \"import json,sys;d=json.load(open(sys.argv[1])); req='"..fields.."'.split(); assert all(k in d for k in req); assert d['ok'] is True; assert d['entities']==148; assert d['ticks']>0; assert 'Route.step' in d['calls']; assert abs(sum(p['cpu'] for p in d['phases'])-d['cpu_total']) <= d['cpu_total']*.1\" "..out
 local _,valid=run(py); check('GP1',ok and valid and log=='' ,'profile valid')
 local cap=tmp..'/cap.json'; local _,capok=run('lua5.2 tools/golden_profile.lua player-red-science-1s '..cap..' --cap 1')
 local _,capvalid=run("python3 -c \"import json,sys;assert json.load(open(sys.argv[1]))['capped'] is True\" "..cap)

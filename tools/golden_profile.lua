@@ -53,6 +53,7 @@ Search.step=function(container,budget) local state=container.state or container;
     local rw=state.work.route and state.work.route.work; if rw then for k,v in pairs(rw.counters or {}) do if k=='expansions' or k=='crossings_placed' or k=='restarts' or k=='demands_attempted' then result.route[k]=v elseif k=='searches_abandoned' then result.route.abandoned=v end end;result.route.runs=rw.counters and rw.counters.restarts or 0;result.route.demands_attempted=rw.counters and rw.counters.demands_attempted or 0 end
     if state.incumbent and not result.first_valid then result.first_valid={tick=result.ticks,cpu=result.cpu_total} end
   end
+  if state.done and state.result and type(state.result.entities)=='table' then result.entities=#state.result.entities end
   if cap and os.clock()-start>=cap then result.capped=true;stopped=true end; return ret
 end
 local tmp=os.tmpname(); arg={[0]=root..'/tests/golden/generate.lua','--input',prep,'--output',tmp}; start=os.clock()
@@ -65,6 +66,6 @@ local phase_cpu={};for _,p in ipairs(result.phases) do phase_cpu[p.name]=p.cpu e
 for _,d in pairs(demand_times) do d._last=nil;result.route_demands_top[#result.route_demands_top+1]=d end;table.sort(result.route_demands_top,function(a,b)return a.cpu>b.cpu end);while #result.route_demands_top>20 do table.remove(result.route_demands_top) end
 result.route.runs=M['Route.begin'] and M['Route.begin'].n or 0
 result._rejection_seen=nil
-if generated then result.ok=generated:match('"ok":true')~=nil; for code in generated:gmatch('"code":"([^"]+)"') do result.error_codes[#result.error_codes+1]=code end; local n=generated:match('"entities":%[(.-)%]'); if n then result.entities=0;for _ in n:gmatch('{') do result.entities=result.entities+1 end end;result.canonical_sha256=generated:match('"canonical_sha256":"([^"]+)"') end
+if generated then result.ok=generated:match('"ok":true')~=nil; for code in generated:gmatch('"code":"([^"]+)"') do result.error_codes[#result.error_codes+1]=code end; result.canonical_sha256=generated:match('"canonical_sha256":"([^"]+)"') end
 if result.error then result.error_codes[1]=result.error end
 local f=assert(io.open(out,'wb')); f:write(enc(result),'\n');f:close()
