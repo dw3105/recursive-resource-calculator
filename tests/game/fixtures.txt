@@ -2,3 +2,4 @@
 # (dashes become underscores). Expected entity lists live in tests/game/expected/<case>.txt (tools/game_expect.sh).
 player-red-science-1s
 player-red-science-1s-bulk
+player-red-science-1s-foundry

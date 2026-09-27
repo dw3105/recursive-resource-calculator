@@ -4,6 +4,8 @@ local RED1 = require "tests.game.fixtures.player_red_science_1s"
 local RED1_EXPECTED = require "tests.game.fixtures.player_red_science_1s_expected"
 local RED1_BULK = require "tests.game.fixtures.player_red_science_1s_bulk"
 local RED1_BULK_EXPECTED = require "tests.game.fixtures.player_red_science_1s_bulk_expected"
+local RED1_FOUNDRY = require "tests.game.fixtures.player_red_science_1s_foundry"
+local RED1_FOUNDRY_EXPECTED = require "tests.game.fixtures.player_red_science_1s_foundry_expected"
 
 local function compare_lines(blueprint_string, expected_text)
     local got, want = S.entity_lines(blueprint_string), S.split_lines(expected_text)
@@ -64,6 +66,17 @@ describe("parity", function()
             assert.are_equal("success", state, "generation state; status " .. serpent.line(status, {maxlevel = 4}))
             compare_lines(status.blueprint_string, RED1_BULK_EXPECTED)
         end, "bulk Generation parity terminal")
+    end)
+
+    --Player export 1.1.95 (2026-09-27): foundries and beacons; failed BP_FAIL_NO_LAYOUT until the pad retry.
+    it("red 1s foundry matches offline via Generation", function()
+        local prepared = S.prepared_input(RED1_FOUNDRY)
+        local job_id = start_player_generation(prepared)
+        S.wait_until(function() return S.generation_state(job_id) ~= "pending" end, 36000, function()
+            local state, status = S.generation_state(job_id)
+            assert.are_equal("success", state, "generation state; status " .. serpent.line(status, {maxlevel = 4}))
+            compare_lines(status.blueprint_string, RED1_FOUNDRY_EXPECTED)
+        end, "foundry Generation parity terminal")
     end)
 
     it("red 1s matches offline via rrc-engine-test", function()
