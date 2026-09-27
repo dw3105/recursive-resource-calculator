@@ -4589,7 +4589,16 @@ function Route.step(state, budget)
                                 work.current = begin_search(work, demand, amount, 1)
                             end
                         end
-                    elseif not placed and reason == "route-discontinuous" and (not demand.no_chain_dive or not demand.no_self_cross) then
+                    -- Furnace revisited (18,208) on the frozen gray + magenta sheet (2026-09-27).
+                    elseif not placed and (reason == "route-discontinuous" or (reason ~= "capacity" and not demand.no_self_cross and (function()
+                            local seen = {}
+                            for _, cell in ipairs(outcome) do
+                                local key = coordinate_key(cell.x, cell.y)
+                                if seen[key] then return true end
+                                seen[key] = true
+                            end
+                            return false
+                        end)())) and (not demand.no_chain_dive or not demand.no_self_cross) then
                         local two_crossings, revisit = false, false
                         local visited = {}
                         for i = 1, #outcome do
