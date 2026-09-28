@@ -51,7 +51,7 @@ H.test("KY4 prune uses tile lookup and preserves removed set", function()
     local work = {segments = {}, entities = {}, bindings = {}, segments_by_cell = {}, port_cells = {}}
     local function add(x, y, with_entity)
         local id, key = "seg:" .. x .. ":" .. y, tostring(x) .. ":" .. tostring(y)
-        local segment = {segment_id = id, kind = "pipe", flow_id = "fluid/a"}
+        local segment = {segment_id = id, kind = "pipe", flow_id = "fluid/a", underground = with_entity == "ug" or nil}
         work.segments[#work.segments + 1] = segment
         work.segments_by_cell[key] = segment
         if with_entity then
@@ -60,11 +60,14 @@ H.test("KY4 prune uses tile lookup and preserves removed set", function()
     end
     for _, p in ipairs({{42,11},{43,11},{44,11},{41,12},{42,12},{43,12},{43,13}}) do add(p[1], p[2], true) end
     for i = 1, 50 do add(100 + i * 3, 100, true) end
+    --Underground pipes make opens_to read the entity on the tile (base scanned all 57 entities per call).
+    add(45, 11, "ug")
     PipeRuns._count_visits, PipeRuns._visits = true, 0
     local removed = PipeRuns.prune_redundant(work, helpers())
     PipeRuns._count_visits = false
     H.equal(removed, 1, "same single redundant corner as the baseline fixture shape")
     H.equal(work.segments_by_cell["42:11"], nil, "baseline removed coordinate")
+    H.equal((PipeRuns._visits or 0) >= 1, true, "opens_to looked up an underground entity through the tile index")
     H.equal(PipeRuns._visits <= 4, true, "max candidate entity visits for one opens_to call")
     print("KY4")
 end)
