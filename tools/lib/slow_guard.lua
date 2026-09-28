@@ -40,12 +40,18 @@ function M.check(tool, input)
     if budget == nil then budget = budgets[default] end
     local ledger_path = os.getenv("RRC_SLOW_LEDGER") or ((os.getenv("HOME") or ".") .. "/.cache/rrc/slow_ledger.tsv")
     local previous = read(ledger_path) or ""
-    local count = 0
+    --A budget counts distinct runs: one RRC_SLOW value is one run, whatever children or loop steps it starts
+    --(bytes_hash.sh runs generate.lua; a 13-sheet byte gate runs bytes_hash.sh 13 times) (2026-09-28).
+    local runs, continuing = {}, false
     for line in previous:gmatch("[^\n]+") do
-        local _, old_wave, old_slot = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)")
-        if old_wave == wave and old_slot == slot then count = count + 1 end
+        local _, old_wave, old_slot, _, old_reason = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)")
+        if old_wave == wave and old_slot == slot then
+            runs[old_reason] = true
+            if old_reason == reason then continuing = true end
+        end
     end
-    if budget and budget >= 0 and count >= budget then refuse(tool, "budget used") end
+    local count = 0; for _ in pairs(runs) do count = count + 1 end
+    if not continuing and budget and budget >= 0 and count >= budget then refuse(tool, "budget used") end
     local dir = ledger_path:match("^(.*)/[^/]+$")
     if dir then os.execute("mkdir -p " .. string.format("%q", dir)) end
     local f = assert(io.open(ledger_path, "a"))
