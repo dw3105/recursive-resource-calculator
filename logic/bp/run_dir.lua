@@ -149,10 +149,16 @@ function RunDir.choose(block, placement, all_blocks, all_placements, grid, flows
                             if p.row_port and p.role == role then
                                 local q = Grid.place_port(reversed, placement, p)
                                 local vx, vy = Grid.dir_vector(q.dir)
-                                if role == "out" then vx, vy = Grid.dir_vector(Grid.rotate_dir(p.travel_dir or p.normal_dir, placement.dir)) end
-                                for _, tile in ipairs({{x = q.x, y = q.y}, {x = q.x + vx, y = q.y + vy}}) do
+                                local checked = {{x = q.x, y = q.y}, {x = q.x + vx, y = q.y + vy}}
+                                if role == "out" then
+                                    local tx, ty = Grid.dir_vector(Grid.rotate_dir(p.travel_dir or p.normal_dir, placement.dir))
+                                    local exit = {x = q.x + tx, y = q.y + ty}
+                                    checked[#checked + 1] = exit
+                                    if in_obstacle(exit.x, exit.y) then valid = false end
+                                end
+                                for _, tile in ipairs(checked) do
                                     if tile.x < 1 or tile.y < 1 or tile.x >= grid.w - 1 or tile.y >= grid.h - 1 then valid = false end
-                                    if in_obstacle(tile.x, tile.y) then valid = false end
+                                    if role ~= "out" and in_obstacle(tile.x, tile.y) then valid = false end
                                     for _, other in ipairs(all_blocks or {}) do
                                         local op = placed_by_id[other.id or other.block_id]
                                         if op and other ~= block and tile.x >= op.placement.x and tile.y >= op.placement.y
