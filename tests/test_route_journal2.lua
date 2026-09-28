@@ -99,5 +99,25 @@ end, 2, 2)
 local f = assert(io.open("logic/bp/route.lua", "r")); local src = f:read("*a"); f:close()
 H.equal(src:find("local snapshot = route_snapshot(work)", 1, true) == nil, true, "JN6 append path has no snapshot")
 H.equal(src:find("jset(work", 1, true) ~= nil, true, "JN6 journal mutation helpers are used")
+local append_start = assert(src:find("local function append_normal_path(work", 1, true))
+local append_end = assert(src:find("local function append_underground(work", append_start, true))
+local append_source = src:sub(append_start, append_end)
+for _, field in ipairs({"entities", "segments", "bindings", "segments_by_cell", "entity_by_segment",
+        "underground_cells", "splitter_blocked_cells"}) do
+    local raw_write = false
+    for line in append_source:gmatch("[^\n]+") do
+        local start = 1
+        while true do
+            local at = line:find("work." .. field .. "[", start, true)
+            if not at then break end
+            local close = line:find("]", at, true)
+            local tail = close and line:sub(close + 1):match("^%s*(.*)") or ""
+            if tail:sub(1, 1) == "=" and tail:sub(2, 2) ~= "=" then raw_write = true end
+            start = (close or at) + 1
+        end
+    end
+    H.equal(raw_write, false, "JN6 no raw " .. field .. " writes in append")
+end
+H.equal(append_source:find("table.insert(work.entities", 1, true), nil, "JN6 no raw entity insert")
 
 H.done("test_route_journal2")

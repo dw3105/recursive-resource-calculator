@@ -1560,9 +1560,8 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
     return true, nil, segment
 end
 
---Appending is the commit point for a complete route.  Keep a cheap structural checkpoint around it so a
---defensive validation failure (capacity, a splitter footprint, or a late crossing conflict) cannot leave a
---successful prefix in the working graph.
+--Appending is the commit point for a complete route. Its frame lets a defensive refusal undo the successful
+--prefix without copying the route graph.
 local function route_snapshot(work)
     if work.counters then work.counters.route_snapshots = (work.counters.route_snapshots or 0) + 1 end
     local entity_serial, segment_serial = work.entity_serial, work.segment_serial
