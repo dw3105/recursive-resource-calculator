@@ -1219,7 +1219,15 @@ local add_allocation
 --ordinary demands are connected to their heads and ports.
 local function lay_belt_runs(work)
     for _, run in ipairs(work.belt_runs or {}) do
-        local capacity, kind = capacity_for(work, {is_fluid = false})
+        --A row fed by a map-edge item carries stacked items too (player ruling 2026-09-28): size its belt from the
+        --run's own flows, else a stone row stored 60/s and validate refused 63.5/s of stacked stone.
+        local run_flow = {is_fluid = false}
+        for _, flow_id in ipairs(run.flows or {}) do
+            for _, candidate in ipairs(work.flows or {}) do
+                if candidate.flow_id == flow_id and Belt.is_external_item(candidate) then run_flow = candidate end
+            end
+        end
+        local capacity, kind = capacity_for(work, run_flow)
         local direction = run.dir
         local near_tiles = {}
         local function mark_near(x,y)
