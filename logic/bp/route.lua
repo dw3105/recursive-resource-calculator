@@ -4409,6 +4409,14 @@ local function reanchor_bindings(work)
                 local segment = work.segments_by_cell[key]
                 if segment and segment_has_flow(segment, binding.flow_id) then binding.segment_id = segment.segment_id; break end
             end
+            --binding_path walks belt headings only, so a pipe binding whose segment a kept re-route replaced stayed
+            --dead and audit_route_work then deleted it: gray + magenta grid 9 layered, casting-iron:4 lost its
+            --molten-iron binding though a new pipe sat on its port (2026-09-28, legalcopilot-dev).
+            if not live[binding.segment_id] then
+                local sink = ep_lookup(work, binding.sink_port_id, binding.sink_block_id, binding.flow_id, "in")
+                local segment = sink and work.segments_by_cell[coordinate_key(sink.x, sink.y)]
+                if segment and segment_has_flow(segment, binding.flow_id) then binding.segment_id = segment.segment_id end
+            end
         end
     end
 end
@@ -5043,7 +5051,7 @@ Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_bindi
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
     prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end, find_binding = find_binding,
-    splitter_straight_fed = splitter_straight_fed, apply_bury = apply_bury,
+    splitter_straight_fed = splitter_straight_fed, apply_bury = apply_bury, reanchor_bindings = function(w) return reanchor_bindings(w) end,
     jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route
