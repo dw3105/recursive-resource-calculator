@@ -17,6 +17,7 @@ local Buffer = require "logic.bp.buffer"
 
 local EPSILON = 1e-9
 local INF = math.huge
+local declared_cache = setmetatable({}, {__mode = "k"})
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= INF and value ~= -INF then return value end
@@ -117,13 +118,29 @@ local function port_index(ports)
     local result = {}
     for index, port in ipairs(ports or {}) do
         local primary = port.port_id or id_of(port, tostring(index))
-        if primary ~= nil and result[primary] == nil then result[primary] = port end
+        if primary ~= nil then result[primary] = result[primary] or {}; result[primary][#result[primary] + 1] = port end
     end
     for index, port in ipairs(ports or {}) do
         local alias = id_of(port, tostring(index))
-        if alias ~= nil and result[alias] == nil then result[alias] = port end
+        if alias ~= nil then
+            local found = false
+            for _, existing in ipairs(result[alias] or {}) do if existing == port then found = true; break end end
+            if not found then result[alias] = result[alias] or {}; result[alias][#result[alias] + 1] = port end
+        end
     end
     return result
+end
+
+local function resolve_port(index, id, binding, half)
+    local candidates = index[id] or {}
+    local owner = binding[half .. "_step_id"] or binding[half .. "_block_id"]
+        or binding.step_id or binding.block_id
+    if owner ~= nil then
+        for _, port in ipairs(candidates) do
+            if (port.step_id or port.block_id) == owner then return port end
+        end
+    end
+    return candidates[1]
 end
 
 local function placement_map(source)
@@ -325,7 +342,8 @@ end
 --one.  Inserter declarations use `declares_flow` below and therefore fail closed when they are absent.
 local function transport_accepts_flow(info, wanted_flow)
     if wanted_flow == nil then return true end
-    local declared = declared_flow_ids(info)
+    local declared = declared_cache[info]
+    if not declared then declared = declared_flow_ids(info); declared_cache[info] = declared end
     if #declared == 0 then return true end
     for _, flow_id in ipairs(declared) do if flow_id == wanted_flow then return true end end
     return false
@@ -392,8 +410,10 @@ local function collect_ports(root)
     local function add(port, fallback)
         if type(port) ~= "table" then return end
         local id = port.port_id or port.id or fallback
-        if id == nil or seen[id] then return end
-        seen[id] = true; local copy = copy_table(port); copy.port_id = id; result[#result + 1] = copy
+        if id == nil then return end
+        local key = table.concat({tostring(id), tostring(port.step_id or port.block_id), tostring(port.member_id)}, "\0")
+        if seen[key] then return end
+        seen[key] = true; local copy = copy_table(port); copy.port_id = id; result[#result + 1] = copy
     end
     for _, port in ipairs(list_from(root.ports or root.block_ports)) do add(port) end
     for _, port in ipairs(list_from(root.perimeter_ports or root.external_ports)) do add(port) end
@@ -1274,6 +1294,8 @@ local function check_underground(work)
             if horizontal then return direction == Grid.EAST or direction == Grid.WEST end
             return direction == Grid.NORTH or direction == Grid.SOUTH
         end
+        -- Same-fluid surface pipes do not interact with a pipe-to-ground span (legalcopilot-dev, 2026-09-28).
+        if transport_kind(source) == "pipe" or transport_kind(sink) == "pipe" then return nil end
         local source_flow = source.entity.flow_id
         for _, candidate in ipairs(work.infos) do
             if candidate ~= source and candidate ~= sink and transport_kind(candidate)
@@ -1757,7 +1779,8 @@ local function check_transport_shapes(work)
                     stack[#stack] = nil
                 else
                     top[2] = index + 1
-                    if next_key and tiles[next_key] then
+                    if next_key and tiles[next_key] and not (tiles[key].ug ~= "input"
+                        and tiles[next_key].d == Grid.dir_opposite(tiles[key].d)) then
                         if colour[next_key] == 1 then
                             local tile = tiles[next_key]
                             error_record(work.errors, "BP_V_ROUTE_LOOP", {tostring(tile.info.id)},
@@ -1775,16 +1798,42 @@ local function check_transport_shapes(work)
     return true
 end
 
+-- Per-work tile indexes preserve infos order and avoid the measured 1.5-2.1 s scans (legalcopilot-dev, 2026-09-28).
+local tile_cache = setmetatable({}, {__mode = "k"})
+local build_tile_cache
 local function cell_occupant(work, x, y)
     if x == nil or y == nil then return nil end
     x, y = math.floor(x), math.floor(y)
+    local cache = tile_cache[work]
+    if not cache then cache = build_tile_cache(work); tile_cache[work] = cache end
+    local list = cache.infos[tile_key(x, y)]
+    if list then return list[1] end
+    return nil
+end
+
+build_tile_cache = function(work)
+    local infos, segments = {}, {}
+    local function add(index, x, y, value)
+        local key = tile_key(x, y); index[key] = index[key] or {}; index[key][#index[key] + 1] = value
+    end
     for _, info in ipairs(work.infos) do
         local left, top, width, height = entity_tile_rect(info)
-        if x >= left and x < left + width and y >= top and y < top + height then
-            return info
+        for x = left, left + width - 1 do for y = top, top + height - 1 do add(infos, x, y, info) end end
+    end
+    for _, segment in ipairs(work.segments) do
+        local points = segment.cells or segment.tiles or segment.path or segment.positions
+        local seen = {}
+        for _, point in ipairs(list_from(points)) do
+            local x, y = type(point) == "table" and finite(point.x) or nil, type(point) == "table" and finite(point.y) or nil
+            if x == nil and type(point) == "table" then x, y = finite(point[1]), finite(point[2]) end
+            --A segment is listed once per tile: occupant_at walks the segment's own points again for the report.
+            if x ~= nil and y ~= nil and not seen[tile_key(math.floor(x), math.floor(y))] then
+                seen[tile_key(math.floor(x), math.floor(y))] = true
+                add(segments, math.floor(x), math.floor(y), segment)
+            end
         end
     end
-    return nil
+    return {infos = infos, segments = segments}
 end
 
 local function legal_transfer_occupant(info)
@@ -2544,7 +2593,9 @@ local function check_port_approaches(work, port_index)
     local function occupant_at(port, x, y, points_into_port)
         local wanted_flow = port.flow_id or port.full_name
         if wanted_flow == nil then return end
-        for _, info in ipairs(work.infos) do
+        local cache = tile_cache[work]
+        if not cache then cache = build_tile_cache(work); tile_cache[work] = cache end
+        for _, info in ipairs(cache.infos[tile_key(math.floor(x), math.floor(y))] or {}) do
             local kind = transport_kind(info)
             local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
             if kind and ((fluid_port and kind == "pipe") or (not fluid_port and kind == "belt")) then
@@ -2559,7 +2610,7 @@ local function check_port_approaches(work, port_index)
                 end
             end
         end
-        for _, segment in ipairs(work.segments) do
+        for _, segment in ipairs(cache.segments[tile_key(math.floor(x), math.floor(y))] or {}) do
             local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
             local segment_kind = segment.kind == "pipe" and "pipe" or "belt"
             local flow_ids = {}
@@ -2680,7 +2731,8 @@ local function check_ports(work)
         end
     end
     for _, binding in ipairs(work.bindings) do
-        local source_id, sink_id = binding.source_port_id or binding.source, binding.sink_port_id or binding.sink; local source, sink = work.port_by_id[source_id], work.port_by_id[sink_id]
+        local source_id, sink_id = binding.source_port_id or binding.source, binding.sink_port_id or binding.sink
+        local source, sink = resolve_port(work.port_by_id, source_id, binding, "source"), resolve_port(work.port_by_id, sink_id, binding, "sink")
         local source_external = source and is_external_port(source)
         local sink_external = sink and is_external_port(sink)
         local source_ok = source and (source.role == "out" or (source.role == "in" and source_external))
