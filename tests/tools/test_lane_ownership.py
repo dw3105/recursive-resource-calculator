@@ -180,5 +180,79 @@ class LaneOwnership(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
+    def test_write_manifest_from_task_has_real_newlines(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); (d/'logic').mkdir(); (d/'logic'/'bp').mkdir(parents=True,exist_ok=True); (d/'tools').mkdir()
+            (d/'tools'/'x.py').write_text(''); (d/'logic'/'bp'/'x.lua').write_text('')
+            task=d/'task.md'; task.write_text('## Files this lane owns\n- `!new.lua`\n- `tools/x.py` — scope\n- `logic/bp/`\n')
+            out=d/'out.manifest'; r=subprocess.run([sys.executable,str(TOOL),'write-manifest','--task',str(task),'--out',str(out),'--repo',str(d)],capture_output=True,text=True)
+            expected=b'# written by tools/lane_ownership.py write-manifest\n!new.lua\ntools/x.py\nlogic/bp/\n'
+            self.assertEqual(r.returncode,0); self.assertEqual(r.stdout,f'wrote {out}: 3 path(s), 1 required\n'); self.assertEqual(out.read_bytes(),expected); self.assertNotIn(b'\\n',out.read_bytes()); self.assertEqual(len(out.read_bytes().splitlines()),4)
+
+    def test_written_manifest_passes_dispatch_preflight(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); (d/'tools').mkdir(); (d/'tools'/'x.py').write_text(''); task=d/'task.md'; task.write_text('## Files this lane owns\n- `tools/x.py`\n')
+            out=d/'out'; r=subprocess.run([sys.executable,str(TOOL),'write-manifest','--task',str(task),'--out',str(out),'--repo',str(d)],capture_output=True,text=True)
+            self.assertEqual(r.returncode,0,r.stdout)
+            sys.path.insert(0,str(REPO/'tools'))
+            import check_dispatch
+            parsed=check_dispatch.parse_manifest(out,d)
+            self.assertEqual(parsed.problems,()); self.assertEqual(check_dispatch._check_manifest_files(parsed,d),[])
+
+    def test_write_manifest_refuses_task_without_owned_paths(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); task=d/'task.md'; task.write_text('## Files this lane owns\nlogic/a.lua, control.lua\n')
+            out=d/'out'; r=subprocess.run([sys.executable,str(TOOL),'write-manifest','--task',str(task),'--out',str(out)],capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(2,'refused: no owned paths in %s\n'%task)); self.assertFalse(out.exists())
+
+    def test_write_manifest_refuses_missing_path_without_bang(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); out=d/'out'; r=subprocess.run([sys.executable,str(TOOL),'write-manifest','--path','missing.lua','--out',str(out),'--repo',str(d)],capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(2,'refused: owned path must exist at base or carry \'!\': missing.lua\n')); self.assertFalse(out.exists())
+
+    def _task_repo(self,d, owned='module.lua'):
+        base=self.build(d); task=d/'task.md'; task.write_text('## Files this lane owns\n- `%s`\n'%owned); git(d,'add','.'); git(d,'commit','-q','-m','task'); base=subprocess.run(['git','rev-parse','HEAD'],cwd=d,capture_output=True,text=True).stdout.strip(); return base,task
+
+    def test_check_from_task_owned_file_passes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); base,task=self._task_repo(d); (d/'module.lua').write_text('change'); git(d,'add','.'); git(d,'commit','-q','-m','lane')
+            r=subprocess.run([sys.executable,str(TOOL),'check','--base',base,'--task',str(task),'--repo',str(d)],capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(0,'owned-only: 1 file(s) changed, 0 required deliverable(s) present\n'))
+
+    def test_check_from_task_foreign_file_fails(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); base,task=self._task_repo(d); (d/'control.lua').write_text('change'); git(d,'add','.'); git(d,'commit','-q','-m','lane')
+            r=subprocess.run([sys.executable,str(TOOL),'check','--base',base,'--task',str(task),'--repo',str(d)],capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(1,'OWNERSHIP: not owned by this lane: control.lua\n'))
+
+    def test_check_reads_task_at_base_not_worktree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); base,task=self._task_repo(d); task.write_text('## Files this lane owns\n- `module.lua`\n- `control.lua`\n'); (d/'control.lua').write_text('change'); git(d,'add','.'); git(d,'commit','-q','-m','lane')
+            r=subprocess.run([sys.executable,str(TOOL),'check','--base',base,'--task',str(task),'--repo',str(d)],capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(1,'OWNERSHIP: not owned by this lane: control.lua\nOWNERSHIP: not owned by this lane: task.md\n'))
+
+    def test_check_dot_is_literal(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); base,task=self._task_repo(d,'pack.lua'); (d/'packXlua').write_text('change'); git(d,'add','.'); git(d,'commit','-q','-m','lane')
+            r=subprocess.run([sys.executable,str(TOOL),'check','--base',base,'--task',str(task),'--repo',str(d)],capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(1,'OWNERSHIP: not owned by this lane: packXlua\n'))
+
+    def test_check_refuses_moving_ref_base(self):
+        r=subprocess.run([sys.executable,str(TOOL),'check','--base','master','--manifest','ignored'],capture_output=True,text=True)
+        self.assertEqual((r.returncode,r.stdout),(2,'refused: base must be a commit sha, not a ref: master\n'))
+
+    def test_check_refuses_uncommitted_file(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); base,task=self._task_repo(d); (d/'loose.lua').write_text('untracked')
+            r=subprocess.run([sys.executable,str(TOOL),'check','--base',base,'--task',str(task),'--repo',str(d)],capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(1,'OWNERSHIP: uncommitted change: loose.lua\n'))
+
+    def test_check_runs_under_posix_sh_in_one_line(self):
+        with tempfile.TemporaryDirectory() as temp:
+            d=Path(temp); base,task=self._task_repo(d); (d/'module.lua').write_text('change'); git(d,'add','.'); git(d,'commit','-q','-m','lane')
+            command='python3 %s check --base %s --task %s --repo %s'%(TOOL,base,task,d)
+            r=subprocess.run(command,shell=True,executable='/bin/sh',capture_output=True,text=True)
+            self.assertEqual((r.returncode,r.stdout),(0,'owned-only: 1 file(s) changed, 0 required deliverable(s) present\n'))
+
 if __name__ == "__main__":
     unittest.main()
