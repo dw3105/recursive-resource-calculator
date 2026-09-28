@@ -240,15 +240,15 @@ function PipeRuns.bury(work, h)
                             local second_entity = {id = second_id, name = name,
                                 position = h.entity_position(last.x, last.y), direction = direction, dir = direction,
                                 flow_id = flow, ug_role = "output", ug_pair_id = first_id, segment_id = pair.segment_id}
-                            work.entities[#work.entities + 1] = first_entity
-                            work.entities[#work.entities + 1] = second_entity
-                            work.segments[#work.segments + 1] = pair
-                            by_cell[pair.underground_entry_key] = pair
-                            by_cell[pair.underground_exit_key] = pair
-                            work.underground_cells = work.underground_cells or {}
-                            work.underground_cells[pair.underground_entry_key] = true
-                            work.underground_cells[pair.underground_exit_key] = true
-                            work.entity_by_segment[pair.segment_id] = first_entity
+                            h.jinsert(work, work.entities, first_entity)
+                            h.jinsert(work, work.entities, second_entity)
+                            h.jinsert(work, work.segments, pair)
+                            h.jset(work, by_cell, pair.underground_entry_key, pair)
+                            h.jset(work, by_cell, pair.underground_exit_key, pair)
+                            if not work.underground_cells then h.jset(work, work, "underground_cells", {}) end
+                            h.jset(work, work.underground_cells, pair.underground_entry_key, true)
+                            h.jset(work, work.underground_cells, pair.underground_exit_key, true)
+                            h.jset(work, work.entity_by_segment, pair.segment_id, first_entity)
                             entity_by_segment[pair.segment_id] = first_entity
                             pairs_laid = pairs_laid + 1
                         end
