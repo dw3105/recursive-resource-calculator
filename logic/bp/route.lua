@@ -4734,10 +4734,7 @@ function Route.step(state, budget)
                     local reason = search.saw_fluid_mix and "fluid_mix"
                         or (search.saw_capacity and "capacity" or (search.saw_blocked and "blocked" or "no_path"))
                     abandon_search(work, reason)
-                    if search.saw_blocked and not search.saw_capacity and not search.saw_fluid_mix
-                        and search.order_index < #DIRECTION_ORDERS then
-                        work.current = begin_search(work, demand, amount, search.order_index + 1)
-                    elseif next_endpoint_candidate(demand) then
+                    if next_endpoint_candidate(demand) then
                         work.current = nil
                     elseif not demand.allow_ride and not search.saw_fluid_mix and not search.saw_capacity
                         and demand.kind ~= "pipe" and has_rideable_pair(work, demand.flow_id) then

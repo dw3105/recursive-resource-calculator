@@ -15,6 +15,7 @@ Player said 7 times (2026-09-23..27): "did I not asked you to use fast checks wh
 | 1 | One stage on one frozen input | `lua5.2 tools/capture_stage_input.lua <prepared.json> <out.json> <groups|pack|route|power|validate>` once, then replay `Stage.begin/step` in a test or stdin probe | groups 0.5-1.7 s |
 | 2 | Any step of a golden run, from any point | `lua5.2 tools/ckpt.lua list <case>` → `save <case> <at-spec> <out.lua.gz>` → `resume <file> [--until <spec> --save <out>] [--patch f.lua]` | save once, resume seconds |
 | 3 | One failed route demand | `lua5.2 tools/route_fail_snapshot.lua <route_input.json> <N|0> <out>` then `tools/route_replay_one.lua <snap[.gz]>` (`PATCH=`, `MAP=1`) | replay 0.05-10 s |
+| 3b | Profile one route checkpoint | `lua5.2 tools/route_prof.lua <checkpoint.lua.gz> [--until <at-spec>] [--set coarse|fine|all] [--patch f.lua]` | checkpoint resume time |
 | 4 | Try a fix without editing code | in-memory patch: read module source, `gsub` (replacement as function: `%` breaks strings), `package.preload`; for tests `LUA_INIT=@patch.lua lua5.2 tests/<t>.lua` | seconds |
 | 5 | First verdict of a stage on a whole sheet | `lua5.2 tools/first_stage.lua <case> <pack|route|validate>` (`DETAIL=1`, `FAST_TIDY=1`) | 7-170 s |
 | 6 | Where time goes | `lua5.2 tools/golden_profile.lua <case> <out.json> [--cap S]` → `python3 tools/golden_report.py <dir> <out.html>` | = sheet time |
