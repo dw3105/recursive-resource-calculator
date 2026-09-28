@@ -77,6 +77,16 @@ local function tile_accepts(index, x, y, dir, need)
     end
     return false
 end
+--An underground entrance entered from its side takes one lane only; the other lane stops at the hood. Gray +
+--magenta grid 9 layered (2026-09-28, legalcopilot-dev): iron-ore end (13,22) turned west into its own flow's
+--entrance (12,22) and the validator found a blocked lane. Refused for every flow.
+local function side_into_underground(index, x, y, dir)
+    for _, e in ipairs(index[x..","..y] or {}) do
+        if kind(e) == "underground" and (e.ug_role == "input" or e.type == "input") and occupies(e, x, y)
+            and direction(e) ~= dir then return true end
+    end
+    return false
+end
 
 function Ends.turn_heads(route_result)
     local entities=route_result and route_result.entities or {}
@@ -91,7 +101,7 @@ function Ends.turn_heads(route_result)
                 local candidates={(d+12)%16,(d+4)%16}
                 for _, h in ipairs(candidates) do
                     local fx,fy=x+DX[h],y+DY[h]
-                    local bad=tile_accepts(occ,fx,fy,h,need)
+                    local bad=tile_accepts(occ,fx,fy,h,need) or side_into_underground(occ,fx,fy,h)
                     if not bad then
                         -- Preserve all current feeders, and do not create a new foreign side feed.
                         for _, n in ipairs({{x+1,y},{x-1,y},{x,y+1},{x,y-1}}) do
