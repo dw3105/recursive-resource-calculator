@@ -26,6 +26,8 @@ Player said 7 times (2026-09-23..27): "did I not asked you to use fast checks wh
 - **RC-04** Stage inputs can lie: diff a capture's catalog against a live one before diagnosing layout
   (am2-chain 2026-09-27: empty inserter offsets → rebuild via `tools/prepared_from_export.py`).
 - **RC-05** Never `require "tests.harness"` in tools that run whole sheets (resets `logic.*`, sets game globals).
+- **RC-05b** `tools/golden_profile.lua` preloads its own `logic.bp.search`/`logic.bp.route`: `LUA_INIT` patches of those
+  modules are ignored under it. Prove a patch is live (marker line) before any run over 60 s.
 
 ## Talking to player
 
