@@ -1426,7 +1426,20 @@ end
 local function port_owner(work, port)
     local wanted = port.block_id
     local owner
-    for _, block in ipairs(work.blocks or {}) do
+    --Two row blocks share a row port id; the published port has no block_id, only its member. Matching the id alone
+    --placed both production-science rail inputs on block @7's tile and rail:1/2 read as discontinuous (gray +
+    --magenta grid 9 layered, 2026-09-28 legalcopilot-dev). Member first, id alone as before.
+    if wanted == nil and port.member_id ~= nil then
+        for _, block in ipairs(work.blocks or {}) do
+            for _, candidate in ipairs(list_from(block.ports or block.block_ports)) do
+                if (candidate.port_id or candidate.id) == port.port_id and candidate.member_id == port.member_id then
+                    owner = block; break
+                end
+            end
+            if owner then break end
+        end
+    end
+    for _, block in ipairs(owner and {} or work.blocks or {}) do
         local block_id = block.block_id or block.id
         if wanted == nil then
             for _, candidate in ipairs(list_from(block.ports or block.block_ports)) do
@@ -3342,4 +3355,5 @@ function Validate.compare(a_score, b_score)
     if a_key < b_key then return -1 end; if a_key > b_key then return 1 end; return 0
 end
 
+Validate._test = {port_owner = port_owner}
 return Validate
