@@ -608,6 +608,34 @@ local function sink_key(endpoint, work, explicit_port_id)
     return "step:" .. tostring(endpoint.step_id)
 end
 
+--On legalcopilot-dev (2026-09-28), duplicate row ids made improve lift a shared furnace trunk and lose 17 belts.
+local function ep_lookup(work, port_id, block_id, flow_id, role)
+    if block_id ~= nil and flow_id ~= nil and role ~= nil then
+        work.endpoint_by_block = work.endpoint_by_block or {}
+        local by_flow = work.endpoint_by_block[flow_id]
+        if not by_flow then by_flow = { ["in"] = {}, ["out"] = {} }; work.endpoint_by_block[flow_id] = by_flow end
+        local by_block = by_flow[role][block_id]
+        if not by_block then by_block = {}; by_flow[role][block_id] = by_block end
+        local fast = by_block
+        if fast and fast[port_id] then return fast[port_id] end
+        for _, endpoint in ipairs(work.rear_endpoints or {}) do
+            local carries = endpoint.flow_id == flow_id
+            for _, id in ipairs(endpoint.flow_ids or {}) do if id == flow_id then carries = true end end
+            if endpoint.port_id == port_id and endpoint.block_id == block_id and carries then
+                by_block[port_id] = endpoint; return endpoint
+            end
+        end
+        for _, endpoint in ipairs(work.endpoint_index and work.endpoint_index[flow_id]
+            and work.endpoint_index[flow_id][role] or {}) do
+            if endpoint.port_id == port_id and endpoint.block_id == block_id then
+                by_block[port_id] = endpoint; return endpoint
+            end
+        end
+    end
+    return work.endpoint_by_id and work.endpoint_by_id[port_id]
+end
+
+
 local function endpoint_candidates(index, flow_id, role, step_id)
     local by_flow = index[flow_id] or {}
     local candidates = by_flow[role] or {}
@@ -1188,6 +1216,19 @@ local function lay_belt_runs(work)
     for _, run in ipairs(work.belt_runs or {}) do
         local capacity, kind = capacity_for(work, {is_fluid = false})
         local direction = run.dir
+        local near_tiles = {}
+        local function mark_near(x,y)
+            if x == nil or y == nil then return end
+            near_tiles[coordinate_key(x,y)] = true
+            for _, d in ipairs(DIRECTIONS) do local dx,dy=Grid.dir_vector(d); near_tiles[coordinate_key(x+dx,y+dy)] = true end
+        end
+        mark_near(run.head and run.head.x,run.head and run.head.y)
+        if run.tiles and #run.tiles>0 then
+            mark_near(run.tiles[1].x,run.tiles[1].y); mark_near(run.tiles[#run.tiles].x,run.tiles[#run.tiles].y)
+            for _,tile in ipairs(run.tiles) do near_tiles[coordinate_key(tile.x,tile.y)]=true end
+        end
+        for _,feed in ipairs(run.feeds or {}) do if feed.side_tile then mark_near(feed.side_tile.x,feed.side_tile.y) end end
+        --Measured legalcopilot-dev (2026-09-28): demand-local row booking reduced validation errors 334 -> 137; 13 golden sheet bytes stayed unchanged.
         for _, tile in ipairs(run.tiles or {}) do
             local key = coordinate_key(tile.x, tile.y)
             if not work.segments_by_cell[key] then
@@ -1196,11 +1237,21 @@ local function lay_belt_runs(work)
                     fixed = true, belt_run_role = run.role}
                 for _, flow_id in ipairs(run.flows or {}) do
                     register_segment_flow(work, segment, flow_id)
+                    local local_demands={}
+                    for _, demand in ipairs(work.demands or {}) do
+                        local endpoint=run.role=="in" and demand.sink or demand.source
+                        if demand.flow_id==flow_id and endpoint and near_tiles[coordinate_key(endpoint.x,endpoint.y)] then
+                            local_demands[demand]=true
+                        end
+                    end
+                    local has_near_demand=next(local_demands)~=nil
                     for _, demand in ipairs(work.demands or {}) do
                         local endpoint = run.role == "in" and demand.sink or demand.source
-                        if not run.synthetic_collector and demand.flow_id == flow_id and endpoint and endpoint.step_id ~= "$external" then
+                        if not run.synthetic_collector and demand.flow_id == flow_id and endpoint and endpoint.step_id ~= "$external"
+                            and (not has_near_demand or local_demands[demand]) then
                             add_allocation(work, segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
                         elseif run.synthetic_collector and demand.flow_id == flow_id and endpoint
+                            and (not has_near_demand or local_demands[demand])
                             and (tile.x ~= endpoint.x or tile.y ~= endpoint.y) then
                             add_allocation(work, segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
                         end
@@ -1759,11 +1810,18 @@ local function route_chain_reaches_sink(work, demand, path)
     return route_chain_reaches_tiles(work, demand.source, demand.sink, demand.flow_id)
 end
 
+local function row_head_reuse_guard(demand, cell, segment, index, path_length)
+    return index == path_length and demand.kind ~= "pipe" and demand.sink and demand.sink.row_port
+        and demand.sink.role == "in" and demand.sink.travel_dir ~= nil
+        and cell.x == demand.sink.x and cell.y == demand.sink.y and not segment.splitter and not segment.underground
+        and segment.direction ~= demand.sink.travel_dir
+end
+
 local function all_bindings_reach_sinks(work)
     local reached_by = {}
     for _, binding in ipairs(work.bindings or {}) do
-        local source = work.endpoint_by_id and work.endpoint_by_id[binding.source_port_id]
-        local sink = work.endpoint_by_id and work.endpoint_by_id[binding.sink_port_id]
+        local source = ep_lookup(work,binding.source_port_id,binding.source_block_id,binding.flow_id,"out")
+        local sink = ep_lookup(work,binding.sink_port_id,binding.sink_block_id,binding.flow_id,"in")
         if not source or not sink then return false end
         local memo_key = coordinate_key(source.x, source.y) .. "|" .. tostring(binding.flow_id)
         local reached = reached_by[memo_key]
@@ -1902,8 +1960,9 @@ end
 local function append_collector_member_bindings(work, demand, sink, segment_id)
     for _, member in ipairs(demand.collector_members or {}) do
         if member.endpoint.port_id ~= demand.source.port_id then
-            jinsert(work, work.bindings, {source_port_id = member.endpoint.port_id,
+            jinsert(work, work.bindings, {source_port_id = member.endpoint.port_id, source_block_id = member.endpoint.block_id,
                 sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
+                sink_block_id = demand.sink.block_id,
                 sink = sink, flow_id = demand.flow_id, segment_id = segment_id, rate_per_second = member.amount})
         end
     end
@@ -2005,6 +2064,10 @@ local function append_normal_path(work, demand, path, amount)
             direction = segment.direction
         end
         if segment then
+            if row_head_reuse_guard(demand,cell,segment,index,#path) then
+                --On legalcopilot-dev (2026-09-28), this rejected the sole bad case among 32 row demands: a trunk crossed (7,104), leaving its head unfed.
+                return reject("occupied")
+            end
             if segment.fixed and outgoing ~= nil and outgoing ~= segment.direction then return reject("occupied") end
             --A path may END on a splitter's second tile: that is where the sink's own port sits, and an
             --inserter picks from the tile, never from a tile further on.  Only LEAVING the body needs the
@@ -2109,7 +2172,8 @@ local function append_normal_path(work, demand, path, amount)
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
     if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
-        jinsert(work, work.bindings, {source_port_id = demand.source.port_id, sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
+        jinsert(work, work.bindings, {source_port_id = demand.source.port_id, source_block_id = demand.source.block_id,
+            sink_port_id = demand.binding_sink_port_id or demand.sink.port_id, sink_block_id = demand.sink.block_id,
             sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id,
             rate_per_second = collector_source_rate(demand, amount)})
         append_collector_member_bindings(work, demand, sink, first_segment.segment_id)
@@ -2162,7 +2226,8 @@ local function append_underground(work, demand, candidate, amount)
     jset(work, work.underground_cells, coordinate_key(candidate.sink.x, candidate.sink.y), true)
     local sink = sink_key(demand.sink, work, demand.sink_port_id)
     add_allocation(work, segment, demand.flow_id, sink, amount)
-    jinsert(work, work.bindings, {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
+    jinsert(work, work.bindings, {source_port_id = demand.source.port_id, source_block_id = demand.source.block_id,
+        sink_port_id = demand.sink.port_id, sink_block_id = demand.sink.block_id,
         sink = sink, flow_id = demand.flow_id, segment_id = segment.segment_id,
         rate_per_second = collector_source_rate(demand, amount)})
     append_collector_member_bindings(work, demand, sink, segment.segment_id)
@@ -3313,7 +3378,7 @@ local function normalize_input(input)
         belt_runs = (function() local runs = {}; for i, run in ipairs(input.belt_runs or {}) do runs[i] = run end; return runs end)(),
         collectors = input.collectors ~= false, collectors_used = false,
         input_entities = input_entities,
-        grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, perimeter = {},
+        grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_block = {}, endpoint_by_id = {}, rear_endpoints = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         --Ids were derived from the arrays' LENGTH.  merge_splitter_footprint folds a side segment out
         --of both arrays, so the next id repeated one already in the result: measured 2026-09-22 as
@@ -3337,10 +3402,19 @@ local function normalize_input(input)
                 work.endpoint_by_id[endpoint.port_id] = endpoint
                 work.endpoint_index[endpoint.flow_id] = work.endpoint_index[endpoint.flow_id] or {["in"] = {}, ["out"] = {}}
                 work.endpoint_index[endpoint.flow_id][endpoint.role][#work.endpoint_index[endpoint.flow_id][endpoint.role] + 1] = endpoint
+                work.endpoint_by_block[endpoint.flow_id] = work.endpoint_by_block[endpoint.flow_id] or { ["in"] = {}, ["out"] = {} }
+                work.endpoint_by_block[endpoint.flow_id][endpoint.role][endpoint.block_id] = work.endpoint_by_block[endpoint.flow_id][endpoint.role][endpoint.block_id] or {}
+                work.endpoint_by_block[endpoint.flow_id][endpoint.role][endpoint.block_id][endpoint.port_id] = endpoint
             elseif endpoint and port.rear and port.port_id == "row:in:rear" then
                 -- Keep the multi-flow rear door out of first-pass demand indexing, but make
                 -- its physical location available to the improve pass.
                 work.endpoint_by_id[endpoint.port_id] = endpoint
+                work.rear_endpoints[#work.rear_endpoints + 1] = endpoint
+                for _, flow_id in ipairs(endpoint.flow_ids or {}) do
+                    work.endpoint_by_block[flow_id] = work.endpoint_by_block[flow_id] or { ["in"] = {}, ["out"] = {} }
+                    work.endpoint_by_block[flow_id][endpoint.role][endpoint.block_id] = work.endpoint_by_block[flow_id][endpoint.role][endpoint.block_id] or {}
+                    work.endpoint_by_block[flow_id][endpoint.role][endpoint.block_id][endpoint.port_id] = endpoint
+                end
             end
         end
     end
@@ -3670,8 +3744,8 @@ end
 --The tiles items actually travel from `source` to `sink`, following laid same-flow segments, pairs and both
 --splitter outputs.  nil when the chain does not reach.
 local function binding_path(work, binding)
-    local source = work.endpoint_by_id and work.endpoint_by_id[binding.source_port_id]
-    local sink = work.endpoint_by_id and work.endpoint_by_id[binding.sink_port_id]
+    local source = ep_lookup(work,binding.source_port_id,binding.source_block_id,binding.flow_id,"out")
+    local sink = ep_lookup(work,binding.sink_port_id,binding.sink_block_id,binding.flow_id,"in")
     if not source or not sink then return nil end
     local start, target = coordinate_key(source.x, source.y), coordinate_key(sink.x, sink.y)
     local parent, queue, head = {[start] = false}, {start}, 1
@@ -4100,7 +4174,7 @@ end
 local function find_binding(work, wanted)
     for _, candidate in ipairs(work.bindings or {}) do
         if candidate.source_port_id == wanted[1] and candidate.sink_port_id == wanted[2]
-            and candidate.rate_per_second == wanted[3] then return candidate end
+            and candidate.rate_per_second == wanted[3] and (wanted[4] == nil or candidate.sink_block_id == wanted[4]) then return candidate end
     end
 end
 
@@ -4134,7 +4208,8 @@ local function trial_start(work, wanted, demand, option)
             local binding = find_binding(work, spec)
             local d
             for _, candidate in ipairs(work.demands or {}) do
-                if candidate.source.port_id == spec[1] and candidate.sink.port_id == spec[2] then d = candidate; break end
+                if candidate.source.port_id == spec[1] and candidate.sink.port_id == spec[2]
+                    and (spec[4] == nil or candidate.sink.block_id == spec[4]) then d = candidate; break end
             end
             if not binding or not d or not lift_binding(work, binding) then trial.done = true; return trial end
             trial.demands[#trial.demands + 1] = d
@@ -4222,7 +4297,7 @@ end
 
 local function retry_binding_skipped(st, wanted)
     st.retry_seen = st.retry_seen or {}
-    local retry_key = tostring(wanted[1]) .. "|" .. tostring(wanted[2]) .. "|" .. tostring(wanted[3])
+    local retry_key = tostring(wanted[1]) .. "|" .. tostring(wanted[2]) .. "|" .. tostring(wanted[3]) .. "|" .. tostring(wanted[4])
     local repeated = st.retry_seen[retry_key] == st.improved
     st.retry_seen[retry_key] = st.improved
     return repeated
@@ -4232,7 +4307,7 @@ improve_begin = function(work)
     --Bindings are named by fields, never held by reference: a restored snapshot replaces every table.
     local order = {}
     for _, binding in ipairs(work.bindings or {}) do
-        order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second}
+        order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second, binding.sink_block_id}
     end
     work.port_slides = work.port_slides or {}
     return {order = order, index = 0, stage = "next", improved = 0, refused = {}}
@@ -4249,7 +4324,7 @@ local function improve_lift_can_start(work, st)
         memo = {index = st.index, improved = st.improved, order = st.order, answers = {}}
         st.lift_memo = memo
     end
-    local key = tostring(spec[1]) .. "|" .. tostring(spec[2]) .. "|" .. tostring(spec[3])
+    local key = tostring(spec[1]) .. "|" .. tostring(spec[2]) .. "|" .. tostring(spec[3]) .. "|" .. tostring(spec[4])
     local answer = memo.answers[key]
     if answer == nil then
         answer = lift_check(work, binding, false)
@@ -4282,12 +4357,11 @@ improve_step = function(work, st, ops)
                     st.merges, st.merge_index = {}, 1
                     st.merge_baseline = route_snapshot(work)
                     local seen = {}
-                    for _, rear in pairs(work.endpoint_by_id or {}) do
-                        if rear.port_id == "row:in:rear" then
+                    for _, rear in ipairs(work.rear_endpoints or {}) do
                             local feeds_by_flow = {}
                             for _, binding in ipairs(work.bindings or {}) do
                                 if binding.sink_port_id ~= rear.port_id then
-                                    local ep = work.endpoint_by_id[binding.sink_port_id]
+                                    local ep = ep_lookup(work,binding.sink_port_id,binding.sink_block_id,binding.flow_id,"in")
                                     if ep and ep.row_port and ep.role == "in" and ep.block_id == rear.block_id then
                                         feeds_by_flow[ep.flow_id] = feeds_by_flow[ep.flow_id] or {}
                                         feeds_by_flow[ep.flow_id][#feeds_by_flow[ep.flow_id] + 1] = binding
@@ -4298,7 +4372,7 @@ improve_step = function(work, st, ops)
                             local feeds_a, feeds_b = feeds_by_flow[flow_a] or {}, feeds_by_flow[flow_b] or {}
                             if feeds_a[1] and feeds_b[1] then
                                 local a, b = feeds_a[1], feeds_b[1]
-                                local source_a, source_b = work.endpoint_by_id[a.source_port_id], work.endpoint_by_id[b.source_port_id]
+                                local source_a, source_b = ep_lookup(work,a.source_port_id,a.source_block_id,a.flow_id,"out"), ep_lookup(work,b.source_port_id,b.source_block_id,b.flow_id,"out")
                                 local dx,dy=Grid.dir_vector(rear.travel_dir)
                                 local ahead_a=source_a and (source_a.x-rear.x)*dx+(source_a.y-rear.y)*dy
                                 local ahead_b=source_b and (source_b.x-rear.x)*dx+(source_b.y-rear.y)*dy
@@ -4313,7 +4387,6 @@ improve_step = function(work, st, ops)
                                     st.merges[#st.merges + 1] = {rear=rear, a=b, b=a,group_start=first,group_end=first+1}
                                 end
                             end
-                        end
                     end
                     if #st.merges > 0 then st.stage = "merge_start"; break end
                 end
@@ -4322,7 +4395,7 @@ improve_step = function(work, st, ops)
             local demand
             for _, candidate in ipairs(work.demands or {}) do
                 if candidate.source and candidate.sink and candidate.source.port_id == wanted[1]
-                    and candidate.sink.port_id == wanted[2] then demand = candidate; break end
+                    and candidate.sink.port_id == wanted[2] and (wanted[4] == nil or candidate.sink.block_id == wanted[4]) then demand = candidate; break end
             end
             local repeat_same_world = false
             if st.retrying then
@@ -4337,7 +4410,7 @@ improve_step = function(work, st, ops)
                     local port_bindings = {}
                     for _, b in ipairs(work.bindings or {}) do
                         if b.source_port_id == endpoint.port_id or b.sink_port_id == endpoint.port_id then
-                            port_bindings[#port_bindings + 1] = {b.source_port_id,b.sink_port_id,b.rate_per_second}
+                            port_bindings[#port_bindings + 1] = {b.source_port_id,b.sink_port_id,b.rate_per_second,b.sink_block_id}
                         end
                     end
                     local function add_option(option)
@@ -4444,8 +4517,8 @@ improve_step = function(work, st, ops)
                 st.pair_best_weight=math.huge
             end
             st.snapshot = route_snapshot(work)
-            local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second}),
-                find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second})
+            local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second,pair.a.sink_block_id}),
+                find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second,pair.b.sink_block_id})
             st.pair, st.accepted = pair, false
             local lifted_a, lifted_b = ba and lift_binding(work, ba, true), bb and lift_binding(work, bb, true)
             if ba and bb and lifted_a and lifted_b then
@@ -4482,7 +4555,7 @@ improve_step = function(work, st, ops)
                                 local reserved = work.port_cells[coordinate_key(cell.x,cell.y)]
                                 local merge_reserved = reserved == nil or reserved["flow:"..tostring(st.da.flow_id)]
                                     or reserved["flow:"..tostring(st.db.flow_id)] or reserved[st.pair.rear.port_id]
-                                for _, endpoint in pairs(work.endpoint_by_id or {}) do
+                                for _, endpoint in ipairs(work.rear_endpoints or {}) do
                                     if endpoint.x == cell.x and endpoint.y == cell.y then merge_reserved = false; break end
                                 end
                                 if seg and not seg.underground and not seg.splitter and not seg.fixed and merge_reserved then
@@ -4514,7 +4587,7 @@ improve_step = function(work, st, ops)
                                     ok=false; break
                                 end
                             end
-                            local a_source=work.endpoint_by_id[st.pair.a.source_port_id]
+                            local a_source=ep_lookup(work,st.pair.a.source_port_id,st.pair.a.source_block_id,st.pair.a.flow_id,"out")
                             local a_lane,a_lane_known=source_lane(work,a_source,st.da.flow_id)
                             if ok and merge_lane_witness(work,st.a_path,st.active_candidate,st.da.flow_id,a_lane) then
                                 local sink=sink_key(st.pair.rear,work,st.pair.rear.port_id)
@@ -4845,6 +4918,7 @@ Route._coordinate_key = coordinate_key
 Route._jset, Route._jinsert, Route._jremove = jset, jinsert, jremove
 Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_open, journal_rollback, journal_commit
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
-    append_normal_path = append_normal_path, jset = jset, jinsert = jinsert, jremove = jremove,
+    append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
+    row_head_reuse_guard = row_head_reuse_guard, jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route
