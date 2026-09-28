@@ -14,6 +14,7 @@ local Grid = require "logic.bp.grid"
 local Geometry = require "logic.bp.geometry"
 local Flags = require "logic.bp.flags"
 local Buffer = require "logic.bp.buffer"
+local Belt = require "logic.bp.belt"
 
 local EPSILON = 1e-9
 local INF = math.huge
@@ -938,12 +939,12 @@ local function sink_key(entry, flow, ports, role)
     return step and "step:" .. tostring(step) or nil
 end
 
-local function segment_capacity(work, segment, kind)
+local function segment_capacity(work, segment, kind, flow)
     if segment.capacity_per_second ~= nil then return finite(segment.capacity_per_second, 0) end
     if kind == "pipe" then return finite(work.catalog.pipe and work.catalog.pipe.throughput_per_second, INF) end
     if kind == "inserter" then return finite(work.catalog.inserter and work.catalog.inserter.items_per_second, INF) end
-    if kind == "lane" then return finite(work.catalog.belt and work.catalog.belt.lane_items_per_second, finite(work.catalog.belt and work.catalog.belt.items_per_second, INF)) end
-    return finite(work.catalog.belt and work.catalog.belt.items_per_second, INF)
+    local capacity = Belt.capacity(work.catalog, flow, kind == "lane" and "lane" or "belt")
+    return finite(capacity, INF)
 end
 
 local function module_effect_total(catalog, modules)
@@ -1215,8 +1216,9 @@ end
 
 local function check_segments(work)
     local allocation_by_flow_sink, segments_by_flow = {}, {}
+    local flow_map = {}; for _, flow in ipairs(work.flows or {}) do flow_map[flow_id_of(flow)] = flow end
     for _, segment in ipairs(work.segments) do
-        local kind = segment.kind or "belt"; local capacity = segment_capacity(work, segment, kind); local total = 0; local flows_on_segment = {}
+        local kind = segment.kind or "belt"; local total = 0; local flows_on_segment = {}
         if segment.flow_id ~= nil then flows_on_segment[segment.flow_id] = true end
         for _, allocation in ipairs(segment.allocations or {}) do
             local amount = flow_share(allocation); total = total + amount; local flow_id = allocation.flow_id or segment.flow_id
@@ -1225,6 +1227,9 @@ local function check_segments(work)
                 if allocation.sink ~= nil then allocation_by_flow_sink[flow_id][allocation.sink] = (allocation_by_flow_sink[flow_id][allocation.sink] or 0) + amount end
             end
         end
+        local stacked_flow
+        for flow_id in pairs(flows_on_segment) do if Belt.is_external_item(flow_map[flow_id]) then stacked_flow=flow_map[flow_id]; break end end
+        local capacity = segment_capacity(work, segment, kind, stacked_flow)
         local code = kind == "inserter" and "BP_V_INSERTER_CAPACITY" or "BP_V_TRANSFER_CAPACITY"
         if total > capacity + tolerance(capacity) then error_record(work.errors, code, {tostring(segment.segment_id)}, {capacity = capacity, allocated = total}) end
         local flow_count = 0; for _, _ in pairs(flows_on_segment) do flow_count = flow_count + 1 end
