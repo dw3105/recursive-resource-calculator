@@ -1206,10 +1206,9 @@ local function lay_belt_runs(work)
                 local entity = {id = next_entity_id(work), name = infrastructure(work, kind),
                     position = {x = tile.x + 0.5, y = tile.y + 0.5}, direction = direction, dir = direction,
                     flow_id = run.flows and run.flows[1], segment_id = segment.segment_id, fixed = true}
-                work.entities[#work.entities + 1] = entity
-                work.segments[#work.segments + 1] = segment
-                work.segments_by_cell[key] = segment
-                work.entity_by_segment[segment.segment_id] = entity
+                jinsert(work, work.entities, entity); jinsert(work, work.segments, segment)
+                jset(work, work.segments_by_cell, key, segment)
+                jset(work, work.entity_by_segment, segment.segment_id, entity)
             end
         end
     end
@@ -2151,21 +2150,19 @@ local function append_underground(work, demand, candidate, amount)
         direction = exit_direction, dir = exit_direction, flow_id = demand.flow_id,
         ug_role = "output", ug_pair_id = first_id, segment_id = segment.segment_id}
     if kind ~= "pipe" then first.type, second.type = "input", "output" end
-    work.entities[#work.entities + 1] = first
-    work.entities[#work.entities + 1] = second
-    work.segments[#work.segments + 1] = segment
-    work.entity_by_segment[segment.segment_id] = first
-    work.splitter_blocked_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
-    work.splitter_blocked_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
+    jinsert(work, work.entities, first); jinsert(work, work.entities, second); jinsert(work, work.segments, segment)
+    jset(work, work.entity_by_segment, segment.segment_id, first)
+    jset(work, work.splitter_blocked_cells, coordinate_key(candidate.source.x, candidate.source.y), true)
+    jset(work, work.splitter_blocked_cells, coordinate_key(candidate.sink.x, candidate.sink.y), true)
     --Same pair of facts, the other way round: this creator marked only the splitter guard, so a later
     --crossing could dive through a tile a pair already owns.
-    work.underground_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
-    work.underground_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
+    jset(work, work.underground_cells, coordinate_key(candidate.source.x, candidate.source.y), true)
+    jset(work, work.underground_cells, coordinate_key(candidate.sink.x, candidate.sink.y), true)
     local sink = sink_key(demand.sink, work, demand.sink_port_id)
     add_allocation(work, segment, demand.flow_id, sink, amount)
-    work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
+    jinsert(work, work.bindings, {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
         sink = sink, flow_id = demand.flow_id, segment_id = segment.segment_id,
-        rate_per_second = collector_source_rate(demand, amount)}
+        rate_per_second = collector_source_rate(demand, amount)})
     append_collector_member_bindings(work, demand, sink, segment.segment_id)
     return true
 end
@@ -3180,35 +3177,36 @@ local function unbury_empty_pairs(work)
             for _, cell in ipairs(covered) do cells[#cells + 1] = cell end
             cells[#cells + 1] = {x = pair.underground_exit_x, y = pair.underground_exit_y}
             for _, e in ipairs(work.entities) do
-                if e.segment_id == pair.segment_id then e._route_removed = true end
+                if e.segment_id == pair.segment_id then jset(work, e, "_route_removed", true) end
             end
-            work.segments_by_cell[pair.underground_entry_key] = nil
-            work.segments_by_cell[pair.underground_exit_key] = nil
-            work.underground_cells[pair.underground_entry_key], work.underground_cells[pair.underground_exit_key] = nil, nil
-            work.splitter_blocked_cells[pair.underground_entry_key], work.splitter_blocked_cells[pair.underground_exit_key] = nil, nil
-            pair._route_removed = true
-            work.entity_by_segment[pair.segment_id] = nil
+            jset(work, work.segments_by_cell, pair.underground_entry_key, nil)
+            jset(work, work.segments_by_cell, pair.underground_exit_key, nil)
+            jset(work, work.underground_cells, pair.underground_entry_key, nil)
+            jset(work, work.underground_cells, pair.underground_exit_key, nil)
+            jset(work, work.splitter_blocked_cells, pair.underground_entry_key, nil)
+            jset(work, work.splitter_blocked_cells, pair.underground_exit_key, nil)
+            jset(work, pair, "_route_removed", true)
+            jset(work, work.entity_by_segment, pair.segment_id, nil)
             local remaining_segments = {}
             for _, segment in ipairs(work.segments) do if segment ~= pair then remaining_segments[#remaining_segments + 1] = segment end end
-            work.segments = remaining_segments
+            jset(work, work, "segments", remaining_segments)
             for _, cell in ipairs(cells) do
                 local segment = {segment_id = next_segment_id(work), kind = pair.kind,
                     capacity_per_second = pair.capacity_per_second, allocations = {}, flow_id = pair.flow_id,
                     flow_ids = pair.flow_ids, direction = pair.direction, length = 1}
                 for _, a in ipairs(pair.allocations or {}) do
-                    segment.allocations[#segment.allocations + 1] = {flow_id = a.flow_id, sink = a.sink,
-                        rate_per_second = a.rate_per_second}
+                    jinsert(work, segment.allocations, {flow_id = a.flow_id, sink = a.sink,
+                        rate_per_second = a.rate_per_second})
                 end
                 local belt = {id = next_entity_id(work), name = infrastructure(work, pair.kind),
                     position = entity_position(cell.x, cell.y), direction = pair.direction, dir = pair.direction,
                     flow_id = pair.flow_id, segment_id = segment.segment_id}
-                work.entities[#work.entities + 1] = belt
-                work.segments[#work.segments + 1] = segment
-                work.segments_by_cell[coordinate_key(cell.x, cell.y)] = segment
-                work.entity_by_segment[segment.segment_id] = belt
+                jinsert(work, work.entities, belt); jinsert(work, work.segments, segment)
+                jset(work, work.segments_by_cell, coordinate_key(cell.x, cell.y), segment)
+                jset(work, work.entity_by_segment, segment.segment_id, belt)
             end
             --The original binding is reattached to the first replacement belt in the directed chain.
-            for _, binding in ipairs(pair_bindings) do binding.segment_id = work.segments_by_cell[pair.underground_entry_key].segment_id end
+            for _, binding in ipairs(pair_bindings) do jset(work, binding, "segment_id", work.segments_by_cell[pair.underground_entry_key].segment_id) end
         end
     end
 end
@@ -3397,9 +3395,9 @@ local function restart_with_priority(state, work, demand)
         entry.source = entry.source_candidates and entry.source_candidates[1] or entry.source
         entry.sink = entry.sink_candidates and entry.sink_candidates[1] or entry.sink
     end
-    work.entities, work.segments, work.bindings = {}, {}, {}
-    work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
-    work.splitter_blocked_cells = {}
+    jset(work, work, "entities", {}); jset(work, work, "segments", {}); jset(work, work, "bindings", {})
+    jset(work, work, "segments_by_cell", {}); jset(work, work, "entity_by_segment", {})
+    jset(work, work, "underground_cells", {}); jset(work, work, "splitter_blocked_cells", {})
     lay_belt_runs(work)
     work.attempt_generation, work.current = work.attempt_generation + 1, nil
     audit_route_work(work)
@@ -3410,9 +3408,9 @@ end
 
 local function clear_route_work(work)
     audit_route_work(work)
-    work.entities, work.segments, work.bindings = {}, {}, {}
-    work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
-    work.splitter_blocked_cells = {}
+    jset(work, work, "entities", {}); jset(work, work, "segments", {}); jset(work, work, "bindings", {})
+    jset(work, work, "segments_by_cell", {}); jset(work, work, "entity_by_segment", {})
+    jset(work, work, "underground_cells", {}); jset(work, work, "splitter_blocked_cells", {})
     lay_belt_runs(work)
     work.current = nil
     audit_route_work(work)

@@ -61,6 +61,41 @@ Route._test.journal_commit(nested)
 Route._test.journal_rollback(nested)
 H.equal(equal(nested, before), true, "JN5 inner commit is undone by outer rollback")
 
+local function refusal_work()
+    return {entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
+        underground_cells = {}, splitter_blocked_cells = {}, entity_serial = 0, segment_serial = 0,
+        belt = {belt = "belt", splitter = "splitter", items_per_second = 10},
+        counters = {crossings_placed = 0}}
+end
+local function refusal_case(reason, path, amount, prepare, sink_x, sink_y)
+    local w = refusal_work()
+    if prepare then prepare(w) end
+    local snapshot = clone({entities=w.entities,segments=w.segments,bindings=w.bindings,
+        segments_by_cell=w.segments_by_cell,entity_by_segment=w.entity_by_segment,
+        underground_cells=w.underground_cells,splitter_blocked_cells=w.splitter_blocked_cells,
+        entity_serial=w.entity_serial,segment_serial=w.segment_serial})
+    local demand = {flow={is_fluid=false}, flow_id="flow/a", kind="item", amount=amount,
+        source={port_id="src",step_id="src",x=0,y=1}, sink={port_id="dst",step_id="dst",x=sink_x,y=sink_y}}
+    local placed, why = Route._test.append_normal_path(w, demand, path, amount)
+    H.equal(placed, false, "JN4 " .. reason .. " refuses")
+    H.equal(why, reason, "JN4 refusal reason")
+    local actual = {entities=w.entities,segments=w.segments,bindings=w.bindings,
+        segments_by_cell=w.segments_by_cell,entity_by_segment=w.entity_by_segment,
+        underground_cells=w.underground_cells,splitter_blocked_cells=w.splitter_blocked_cells,
+        entity_serial=w.entity_serial,segment_serial=w.segment_serial}
+    H.equal(equal(actual, snapshot), true, "JN4 " .. reason .. " restores route state")
+end
+refusal_case("route-discontinuous", {{x=1,y=1}}, 1, nil, 9, 9)
+refusal_case("crossing-occupied", {{x=1,y=1},{x=2,y=1},{x=4,y=1}}, 1,
+    function(w) w.segments_by_cell["2:1"]={segment_id="occupied",kind="belt",direction=0,capacity_per_second=10,allocations={}} end, 4, 1)
+refusal_case("capacity", {{x=1,y=1},{x=2,y=1},{x=4,y=1}}, 11, nil, 4, 1)
+refusal_case("splitter-footprint", {{x=1,y=1},{x=2,y=1},{x=2,y=2}}, 1, function(w)
+    local segment={segment_id="old",kind="belt",flow_id="flow/other",direction=2,capacity_per_second=100,allocations={}}
+    local entity={id="old-entity",segment_id="old",name="belt",direction=2}
+    w.multi_flow_hands=true; w.segments={segment}; w.entities={entity}; w.segments_by_cell["2:1"]=segment
+    w.entity_by_segment.old=entity
+end, 2, 2)
+
 local f = assert(io.open("logic/bp/route.lua", "r")); local src = f:read("*a"); f:close()
 H.equal(src:find("local snapshot = route_snapshot(work)", 1, true) == nil, true, "JN6 append path has no snapshot")
 H.equal(src:find("jset(work", 1, true) ~= nil, true, "JN6 journal mutation helpers are used")
