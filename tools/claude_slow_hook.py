@@ -1,0 +1,73 @@
+#!/usr/bin/env python3
+"""Claude Code PreToolUse(Bash) guard for RRC: fast checks by construction (player order 2026-09-28).
+
+Rule 1: every RRC command that runs lua5.2 / tools/ / tests/ must start its heavy part with `timeout N`, N <= 120.
+Rule 2: whole-sheet and gate tools (SLOW list) need `RRC_SLOW=<slot>:<reason>` (slot in budget, reason >= 20 chars);
+        each allowed start is written to ~/.cache/rrc/slow_ledger.tsv and counted against tools/slow_budget per wave.
+Exit 2 + stderr = deny (Claude sees the message). Anything not RRC passes untouched.
+"""
+import json, os, re, sys, time
+
+FAST_HINT = ("fast rungs: static ckpt read (tools.lib.graph_dump.load), one-function stage replay on ckpt state, "
+             "tools/route_replay_one.lua on one demand, validate-only `ckpt.lua resume <val ckpt>` under timeout 90, "
+             "single `lua5.2 tests/<file>.lua`. See skill rrc-code RC-01.")
+SLOW = [r"tests/golden/generate\.lua", r"tools/golden_profile\.lua", r"tools/ckpt\.lua\s+(save|list|uninterrupted)\b",
+        r"tools/bytes_hash\.sh", r"bytes13\.sh", r"tools/gate_sheet\.sh", r"tools/measure_sheet\.sh",
+        r"tools/speed_probe\.sh", r"tests/run\.sh", r"tools/game_test\.sh", r"gen_watch\.lua", r"tools/first_stage\.lua"]
+BUDGET = {"profile": 1, "bytes": 1, "suite": 2, "headless": 1, "ckpt-save": 3, "release": 2}
+MAX_TIMEOUT = 120
+LEDGER = os.path.expanduser("~/.cache/rrc/slow_ledger.tsv")
+WAVE_FILE = os.path.expanduser("~/.cache/rrc/wave")
+
+def deny(msg):
+    sys.stderr.write("RRC-SLOW-GUARD: " + msg + "\n" + FAST_HINT + "\n")
+    sys.exit(2)
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+    except Exception:
+        return
+    cmd = (data.get("tool_input") or {}).get("command") or ""
+    cwd = data.get("cwd") or ""
+    rrc = re.search(r"wt-rrc|recursive-resource-calculator|rrc-round-\d+-probes|scratchpad/r4\d", cmd + " " + cwd)
+    heavy = re.search(r"\blua5\.2\b|(^|[\s/])(tools|tests)/", cmd)
+    if not rrc or not heavy:
+        return
+    # read-only inspection commands (cat/grep/sed/ls/diff/git) never run code: skip when no interpreter is invoked
+    if not re.search(r"\blua5\.2\b|\bsh\s+\S*(tools|tests|probes|r4\d)/|\bpython3\s+\S*tools/|\bbash\s+\S*tools/|\./tools/", cmd):
+        return
+    slow_hit = [p for p in SLOW if re.search(p, cmd)]
+    m = re.search(r"RRC_SLOW=[\"']([a-z-]+):([^\"']+)[\"']", cmd) or re.search(r"RRC_SLOW=([a-z-]+):(\S+)", cmd)
+    if slow_hit:
+        if not m:
+            deny("slow tool %s needs RRC_SLOW=<slot>:<reason>; slots %s. Ask: which fast rung cannot answer?"
+                 % (re.sub(r"\\[sb]|\\|\+", " ", slow_hit[0]).strip(), ",".join(BUDGET)))
+        slot, reason = m.group(1), m.group(2)
+        if slot not in BUDGET:
+            deny("unknown slot %r; slots %s" % (slot, ",".join(BUDGET)))
+        if len(reason) < 20:
+            deny("reason too short (%d chars); say why no fast rung answers" % len(reason))
+        wave = open(WAVE_FILE).read().strip() if os.path.exists(WAVE_FILE) else "unset"
+        used = 0
+        if os.path.exists(LEDGER):
+            for line in open(LEDGER):
+                f = line.rstrip("\n").split("\t")
+                if len(f) >= 3 and f[1] == wave and f[2] == slot:
+                    used += 1
+        if used >= BUDGET[slot]:
+            deny("slot %s budget %d used up in wave %s (ledger %s)" % (slot, BUDGET[slot], wave, LEDGER))
+        os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
+        with open(LEDGER, "a") as fh:
+            fh.write("\t".join([time.strftime("%Y-%m-%dT%H:%M:%S"), wave, slot, slow_hit[0].replace("\\", ""),
+                                reason, cmd.replace("\n", " ")[:300]]) + "\n")
+        return
+    # Rule 1: fast by construction
+    t = re.findall(r"\btimeout\s+(?:-\S+\s+)*(\d+)(s?)\b", cmd)
+    if not t:
+        deny("RRC command runs code without `timeout N` (N <= %d s). Fast checks only." % MAX_TIMEOUT)
+    if max(int(n) for n, _ in t) > MAX_TIMEOUT:
+        deny("timeout above %d s is not a fast check" % MAX_TIMEOUT)
+
+if __name__ == "__main__":
+    main()

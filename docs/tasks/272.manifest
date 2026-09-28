@@ -1,0 +1,9 @@
+# bound: 3000s
+logic/bp/seat.lua
+logic/bp/run_dir.lua
+logic/bp/beacon_prune.lua
+logic/bp/search.lua
+tests/test_seat_hand_taken.lua
+tests/test_run_dir_obstacle.lua
+tests/test_beacon_prune_shared.lua
+docs/tasks/272_layout_seat_rundir_beacon.md

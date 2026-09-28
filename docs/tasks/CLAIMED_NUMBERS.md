@@ -202,3 +202,8 @@
 | `261` | `rrc/agent` | search: tidy re-route treats every beacon's current footprint as an obstacle | 2026-09-28 |
 | `262` | `rrc/agent` | route: commit refuses any path with two underground jumps in a row | 2026-09-28 |
 | `263` | `rrc/agent` | validate: port approach checks follow the real belt, not the declared heading | 2026-09-28 |
+| `271` | `rrc/agent` | route: row belt books own share; block-aware row endpoints; path never ends on a trunk crossing a row head | 2026-09-28 |
+| `272` | `rrc/agent` | layout: seat never lands on a hand; row flip exit off roboports; beacon prune keeps coverage | 2026-09-28 |
+| `273` | `rrc/agent` | validate + ends: row ports keyed per block; two false alarms; splitter footprint; tile index ticks | 2026-09-28 |
+| `274` | `rrc/agent` | capacity: map-edge item inputs carry max belt stack | 2026-09-28 |
+| `275` | `rrc/agent` | tools: slow-check guard refuses slow tools without a slot and reason | 2026-09-28 |

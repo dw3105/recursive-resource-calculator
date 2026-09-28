@@ -1,0 +1,8 @@
+# bound: 3600s
+logic/bp/validate.lua
+logic/bp/ends.lua
+tests/test_validate_row_ports.lua
+tests/test_validate_false_alarms.lua
+tests/test_ends_splitter.lua
+tests/test_validate_tile_index.lua
+docs/tasks/273_validate_ports_alarms_ends.md
