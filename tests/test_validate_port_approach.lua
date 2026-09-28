@@ -20,10 +20,12 @@ local function has_port_error(state)
 end
 
 H.test("PA1 stack1 routed ports follow their belt heading", function()
+    io.write("PA1 ")
     H.equal(replay().ok, true)
 end)
 
 H.test("PA2 output still rejects foreign flow ahead along the belt", function()
+    io.write("PA2 ")
     local Grid = require "logic.bp.grid"
     local state = Validate.begin({grid = {w = 12, h = 12}, catalog = {entity = {}},
         ports = {{port_id = "out", flow_id = "item/copper", role = "out", x = 6, y = 6, dir = Grid.EAST}},
