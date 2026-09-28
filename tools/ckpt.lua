@@ -44,6 +44,7 @@ local function main()
     end
     local digest=sha(input_path); local events, step_index={},0; local stopped, listing=false,false
     local saved, resumed
+    local prof={}  --per phase: ticks, step CPU, worst step CPU and its tick (DoD speed numbers, dumps excluded)
     if command=="resume" then
         saved=Graph.load(snap)
         if not o.ops then ops=tonumber(saved.meta.ops_per_step) or ops end
@@ -104,7 +105,8 @@ local function main()
         local loader=assert(load(src,"@logic/bp/search.lua")); local Search=loader()
         local begin,step=Search.begin,Search.step
         Search.begin=function(input) if saved then resumed=true; return saved.state end; return begin(input) end
-        Search.step=function(st,b) step_index=step_index+1; _G.__ckpt_tick=step_index; local r=step(st,{ops=ops}); _G.__ckpt_last_state=st;
+        Search.step=function(st,b) step_index=step_index+1; _G.__ckpt_tick=step_index; local ph=tostring(st.phase); local t0=os.clock(); local r=step(st,{ops=ops}); local dt=os.clock()-t0; _G.__ckpt_last_state=st;
+            local pt=prof[ph] or {n=0,cpu=0,worst=0,at=0}; prof[ph]=pt; pt.n=pt.n+1; pt.cpu=pt.cpu+dt; if dt>pt.worst then pt.worst=dt; pt.at=step_index end
             if o["at-tick"] and step_index>=tonumber(o["at-tick"]) then stopped=true end
             if command=="save-all" and _G.__ckpt_pending then
                 local c=_G.__ckpt_pending; _G.__ckpt_pending=nil; _G.__ckpt_saves=(_G.__ckpt_saves or 0)+1
@@ -129,6 +131,9 @@ local function main()
     local ok=text:match('"ok":(true)')~=nil; local ticks=step_index
     local used=(_G.__ckpt_last_state and _G.__ckpt_last_state.ops_used) or 0; local sha_out=text:match('"canonical_sha256":"(%w+)"') or "unknown"
     local entities=0; for _ in text:gmatch('"entity_number"%s*:') do entities=entities+1 end; entities=math.floor(entities/2)
+    local names={}; for k in pairs(prof) do names[#names+1]=k end; table.sort(names); local all=0
+    for _,k in ipairs(names) do local pt=prof[k]; all=all+pt.cpu; io.write(string.format("PROF phase=%s ticks=%d cpu=%.1fs worst=%.3fs at=%d\n",k,pt.n,pt.cpu,pt.worst,pt.at)) end
+    io.write(string.format("PROF total step cpu=%.1fs\n",all))
     io.write(string.format("RESUMED %s END ok=%s ticks=%d ops_used=%d sha=%s entities=%d\n",command, tostring(ok),ticks,used,sha_out,entities))
 end
 local ok,err=pcall(main); if not ok then io.stderr:write(tostring(err).."\n"); os.exit(1) end
