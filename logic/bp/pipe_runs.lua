@@ -11,22 +11,34 @@ function PipeRuns.prune_redundant(work, h)
     local by_cell = work.segments_by_cell or {}
     local function key(x, y) return h.key(x, y) end
     local entity_by_segment = {}
+    -- legalcopilot-dev, lua5.2, 2026-09-28: index once per call; keep first live entity in work.entities order.
+    local entity_by_tile = {}
     for _, entity in ipairs(work.entities or {}) do
         if entity.segment_id and not entity._route_removed then entity_by_segment[entity.segment_id] = entity end
+        if entity.segment_id and entity.position then
+            local tiles = entity_by_tile[entity.segment_id]
+            if not tiles then tiles = {}; entity_by_tile[entity.segment_id] = tiles end
+            local x, y = math.floor(entity.position.x), math.floor(entity.position.y)
+            local row = tiles[x]
+            if not row then row = {}; tiles[x] = row end
+            local list = row[y]
+            if not list then list = {}; row[y] = list end
+            list[#list + 1] = entity
+        end
     end
     local function live(segment)
         return segment and segment.kind == "pipe" and not segment._route_removed
     end
     local function opens_to(segment, x, y, tx, ty)
         if not segment.underground then return true end
-        local entity = nil
-        for _, candidate in ipairs(work.entities or {}) do
-            if candidate.segment_id == segment.segment_id and not candidate._route_removed
-                and math.floor(candidate.position.x) == x and math.floor(candidate.position.y) == y then
-                entity = candidate
-                break
-            end
+        local candidates = entity_by_tile[segment.segment_id]
+        candidates = candidates and candidates[x] and candidates[x][y] or {}
+        local entity, visits = nil, 0
+        for _, candidate in ipairs(candidates) do
+            visits = visits + 1
+            if not candidate._route_removed then entity = candidate; break end
         end
+        if PipeRuns._count_visits then PipeRuns._visits = math.max(PipeRuns._visits or 0, visits) end
         if not entity or entity._route_removed then return false end
         local dx, dy = Grid.dir_vector(entity.direction)
         return dx ~= nil and x + dx == tx and y + dy == ty
