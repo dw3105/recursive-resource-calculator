@@ -16,6 +16,7 @@
 --A machine holding a quality module must never end up inside a speed beacon's influence. That is a hard
 --placement rule here and a hard failure in the validator, not a score.
 local Groups = {}
+local Belt = require "logic.bp.belt"
 
 local Grid = require "logic.bp.grid"
 local Geometry = require "logic.bp.geometry"
@@ -661,17 +662,19 @@ local function hand_groups_for(block, step, machine, catalog, input, flows)
     end
 
     local groups, used = {}, {}
-    local capacity = finite(catalog and catalog.belt and catalog.belt.items_per_second)
     local function input_bound(port)
         return port_bound_for(block, machine, "input", port, flows)
     end
     for index, port in ipairs(inputs) do
         if not used[index] then
             local pair
-            if multi_flow_hands and capacity and capacity > 0 and input_bound(port) then
+            if multi_flow_hands and input_bound(port) then
                 for other_index = index + 1, #inputs do
                     local other = inputs[other_index]
-                    if not used[other_index] and input_bound(other) and same_cell(port, other)
+                    local fid = flow_entry_id(port); local flow
+                    for _, candidate in ipairs(flows or {}) do if flow_id_of(candidate) == fid then flow=candidate; break end end
+                    local capacity = finite(Belt.capacity(catalog, flow, "belt"))
+                    if not used[other_index] and capacity and capacity > 0 and input_bound(other) and same_cell(port, other)
                         and flow_entry_rate(port) + flow_entry_rate(other) <= capacity + math.max(1e-9, capacity * 1e-9) then
                         pair = other_index
                         break
@@ -2442,13 +2445,18 @@ local function make_candidates_once(input, work)
                 layout_steps[#layout_steps + 1] = fragment
             end
         else
-            local belt_capacity = finite(catalog and catalog.belt and catalog.belt.items_per_second)
             local chunks = 1
-            if step.machine_count > 1 and belt_capacity and belt_capacity > 0 then
+            if step.machine_count > 1 then
                 for _, role in ipairs({"inputs", "outputs"}) do
                     for _, entry in ipairs(step[role] or {}) do
                         if not flow_is_fluid(entry, flows) then
+                            local flow_id = flow_entry_id(entry); local flow
+                            for _, candidate in ipairs(flows or {}) do if flow_id_of(candidate) == flow_id then flow=candidate; break end end
+                            local belt_capacity = Belt.capacity(catalog, flow, "belt")
+                            belt_capacity = finite(belt_capacity)
+                            if belt_capacity and belt_capacity > 0 then
                             chunks = math.max(chunks, math.ceil(flow_entry_rate(entry) / belt_capacity - 1e-9))
+                            end
                         end
                     end
                 end

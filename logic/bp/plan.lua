@@ -17,6 +17,7 @@
 --and must never reach a physical count. Nothing downstream may call Utils.machine_amount; the validator counts
 --what was placed and compares it against this number instead of recomputing the requirement.
 local Plan = {}
+local Belt = require "logic.bp.belt"
 local QualityPolicy = require "logic.bp.quality_policy"
 
 Plan.SCHEMA_VERSION = 1
@@ -593,9 +594,9 @@ local function add_step_io(step, flows)
     step._net_amounts = nil
 end
 
-local function lane_count(rate, flow_kind, catalog)
+local function lane_count(rate, flow_kind, catalog, flow)
     if flow_kind == "fluid" then return 1 end
-    local capacity = catalog and catalog.belt and catalog.belt.lane_items_per_second
+    local capacity = Belt.capacity(catalog, flow, "lane")
     if type(capacity) ~= "number" or capacity <= 0 then return 1 end
     return math.max(1, math.ceil(rate / capacity - tolerance(rate)))
 end
@@ -627,6 +628,7 @@ local function finalize(state)
         table.sort(producers, function(a, b) return a.step_id < b.step_id end)
         table.sort(consumers, function(a, b) return a.step_id < b.step_id end)
         local kind, item_name, quality = split_flow_identity(full_name)
+        local flow = {is_fluid = kind == "fluid", producers = producers}
         flows[#flows + 1] = {
             flow_id = full_name,
             full_name = full_name,
@@ -644,13 +646,13 @@ local function finalize(state)
         if external_input > tolerance(external_input) then
             ports[#ports + 1] = {
                 port_id = "in:" .. full_name, role = "in", full_name = full_name, is_fluid = kind == "fluid",
-                rate_per_second = external_input, kind = kind, min_lanes = lane_count(external_input, kind, catalog),
+                rate_per_second = external_input, kind = kind, min_lanes = lane_count(external_input, kind, catalog, flow),
             }
         end
         if external_output > tolerance(external_output) then
             ports[#ports + 1] = {
                 port_id = "out:" .. full_name, role = "out", full_name = full_name, is_fluid = kind == "fluid",
-                rate_per_second = external_output, kind = kind, min_lanes = lane_count(external_output, kind, catalog),
+                rate_per_second = external_output, kind = kind, min_lanes = lane_count(external_output, kind, catalog, flow),
             }
         end
     end

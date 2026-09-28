@@ -9,6 +9,7 @@
 --is BP_FAIL_SEARCH_BUDGET, even when an earlier candidate was already valid; a partial search must not claim that
 --no layout exists.
 local Search = {}
+local Belt = require "logic.bp.belt"
 
 local Grid = require "logic.bp.grid"
 local Plan = require "logic.bp.plan"
@@ -704,6 +705,7 @@ local function terminal_capacity(state, network)
     local capacity = first_positive({details}, family == "fluid"
         and {"throughput_per_second", "capacity_per_second"}
         or {"items_per_second", "capacity_per_second"})
+    if family == "item" and Belt.is_external_item(flow) and capacity then capacity = capacity * Belt.stack_max(catalog) end
     if capacity ~= nil then return capacity, "catalog" end
     return nil, "unbounded"
 end

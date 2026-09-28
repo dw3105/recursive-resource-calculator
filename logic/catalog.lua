@@ -17,7 +17,7 @@
 --                  fluid_boxes = {{index, production_type, filter, connections = {
 --                      {positions = {4 x {x, y}}, direction, connection_type, flow_direction, max_underground_distance}}}},
 --                  beacon = {supply_w, supply_h, distribution_effectivity, profile, counter} | nil}
---  belt = {belt, underground, splitter, quality, items_per_second, lane_items_per_second, underground_max_distance}
+--  belt = {belt, underground, splitter, quality, items_per_second, lane_items_per_second, stack_max, underground_max_distance}
 --  pipe = {pipe, underground, quality, underground_max_distance, throughput_per_second}
 --  inserter = {name, quality, items_per_second, pickup_offset, drop_offset, drop_position}
 --  pole = {name, quality, tile_w, tile_h, supply_w, supply_h, wire_reach}
@@ -706,6 +706,19 @@ local function build_belt(catalog, diagnostics, options, requests)
     if quality then project_quality(catalog, quality, quality_name) end
     local speed = base.belt_speed
     local items_per_second = speed and speed * 480 or nil
+    local stack_max = 1
+    local found_stack = false
+    local all_entities = rawget(_G, "prototypes") and prototypes.entity
+    for _, inserter in pairs(all_entities or {}) do
+        if inserter.type == "inserter" then
+            local value = inserter.inserter_max_belt_stack_size
+            if type(value) == "number" and value == value then
+            found_stack = true
+            stack_max = math.max(stack_max, value)
+            end
+        end
+    end
+    if not found_stack then stack_max = 4 end
     catalog.belt = {
         belt = base.name,
         underground = underground and underground.name or nil,
@@ -713,6 +726,7 @@ local function build_belt(catalog, diagnostics, options, requests)
         quality = quality_name,
         items_per_second = items_per_second,
         lane_items_per_second = items_per_second and items_per_second / 2 or nil,
+        stack_max = math.max(1, stack_max),
         underground_max_distance = underground and underground.max_underground_distance or nil,
     }
 end

@@ -37,6 +37,7 @@ local Flags = require "logic.bp.flags"
 local FluidTouch = require "logic.bp.fluid_touch"
 local SideFeed = require "logic.bp.side_feed"
 local PipeRuns = require "logic.bp.pipe_runs"
+local Belt = require "logic.bp.belt"
 
 local EPSILON = 1e-9
 --The search was Dijkstra: cost only, no estimate of what is left.  One tile of straight belt costs 1, so
@@ -583,8 +584,12 @@ local function capacity_for(work, flow)
     if flow.is_fluid or flow.kind == "fluid" then
         return finite(work.input_pipe_capacity, finite(work.pipe and work.pipe.throughput_per_second, math.huge)), "pipe"
     end
-    return finite(work.input_belt_capacity, finite(work.belt and work.belt.items_per_second,
-        finite(work.belt and work.belt.capacity_per_second, math.huge))), "belt"
+    local override = finite(work.input_belt_capacity)
+    if override ~= nil then return override, "belt" end
+    local base = finite(work.belt and work.belt.items_per_second,
+        finite(work.belt and work.belt.capacity_per_second, math.huge))
+    if Belt.is_external_item(flow) then base = base * Belt.stack_max(work.catalog or {belt = work.belt}) end
+    return base, "belt"
 end
 
 local function infrastructure(work, kind)
@@ -1214,7 +1219,15 @@ local add_allocation
 --ordinary demands are connected to their heads and ports.
 local function lay_belt_runs(work)
     for _, run in ipairs(work.belt_runs or {}) do
-        local capacity, kind = capacity_for(work, {is_fluid = false})
+        --A row fed by a map-edge item carries stacked items too (player ruling 2026-09-28): size its belt from the
+        --run's own flows, else a stone row stored 60/s and validate refused 63.5/s of stacked stone.
+        local run_flow = {is_fluid = false}
+        for _, flow_id in ipairs(run.flows or {}) do
+            for _, candidate in ipairs(work.flows or {}) do
+                if candidate.flow_id == flow_id and Belt.is_external_item(candidate) then run_flow = candidate end
+            end
+        end
+        local capacity, kind = capacity_for(work, run_flow)
         local direction = run.dir
         local near_tiles = {}
         local function mark_near(x,y)
@@ -3106,6 +3119,15 @@ local function result_for(work, publish)
                             and only_flow(a.seg,a.flow) and only_flow(b.seg,a.flow)
                             and only_flow(one,a.flow) and only_flow(two,a.flow)
                             and #allocations(a.seg,a.flow)>0 and #allocations(b.seg,b.flow)>0
+                            and (function()
+                                local flow
+                                for _, candidate in ipairs(work.flows or {}) do if candidate.flow_id == a.flow then flow=candidate; break end end
+                                local total=0
+                                for _, allocation in ipairs(a.seg.allocations or {}) do if allocation.flow_id==a.flow then total=total+(allocation.rate_per_second or 0) end end
+                                for _, allocation in ipairs(b.seg.allocations or {}) do if allocation.flow_id==a.flow then total=total+(allocation.rate_per_second or 0) end end
+                                local cap = select(1, capacity_for(work, flow or {}))
+                                return total <= cap + tolerance(total)
+                            end)()
                             and not (work.obstacles and (work.obstacles[key(a.ix,a.iy)] or work.obstacles[key(b.ix,b.iy)])) then
                             local dx,dy=Grid.dir_vector(a.dir)
                             -- Remove the redundant edge belt and merge its complete rate promises.
