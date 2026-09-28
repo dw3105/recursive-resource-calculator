@@ -1,7 +1,7 @@
 # PM0928-P20 — delivered blueprint with hands turned backward, or a string the game will not import, is refused by the audit
 
 Repo `recursive-resource-calculator`. Worktree `/home/dev_zaigraev_gmail_com/wt-rrc-pm20`, branch `lane/pm20`,
-base `BASE_SHA`. Host `legalcopilot-dev`.
+base `70df2fe1457ff7b2d7a822f0df1977024ae47028`. Host `legalcopilot-dev`.
 
 **Operator ruling (`docs/RULINGS.md` `lanes-suites`, `RRC-04`): this lane never runs a full suite.** Never
 `sh tests/run.sh`, `suite_parallel.sh`, `tests/golden/generate.lua`, `tools/golden_profile.lua`, headless
@@ -106,13 +106,13 @@ untouched. `tools/blueprint_string.py` untouched (read-only import).
      lifted for that shape); classes `HandDirectionTest` (7 tests) and `StringSchemaTest` (6 tests) appended.
    Change nothing else. Patch does not apply cleanly: stop and report, never hand-merge.
 3. Red proof in a scratch copy, never in this worktree:
-   `D=$(mktemp -d); git archive BASE_SHA | tar -x -C "$D"; cp tests/tools/test_blueprint_audit.py "$D/tests/tools/"; cp tests/fixtures/blueprints/round18_inverted_inserters.txt "$D/tests/fixtures/blueprints/"; cd "$D" && python3 -m pytest -q tests/tools/test_blueprint_audit.py 2>&1 | tail -16`
+   `D=$(mktemp -d); git archive 70df2fe1457ff7b2d7a822f0df1977024ae47028 | tar -x -C "$D"; cp tests/tools/test_blueprint_audit.py "$D/tests/tools/"; cp tests/fixtures/blueprints/round18_inverted_inserters.txt "$D/tests/fixtures/blueprints/"; cd "$D" && python3 -m pytest -q tests/tools/test_blueprint_audit.py 2>&1 | tail -16`
    → all 13 new tests FAIL (11 `FAILED` lines plus 12 failed subtests), 27 old pass (prototype: `23 failed, 29 passed`).
    Paste as `EVIDENCE-RED:`.
 4. Commit once on `lane/pm20` with plain `git commit`, subject
    `pm20: blueprint audit refuses backward hands and strings the game will not import`, body lines
    `EVIDENCE-RED:`, `EVIDENCE-GREEN:` (three modules' pytest summary lines), `EVIDENCE-DIFFSTAT:`
-   (`git diff --stat BASE_SHA HEAD`). Never amend, merge, rebase, push, touch `main`, `int/pm-260928` or any tag.
+   (`git diff --stat 70df2fe1457ff7b2d7a822f0df1977024ae47028 HEAD`). Never amend, merge, rebase, push, touch `main`, `int/pm-260928` or any tag.
    Run checks LAST.
 
 Reference patch (apply as is):
@@ -535,17 +535,17 @@ Reference patch (apply as is):
 ## What done mean
 
 ```checks
-{"name": "owned-only", "command": "python3 tools/lane_ownership.py check --base BASE_SHA --task docs/tasks/*_rrc_blueprint_audit.md", "expect_exit": 0, "expect_regex": "(?m)^owned-only: 3 file\\(s\\) changed, 3 required deliverable\\(s\\) present$", "timeout_s": 60}
+{"name": "owned-only", "command": "python3 tools/lane_ownership.py check --base 70df2fe1457ff7b2d7a822f0df1977024ae47028 --task docs/tasks/*_rrc_blueprint_audit.md", "expect_exit": 0, "expect_regex": "(?m)^owned-only: 3 file\\(s\\) changed, 3 required deliverable\\(s\\) present$", "timeout_s": 60}
 {"name": "audit-tests", "command": "python3 -m pytest -q tests/tools/test_blueprint_audit.py 2>&1", "expect_exit": 0, "expect_regex": "(?m)^40 passed, 12 subtests passed in ", "timeout_s": 120}
 {"name": "deliver-tests", "command": "python3 -m pytest -q tests/tools/test_deliver.py 2>&1", "expect_exit": 0, "expect_regex": "(?m)^8 passed in ", "timeout_s": 120}
 {"name": "entity-names-tests", "command": "python3 -m pytest -q tests/test_entity_names.py 2>&1", "expect_exit": 0, "expect_regex": "(?m)^2 passed in ", "timeout_s": 60}
 {"name": "fixture-captured", "command": "sha256sum tests/fixtures/blueprints/round18_inverted_inserters.txt", "expect_exit": 0, "expect_regex": "^5e57d26956f090211ad0f479cda1f00e3f151a7575630fbc71f17a0f41c03c0b  tests/fixtures/blueprints/round18_inverted_inserters\\.txt$", "timeout_s": 30}
 {"name": "golden-reference-clean", "command": "python3 tools/blueprint_audit.py tests/golden/cases/player-red-science-1s/reference_manual_blueprint.txt -q", "expect_exit": 0, "expect_regex": "(?m)^  backward_hands +0$", "timeout_s": 60}
 {"name": "round18-inverted-refused", "command": "python3 tools/blueprint_audit.py tests/fixtures/blueprints/round18_inverted_inserters.txt -q", "expect_exit": 1, "expect_regex": "(?m)^  backward_hands +20$", "timeout_s": 60}
-{"name": "old-test-lines-kept", "command": "git diff BASE_SHA HEAD -- tests/tools/test_blueprint_audit.py | grep -E '^-([^-]|$)'", "expect_exit": 0, "expect_regex": "\\A-                    belt\\(5\\.5, 5\\.5\\), inserter\\(6\\.5, 5\\.5\\), \\{\"name\": \"assembling-machine-1\", \"position\": \\{\"x\": 7\\.5, \"y\": 5\\.5\\}\\}\\]\\n\\Z", "timeout_s": 30}
-{"name": "only-owned-files", "command": "test -z \"$(git status --porcelain --untracked-files=all)\" && git diff --name-only BASE_SHA HEAD | sort | tr '\\n' ' '", "expect_exit": 0, "expect_regex": "^tests/fixtures/blueprints/round18_inverted_inserters\\.txt tests/tools/test_blueprint_audit\\.py tools/blueprint_audit\\.py $", "timeout_s": 30}
-{"name": "no-file-deleted", "command": "git diff --diff-filter=D --name-only BASE_SHA HEAD | wc -l", "expect_exit": 0, "expect_regex": "^0$", "timeout_s": 30}
-{"name": "one-commit", "command": "git rev-list --count BASE_SHA..HEAD", "expect_exit": 0, "expect_regex": "^1$", "timeout_s": 30}
+{"name": "old-test-lines-kept", "command": "git diff 70df2fe1457ff7b2d7a822f0df1977024ae47028 HEAD -- tests/tools/test_blueprint_audit.py | grep -E '^-([^-]|$)'", "expect_exit": 0, "expect_regex": "\\A-                    belt\\(5\\.5, 5\\.5\\), inserter\\(6\\.5, 5\\.5\\), \\{\"name\": \"assembling-machine-1\", \"position\": \\{\"x\": 7\\.5, \"y\": 5\\.5\\}\\}\\]\\n\\Z", "timeout_s": 30}
+{"name": "only-owned-files", "command": "test -z \"$(git status --porcelain --untracked-files=all)\" && git diff --name-only 70df2fe1457ff7b2d7a822f0df1977024ae47028 HEAD | sort | tr '\\n' ' '", "expect_exit": 0, "expect_regex": "^tests/fixtures/blueprints/round18_inverted_inserters\\.txt tests/tools/test_blueprint_audit\\.py tools/blueprint_audit\\.py $", "timeout_s": 30}
+{"name": "no-file-deleted", "command": "git diff --diff-filter=D --name-only 70df2fe1457ff7b2d7a822f0df1977024ae47028 HEAD | wc -l", "expect_exit": 0, "expect_regex": "^0$", "timeout_s": 30}
+{"name": "one-commit", "command": "git rev-list --count 70df2fe1457ff7b2d7a822f0df1977024ae47028..HEAD", "expect_exit": 0, "expect_regex": "^1$", "timeout_s": 30}
 {"name": "evidence-in-commit-body", "command": "git log -1 --format=%B | grep -cE '^EVIDENCE-(RED|GREEN|DIFFSTAT):'", "expect_exit": 0, "expect_regex": "^([3-9]|[1-9][0-9]+)$", "timeout_s": 30}
 ```
 
