@@ -1988,8 +1988,72 @@ local function collector_source_rate(demand, total)
     return total
 end
 
+--End-feed guard (legalcopilot-dev, 2026-09-28, gray + magenta grid 54x254): an iron-stick underground exit at (4,121)
+--faced the rail output belt and a stone belt end at (28,115) faced an advanced-circuit underground entrance, so one
+--flow ran onto the other (98 BP_V_BELT_BLEED, a blocked side-load). Ends.turn_heads turns a plain belt end away later,
+--so only ends it can NOT turn are refused: an underground exit, or a belt end whose both side tiles would feed another
+--flow as well. Checked both ways: this path's own end, and an older end of another flow that now faces a new tile.
+local function feeds_foreign(work, x, y, dir, flow_id)
+    local dx, dy = Grid.dir_vector(dir)
+    local key = coordinate_key(x + dx, y + dy)
+    local seg = work.segments_by_cell[key]
+    if not seg or seg.kind ~= "belt" or segment_has_flow(seg, flow_id) then return false end
+    if seg.splitter then return seg.direction == dir end
+    if seg.underground and key == seg.underground_exit_key then return false end
+    return seg.direction ~= Grid.dir_opposite(dir)
+end
+
+local function end_cannot_turn(work, x, y, dir, flow_id, seg)
+    if not feeds_foreign(work, x, y, dir, flow_id) then return false end
+    if seg.underground or seg.splitter then return true end
+    for _, side in ipairs({(dir + 4) % 16, (dir + 12) % 16}) do
+        local sx, sy = Grid.dir_vector(side)
+        local beside = work.segments_by_cell[coordinate_key(x + sx, y + sy)]
+        if not beside and not (work.obstacles and work.obstacles[coordinate_key(x + sx, y + sy)]) then return false end
+        if beside and not feeds_foreign(work, x, y, side, flow_id) then return false end
+    end
+    return true
+end
+
+local function end_feed_bleeds(work, demand, path, pre_existing)
+    local last = path and path[#path]
+    if not last then return false end
+    local key = coordinate_key(last.x, last.y)
+    local seg = work.segments_by_cell[key]
+    if seg and seg.kind == "belt" and not pre_existing[key] and seg.direction ~= nil
+        and (not seg.underground or key == seg.underground_exit_key)
+        and end_cannot_turn(work, last.x, last.y, seg.direction, demand.flow_id, seg) then
+        return true
+    end
+    for _, cell in ipairs(path) do
+        local k = coordinate_key(cell.x, cell.y)
+        local mine = work.segments_by_cell[k]
+        if mine and not pre_existing[k] and not (mine.underground and k == mine.underground_exit_key) then
+            for _, d in ipairs(DIRECTIONS) do
+                local dx, dy = Grid.dir_vector(d)
+                local ox, oy = cell.x - dx, cell.y - dy
+                local ok_key = coordinate_key(ox, oy)
+                local other = work.segments_by_cell[ok_key]
+                if other and other ~= mine and other.kind == "belt" and other.direction == d and not other.splitter
+                    and other.flow_id ~= nil and not segment_has_flow(mine, other.flow_id)
+                    and (not other.underground or ok_key == other.underground_exit_key)
+                    and mine.direction ~= Grid.dir_opposite(d)
+                    and end_cannot_turn(work, ox, oy, d, other.flow_id, other) then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 local function append_normal_path(work, demand, path, amount)
     journal_open(work)
+    local pre_existing = {}
+    for _, c in ipairs(path or {}) do
+        local k = coordinate_key(c.x, c.y)
+        if work.segments_by_cell[k] then pre_existing[k] = true end
+    end
     local function reject(reason)
         work.last_route_rejection = work.last_route_rejection or {}
         journal_rollback(work)
@@ -2182,6 +2246,7 @@ local function append_normal_path(work, demand, path, amount)
         first_segment = first_segment or segment
         end
     end
+    if demand.kind ~= "pipe" and end_feed_bleeds(work, demand, path, pre_existing) then return reject("occupied") end
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
     if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
@@ -4941,6 +5006,7 @@ Route._jset, Route._jinsert, Route._jremove = jset, jinsert, jremove
 Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_open, journal_rollback, journal_commit
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
-    row_head_reuse_guard = row_head_reuse_guard, jset = jset, jinsert = jinsert, jremove = jremove,
+    row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
+    jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route
