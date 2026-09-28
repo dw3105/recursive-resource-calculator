@@ -200,3 +200,4 @@
 | `259` | `rrc/agent` | route: a belt never enters an underground exit from its buried rear | 2026-09-28 |
 | `260` | `rrc/agent` | groups: an item port heading into another item's port points away from its machine | 2026-09-28 |
 | `261` | `rrc/agent` | search: tidy re-route treats every beacon's current footprint as an obstacle | 2026-09-28 |
+| `263` | `rrc/agent` | validate: port approach checks follow the real belt, not the declared heading | 2026-09-28 |
