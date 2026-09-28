@@ -1,0 +1,4 @@
+# bound: 3000s
+logic/bp/search.lua
+tests/test_search_tidy_beacons.lua
+docs/tasks/261_search_tidy_beacon_obstacles.md

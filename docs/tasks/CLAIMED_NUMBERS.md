@@ -199,3 +199,4 @@
 | `258` | `rrc/agent` | groups: a machine hand never sits on the tile where its fluid pipe connects | 2026-09-27 |
 | `259` | `rrc/agent` | route: a belt never enters an underground exit from its buried rear | 2026-09-28 |
 | `260` | `rrc/agent` | groups: an item port heading into another item's port points away from its machine | 2026-09-28 |
+| `261` | `rrc/agent` | search: tidy re-route treats every beacon's current footprint as an obstacle | 2026-09-28 |
