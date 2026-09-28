@@ -22,6 +22,13 @@ io.write("NR1\n")
 check(count == 0, "no begin_search calls with order_index > 1; got " .. tostring(count) .. "\n" .. out)
 
 local Grid = require "logic.bp.grid"
+package.preload["logic.bp.route"] = function()
+    local f = assert(io.open("logic/bp/route.lua", "r")); local src = f:read("*a"); f:close()
+    local head = "local function begin_search(work, demand, amount, order_index)"
+    local _, finish = assert(src:find(head, 1, true))
+    src = src:sub(1, finish) .. " if order_index > 1 then _G.__nr_unit_orders = (_G.__nr_unit_orders or 0) + 1 end\n" .. src:sub(finish + 1)
+    return assert(load(src, "@logic/bp/route.lua"))()
+end
 local Route = require "logic.bp.route"
 local input = {
     grid = Grid.new(12, 5), max_expansions = 500,
@@ -42,4 +49,5 @@ local state = Route.begin(input); local ticks = 0
 while not state.done and ticks < 50000 do Route.step(state, {ops = 2000}); ticks = ticks + 1 end
 io.write("NR2\n")
 check(state.done, "blocked route reaches next candidate/fail path without looping")
+check((_G.__nr_unit_orders or 0) == 0, "blocked route did not begin a second direction-order search")
 io.write("test_route_no_replay: " .. passed .. " passed, " .. failed .. " failed\n")
