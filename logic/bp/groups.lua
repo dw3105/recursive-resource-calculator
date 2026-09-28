@@ -1221,6 +1221,54 @@ local function block_ports(block, steps, ports, flows)
     end
     place_side(inputs, "in", "top", SOUTH, SOUTH, 0)
     place_side(outputs, "out", "left", EAST, Grid.WEST, 0)
+    -- 2026-09-27: block:electronic-circuit hand 5 at (7,3) faced (6,2), another flow's port tile.
+    local ports_by_tile = {}
+    local function port_flows(port)
+        local result = {}
+        if port.flow_id ~= nil then result[tostring(port.flow_id)] = true end
+        for _, flow_id in ipairs(port.flow_ids or {}) do result[tostring(flow_id)] = true end
+        return result
+    end
+    local function different_flow(first, second)
+        local first_flows, second_flows = port_flows(first), port_flows(second)
+        for flow_id in pairs(first_flows) do
+            if second_flows[flow_id] then return false end
+        end
+        return true
+    end
+    for _, port in ipairs(block.ports) do
+        if port.attach_dx ~= nil and port.attach_dy ~= nil then
+            local key = port.attach_dx .. ":" .. port.attach_dy
+            ports_by_tile[key] = ports_by_tile[key] or {}
+            ports_by_tile[key][#ports_by_tile[key] + 1] = port
+        end
+    end
+    for _, port in ipairs(block.ports) do
+        if port.kind ~= "fluid" and not port.fluid_pinned and port.inserter_id ~= nil
+            and port.travel_dir ~= nil and port.attach_dx ~= nil and port.attach_dy ~= nil then
+            local dx, dy = Grid.dir_vector(port.travel_dir)
+            if dx ~= nil then
+                local sign = port.role == "out" and 1 or -1
+                local ahead_key = (port.attach_dx + sign * dx) .. ":" .. (port.attach_dy + sign * dy)
+                local clash = false
+                for _, other in ipairs(ports_by_tile[ahead_key] or {}) do
+                    if different_flow(port, other) then clash = true; break end
+                end
+                if clash then
+                    for _, hand in ipairs(block.inserters or {}) do
+                        if hand.id == port.inserter_id and hand.x ~= nil and hand.y ~= nil then
+                            local away = Grid.dir_from_vector(port.attach_dx - math.floor(hand.x),
+                                port.attach_dy - math.floor(hand.y))
+                            if away ~= nil then
+                                port.travel_dir = port.role == "out" and away or Grid.dir_opposite(away)
+                            end
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
 end
 
 local function build_block(step_group, catalog, ports, flows, input, block_id)
