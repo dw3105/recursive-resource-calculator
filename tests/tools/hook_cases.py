@@ -17,6 +17,9 @@ CASES = [
     (0, "cd ~/wt-rrc-int && RRC_SLOW=bytes:merge_gate_13_sheets_one_run sh tools/bytes_hash.sh a"),
     (0, "cd ~/wt-rrc-int && RRC_SLOW=bytes:merge_gate_13_sheets_one_run sh tools/bytes_hash.sh b"),
     (2, "cd ~/wt-rrc-int && RRC_SLOW=bytes:a_second_byte_gate_same_wave sh tools/bytes_hash.sh a"),
+    (0, "cd ~/wt-rrc-int && python3 /var/lib/agent-skills/current/tools/lane.py --repo /home/x/wt-rrc-int launch "
+        "/home/x/wt-rrc-274 docs/tasks/274_capacity_stacked_inputs.md --deadline 3600 2>&1 | tail -15"),
+    (2, "cd ~/wt-rrc-int && python3 tools/golden_report.py a b"),
 ]
 
 def main():

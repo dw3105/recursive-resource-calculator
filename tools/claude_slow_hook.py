@@ -45,7 +45,9 @@ def main():
             words = words[1:]
         if words and (words[0] in ("lua5.2", "lua") or words[0].startswith("./tools/")
                       or (words[0] in ("sh", "bash", "python3") and len(words) > 1
-                          and re.search(r"(^|/)(tools|tests|r4\d)/|probes/", words[1]))):
+                          and (re.match(r"^(\./)?(tools|tests)/", words[1])
+                               or re.search(r"wt-rrc|recursive-resource-calculator|rrc-round-\d+-probes|scratchpad/r4\d", words[1])))):
+            # orchestration tools outside the repo (lane.py under /var/lib/agent-skills) are not checks
             running.append(seg)
     if not running:
         return
