@@ -8,9 +8,9 @@ local patch_path = os.tmpname() .. ".lua"
 local f = assert(io.open(patch_path, "w"))
 f:write([[return function(name, src)
  if name ~= "logic.bp.route" then return src end
- local needle = "local function begin_search(work, demand, amount, order_index)"
+ local needle = "    order_index = order_index or 1"
  local a,b = assert(src:find(needle,1,true))
- src = src:sub(1,b) .. " if order_index > 1 then _G.__nr_orders = (_G.__nr_orders or 0) + 1; io.stderr:write('NR_ORDERS 1\\n') end" .. src:sub(b+1)
+ src = src:sub(1,b) .. "\n    if order_index > 1 then _G.__nr_orders = (_G.__nr_orders or 0) + 1; io.stderr:write('NR_ORDERS 1\\n') end" .. src:sub(b+1)
  return src
 end]])
 f:close()
@@ -24,7 +24,7 @@ check(count == 0, "no begin_search calls with order_index > 1; got " .. tostring
 local Grid = require "logic.bp.grid"
 package.preload["logic.bp.route"] = function()
     local f = assert(io.open("logic/bp/route.lua", "r")); local src = f:read("*a"); f:close()
-    local head = "local function begin_search(work, demand, amount, order_index)"
+    local head = "    order_index = order_index or 1"
     local _, finish = assert(src:find(head, 1, true))
     src = src:sub(1, finish) .. " if order_index > 1 then _G.__nr_unit_orders = (_G.__nr_unit_orders or 0) + 1 end\n" .. src:sub(finish + 1)
     return assert(load(src, "@logic/bp/route.lua"))()
