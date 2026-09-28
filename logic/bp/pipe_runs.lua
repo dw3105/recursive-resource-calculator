@@ -166,6 +166,23 @@ function PipeRuns.bury(work, h)
         return dx ~= nil and x + dx == target_x and y + dy == target_y
     end
 
+    --A new pair whose end lies inside an existing pipe pair on the same axis would weave into it, which the engine
+    --does not do. Gray + magenta (legalcopilot-dev 2026-09-28): plain molten-iron pipes (8..10,88) above pair
+    --(6,88)-(16,88) became pair (8,88)-(10,88), flagged by blueprint_audit. Any covering span has an end within
+    --reach on the scanned side.
+    local function inside_span(x, y, dx, dy)
+        for d = 1, reach do
+            local segment = by_cell[key(x - dx * d, y - dy * d)]
+            if segment and segment.underground and segment.kind == "pipe" and not segment._route_removed
+                and segment.underground_entry_x then
+                local ex, ey, xx, xy = segment.underground_entry_x, segment.underground_entry_y,
+                    segment.underground_exit_x, segment.underground_exit_y
+                if dy == 0 and ey == y and xy == y and x > math.min(ex, xx) and x < math.max(ex, xx) then return true end
+                if dx == 0 and ex == x and xx == x and y > math.min(ey, xy) and y < math.max(ey, xy) then return true end
+            end
+        end
+        return false
+    end
     for _, direction in ipairs({Grid.EAST, Grid.SOUTH}) do
         local dx, dy = Grid.dir_vector(direction)
         local cells = {}
@@ -206,7 +223,8 @@ function PipeRuns.bury(work, h)
                         local before_x, before_y = first.x - dx, first.y - dy
                         local after_x, after_y = last.x + dx, last.y + dy
                         if connects_back(before_x, before_y, first.x, first.y, flow)
-                            and connects_back(after_x, after_y, last.x, last.y, flow) then
+                            and connects_back(after_x, after_y, last.x, last.y, flow)
+                            and not inside_span(first.x, first.y, dx, dy) and not inside_span(last.x, last.y, dx, dy) then
                             local pair = {segment_id = h.next_segment_id(work), kind = "pipe",
                                 capacity_per_second = first.segment.capacity_per_second, allocations = {},
                                 flow_id = flow, flow_ids = first.segment.flow_ids, direction = direction,

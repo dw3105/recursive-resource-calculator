@@ -2722,6 +2722,23 @@ local function crossing_faces_ok(work, demand, x, y, direction, key)
     return not fluid or (reserved._fluid_dir ~= nil and reserved._fluid_dir == direction)
 end
 
+--True when (x, y) lies strictly inside an existing underground pair of the same family on the same axis. A new
+--end there would weave into that pair, which the engine does not do: gray + magenta (legalcopilot-dev
+--2026-09-28) shipped molten-iron pair (8,88)-(10,88) inside pair (6,88)-(16,88), flagged by blueprint_audit.
+--Any covering span has an end on each side within reach, so one side is scanned.
+local function inside_same_axis_span(work, x, y, dx, dy, pipe, reach)
+    for d = 1, reach do
+        local segment = work.segments_by_cell[coordinate_key(x - dx * d, y - dy * d)]
+        if segment and segment.underground and (segment.kind == "pipe") == pipe and segment.underground_entry_x then
+            local ex, ey, xx, xy = segment.underground_entry_x, segment.underground_entry_y,
+                segment.underground_exit_x, segment.underground_exit_y
+            if dy == 0 and ey == y and xy == y and x > math.min(ex, xx) and x < math.max(ex, xx) then return true end
+            if dx == 0 and ex == x and xx == x and y > math.min(ey, xy) and y < math.max(ey, xy) then return true end
+        end
+    end
+    return false
+end
+
 local function crossing_targets(work, demand, search, current, direction, amount, current_key)
     local reach = underground_reach(work, demand)
     if reach < 2 then return {} end
@@ -2733,6 +2750,8 @@ local function crossing_targets(work, demand, search, current, direction, amount
     if not crossing_faces_ok(work, demand, current.x, current.y, direction, current_key) then return {} end
     if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return {} end
     local dx, dy = Grid.dir_vector(direction)
+    local pipe = demand.kind == "pipe"
+    if inside_same_axis_span(work, current.x, current.y, dx, dy, pipe, reach) then return {} end
     local targets, blocked_middle = {}, false
     for distance = 2, reach do
         local middle_x, middle_y = current.x + dx * (distance - 1), current.y + dy * (distance - 1)
@@ -2757,7 +2776,8 @@ local function crossing_targets(work, demand, search, current, direction, amount
         --at (13,7) costing 20, so the straight feed (14,8) W, (13,8) N, dive at (13,7), costing 13, was never
         --offered.
         local exit_free = false
-        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and crossing_faces_ok(work, demand, x, y, direction, key) then
+        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and crossing_faces_ok(work, demand, x, y, direction, key)
+            and not inside_same_axis_span(work, x, y, dx, dy, pipe, reach) then
             if crowded_demand(work, demand) then search.touch_ok = true end
             exit_free = path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search, key)
             search.touch_ok = nil
@@ -5052,6 +5072,7 @@ Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_bindi
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
     prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end, find_binding = find_binding,
     splitter_straight_fed = splitter_straight_fed, apply_bury = apply_bury, reanchor_bindings = function(w) return reanchor_bindings(w) end,
+    inside_same_axis_span = inside_same_axis_span,
     jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route

@@ -41,12 +41,15 @@ SIZE = {
     "foundry": 5, "biochamber": 3, "chemical-plant": 3, "oil-refinery": 5, "centrifuge": 3,
     "cryogenic-plant": 5, "rocket-silo": 9, "lab": 3, "beacon": 3, "roboport": 4,
     "big-electric-pole": 2, "substation": 2,
+    #Player mod machines on the gray + magenta sheet (catalog tile_w/tile_h, 2026-09-28): without them 18 inserters
+    #read as dropping onto empty ground.
+    "smelting-plant": 4, "machining-assembler": 5,
 }
 
 MACHINES = {
     "assembling-machine-1", "assembling-machine-2", "assembling-machine-3", "electromagnetic-plant",
     "electric-furnace", "steel-furnace", "stone-furnace", "foundry", "biochamber", "chemical-plant",
-    "oil-refinery", "centrifuge", "cryogenic-plant", "rocket-silo",
+    "oil-refinery", "centrifuge", "cryogenic-plant", "rocket-silo", "smelting-plant", "machining-assembler",
 }
 BELTS = {"transport-belt", "fast-transport-belt", "express-transport-belt", "turbo-transport-belt"}
 UG_BELTS = {"underground-belt", "fast-underground-belt", "express-underground-belt", "turbo-underground-belt"}

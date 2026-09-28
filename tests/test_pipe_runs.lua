@@ -107,4 +107,17 @@ H.test("PR5 fourteen-tile run splits at reach", function()
     H.equal(longest <= 10, true, "no endpoint distance exceeds reach")
 end)
 
+--PR6 red on 4a301d4: gray + magenta (legalcopilot-dev 2026-09-28) buried plain pipes (8..10,88) that ran above pair
+--(6,88)-(16,88), weaving pair (8,88)-(10,88) into it.
+H.test("PR6 a run above an existing same-axis pipe pair is not buried", function()
+    local work = work_line(3, 8)
+    local outer = {segment_id = "outer", kind = "pipe", flow_id = "fluid/a", underground = true, allocations = {},
+        underground_entry_x = 1, underground_entry_y = 2, underground_exit_x = 12, underground_exit_y = 2,
+        underground_entry_key = "1:2", underground_exit_key = "12:2"}
+    work.segments[#work.segments + 1] = outer
+    work.segments_by_cell["1:2"], work.segments_by_cell["12:2"] = outer, outer
+    H.equal(bury(work), 0, "no pair woven into the outer pair")
+    H.equal(live_at(work, 5, 2) and live_at(work, 5, 2).underground ~= true, true)
+end)
+
 H.done("test_pipe_runs")
