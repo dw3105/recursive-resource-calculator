@@ -63,7 +63,7 @@ local function entry_id(entry)
     return entry and (entry.step_id or entry.id or entry.block_id)
 end
 
-function RunDir.choose(block, placement, all_blocks, all_placements, grid, flows, input_edge, output_edge)
+function RunDir.choose(block, placement, all_blocks, all_placements, grid, flows, input_edge, output_edge, obstacles)
     if not block.row then return block end
     local placed_by_id = {}
     for index, other in ipairs(all_blocks or {}) do
@@ -138,12 +138,27 @@ function RunDir.choose(block, placement, all_blocks, all_placements, grid, flows
                             da, db = math.min(da, manhattan(a, target)), math.min(db, manhattan(b, target))
                         end
                         local valid = true
+                        local function in_obstacle(x, y)
+                            for _, obstacle in ipairs(obstacles or {}) do
+                                local rect = obstacle.rect or obstacle
+                                if x >= rect.x and y >= rect.y and x < rect.x + rect.w and y < rect.y + rect.h then return true end
+                            end
+                            return false
+                        end
                         for _, p in ipairs(reversed.ports or {}) do
                             if p.row_port and p.role == role then
                                 local q = Grid.place_port(reversed, placement, p)
                                 local vx, vy = Grid.dir_vector(q.dir)
-                                for _, tile in ipairs({{x = q.x, y = q.y}, {x = q.x + vx, y = q.y + vy}}) do
+                                local checked = {{x = q.x, y = q.y}, {x = q.x + vx, y = q.y + vy}}
+                                if role == "out" then
+                                    local tx, ty = Grid.dir_vector(Grid.rotate_dir(p.travel_dir or p.normal_dir, placement.dir))
+                                    local exit = {x = q.x + tx, y = q.y + ty}
+                                    checked[#checked + 1] = exit
+                                    if in_obstacle(exit.x, exit.y) then valid = false end
+                                end
+                                for _, tile in ipairs(checked) do
                                     if tile.x < 1 or tile.y < 1 or tile.x >= grid.w - 1 or tile.y >= grid.h - 1 then valid = false end
+                                    if role ~= "out" and in_obstacle(tile.x, tile.y) then valid = false end
                                     for _, other in ipairs(all_blocks or {}) do
                                         local op = placed_by_id[other.id or other.block_id]
                                         if op and other ~= block and tile.x >= op.placement.x and tile.y >= op.placement.y
@@ -152,6 +167,7 @@ function RunDir.choose(block, placement, all_blocks, all_placements, grid, flows
                                 end
                             end
                         end
+                        -- legalcopilot-dev, lua5.2, 2026-09-28: checking the exit removed the production flip onto roboport k:8.
                         if valid and db < da then result = reversed end
                     end
                 end
