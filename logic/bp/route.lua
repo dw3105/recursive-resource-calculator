@@ -56,7 +56,10 @@ local EPSILON = 1e-9
 --One A* expansion (heap pop, neighbour checks, crossing targets) costs ~50-80 us on the player's green sheet; one op is
 --budgeted at ~8 us (2000 ops ~ one 16 ms game tick). Charged at 1 op, a 2000-op call ran 0.1-0.56 s (measured
 --2026-09-24, legalcopilot-dev, tools/tick_parts.lua). Decisions count steps and expansions, never ops.
-local EXPANSION_OPS = 10
+--Round 46 (legalcopilot-dev, 2026-09-28): after tile-key cache, numeric state keys and the undo journal a step costs
+--35-40 us, so 10 ops (~80 us) left half of each 16.7 ms tick unused (route mean 3.5-7.8 ms). 7 ops ~= 285 steps per
+--2000-op tick ~= 11.4 ms. Charge never changes the result (tests/test_route_ticks.lua).
+local EXPANSION_OPS = 7
 local HEURISTIC_PER_TILE = 1
 --Contract 28.8.  A trunk tile that is already the sink's own port tile, entered in a heading the port
 --did not ask for, is the LAST answer the search should take: high enough that any real approach wins,
