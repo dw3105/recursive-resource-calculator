@@ -23,6 +23,7 @@ for _, fixture in ipairs({"green_tidy.lua.gz", "ins10_tidy2.lua.gz"}) do
     local out = resume(fixture)
     H.equal(out:match("sha=(%w+)"), digests[fixture], "JN1 " .. fixture .. " frozen digest")
 end
+print("JN1 frozen tidy digests passed")
 local tmp = os.tmpname()
 resume("ins10_tidy2.lua.gz", "--until phase=validate --save " .. tmp)
 local saved = Graph.load(tmp)
@@ -30,8 +31,10 @@ os.remove(tmp)
 local counters = saved.state.work.route_state.counters
     or saved.state.work.counters or saved.state.counters
 H.equal(counters ~= nil and counters.route_snapshots <= 20, true, "JN2 tidy snapshots <= 20")
+print("JN2 tidy snapshot count passed")
 local restart = resume("stack1_restart27.lua.gz", "--until kind=route-restart")
 H.equal(restart:match("END ok=%w+ ticks=(%d+)"), "9133", "JN3 base restart checkpoint tick")
+print("JN3 restart ticks passed")
 
 local function clone(v, seen)
     if type(v) ~= "table" then return v end
@@ -60,6 +63,7 @@ Route._test.jinsert(nested, nested.entities, {id = 1})
 Route._test.journal_commit(nested)
 Route._test.journal_rollback(nested)
 H.equal(equal(nested, before), true, "JN5 inner commit is undone by outer rollback")
+print("JN5 nested journal passed")
 
 local function refusal_work()
     return {entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
@@ -74,7 +78,7 @@ local function refusal_case(reason, path, amount, prepare, sink_x, sink_y)
         segments_by_cell=w.segments_by_cell,entity_by_segment=w.entity_by_segment,
         underground_cells=w.underground_cells,splitter_blocked_cells=w.splitter_blocked_cells,
         entity_serial=w.entity_serial,segment_serial=w.segment_serial})
-    local demand = {flow={is_fluid=false}, flow_id="flow/a", kind="item", amount=amount,
+    local demand = {flow={is_fluid=false}, flow_id="flow/a", kind="belt", amount=amount,
         source={port_id="src",step_id="src",x=0,y=1}, sink={port_id="dst",step_id="dst",x=sink_x,y=sink_y}}
     local placed, why = Route._test.append_normal_path(w, demand, path, amount)
     H.equal(placed, false, "JN4 " .. reason .. " refuses")
@@ -95,6 +99,7 @@ refusal_case("splitter-footprint", {{x=1,y=1},{x=2,y=1},{x=2,y=2}}, 1, function(
     w.multi_flow_hands=true; w.segments={segment}; w.entities={entity}; w.segments_by_cell["2:1"]=segment
     w.entity_by_segment.old=entity
 end, 2, 2)
+print("JN4 refusal rollback cases passed")
 
 local f = assert(io.open("logic/bp/route.lua", "r")); local src = f:read("*a"); f:close()
 H.equal(src:find("local snapshot = route_snapshot(work)", 1, true) == nil, true, "JN6 append path has no snapshot")
@@ -119,5 +124,6 @@ for _, field in ipairs({"entities", "segments", "bindings", "segments_by_cell", 
     H.equal(raw_write, false, "JN6 no raw " .. field .. " writes in append")
 end
 H.equal(append_source:find("table.insert(work.entities", 1, true), nil, "JN6 no raw entity insert")
+print("JN6 append source guard passed")
 
 H.done("test_route_journal2")
