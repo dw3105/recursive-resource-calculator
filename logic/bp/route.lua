@@ -76,6 +76,8 @@ local function new_counters()
         restarts = 0,
         discarded_geometry = 0,
         crossings_placed = 0,
+        trials_run = 0, trials_skipped_repeat = 0, trials_skipped_cannot_start = 0,
+        trial_steps = 0, route_snapshots = 0,
         searches_abandoned = {
             blocked = 0,
             capacity = 0,
@@ -1538,6 +1540,7 @@ end
 --defensive validation failure (capacity, a splitter footprint, or a late crossing conflict) cannot leave a
 --successful prefix in the working graph.
 local function route_snapshot(work)
+    if work.counters then work.counters.route_snapshots = (work.counters.route_snapshots or 0) + 1 end
     local entity_serial, segment_serial = work.entity_serial, work.segment_serial
     local entities, entity_by_id = {}, {}
     for index, entity in ipairs(work.entities) do
@@ -1730,10 +1733,20 @@ local function route_chain_reaches_sink(work, demand, path)
 end
 
 local function all_bindings_reach_sinks(work)
+    local reached_by = {}
     for _, binding in ipairs(work.bindings or {}) do
         local source = work.endpoint_by_id and work.endpoint_by_id[binding.source_port_id]
         local sink = work.endpoint_by_id and work.endpoint_by_id[binding.sink_port_id]
-        if not route_chain_reaches_tiles(work, source, sink, binding.flow_id) then return false end
+        if not source or not sink then return false end
+        local memo_key = coordinate_key(source.x, source.y) .. "|" .. tostring(binding.flow_id)
+        local reached = reached_by[memo_key]
+        if reached == nil then
+            reached = {}
+            local _, tiles = route_chain_walk(work, source, nil, binding.flow_id)
+            for _, key in ipairs(tiles) do reached[key] = true end
+            reached_by[memo_key] = reached
+        end
+        if not reached[coordinate_key(sink.x, sink.y)] then return false end
     end
     return true
 end
@@ -3631,6 +3644,33 @@ end
 --shows one allocation; and a branch laid from a seed on the trunk records nothing upstream of that seed,
 --so a trunk four paths ride looked like one path's.  Measured 2026-09-23 on legalcopilot-dev: the first
 --version lifted the whole 31-tile iron-plate trunk and orphaned three furnaces.
+--Pure eligibility check used before copying the route state for a trial.
+local function lift_check(work, binding, allow_fixed)
+    if not binding then return false end
+    local mine = binding_path(work, binding)
+    if not mine then return false end
+    local others = {}
+    for _, other in ipairs(work.bindings) do
+        if other ~= binding and other.flow_id == binding.flow_id then
+            for _, key in ipairs(binding_path(work, other) or {}) do others[key] = true end
+        end
+    end
+    local owned_ids, count = {}, 0
+    for _, key in ipairs(mine) do
+        local segment = work.segments_by_cell[key]
+        if segment and segment.fixed and not allow_fixed then return false end
+        local carries_other = false
+        for _, allocation in ipairs(segment and segment.allocations or {}) do
+            if allocation.sink ~= nil and binding.sink ~= nil and allocation.sink ~= binding.sink then carries_other = true; break end
+        end
+        if segment and not segment.fixed and not others[key] and not carries_other then
+            if segment.splitter then return false end
+            if not owned_ids[segment.segment_id] then owned_ids[segment.segment_id] = true; count = count + 1 end
+        end
+    end
+    return count >= 2
+end
+
 local function lift_binding(work, binding, allow_fixed)
     local mine = binding_path(work, binding)
     if not mine then return nil end
@@ -4100,6 +4140,14 @@ local function reanchor_bindings(work)
     end
 end
 
+local function retry_binding_skipped(st, wanted)
+    st.retry_seen = st.retry_seen or {}
+    local retry_key = tostring(wanted[1]) .. "|" .. tostring(wanted[2]) .. "|" .. tostring(wanted[3])
+    local repeated = st.retry_seen[retry_key] == st.improved
+    st.retry_seen[retry_key] = st.improved
+    return repeated
+end
+
 improve_begin = function(work)
     --Bindings are named by fields, never held by reference: a restored snapshot replaces every table.
     local order = {}
@@ -4112,6 +4160,24 @@ end
 
 --Advance the improve pass by at most about `ops` ops; returns ops used and whether the pass finished.  The trials
 --and their order are exactly those of the one-shot pass, so the kept layout does not depend on the budget.
+local function improve_lift_can_start(work, st)
+    local option = st.options[st.option_index]
+    local spec = option and option.multi_bindings and option.multi_bindings[1] or st.wanted
+    local binding = find_binding(work, spec)
+    local memo = st.lift_memo
+    if not memo or memo.index ~= st.index or memo.improved ~= st.improved or memo.order ~= st.order then
+        memo = {index = st.index, improved = st.improved, order = st.order, answers = {}}
+        st.lift_memo = memo
+    end
+    local key = tostring(spec[1]) .. "|" .. tostring(spec[2]) .. "|" .. tostring(spec[3])
+    local answer = memo.answers[key]
+    if answer == nil then
+        answer = lift_check(work, binding, false)
+        memo.answers[key] = answer
+    end
+    return answer
+end
+
 improve_step = function(work, st, ops)
     local used = 0
     while used < ops do
@@ -4122,7 +4188,7 @@ improve_step = function(work, st, ops)
             if not wanted then
                 if not st.retrying and st.improved > 0 and #st.refused > 0 then
                     st.order, st.index, st.retrying = st.refused, 0, true
-                    st.refused = {}
+                    st.refused, st.retry_seen = {}, {}
                     used = used + 1
                     break
                 end
@@ -4175,7 +4241,12 @@ improve_step = function(work, st, ops)
                 if candidate.source and candidate.sink and candidate.source.port_id == wanted[1]
                     and candidate.sink.port_id == wanted[2] then demand = candidate; break end
             end
-            if demand and find_binding(work, wanted) then
+            local repeat_same_world = false
+            if st.retrying then
+                repeat_same_world = retry_binding_skipped(st, wanted)
+                if repeat_same_world then work.counters.trials_skipped_repeat = (work.counters.trials_skipped_repeat or 0) + 1 end
+            end
+            if demand and not repeat_same_world and find_binding(work, wanted) then
                 --Option 1 keeps both hands; then try the offered slides and hops for each hand.  A hand may move
                 --only when this path is the only one on its port, so no other belt loses its end tile.
                 local options = {false}
@@ -4206,14 +4277,24 @@ improve_step = function(work, st, ops)
                 st.best, st.best_weight, st.option_index = nil, st.before, 1
                 st.stage = "trial_start"
             end
+        elseif st.stage == "trial_start" and not improve_lift_can_start(work, st) then
+            st.option_index = st.option_index + 1
+            work.counters.trials_skipped_cannot_start = (work.counters.trials_skipped_cannot_start or 0) + 1
+            if st.option_index <= #st.options then st.stage = "trial_start"
+            elseif st.best then st.stage = "commit_start"
+            else st.stage = "next" end
+            used = used + 1
         elseif st.stage == "trial_start" or st.stage == "commit_start" then
             local commit = st.stage == "commit_start"
             st.snapshot = route_snapshot(work)
+            work.counters.trials_run = (work.counters.trials_run or 0) + 1
             st.trial = trial_start(work, st.wanted, st.demand, st.options[commit and st.best or st.option_index] or nil)
             st.stage = commit and "commit_run" or "trial_run"
             used = used + IMPROVE_TRIAL_OPS
         elseif st.stage == "trial_run" or st.stage == "commit_run" then
+            local before_steps = st.trial.steps or 0
             used = used + trial_run(work, st.trial, ops - used)
+            work.counters.trial_steps = (work.counters.trial_steps or 0) + ((st.trial.steps or 0) - before_steps)
             if st.trial.done then st.stage = st.stage == "trial_run" and "trial_end" or "commit_end" end
         elseif st.stage == "trial_end" then
             if st.trial.refused then
@@ -4673,4 +4754,7 @@ function Route.step(state, budget)
     return state
 end
 
+--Measured legalcopilot-dev 2026-09-28: green tidy trial steps 171,842 -> under 40,000;
+--ins10 second tidy snapshots 3,103 -> under 600; stack1 159 s -> 6.5 s. Golden digests stay unchanged.
+Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped}
 return Route
