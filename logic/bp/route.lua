@@ -2195,6 +2195,15 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         end
     end
     if segment then
+        --An underground exit takes items only from its own pair; its rear is buried. On player-inserter-10s-stack1
+        --(2026-09-27) a second circuit branch turned west at (25,32) into the rear of exit (24,32) of pair
+        --(31,32)->(24,32): BP_V_UNDERGROUND_UNPAIRED. Riding a pair never comes through here (the ride enqueues
+        --the exit directly).
+        if demand.kind ~= "pipe" and segment.kind == "belt" and segment.underground
+            and segment.underground_exit_key == coordinate_key(x, y) and move_direction == segment.direction then
+            search.saw_blocked = true
+            return false
+        end
         --An underground input consumes its feed into the pair; stepping onto it from the side cannot continue.
         if segment.underground and segment.underground_entry_key == coordinate_key(x, y)
             and not (search and search.allow_ride and demand.kind ~= "pipe" and move_direction == segment.direction
