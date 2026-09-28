@@ -14,14 +14,17 @@ Route.tidy_begin = function(done_state, options)
     return original_tidy_begin(done_state, options)
 end
 
-local old_arg, old_exit = arg, os.exit
-arg = {[0] = "tools/first_stage.lua", "player-red-science-1s-foundry", "validate", "15"}
-os.exit = function(code) error({first_stage_exit = code}) end
-local ok, failure = pcall(dofile, "tools/first_stage.lua")
-arg, os.exit = old_arg, old_exit
-Route.tidy_begin = original_tidy_begin
-H.equal(ok, false, "first-stage harness exits after its first validation verdict")
-H.equal(type(failure), "table", "first-stage exit was intercepted")
-H.equal(seen_beacons, true, "tidy obstacles include a live beacon rectangle")
+H.test("TB1 tidy obstacles include live beacons", function()
+    local old_arg, old_exit, old_stderr = arg, os.exit, io.stderr
+    arg = {[0] = "tools/first_stage.lua", "player-red-science-1s-foundry", "validate", "15"}
+    os.exit = function(code) error({first_stage_exit = code}) end
+    io.stderr = {write = function() end}
+    local ok, failure = pcall(dofile, "tools/first_stage.lua")
+    arg, os.exit, io.stderr = old_arg, old_exit, old_stderr
+    Route.tidy_begin = original_tidy_begin
+    H.equal(ok, false, "first-stage harness exits after its first validation verdict")
+    H.equal(type(failure), "table", "first-stage exit was intercepted")
+    H.equal(seen_beacons, true, "tidy obstacles include a live beacon rectangle")
+end)
 
 H.done("test_search_tidy_beacons")

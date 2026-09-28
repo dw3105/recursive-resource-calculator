@@ -1748,6 +1748,13 @@ function Search.step(container, budget)
                     for _, e in ipairs(state.work.power.result and state.work.power.result.entities or {}) do
                         if e.kind == "pole" or e.type == "pole" then poles[#poles + 1] = {x=e.x,y=e.y,w=e.w or 1,h=e.h or 1} end
                     end
+                    --On 2026-09-28, blue science tidy routed a pipe under the refinery beacon at tile (7,16) after it slid.
+                    for index, e in ipairs(state.work.materialized.entities or {}) do
+                        if not e._gone and (e.kind == "beacon" or e.type == "beacon") then
+                            poles[#poles + 1] = {x=e.x,y=e.y,w=e.w or 1,h=e.h or 1,
+                                owner="beacon:" .. tostring(e.id or index)}
+                        end
+                    end
                     local pole_cells = {}
                     for _, r in ipairs(poles) do
                         for x = r.x, r.x + r.w - 1 do for y = r.y, r.y + r.h - 1 do pole_cells[x .. ":" .. y] = true end end
