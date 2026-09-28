@@ -1,0 +1,10 @@
+# bound: 3600s
+logic/bp/belt.lua
+logic/catalog.lua
+logic/bp/route.lua
+logic/bp/validate.lua
+logic/bp/groups.lua
+logic/bp/plan.lua
+logic/bp/search.lua
+tests/test_belt_stack.lua
+docs/tasks/274_capacity_stacked_inputs.md
