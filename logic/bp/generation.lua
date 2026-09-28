@@ -96,6 +96,21 @@ local function saved_record(job_id)
     return state and state.jobs and state.jobs[job_id]
 end
 
+local function terminal_state(value)
+    return value ~= "pending"
+end
+
+local function prune_older_finished(state, player_index, sheet_id, job_id)
+    for id, record in pairs(state.jobs) do
+        if id ~= job_id and type(record) == "table" and record.player_index == player_index
+            and record.sheet_id == sheet_id and terminal_state(record.state)
+            and type(record.job_id) == "number" and record.job_id < job_id then
+            state.jobs[id] = nil
+            handles[id] = nil
+        end
+    end
+end
+
 local function persist_handle(handle)
     if type(handle) ~= "table" or type(handle.job_id) ~= "number" then return end
     local state = persistence(true)
@@ -122,6 +137,9 @@ local function persist_handle(handle)
     if handle.delivery_reason ~= nil then record.delivery_reason = handle.delivery_reason end
     state.jobs[handle.job_id] = copy_plain(record) or {}
     state.next_job_id = math.max(integer(state.next_job_id, 0), integer(handle.job_id, 0))
+    if terminal_state(handle.state) then
+        prune_older_finished(state, handle.player_index, handle.sheet_id, handle.job_id)
+    end
 end
 
 local function forget_persisted(job_id)
@@ -1448,6 +1466,45 @@ function Generation.stop_all(reason)
         end
     end
     return stopped
+end
+
+function Generation.prune_all()
+    local state = persistence(true)
+    if not state then return 0 end
+    local newest = {}
+    for id, record in pairs(state.jobs) do
+        if type(record) == "table" and record.player_index ~= nil and record.sheet_id ~= nil
+            and type(record.job_id) == "number" and terminal_state(record.state) then
+            local by_sheet = newest[record.player_index]
+            if not by_sheet then by_sheet = {}; newest[record.player_index] = by_sheet end
+            local current = by_sheet[record.sheet_id]
+            if not current or record.job_id > current then by_sheet[record.sheet_id] = record.job_id end
+        end
+    end
+    local removed = 0
+    for id, record in pairs(state.jobs) do
+        if type(record) == "table" and record.state ~= "pending" then
+            local by_sheet = newest[record.player_index]
+            local keep_id = by_sheet and by_sheet[record.sheet_id]
+            if keep_id and type(record.job_id) == "number" and record.job_id < keep_id then
+                state.jobs[id] = nil
+                handles[id] = nil
+                removed = removed + 1
+            end
+        end
+    end
+    state.lookup = {}
+    for _, record in pairs(state.jobs) do
+        if type(record) == "table" and record.player_index ~= nil and record.sheet_id ~= nil
+            and type(record.job_id) == "number" then
+            state.lookup[record.player_index] = state.lookup[record.player_index] or {}
+            local previous = state.lookup[record.player_index][record.sheet_id]
+            if not previous or record.job_id > previous then
+                state.lookup[record.player_index][record.sheet_id] = record.job_id
+            end
+        end
+    end
+    return removed
 end
 
 Generation.attempt = Generation.lookup

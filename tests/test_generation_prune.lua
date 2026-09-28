@@ -9,13 +9,13 @@ local function fixture(shape)
     world.init()
     require "control"
     world.handlers.on_init()
-    local _, a = H.fill_sheet({}, 1)
+    local pane, a = H.fill_sheet({}, 1)
     local _, b = H.fill_sheet({}, 1)
-    storage[1].sheet_section = {sheet_pane = {tabs = {{content = a}}}}
+    storage[1].sheet_section = {sheet_pane = pane}
     local sheets = {[a.tags.hxrrc_sheet_id] = a, [b.tags.hxrrc_sheet_id] = b}
     local Registry = require "logic.registry"
     local Snapshot = require "logic.snapshot"
-    Registry.calculation = {get = function(_, player, sid)
+    Registry.calculation = {get = function(player, sid)
         local sheet = sheets[sid]
         local snap = Snapshot.of_sheet(sheet)
         return {schema_version = 1, player_index = player, sheet_id = sid, sheet_revision = 0,

@@ -60,6 +60,7 @@ script.on_configuration_changed(function(configuration_changed_data)
     --Prototypes may have changed under any running job, so no result computed before this point may commit
     Jobs.invalidate_all("configuration_changed")
     local stopped = Generation.stop_all("mod_updated")
+    Generation.prune_all()
     for _, player in pairs(game.players) do
         local player_index = player.index
         if type(Registry.progress_sweep) == "function" then Registry.progress_sweep(player_index) end
