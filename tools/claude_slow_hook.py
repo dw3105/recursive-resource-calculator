@@ -35,9 +35,22 @@ def main():
     if not rrc or not heavy:
         return
     # read-only inspection commands (cat/grep/sed/ls/diff/git) never run code: skip when no interpreter is invoked
-    if not re.search(r"\blua5\.2\b|\bsh\s+\S*(tools|tests|probes|r4\d)/|\bpython3\s+\S*tools/|\bbash\s+\S*tools/|\./tools/", cmd):
+    # An interpreter must START a command segment (after ; && || | ( and env/timeout prefixes). File names inside a
+    # read-only command (`git diff a.sh tests/run.sh`) are not a run: the first hook blocked exactly that (2026-09-28).
+    running = []
+    for seg in re.split(r"&&|\|\||[;|()\n]", cmd):
+        words = seg.strip().split()
+        while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("timeout", "env", "time", "nice")
+                         or re.match(r"^-|^\d+s?$", words[0])):
+            words = words[1:]
+        if words and (words[0] in ("lua5.2", "lua") or words[0].startswith("./tools/")
+                      or (words[0] in ("sh", "bash", "python3") and len(words) > 1
+                          and re.search(r"(^|/)(tools|tests|r4\d)/|probes/", words[1]))):
+            running.append(seg)
+    if not running:
         return
-    slow_hit = [p for p in SLOW if re.search(p, cmd)]
+    cmd_run = " ; ".join(running)
+    slow_hit = [p for p in SLOW if re.search(p, cmd_run)]
     m = re.search(r"RRC_SLOW=[\"']([a-z-]+):([^\"']+)[\"']", cmd) or re.search(r"RRC_SLOW=([a-z-]+):(\S+)", cmd)
     if slow_hit:
         if not m:
