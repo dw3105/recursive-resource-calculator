@@ -1,7 +1,7 @@
 # PM0928-P19 — lane ownership manifest written and checked by tool; brief template
 
 Repo `recursive-resource-calculator`. Worktree `/home/dev_zaigraev_gmail_com/wt-rrc-pm19`, branch `lane/pm19`,
-base `BASE_SHA`. Host `legalcopilot-dev`.
+base `76f6b7b566a1d3f9c235350236627a248cb6189a`. Host `legalcopilot-dev`.
 
 **Operator rule: this lane never runs a full suite.** No `sh tests/run.sh`, no `suite_parallel.sh`, no
 `python3 -m pytest tests/` over a directory, no `unittest discover`, no `lua5.2` test, no headless `factorio`.
@@ -168,12 +168,12 @@ deleted.
 ~~~~
 
 7. Red proof in scratch copy, never in this worktree:
-   `D=$(mktemp -d); git archive BASE_SHA | tar -x -C "$D"; cp tests/tools/test_lane_ownership.py "$D/tests/tools/";
+   `D=$(mktemp -d); git archive 76f6b7b566a1d3f9c235350236627a248cb6189a | tar -x -C "$D"; cp tests/tools/test_lane_ownership.py "$D/tests/tools/";
    cd "$D" && python3 -m pytest -q tests/tools/test_lane_ownership.py 2>&1 | tail -15` → the 11 new tests FAIL,
    the 9 old pass. Paste as `EVIDENCE-RED:`.
 8. Commit once on `lane/pm19` with plain `git commit`, subject `pm19: lane_ownership writes manifest and checks
    from task; brief template`, body lines `EVIDENCE-RED:`, `EVIDENCE-GREEN:` (both modules' pytest summary),
-   `EVIDENCE-DIFFSTAT:` (`git diff --stat BASE_SHA HEAD`). Never amend, merge, rebase, push, touch `main`,
+   `EVIDENCE-DIFFSTAT:` (`git diff --stat 76f6b7b566a1d3f9c235350236627a248cb6189a HEAD`). Never amend, merge, rebase, push, touch `main`,
    `int/pm-260928` or any tag. Run checks LAST.
 
 ## What done mean
@@ -181,12 +181,12 @@ deleted.
 ```checks
 {"name": "lane-ownership-tests", "command": "python3 -m pytest -q tests/tools/test_lane_ownership.py 2>&1", "expect_exit": 0, "expect_regex": "(?m)^20 passed in ", "timeout_s": 120}
 {"name": "dispatch-preflight-tests", "command": "python3 -m pytest -q tests/tools/test_dispatch_preflight.py 2>&1", "expect_exit": 0, "expect_regex": "(?m)^11 passed, 13 subtests passed in ", "timeout_s": 120}
-{"name": "old-tests-untouched", "command": "git diff BASE_SHA HEAD -- tests/tools/test_lane_ownership.py | grep -cE '^-([^-]|$)'", "expect_exit": 1, "expect_regex": "^0$", "timeout_s": 30}
+{"name": "old-tests-untouched", "command": "git diff 76f6b7b566a1d3f9c235350236627a248cb6189a HEAD -- tests/tools/test_lane_ownership.py | grep -cE '^-([^-]|$)'", "expect_exit": 1, "expect_regex": "^0$", "timeout_s": 30}
 {"name": "template-exact", "command": "python3 -c \"import glob,re,sys;f=glob.glob('docs/tasks/*_rrc_brief_template.md');assert len(f)==1,f;b=re.search(r'(?ms)^~~~~text\\n(.*?)^~~~~$',open(f[0]).read()).group(1);e=''.join((l[4:] if l.strip() else '')+'\\n' for l in b.splitlines());sys.exit(0 if open('docs/tasks/TEMPLATE.md').read()==e else 1)\" && echo template-exact", "expect_exit": 0, "expect_regex": "^template-exact$", "timeout_s": 30}
-{"name": "owned-only-by-tool", "command": "python3 tools/lane_ownership.py check --base BASE_SHA --task docs/tasks/*_rrc_brief_template.md", "expect_exit": 0, "expect_regex": "(?m)^owned-only: 3 file\\(s\\) changed, 1 required deliverable\\(s\\) present$", "timeout_s": 60}
-{"name": "only-owned-files", "command": "test -z \"$(git status --porcelain --untracked-files=all)\" && git diff --name-only BASE_SHA HEAD | sort | tr '\\n' ' '", "expect_exit": 0, "expect_regex": "^docs/tasks/TEMPLATE\\.md tests/tools/test_lane_ownership\\.py tools/lane_ownership\\.py $", "timeout_s": 30}
-{"name": "no-file-deleted", "command": "git diff --diff-filter=D --name-only BASE_SHA HEAD | wc -l", "expect_exit": 0, "expect_regex": "^0$", "timeout_s": 30}
-{"name": "one-commit", "command": "git rev-list --count BASE_SHA..HEAD", "expect_exit": 0, "expect_regex": "^1$", "timeout_s": 30}
+{"name": "owned-only-by-tool", "command": "python3 tools/lane_ownership.py check --base 76f6b7b566a1d3f9c235350236627a248cb6189a --task docs/tasks/*_rrc_brief_template.md", "expect_exit": 0, "expect_regex": "(?m)^owned-only: 3 file\\(s\\) changed, 1 required deliverable\\(s\\) present$", "timeout_s": 60}
+{"name": "only-owned-files", "command": "test -z \"$(git status --porcelain --untracked-files=all)\" && git diff --name-only 76f6b7b566a1d3f9c235350236627a248cb6189a HEAD | sort | tr '\\n' ' '", "expect_exit": 0, "expect_regex": "^docs/tasks/TEMPLATE\\.md tests/tools/test_lane_ownership\\.py tools/lane_ownership\\.py $", "timeout_s": 30}
+{"name": "no-file-deleted", "command": "git diff --diff-filter=D --name-only 76f6b7b566a1d3f9c235350236627a248cb6189a HEAD | wc -l", "expect_exit": 0, "expect_regex": "^0$", "timeout_s": 30}
+{"name": "one-commit", "command": "git rev-list --count 76f6b7b566a1d3f9c235350236627a248cb6189a..HEAD", "expect_exit": 0, "expect_regex": "^1$", "timeout_s": 30}
 {"name": "evidence-in-commit-body", "command": "git log -1 --format=%B | grep -cE '^EVIDENCE-(RED|GREEN|DIFFSTAT):'", "expect_exit": 0, "expect_regex": "^([3-9]|[1-9][0-9]+)$", "timeout_s": 30}
 ```
 
