@@ -2541,7 +2541,7 @@ local function check_port_approaches(work, port_index)
             {reason = "port-owned tile carries another flow", port_id = port.port_id, x = x, y = y,
                 port_flow_id = port.flow_id or port.full_name, occupant_flow_id = flow_id})
     end
-    local function occupant_at(port, x, y)
+    local function occupant_at(port, x, y, points_into_port)
         local wanted_flow = port.flow_id or port.full_name
         if wanted_flow == nil then return end
         for _, info in ipairs(work.infos) do
@@ -2550,7 +2550,12 @@ local function check_port_approaches(work, port_index)
             if kind and ((fluid_port and kind == "pipe") or (not fluid_port and kind == "belt")) then
                 local tx, ty = tile_of(info)
                 local flow_id = info.entity.flow_id or info.entity.full_name
-                if tx == math.floor(x) and ty == math.floor(y) and flow_id ~= nil and flow_id ~= wanted_flow then
+                local direction = entity_direction(info.entity)
+                local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
+                local follows_approach = fluid_port or not points_into_port or direction == nil
+                    or direction == points_into_port
+                if tx == math.floor(x) and ty == math.floor(y) and flow_id ~= nil and flow_id ~= wanted_flow
+                    and follows_approach then
                     report(port, x, y, flow_id, info.entity)
                 end
             end
@@ -2589,8 +2594,26 @@ local function check_port_approaches(work, port_index)
         if direction then dx, dy = Grid.dir_vector(direction) end
         if x ~= nil and y ~= nil and dx ~= nil and dy ~= nil then
             occupant_at(port, x, y)
-            if port.role == "in" then occupant_at(port, x - dx, y - dy)
-            elseif port.role == "out" then occupant_at(port, x + dx, y + dy) end
+            if port.role == "in" then
+                -- 2026-09-28 stack1: the (44,58) belt beside port (43,58) feeds nothing; only northbound flow enters.
+                occupant_at(port, x - dx, y - dy, direction)
+            elseif port.role == "out" then
+                -- 2026-09-28 stack1: the (22,19) tile is ahead only if the belt on port (21,19) runs east.
+                local approach_x, approach_y = dx, dy
+                for _, info in ipairs(work.infos) do
+                    if transport_kind(info) == "belt" then
+                        local tx, ty = tile_of(info)
+                        local flow_id = info.entity.flow_id or info.entity.full_name
+                        local belt_dir = entity_direction(info)
+                        if tx == math.floor(x) and ty == math.floor(y) and flow_id == (port.flow_id or port.full_name)
+                            and belt_dir ~= nil then
+                            approach_x, approach_y = Grid.dir_vector(belt_dir)
+                            break
+                        end
+                    end
+                end
+                occupant_at(port, x + approach_x, y + approach_y)
+            end
         end
     end
     return true
