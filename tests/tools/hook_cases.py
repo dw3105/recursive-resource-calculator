@@ -14,6 +14,9 @@ CASES = [
     (2, "cd ~/wt-rrc-int && timeout 600 lua5.2 tools/ckpt.lua resume a.gz"),
     (0, "cd ~/legalcopilot && lua5.2 foo.lua"),
     (2, "cd ~/wt-rrc-int && RRC_SLOW=profile:short lua5.2 tools/golden_profile.lua x y"),
+    (0, "cd ~/wt-rrc-int && RRC_SLOW=bytes:merge_gate_13_sheets_one_run sh tools/bytes_hash.sh a"),
+    (0, "cd ~/wt-rrc-int && RRC_SLOW=bytes:merge_gate_13_sheets_one_run sh tools/bytes_hash.sh b"),
+    (2, "cd ~/wt-rrc-int && RRC_SLOW=bytes:a_second_byte_gate_same_wave sh tools/bytes_hash.sh a"),
 ]
 
 def main():

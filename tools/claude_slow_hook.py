@@ -62,13 +62,16 @@ def main():
         if len(reason) < 20:
             deny("reason too short (%d chars); say why no fast rung answers" % len(reason))
         wave = open(WAVE_FILE).read().strip() if os.path.exists(WAVE_FILE) else "unset"
-        used = 0
+        # distinct runs, same rule as tools/lib/slow_guard.lua: one RRC_SLOW value = one run (children, loop steps)
+        runs = set()
         if os.path.exists(LEDGER):
             for line in open(LEDGER):
                 f = line.rstrip("\n").split("\t")
-                if len(f) >= 3 and f[1] == wave and f[2] == slot:
-                    used += 1
-        if used >= BUDGET[slot]:
+                if len(f) >= 5 and f[1] == wave and f[2] == slot:
+                    runs.add(f[4])
+        if reason in runs:
+            return
+        if len(runs) >= BUDGET[slot]:
             deny("slot %s budget %d used up in wave %s (ledger %s)" % (slot, BUDGET[slot], wave, LEDGER))
         os.makedirs(os.path.dirname(LEDGER), exist_ok=True)
         with open(LEDGER, "a") as fh:
