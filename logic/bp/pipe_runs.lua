@@ -7,6 +7,10 @@ local function flow_of(segment)
 end
 
 -- Drop plain pipe tiles whose neighbours remain connected without them.
+--Built once: neighbours() runs per BFS cell at publish, and 5 fresh tables per call cost blue's publish tick
+--(2026-09-28, legalcopilot-dev, result_for 186 ms).
+local NEIGHBOUR_STEPS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
+
 function PipeRuns.prune_redundant(work, h)
     local by_cell = work.segments_by_cell or {}
     local function key(x, y) return h.key(x, y) end
@@ -45,7 +49,7 @@ function PipeRuns.prune_redundant(work, h)
     end
     local function neighbours(x, y, flow, skip)
         local result, here = {}, by_cell[key(x, y)]
-        for _, d in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+        for _, d in ipairs(NEIGHBOUR_STEPS) do
             local nx, ny = x + d[1], y + d[2]
             local nk = key(nx, ny)
             local other = by_cell[nk]

@@ -3606,11 +3606,23 @@ function Route.tidy_step(state, budget)
             state.progress.total_units = #st.order + 1
             state.progress.done_units = math.min(#st.order, math.max(0, (st.index or 0) - 1 + within))
         end
-        if finished then work.improved, work.improve_state = true, nil end
+        if finished then
+            work.improved, work.improve_state = true, nil
+            --Publish gets a tick of its own: on blue science (2026-09-28, legalcopilot-dev) result_for alone took
+            --186 ms and shared its tick with the last trials (319 ms).
+            budget.ops = 0
+            return state
+        end
     end
-    if work.improved then
+    if work.improved and not work.publish_cleaned then
+        --Cleanup and publish take one tick each: together they were blue's worst tidy tick (227 ms, 2026-09-28).
         unbury_empty_pairs(work)
         prune_dead_route_segments(work)
+        work.publish_cleaned = true
+        budget.ops = 0
+        return state
+    end
+    if work.improved then
         state.result, state.done, state.ok = result_for(work, true), true, true
         state.progress.phase = "done"
     end
@@ -4104,6 +4116,12 @@ end
 --A trial start/commit copies the whole route state (route_snapshot) and walks every binding's chain; ~2-3 ms on
 --the green sheet, so it is charged ~300 ops (one op ~8 us).
 local IMPROVE_TRIAL_OPS = 300
+--A trial's lift, reach test and weight walk every binding's path, so its cost grows with the binding count while a
+--flat charge did not: measured 2026-09-28 on legalcopilot-dev, mean tidy tick 8.8 ms on green (14 bindings) vs
+--15.8 ms on stack1 (67 bindings) at 300 ops. Charge only moves tick boundaries, never the result.
+local function trial_ops(work)
+    return IMPROVE_TRIAL_OPS + 6 * #(work.bindings or {})
+end
 local IMPROVE_MAX_STEPS = 200000
 
 local function trial_start(work, wanted, demand, option)
@@ -4234,6 +4252,9 @@ local function improve_lift_can_start(work, st)
     if answer == nil then
         answer = lift_check(work, binding, false)
         memo.answers[key] = answer
+        --lift_check walks every same-flow binding path, as a lift does: measured 2026-09-28 on legalcopilot-dev,
+        --stack1 tidy skipped 279 of 382 trials here at a 1-op charge and its mean tick ran 17.7 ms (p95 51 ms).
+        st.lift_charge = (st.lift_charge or 0) + trial_ops(work)
     end
     return answer
 end
@@ -4343,15 +4364,18 @@ improve_step = function(work, st, ops)
             if st.option_index <= #st.options then st.stage = "trial_start"
             elseif st.best then st.stage = "commit_start"
             else st.stage = "next" end
-            used = used + 1
+            used = used + 1 + (st.lift_charge or 0)
+            st.lift_charge = nil
         elseif st.stage == "trial_start" or st.stage == "commit_start" then
+            used = used + (st.lift_charge or 0)
+            st.lift_charge = nil
             local commit = st.stage == "commit_start"
             journal_open(work)
             st.snapshot = true
             work.counters.trials_run = (work.counters.trials_run or 0) + 1
             st.trial = trial_start(work, st.wanted, st.demand, st.options[commit and st.best or st.option_index] or nil)
             st.stage = commit and "commit_run" or "trial_run"
-            used = used + IMPROVE_TRIAL_OPS
+            used = used + trial_ops(work)
         elseif st.stage == "trial_run" or st.stage == "commit_run" then
             local before_steps = st.trial.steps or 0
             used = used + trial_run(work, st.trial, ops - used)
@@ -4370,7 +4394,7 @@ improve_step = function(work, st, ops)
             if st.option_index <= #st.options then st.stage = "trial_start"
             elseif st.best then st.stage = "commit_start"
             else st.stage = "next" end
-            used = used + IMPROVE_TRIAL_OPS
+            used = used + trial_ops(work)
         elseif st.stage == "commit_end" then
             local option = st.options[st.best] or nil
             local weight = trial_finish(work, st.trial, st.demand)
@@ -4403,7 +4427,7 @@ improve_step = function(work, st, ops)
             end
             st.snapshot, st.trial = nil, nil
             st.stage = "next"
-            used = used + IMPROVE_TRIAL_OPS
+            used = used + trial_ops(work)
         elseif st.stage == "merge_start" then
             local pair = st.merges[st.merge_index]
             if not pair then
@@ -4440,7 +4464,7 @@ improve_step = function(work, st, ops)
                 else st.merge_phase = "failed" end
             else st.merge_phase = "failed" end
             st.stage = "merge_run"
-            used = used + IMPROVE_TRIAL_OPS
+            used = used + trial_ops(work)
         elseif st.stage == "merge_run" then
             local phase = st.merge_phase
             if phase == "a" or phase == "b" then
