@@ -12,6 +12,26 @@
 --max_underground_distance. The exposed connection of a vanilla pipe-to-ground faces away from its partner.
 local Route = {}
 
+local function jset(work, t, k, v)
+    local frames=work.journal; local frame=frames and frames[#frames]; local old=t[k]
+    if frame and old~=v then frame[#frame+1]={t=t,k=k,old=old,had=old~=nil} end
+    t[k]=v
+end
+local function jinsert(work,t,v) jset(work,t,#t+1,v) end
+local function jremove(work,t,i) for n=i,#t-1 do jset(work,t,n,t[n+1]) end; jset(work,t,#t,nil) end
+local function journal_open(work) work.journal=work.journal or {}; work.journal[#work.journal+1]={} end
+local function journal_rollback(work)
+    local frames=work.journal; local frame=frames and frames[#frames]; if not frame then return end
+    for i=#frame,1,-1 do local e=frame[i]; e.t[e.k]=e.had and e.old or nil end
+    frames[#frames]=nil; if #frames==0 then work.journal=nil end
+end
+local function journal_commit(work)
+    local frames=work.journal; local frame=frames and frames[#frames]; if not frame then return end
+    frames[#frames]=nil; local parent=frames[#frames]
+    if parent then for i=1,#frame do parent[#parent+1]=frame[i] end end
+    if #frames==0 then work.journal=nil end
+end
+
 local Grid = require "logic.bp.grid"
 local Flags = require "logic.bp.flags"
 local FluidTouch = require "logic.bp.fluid_touch"
@@ -158,12 +178,12 @@ local function coordinate_key(x, y)
 end
 
 local function next_entity_id(work)
-    work.entity_serial = (work.entity_serial or #work.entities) + 1
+    jset(work, work, "entity_serial", (work.entity_serial or #work.entities) + 1)
     return "r:" .. tostring(work.entity_serial)
 end
 
 local function next_segment_id(work)
-    work.segment_serial = (work.segment_serial or #work.segments) + 1
+    jset(work, work, "segment_serial", (work.segment_serial or #work.segments) + 1)
     return "r:s:" .. tostring(work.segment_serial)
 end
 
@@ -1152,9 +1172,9 @@ local function segment_has_flow(segment, flow_id)
     return segment.flow_id == flow_id or (segment.flow_ids and segment.flow_ids[flow_id] == true)
 end
 
-local function register_segment_flow(segment, flow_id)
-    segment.flow_ids = segment.flow_ids or {}
-    segment.flow_ids[flow_id] = true
+local function register_segment_flow(work, segment, flow_id)
+    if not segment.flow_ids then jset(work, segment, "flow_ids", {}) end
+    jset(work, segment.flow_ids, flow_id, true)
 end
 
 local add_allocation
@@ -1172,24 +1192,23 @@ local function lay_belt_runs(work)
                     capacity_per_second = capacity, allocations = {}, direction = direction, length = 1,
                     fixed = true, belt_run_role = run.role}
                 for _, flow_id in ipairs(run.flows or {}) do
-                    register_segment_flow(segment, flow_id)
+                    register_segment_flow(work, segment, flow_id)
                     for _, demand in ipairs(work.demands or {}) do
                         local endpoint = run.role == "in" and demand.sink or demand.source
                         if not run.synthetic_collector and demand.flow_id == flow_id and endpoint and endpoint.step_id ~= "$external" then
-                            add_allocation(segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
+                            add_allocation(work, segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
                         elseif run.synthetic_collector and demand.flow_id == flow_id and endpoint
                             and (tile.x ~= endpoint.x or tile.y ~= endpoint.y) then
-                            add_allocation(segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
+                            add_allocation(work, segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
                         end
                     end
                 end
                 local entity = {id = next_entity_id(work), name = infrastructure(work, kind),
                     position = {x = tile.x + 0.5, y = tile.y + 0.5}, direction = direction, dir = direction,
                     flow_id = run.flows and run.flows[1], segment_id = segment.segment_id, fixed = true}
-                work.entities[#work.entities + 1] = entity
-                work.segments[#work.segments + 1] = segment
-                work.segments_by_cell[key] = segment
-                work.entity_by_segment[segment.segment_id] = entity
+                jinsert(work, work.entities, entity); jinsert(work, work.segments, segment)
+                jset(work, work.segments_by_cell, key, segment)
+                jset(work, work.entity_by_segment, segment.segment_id, entity)
             end
         end
     end
@@ -1382,32 +1401,32 @@ local function merge_splitter_footprint(work, segment, second_key, demand)
         > segment.capacity_per_second + tolerance(segment.capacity_per_second) then return nil end
 
     for flow_id, present in pairs(occupant.flow_ids or {}) do
-        if present then register_segment_flow(segment, flow_id) end
+        if present then register_segment_flow(work, segment, flow_id) end
     end
-    if occupant.flow_id ~= nil then register_segment_flow(segment, occupant.flow_id) end
+    if occupant.flow_id ~= nil then register_segment_flow(work, segment, occupant.flow_id) end
     for _, allocation in ipairs(occupant.allocations or {}) do
         local existing
         for _, current in ipairs(segment.allocations or {}) do
             if current.flow_id == allocation.flow_id and current.sink == allocation.sink then existing = current; break end
         end
-        if existing then existing.rate_per_second = math.max(existing.rate_per_second, allocation.rate_per_second)
-        else add_allocation(segment, allocation.flow_id, allocation.sink, allocation.rate_per_second) end
+        if existing then jset(work, existing, "rate_per_second", math.max(existing.rate_per_second, allocation.rate_per_second))
+        else add_allocation(work, segment, allocation.flow_id, allocation.sink, allocation.rate_per_second) end
     end
     for key, mapped in pairs(work.segments_by_cell) do
-        if mapped == occupant then work.segments_by_cell[key] = segment end
+        if mapped == occupant then jset(work, work.segments_by_cell, key, segment) end
     end
     for _, binding in ipairs(work.bindings or {}) do
-        if binding.segment_id == occupant.segment_id then binding.segment_id = segment.segment_id end
+        if binding.segment_id == occupant.segment_id then jset(work, binding, "segment_id", segment.segment_id) end
     end
     local old_entity = work.entity_by_segment[occupant.segment_id]
-    work.entity_by_segment[occupant.segment_id] = nil
+    jset(work, work.entity_by_segment, occupant.segment_id, nil)
     if old_entity then
         for index = #work.entities, 1, -1 do
-            if work.entities[index] == old_entity then table.remove(work.entities, index); break end
+            if work.entities[index] == old_entity then jremove(work, work.entities, index); break end
         end
     end
     for index = #work.segments, 1, -1 do
-        if work.segments[index] == occupant then table.remove(work.segments, index); break end
+        if work.segments[index] == occupant then jremove(work, work.segments, index); break end
     end
     return segment
 end
@@ -1457,14 +1476,14 @@ local function underground_candidate(demand, kind, work)
     return {source = source, sink = sink, direction = travel, distance = distance, kind = kind}, nil
 end
 
-add_allocation = function(segment, flow_id, sink, amount)
+add_allocation = function(work, segment, flow_id, sink, amount)
     for _, allocation in ipairs(segment.allocations) do
         if allocation.flow_id == flow_id and allocation.sink == sink then
-            allocation.rate_per_second = allocation.rate_per_second + amount
+            jset(work, allocation, "rate_per_second", allocation.rate_per_second + amount)
             return
         end
     end
-    segment.allocations[#segment.allocations + 1] = {flow_id = flow_id, sink = sink, rate_per_second = amount}
+    jinsert(work, segment.allocations, {flow_id = flow_id, sink = sink, rate_per_second = amount})
 end
 
 local function entity_position(x, y)
@@ -1522,30 +1541,27 @@ local function append_crossing(work, demand, entry, exit_cell, amount)
         direction = paired_exit_direction, dir = paired_exit_direction, flow_id = demand.flow_id,
         ug_role = "output", ug_pair_id = first_id, segment_id = segment.segment_id}
     if kind ~= "pipe" then first.type, second.type = "input", "output" end
-    work.entities[#work.entities + 1] = first
-    work.entities[#work.entities + 1] = second
-    work.segments[#work.segments + 1] = segment
-    work.counters.crossings_placed = work.counters.crossings_placed + 1
-    work.entity_by_segment[segment.segment_id] = first
-    work.segments_by_cell[coordinate_key(entry.x, entry.y)] = segment
-    work.segments_by_cell[coordinate_key(exit_cell.x, exit_cell.y)] = segment
-    work.underground_cells[coordinate_key(entry.x, entry.y)] = true
-    work.underground_cells[coordinate_key(exit_cell.x, exit_cell.y)] = true
+    jinsert(work, work.entities, first); jinsert(work, work.entities, second); jinsert(work, work.segments, segment)
+    jset(work, work.counters, "crossings_placed", work.counters.crossings_placed + 1)
+    jset(work, work.entity_by_segment, segment.segment_id, first)
+    jset(work, work.segments_by_cell, coordinate_key(entry.x, entry.y), segment)
+    jset(work, work.segments_by_cell, coordinate_key(exit_cell.x, exit_cell.y), segment)
+    jset(work, work.underground_cells, coordinate_key(entry.x, entry.y), true)
+    jset(work, work.underground_cells, coordinate_key(exit_cell.x, exit_cell.y), true)
     --An underground endpoint is a real entity on a real tile, so no splitter footprint may later claim it.
     --This creator marked `underground_cells` and never `splitter_blocked_cells`, and it is the creator that
     --lays almost every pair, so almost every pair was invisible to `splitter_cell_allowed`: measured
     --2026-09-22 on legalcopilot-dev, splitter r:238 at (9.5,6) facing EAST published straight on top of
     --underground-belt r:264 at (9.5,5.5), caught by tests/test_route_collision.lua RX1.
-    work.splitter_blocked_cells[coordinate_key(entry.x, entry.y)] = true
-    work.splitter_blocked_cells[coordinate_key(exit_cell.x, exit_cell.y)] = true
-    register_segment_flow(segment, demand.flow_id)
-    add_allocation(segment, demand.flow_id, sink_key(demand.sink, work, demand.sink_port_id), amount)
+    jset(work, work.splitter_blocked_cells, coordinate_key(entry.x, entry.y), true)
+    jset(work, work.splitter_blocked_cells, coordinate_key(exit_cell.x, exit_cell.y), true)
+    register_segment_flow(work, segment, demand.flow_id)
+    add_allocation(work, segment, demand.flow_id, sink_key(demand.sink, work, demand.sink_port_id), amount)
     return true, nil, segment
 end
 
---Appending is the commit point for a complete route.  Keep a cheap structural checkpoint around it so a
---defensive validation failure (capacity, a splitter footprint, or a late crossing conflict) cannot leave a
---successful prefix in the working graph.
+--Appending is the commit point for a complete route. Its frame lets a defensive refusal undo the successful
+--prefix without copying the route graph.
 local function route_snapshot(work)
     if work.counters then work.counters.route_snapshots = (work.counters.route_snapshots or 0) + 1 end
     local entity_serial, segment_serial = work.entity_serial, work.segment_serial
@@ -1851,40 +1867,41 @@ local function apply_bury(work, candidate, allow_port_adjacent)
             if existing then existing.rate_per_second = math.max(existing.rate_per_second, al.rate_per_second)
             else
                 local copy = {flow_id=al.flow_id,sink=al.sink,rate_per_second=al.rate_per_second}
-                segment.allocations[#segment.allocations+1] = copy
+                jinsert(work, segment.allocations, copy)
                 allocation_by_key[key] = copy
             end
         end
     end
     local kept={}
-    for _, s in ipairs(work.segments) do if old[s.segment_id] then s._route_removed=true else kept[#kept+1]=s end end
+    for _, s in ipairs(work.segments) do if old[s.segment_id] then jset(work,s,"_route_removed",true) else kept[#kept+1]=s end end
     local underground_name = work.belt and work.belt.underground or infrastructure(work,"belt")
     local first, second = {id=next_entity_id(work),name=underground_name,position=entity_position(fresh.entry_x,fresh.entry_y),
         direction=segment.direction,dir=segment.direction,flow_id=segment.flow_id,ug_role="input",type="input",segment_id=segment.segment_id},
         {id=next_entity_id(work),name=underground_name,position=entity_position(fresh.exit_x,fresh.exit_y),
         direction=segment.direction,dir=segment.direction,flow_id=segment.flow_id,ug_role="output",type="output",segment_id=segment.segment_id}
     first.ug_pair_id, second.ug_pair_id = second.id, first.id
-    for _, e in ipairs(work.entities) do if old[e.segment_id] then e._route_removed=true end end
-    for id in pairs(old) do work.entity_by_segment[id] = nil end
-    work.entities[#work.entities + 1] = first
-    work.entities[#work.entities + 1] = second
-    kept[#kept+1]=segment; work.segments=kept
+    for _, e in ipairs(work.entities) do if old[e.segment_id] then jset(work,e,"_route_removed",true) end end
+    for id in pairs(old) do jset(work,work.entity_by_segment,id,nil) end
+    jinsert(work,work.entities,first); jinsert(work,work.entities,second)
+    kept[#kept+1]=segment; jset(work,work,"segments",kept)
     for _, key in ipairs({coordinate_key(fresh.entry_x,fresh.entry_y),coordinate_key(fresh.x,fresh.y),coordinate_key(fresh.exit_x,fresh.exit_y)}) do
-        work.segments_by_cell[key]=nil
+        jset(work,work.segments_by_cell,key,nil)
     end
-    work.segments_by_cell[segment.underground_entry_key]=segment; work.segments_by_cell[segment.underground_exit_key]=segment
-    work.entity_by_segment[segment.segment_id]=first
-    for _, id in ipairs({segment.underground_entry_key,segment.underground_exit_key}) do work.underground_cells[id]=true;work.splitter_blocked_cells[id]=true end
-    for _, binding in ipairs(work.bindings) do if old[binding.segment_id] then binding.segment_id=segment.segment_id end end
+    jset(work,work.segments_by_cell,segment.underground_entry_key,segment); jset(work,work.segments_by_cell,segment.underground_exit_key,segment)
+    jset(work,work.entity_by_segment,segment.segment_id,first)
+    for _, id in ipairs({segment.underground_entry_key,segment.underground_exit_key}) do
+        jset(work,work.underground_cells,id,true); jset(work,work.splitter_blocked_cells,id,true)
+    end
+    for _, binding in ipairs(work.bindings) do if old[binding.segment_id] then jset(work,binding,"segment_id",segment.segment_id) end end
     return true
 end
 
 local function append_collector_member_bindings(work, demand, sink, segment_id)
     for _, member in ipairs(demand.collector_members or {}) do
         if member.endpoint.port_id ~= demand.source.port_id then
-            work.bindings[#work.bindings + 1] = {source_port_id = member.endpoint.port_id,
+            jinsert(work, work.bindings, {source_port_id = member.endpoint.port_id,
                 sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
-                sink = sink, flow_id = demand.flow_id, segment_id = segment_id, rate_per_second = member.amount}
+                sink = sink, flow_id = demand.flow_id, segment_id = segment_id, rate_per_second = member.amount})
         end
     end
 end
@@ -1897,14 +1914,14 @@ local function collector_source_rate(demand, total)
 end
 
 local function append_normal_path(work, demand, path, amount)
-    local snapshot = route_snapshot(work)
+    journal_open(work)
     local function reject(reason)
         work.last_route_rejection = work.last_route_rejection or {}
-        work.last_route_rejection.reason = reason
-        work.last_route_rejection.source = demand.source and demand.source.port_id
-        work.last_route_rejection.sink = demand.sink and demand.sink.port_id
-        work.last_route_rejection.flow_id = demand.flow_id
-        restore_route_snapshot(work, snapshot)
+        journal_rollback(work)
+        jset(work, work.last_route_rejection, "reason", reason)
+        jset(work, work.last_route_rejection, "source", demand.source and demand.source.port_id)
+        jset(work, work.last_route_rejection, "sink", demand.sink and demand.sink.port_id)
+        jset(work, work.last_route_rejection, "flow_id", demand.flow_id)
         return false, reason
     end
     --On legalcopilot-dev (2026-09-28), the exit at (31,33) was also the next dive entry.
@@ -1946,8 +1963,8 @@ local function append_normal_path(work, demand, path, amount)
             if not allocated_segments[ridden.segment_id] then
                 local allowed, reason = segment_allows(work, ridden, demand, amount)
                 if not allowed then return reject(reason or "occupied") end
-                register_segment_flow(ridden, demand.flow_id)
-                add_allocation(ridden, demand.flow_id, sink, amount)
+                register_segment_flow(work, ridden, demand.flow_id)
+                add_allocation(work, ridden, demand.flow_id, sink, amount)
                 allocated_segments[ridden.segment_id] = true
             end
             first_segment = first_segment or ridden
@@ -2050,17 +2067,17 @@ local function append_normal_path(work, demand, path, amount)
                     --r:825 dir=4 side=(0,1) anchor (12,8) delivered (13,9) against a true (12.5,9.0),
                     --r:846 dir=0 side=(1,0) anchor (10,41) delivered (11.5,41.5) against (11.0,41.5).
                     --Three overlapping pairs, and BP_V_COLLISION went 0 to 60 on the census.
-                    entity.position = entity_position(cell.x + side_x / 2, cell.y + side_y / 2)
-                    entity.name = work.belt.splitter
-                    entity.splitter = true
-                    entity.direction = splitter_direction
-                    entity.dir = splitter_direction
-                    segment.splitter = true
-                    segment.splitter_direction = splitter_direction
-                    segment.splitter_anchor_key = key
-                    segment.splitter_second_key = second_key
-                    segment.splitter_anchor_x, segment.splitter_anchor_y = cell.x, cell.y
-                    work.segments_by_cell[segment.splitter_second_key] = segment
+                    jset(work, entity, "position", entity_position(cell.x + side_x / 2, cell.y + side_y / 2))
+                    jset(work, entity, "name", work.belt.splitter)
+                    jset(work, entity, "splitter", true)
+                    jset(work, entity, "direction", splitter_direction)
+                    jset(work, entity, "dir", splitter_direction)
+                    jset(work, segment, "splitter", true)
+                    jset(work, segment, "splitter_direction", splitter_direction)
+                    jset(work, segment, "splitter_anchor_key", key)
+                    jset(work, segment, "splitter_second_key", second_key)
+                    jset(work, segment, "splitter_anchor_x", cell.x); jset(work, segment, "splitter_anchor_y", cell.y)
+                    jset(work, work.segments_by_cell, segment.splitter_second_key, segment)
                     end
         else
             local capacity, kind = capacity_for(work, demand.flow)
@@ -2070,18 +2087,17 @@ local function append_normal_path(work, demand, path, amount)
             local entity = {id = next_entity_id(work), name = infrastructure(work, kind),
                 position = entity_position(cell.x, cell.y), direction = direction, dir = direction,
                 flow_id = demand.flow_id, segment_id = segment.segment_id}
-            work.entities[#work.entities + 1] = entity
-            work.segments[#work.segments + 1] = segment
-            work.segments_by_cell[key] = segment
-            work.entity_by_segment[segment.segment_id] = entity
+            jinsert(work, work.entities, entity); jinsert(work, work.segments, segment)
+            jset(work, work.segments_by_cell, key, segment)
+            jset(work, work.entity_by_segment, segment.segment_id, entity)
         end
         if not allocated_segments[segment.segment_id] then
-            register_segment_flow(segment, demand.flow_id)
+            register_segment_flow(work, segment, demand.flow_id)
             local already_allocated = false
             for _, allocation in ipairs(segment.allocations or {}) do
                 if allocation.flow_id == demand.flow_id and allocation.sink == sink then already_allocated = true; break end
             end
-            if not already_allocated then add_allocation(segment, demand.flow_id, sink, amount) end
+            if not already_allocated then add_allocation(work, segment, demand.flow_id, sink, amount) end
             allocated_segments[segment.segment_id] = true
         end
         first_segment = first_segment or segment
@@ -2090,12 +2106,13 @@ local function append_normal_path(work, demand, path, amount)
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
     if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
-        work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
+        jinsert(work, work.bindings, {source_port_id = demand.source.port_id, sink_port_id = demand.binding_sink_port_id or demand.sink.port_id,
             sink = sink, flow_id = demand.flow_id, segment_id = first_segment.segment_id,
-            rate_per_second = collector_source_rate(demand, amount)}
+            rate_per_second = collector_source_rate(demand, amount)})
         append_collector_member_bindings(work, demand, sink, first_segment.segment_id)
     end
     --debug-disabled
+    journal_commit(work)
     return true
 end
 
@@ -2118,7 +2135,7 @@ local function append_underground(work, demand, candidate, amount)
         underground_exit_key = coordinate_key(candidate.sink.x, candidate.sink.y),
         underground_entry_x = candidate.source.x, underground_entry_y = candidate.source.y,
         underground_exit_x = candidate.sink.x, underground_exit_y = candidate.sink.y}
-    register_segment_flow(segment, demand.flow_id)
+    register_segment_flow(work, segment, demand.flow_id)
     local first_id, second_id = next_entity_id(work), next_entity_id(work)
     local name = infrastructure(work, kind)
     if kind == "pipe" then name = (work.pipe and (work.pipe.underground or work.pipe.pipe)) or name
@@ -2132,21 +2149,19 @@ local function append_underground(work, demand, candidate, amount)
         direction = exit_direction, dir = exit_direction, flow_id = demand.flow_id,
         ug_role = "output", ug_pair_id = first_id, segment_id = segment.segment_id}
     if kind ~= "pipe" then first.type, second.type = "input", "output" end
-    work.entities[#work.entities + 1] = first
-    work.entities[#work.entities + 1] = second
-    work.segments[#work.segments + 1] = segment
-    work.entity_by_segment[segment.segment_id] = first
-    work.splitter_blocked_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
-    work.splitter_blocked_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
+    jinsert(work, work.entities, first); jinsert(work, work.entities, second); jinsert(work, work.segments, segment)
+    jset(work, work.entity_by_segment, segment.segment_id, first)
+    jset(work, work.splitter_blocked_cells, coordinate_key(candidate.source.x, candidate.source.y), true)
+    jset(work, work.splitter_blocked_cells, coordinate_key(candidate.sink.x, candidate.sink.y), true)
     --Same pair of facts, the other way round: this creator marked only the splitter guard, so a later
     --crossing could dive through a tile a pair already owns.
-    work.underground_cells[coordinate_key(candidate.source.x, candidate.source.y)] = true
-    work.underground_cells[coordinate_key(candidate.sink.x, candidate.sink.y)] = true
+    jset(work, work.underground_cells, coordinate_key(candidate.source.x, candidate.source.y), true)
+    jset(work, work.underground_cells, coordinate_key(candidate.sink.x, candidate.sink.y), true)
     local sink = sink_key(demand.sink, work, demand.sink_port_id)
-    add_allocation(segment, demand.flow_id, sink, amount)
-    work.bindings[#work.bindings + 1] = {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
+    add_allocation(work, segment, demand.flow_id, sink, amount)
+    jinsert(work, work.bindings, {source_port_id = demand.source.port_id, sink_port_id = demand.sink.port_id,
         sink = sink, flow_id = demand.flow_id, segment_id = segment.segment_id,
-        rate_per_second = collector_source_rate(demand, amount)}
+        rate_per_second = collector_source_rate(demand, amount)})
     append_collector_member_bindings(work, demand, sink, segment.segment_id)
     return true
 end
@@ -3065,7 +3080,8 @@ local function result_for(work, publish)
     end
     if publish then
         PipeRuns.bury(work, {key = coordinate_key, coordinate_from_key = coordinate_from_key, next_segment_id = next_segment_id,
-            next_entity_id = next_entity_id, entity_position = entity_position, infrastructure = infrastructure, finite = finite})
+            next_entity_id = next_entity_id, entity_position = entity_position, infrastructure = infrastructure, finite = finite,
+            jinsert = jinsert, jset = jset})
     end
     if publish then fold_edge_twins() end
     audit_route_work(work)
@@ -3160,35 +3176,36 @@ local function unbury_empty_pairs(work)
             for _, cell in ipairs(covered) do cells[#cells + 1] = cell end
             cells[#cells + 1] = {x = pair.underground_exit_x, y = pair.underground_exit_y}
             for _, e in ipairs(work.entities) do
-                if e.segment_id == pair.segment_id then e._route_removed = true end
+                if e.segment_id == pair.segment_id then jset(work, e, "_route_removed", true) end
             end
-            work.segments_by_cell[pair.underground_entry_key] = nil
-            work.segments_by_cell[pair.underground_exit_key] = nil
-            work.underground_cells[pair.underground_entry_key], work.underground_cells[pair.underground_exit_key] = nil, nil
-            work.splitter_blocked_cells[pair.underground_entry_key], work.splitter_blocked_cells[pair.underground_exit_key] = nil, nil
-            pair._route_removed = true
-            work.entity_by_segment[pair.segment_id] = nil
+            jset(work, work.segments_by_cell, pair.underground_entry_key, nil)
+            jset(work, work.segments_by_cell, pair.underground_exit_key, nil)
+            jset(work, work.underground_cells, pair.underground_entry_key, nil)
+            jset(work, work.underground_cells, pair.underground_exit_key, nil)
+            jset(work, work.splitter_blocked_cells, pair.underground_entry_key, nil)
+            jset(work, work.splitter_blocked_cells, pair.underground_exit_key, nil)
+            jset(work, pair, "_route_removed", true)
+            jset(work, work.entity_by_segment, pair.segment_id, nil)
             local remaining_segments = {}
             for _, segment in ipairs(work.segments) do if segment ~= pair then remaining_segments[#remaining_segments + 1] = segment end end
-            work.segments = remaining_segments
+            jset(work, work, "segments", remaining_segments)
             for _, cell in ipairs(cells) do
                 local segment = {segment_id = next_segment_id(work), kind = pair.kind,
                     capacity_per_second = pair.capacity_per_second, allocations = {}, flow_id = pair.flow_id,
                     flow_ids = pair.flow_ids, direction = pair.direction, length = 1}
                 for _, a in ipairs(pair.allocations or {}) do
-                    segment.allocations[#segment.allocations + 1] = {flow_id = a.flow_id, sink = a.sink,
-                        rate_per_second = a.rate_per_second}
+                    jinsert(work, segment.allocations, {flow_id = a.flow_id, sink = a.sink,
+                        rate_per_second = a.rate_per_second})
                 end
                 local belt = {id = next_entity_id(work), name = infrastructure(work, pair.kind),
                     position = entity_position(cell.x, cell.y), direction = pair.direction, dir = pair.direction,
                     flow_id = pair.flow_id, segment_id = segment.segment_id}
-                work.entities[#work.entities + 1] = belt
-                work.segments[#work.segments + 1] = segment
-                work.segments_by_cell[coordinate_key(cell.x, cell.y)] = segment
-                work.entity_by_segment[segment.segment_id] = belt
+                jinsert(work, work.entities, belt); jinsert(work, work.segments, segment)
+                jset(work, work.segments_by_cell, coordinate_key(cell.x, cell.y), segment)
+                jset(work, work.entity_by_segment, segment.segment_id, belt)
             end
             --The original binding is reattached to the first replacement belt in the directed chain.
-            for _, binding in ipairs(pair_bindings) do binding.segment_id = work.segments_by_cell[pair.underground_entry_key].segment_id end
+            for _, binding in ipairs(pair_bindings) do jset(work, binding, "segment_id", work.segments_by_cell[pair.underground_entry_key].segment_id) end
         end
     end
 end
@@ -3377,9 +3394,9 @@ local function restart_with_priority(state, work, demand)
         entry.source = entry.source_candidates and entry.source_candidates[1] or entry.source
         entry.sink = entry.sink_candidates and entry.sink_candidates[1] or entry.sink
     end
-    work.entities, work.segments, work.bindings = {}, {}, {}
-    work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
-    work.splitter_blocked_cells = {}
+    jset(work, work, "entities", {}); jset(work, work, "segments", {}); jset(work, work, "bindings", {})
+    jset(work, work, "segments_by_cell", {}); jset(work, work, "entity_by_segment", {})
+    jset(work, work, "underground_cells", {}); jset(work, work, "splitter_blocked_cells", {})
     lay_belt_runs(work)
     work.attempt_generation, work.current = work.attempt_generation + 1, nil
     audit_route_work(work)
@@ -3390,9 +3407,9 @@ end
 
 local function clear_route_work(work)
     audit_route_work(work)
-    work.entities, work.segments, work.bindings = {}, {}, {}
-    work.segments_by_cell, work.entity_by_segment, work.underground_cells = {}, {}, {}
-    work.splitter_blocked_cells = {}
+    jset(work, work, "entities", {}); jset(work, work, "segments", {}); jset(work, work, "bindings", {})
+    jset(work, work, "segments_by_cell", {}); jset(work, work, "entity_by_segment", {})
+    jset(work, work, "underground_cells", {}); jset(work, work, "splitter_blocked_cells", {})
     lay_belt_runs(work)
     work.current = nil
     audit_route_work(work)
@@ -3745,23 +3762,25 @@ local function lift_binding(work, binding, allow_fixed)
     for _, segment in ipairs(work.segments) do
         if not owned_ids[segment.segment_id] then segments[#segments + 1] = segment end
     end
-    work.segments = segments
+    jset(work, work, "segments", segments)
     for key, segment in pairs(work.segments_by_cell) do
         if owned_ids[segment.segment_id] then
-            work.segments_by_cell[key] = nil
+            jset(work, work.segments_by_cell, key, nil)
             --A lifted pair frees its two endpoint tiles for the re-search.
-            if segment.underground then work.underground_cells[key], work.splitter_blocked_cells[key] = nil, nil end
+            if segment.underground then
+                jset(work, work.underground_cells, key, nil); jset(work, work.splitter_blocked_cells, key, nil)
+            end
         end
     end
     local entities = {}
     for _, entity in ipairs(work.entities) do
         if not owned_ids[entity.segment_id] then entities[#entities + 1] = entity end
     end
-    work.entities = entities
-    for segment_id in pairs(owned_ids) do work.entity_by_segment[segment_id] = nil end
+    jset(work, work, "entities", entities)
+    for segment_id in pairs(owned_ids) do jset(work, work.entity_by_segment, segment_id, nil) end
     local bindings = {}
     for _, other in ipairs(work.bindings) do if other ~= binding then bindings[#bindings + 1] = other end end
-    work.bindings = bindings
+    jset(work, work, "bindings", bindings)
     return count
 end
 
@@ -4324,7 +4343,8 @@ improve_step = function(work, st, ops)
             used = used + 1
         elseif st.stage == "trial_start" or st.stage == "commit_start" then
             local commit = st.stage == "commit_start"
-            st.snapshot = route_snapshot(work)
+            journal_open(work)
+            st.snapshot = true
             work.counters.trials_run = (work.counters.trials_run or 0) + 1
             st.trial = trial_start(work, st.wanted, st.demand, st.options[commit and st.best or st.option_index] or nil)
             st.stage = commit and "commit_run" or "trial_run"
@@ -4340,7 +4360,7 @@ improve_step = function(work, st, ops)
             end
             local weight = trial_finish(work, st.trial, st.demand)
             if weight and weight < st.best_weight then st.best, st.best_weight = st.option_index, weight end
-            restore_route_snapshot(work, st.snapshot)
+            journal_rollback(work)
             trial_undo(work, st.trial)
             st.snapshot, st.trial = nil, nil
             st.option_index = st.option_index + 1
@@ -4352,6 +4372,7 @@ improve_step = function(work, st, ops)
             local option = st.options[st.best] or nil
             local weight = trial_finish(work, st.trial, st.demand)
             if weight and weight < st.before then
+                journal_commit(work)
                 st.improved = st.improved + 1
                 if option then
                     local port_id = option.endpoint.port_id
@@ -4374,7 +4395,7 @@ improve_step = function(work, st, ops)
                     end
                 end
             else
-                restore_route_snapshot(work, st.snapshot)
+                journal_rollback(work)
                 trial_undo(work, st.trial)
             end
             st.snapshot, st.trial = nil, nil
@@ -4471,8 +4492,8 @@ improve_step = function(work, st, ops)
                                 for i=target_index+1,#st.a_path do
                                     local cell=st.a_path[i]
                                     local segment=work.segments_by_cell[coordinate_key(cell.x,cell.y)]
-                                    register_segment_flow(segment,st.db.flow_id)
-                                    add_allocation(segment,st.db.flow_id,sink,st.pair.b.rate_per_second)
+                                    register_segment_flow(work, segment,st.db.flow_id)
+                                    add_allocation(work, segment,st.db.flow_id,sink,st.pair.b.rate_per_second)
                                 end
                                 -- The side entry rides A's trunk from the merge tile to the rear door.
                                 for _,binding in ipairs(work.bindings) do
@@ -4792,5 +4813,9 @@ end
 Route._coordinate_key = coordinate_key
 --Measured legalcopilot-dev 2026-09-28: green tidy trial steps 171,842 -> under 40,000;
 --ins10 second tidy snapshots 3,103 -> under 600; stack1 159 s -> 6.5 s. Golden digests stay unchanged.
-Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped}
+Route._jset, Route._jinsert, Route._jremove = jset, jinsert, jremove
+Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_open, journal_rollback, journal_commit
+Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
+    append_normal_path = append_normal_path, jset = jset, jinsert = jinsert, jremove = jremove,
+    journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route
