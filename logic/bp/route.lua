@@ -611,17 +611,25 @@ end
 --On legalcopilot-dev (2026-09-28), duplicate row ids made improve lift a shared furnace trunk and lose 17 belts.
 local function ep_lookup(work, port_id, block_id, flow_id, role)
     if block_id ~= nil and flow_id ~= nil and role ~= nil then
-        local fast = work.endpoint_by_block and work.endpoint_by_block[flow_id]
-            and work.endpoint_by_block[flow_id][role] and work.endpoint_by_block[flow_id][role][block_id]
+        work.endpoint_by_block = work.endpoint_by_block or {}
+        local by_flow = work.endpoint_by_block[flow_id]
+        if not by_flow then by_flow = { ["in"] = {}, ["out"] = {} }; work.endpoint_by_block[flow_id] = by_flow end
+        local by_block = by_flow[role][block_id]
+        if not by_block then by_block = {}; by_flow[role][block_id] = by_block end
+        local fast = by_block
         if fast and fast[port_id] then return fast[port_id] end
         for _, endpoint in ipairs(work.rear_endpoints or {}) do
             local carries = endpoint.flow_id == flow_id
             for _, id in ipairs(endpoint.flow_ids or {}) do if id == flow_id then carries = true end end
-            if endpoint.port_id == port_id and endpoint.block_id == block_id and carries then return endpoint end
+            if endpoint.port_id == port_id and endpoint.block_id == block_id and carries then
+                by_block[port_id] = endpoint; return endpoint
+            end
         end
         for _, endpoint in ipairs(work.endpoint_index and work.endpoint_index[flow_id]
             and work.endpoint_index[flow_id][role] or {}) do
-            if endpoint.port_id == port_id and endpoint.block_id == block_id then return endpoint end
+            if endpoint.port_id == port_id and endpoint.block_id == block_id then
+                by_block[port_id] = endpoint; return endpoint
+            end
         end
     end
     return work.endpoint_by_id and work.endpoint_by_id[port_id]
