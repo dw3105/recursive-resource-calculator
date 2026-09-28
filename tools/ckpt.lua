@@ -3,9 +3,11 @@
 -- lua5.2 tools/ckpt.lua save <case> <at-spec> <out.lua[.gz]> [--ops 2000]
 -- lua5.2 tools/ckpt.lua resume <file> [--until <at-spec> --save <out>] [--ops N] [--patch file.lua] [--output result.json]
 -- lua5.2 tools/ckpt.lua uninterrupted <case> [--ops 2000]
+-- lua5.2 tools/ckpt.lua save-all <case> <dir> [--ops 2000] [--patch f.lua]   one run, a checkpoint after EVERY phase
+--   change (player rule 2026-09-28: every golden examined has snapshots after each step): <dir>/NNN_gG_aA_lL_<phase>.lua.gz
 package.path = "./?.lua;" .. package.path
 local guard_mode = arg[1]
-if guard_mode == "save" or guard_mode == "list" or guard_mode == "uninterrupted" then
+if guard_mode == "save" or guard_mode == "save-all" or guard_mode == "list" or guard_mode == "uninterrupted" then
     require("tools.lib.slow_guard").check("ckpt " .. guard_mode, arg[2])
 elseif guard_mode == "resume" then
     _G.__rrc_slow_guard_checked = true
@@ -26,12 +28,13 @@ local function parse_spec(spec)
 end
 local function main()
     local command=mode
-    if command~="list" and command~="save" and command~="resume" and command~="uninterrupted" then error("usage: ckpt.lua list|save|resume|uninterrupted ...") end
+    if command~="list" and command~="save" and command~="save-all" and command~="resume" and command~="uninterrupted" then error("usage: ckpt.lua list|save|save-all|resume|uninterrupted ...") end
     local case, at, out, snap
     if command=="list" or command=="uninterrupted" then case=arg[1]
     elseif command=="save" then case,at,out=arg[1],arg[2],arg[3]
+    elseif command=="save-all" then case,out=arg[1],arg[2]; os.execute("mkdir -p "..quote(out))
     else snap=arg[1] end
-    local o=opts(command=="save" and 4 or (command=="resume" and 2 or 2)); local ops=tonumber(o.ops) or 2000
+    local o=opts(command=="save" and 4 or (command=="save-all" and 3 or 2)); local ops=tonumber(o.ops) or 2000
     local input_path
     if command=="resume" then
         local d=Graph.load(snap); local s=d.state and d or d
@@ -59,6 +62,7 @@ local function main()
             tick=step_index,ops=s.ops_used or 0,detail=detail}
         if kind=="route-demand" then c.demand=detail; c.route_demand=route_demand_count end
         events[#events+1]=c
+        if command=="save-all" and kind=="phase" then _G.__ckpt_pending=c end
         local matched=true
         for k,v in pairs(criteria) do local key=k=="reject-code" and "detail" or k; local cv=c[key]; if k=="reject" then cv=kind=="reject" and detail end; if tostring(cv)~=v then matched=false end end
         if matched and next(criteria) then matches=matches+1; if matches==nth then stopped=true end end
@@ -100,7 +104,15 @@ local function main()
         local loader=assert(load(src,"@logic/bp/search.lua")); local Search=loader()
         local begin,step=Search.begin,Search.step
         Search.begin=function(input) if saved then resumed=true; return saved.state end; return begin(input) end
-        Search.step=function(st,b) step_index=step_index+1; local r=step(st,{ops=ops}); _G.__ckpt_last_state=st; if stopped and (command=="save" or (command=="resume" and o.save)) then
+        Search.step=function(st,b) step_index=step_index+1; local r=step(st,{ops=ops}); _G.__ckpt_last_state=st;
+            if command=="save-all" and _G.__ckpt_pending then
+                local c=_G.__ckpt_pending; _G.__ckpt_pending=nil; _G.__ckpt_saves=(_G.__ckpt_saves or 0)+1
+                local name=string.format("%s/%03d_g%s_a%s_l%s_%s.lua.gz",out,_G.__ckpt_saves,tostring(c.grid),tostring(c.attempt or 0),tostring(c.layered),tostring(c.phase))
+                local meta={case=case,input_path=input_path,input_sha256=digest,git_head=assert(io.popen("git rev-parse HEAD","r")):read("*l"),tick=step_index,ops_per_step=ops,spec="save-all "..tostring(c.phase),
+                  env={RRC_PACK=os.getenv("RRC_PACK"),RRC_PACK_EXTRA=os.getenv("RRC_PACK_EXTRA")},lua=_VERSION}
+                Graph.dump({state=st,meta=meta},name); io.write(string.format("SAVED %s tick=%d cpu=%.0fs\n",name,step_index,os.clock())); io.flush()
+            end
+            if stopped and (command=="save" or (command=="resume" and o.save)) then
             local meta={case=case,input_path=input_path,input_sha256=digest,git_head=assert(io.popen("git rev-parse HEAD","r")):read("*l"),tick=step_index,ops_per_step=ops,spec=until_spec or at,
               env={RRC_PACK=os.getenv("RRC_PACK"),RRC_PACK_EXTRA=os.getenv("RRC_PACK_EXTRA")},lua=_VERSION}
             Graph.dump({state=st,meta=meta},o.save or out); io.write("SAVED "..tostring(o.save or out).." tick="..step_index.." event="..tostring(events[#events] and events[#events].kind).."\n"); os.exit(0)

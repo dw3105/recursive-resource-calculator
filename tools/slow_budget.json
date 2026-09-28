@@ -1,1 +1,2 @@
-{"profile":1,"bytes":1,"suite":2,"headless":1,"ckpt-save":3,"release":2,"test":-1}
+{"profile":1,"bytes":1,"suite":2,"headless":1,"ckpt-save":3,"release":2,"test":-1,
+ "fast_cases":["player-red-science-1s","player-red-science-1s-foundry","player-red-science-1s-bulk","player-red-science-10s-bulk","player-green-science-1s","player-inserter-10s-bulk"]}

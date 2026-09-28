@@ -20,6 +20,9 @@ CASES = [
     (0, "cd ~/wt-rrc-int && python3 /var/lib/agent-skills/current/tools/lane.py --repo /home/x/wt-rrc-int launch "
         "/home/x/wt-rrc-274 docs/tasks/274_capacity_stacked_inputs.md --deadline 3600 2>&1 | tail -15"),
     (2, "cd ~/wt-rrc-int && python3 tools/golden_report.py a b"),
+    (0, "cd ~/wt-rrc-int && timeout 90 lua5.2 tools/ckpt.lua save-all player-red-science-1s /tmp/x"),
+    (2, "cd ~/wt-rrc-int && lua5.2 tools/ckpt.lua save-all player-red-science-1s /tmp/x"),
+    (2, "cd ~/wt-rrc-int && timeout 90 lua5.2 tools/ckpt.lua save-all player-gray-magenta-science-10s /tmp/x"),
 ]
 
 def main():

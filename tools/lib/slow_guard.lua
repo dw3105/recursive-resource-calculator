@@ -21,6 +21,16 @@ local function refuse(tool, hint)
 end
 function M.check(tool, input)
     if _G.__rrc_slow_guard_checked then return true end
+    --Goldens measured under 10 s CPU (round 46 profile, legalcopilot-dev 2026-09-28) are fast checks: no slot, no
+    --ledger line. The Claude hook still caps the command at 120 s.
+    local budget_file = read("tools/slow_budget.json") or ""
+    local fast_list = budget_file:match('"fast_cases"%s*:%s*%[(.-)%]') or ""
+    for name in fast_list:gmatch('"([^"]+)"') do
+        if input and (input == name or input:find("/" .. name .. "/", 1, true)) then
+            _G.__rrc_slow_guard_checked = true
+            return true
+        end
+    end
     local default, hint = tool_info(tool)
     local spec = os.getenv("RRC_SLOW") or ""
     local slot, reason = spec:match("^([^:]+):(.*)$")

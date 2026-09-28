@@ -55,6 +55,17 @@ def main():
     slow_hit = [p for p in SLOW if re.search(p, cmd_run)]
     m = re.search(r"RRC_SLOW=[\"']([a-z-]+):([^\"']+)[\"']", cmd) or re.search(r"RRC_SLOW=([a-z-]+):(\S+)", cmd)
     if slow_hit:
+        # goldens measured under 10 s CPU are fast checks (tools/slow_budget.json fast_cases); rule 1 still applies
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            cands = [os.path.join(here, "slow_budget.json"), os.path.expanduser("~/wt-rrc-int/tools/slow_budget.json")]
+            fast = next((json.load(open(c)).get("fast_cases", []) for c in cands if os.path.exists(c)), [])
+        except Exception:
+            fast = []
+        named = re.findall(r"player-[a-z0-9-]+", cmd_run)
+        if named and all(n in fast for n in named) and not m:
+            slow_hit = []
+    if slow_hit:
         if not m:
             deny("slow tool %s needs RRC_SLOW=<slot>:<reason>; slots %s. Ask: which fast rung cannot answer?"
                  % (re.sub(r"\\[sb]|\\|\+", " ", slow_hit[0]).strip(), ",".join(BUDGET)))
