@@ -1,0 +1,6 @@
+# Base digests, round-46-base (cdea216), legalcopilot-dev 2026-09-28, lua5.2, 2000 ops/tick.
+# lua5.2 tools/ckpt.lua resume <fixture>   (runs to END)
+green_tidy.lua.gz ok=true ticks=1444 sha=6b65a1d1c6408dc4d805159f33345d2b8b901da398ffc3ca846d2f6f6d464976 entities=299
+ins10_tidy2.lua.gz ok=true ticks=2711 sha=00cee6970e7757c4fe7039f946a0bda80e6be6a866e431798b769207545b9103 entities=356
+# stack1_restart27.lua.gz: saved at 27th route-restart (tick 1892); resume --until kind=route-restart runs 10.9 s,
+# holds 6 begin_search calls with order_index > 1 (2,3,4,2,3,4) on base, then 1 restart (tick 2341).

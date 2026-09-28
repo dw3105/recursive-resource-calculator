@@ -1,0 +1,7 @@
+# bound: 3000s
+logic/bp/route.lua
+tools/route_prof.lua
+tests/test_route_no_replay.lua
+tests/test_route_prof.lua
+skills/rrc-code/SKILL.md
+docs/tasks/266_route_no_replay_and_prof.md
