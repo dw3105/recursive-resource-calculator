@@ -1212,8 +1212,9 @@ local function segment_allows(work, segment, demand, amount)
     return true
 end
 
-local function static_owner(work, x, y)
-    local owner = work.obstacles[coordinate_key(x, y)]
+local function static_owner(work, x, y, key)
+    key = key or coordinate_key(x, y)
+    local owner = work.obstacles[key]
     if owner ~= nil then return owner end
     return indexed_cell(work.grid, x, y)
 end
@@ -1605,84 +1606,85 @@ end
 --tile; 28.8 asks WHICH tiles that chain covers, because a second demand of one flow must start its own
 --branch from the trunk its flow already laid.  A copied walk is a walk that drifts, so both callers share
 --this body.  With `sink` nil the walk visits the whole run and reports every tile it reached.
+local function route_chain_enqueue(queue, queue_x, queue_y, seen, key, x, y)
+    if key ~= nil and not seen[key] then
+        seen[key] = true
+        local index = #queue + 1
+        queue[index], queue_x[index], queue_y[index] = key, x, y
+    end
+end
+
+local function route_chain_exposed_key(other)
+    local dx, dy = Grid.dir_vector(other.direction)
+    if dx == nil or other.underground_entry_x == nil then return nil end
+    local bx, by = other.underground_entry_x - dx, other.underground_entry_y - dy
+    local ax, ay = other.underground_exit_x + dx, other.underground_exit_y + dy
+    return coordinate_key(bx, by), coordinate_key(ax, ay), bx, by, ax, ay
+end
+
 local function route_chain_walk(work, source, sink, flow_id)
     local tiles = {}
     if not source then return false, tiles end
     local start_key = coordinate_key(source.x, source.y)
     local target_key = sink and coordinate_key(sink.x, sink.y) or nil
     if target_key ~= nil and work.segments_by_cell[target_key] == nil then return false, tiles end
-    local queue, head, seen = {start_key}, 1, {[start_key] = true}
-    local function enqueue(key)
-        if key ~= nil and not seen[key] then seen[key] = true; queue[#queue + 1] = key end
-    end
+    local queue, queue_x, queue_y, head, seen = {start_key}, {source.x}, {source.y}, 1, {[start_key] = true}
     while queue[head] do
-        local key = queue[head]
+        local key, x, y = queue[head], queue_x[head], queue_y[head]
         head = head + 1
         local segment = work.segments_by_cell[key]
         if segment and segment_has_flow(segment, flow_id) then
             tiles[#tiles + 1] = key
             if key == target_key then return true, tiles end
             if segment.kind == "pipe" then
-                --A pipe network has no direction: fluid reaches every tile it touches. A plain pipe joins all
-                --four neighbours; a pipe-to-ground joins only its partner and the one tile its exposed side
-                --faces (behind the entry, ahead of the exit, along the span's travel direction).
-                local x, y = coordinate_from_key(key)
-                local function exposed_key(other)
-                    local dx, dy = Grid.dir_vector(other.direction)
-                    if dx == nil then return nil end
-                    if other.underground_entry_x ~= nil then
-                        return coordinate_key(other.underground_entry_x - dx, other.underground_entry_y - dy),
-                            coordinate_key(other.underground_exit_x + dx, other.underground_exit_y + dy)
-                    end
-                    return nil
-                end
                 if segment.underground then
-                    --A pipe network is undirected: enqueue both recorded endpoints from either half. A normal
-                    --path can encounter an endpoint through a shared cell whose segment reference was retained
-                    --from the earlier route; selecting the partner by entry/exit identity then misses the new
-                    --exit. Entity headings are also exposed-side headings, not the pair's fluid direction.
-                    enqueue(segment.underground_entry_key)
-                    enqueue(segment.underground_exit_key)
-                    local behind, ahead = exposed_key(segment)
-                    enqueue(key == segment.underground_entry_key and behind or ahead)
+                    route_chain_enqueue(queue, queue_x, queue_y, seen, segment.underground_entry_key, segment.underground_entry_x, segment.underground_entry_y)
+                    route_chain_enqueue(queue, queue_x, queue_y, seen, segment.underground_exit_key, segment.underground_exit_x, segment.underground_exit_y)
+                    local behind, ahead, bx, by, ax, ay = route_chain_exposed_key(segment)
+                    if key == segment.underground_entry_key then
+                        route_chain_enqueue(queue, queue_x, queue_y, seen, behind, bx, by)
+                    else
+                        route_chain_enqueue(queue, queue_x, queue_y, seen, ahead, ax, ay)
+                    end
                 else
                     for _, direction in ipairs(DIRECTIONS) do
                         local dx, dy = Grid.dir_vector(direction)
-                        local next_key = coordinate_key(x + dx, y + dy)
+                        local nx, ny = x + dx, y + dy
+                        local next_key = coordinate_key(nx, ny)
                         local other = work.segments_by_cell[next_key]
                         if other and other.kind == "pipe" and other.underground then
-                            local behind, ahead = exposed_key(other)
+                            local behind, ahead = route_chain_exposed_key(other)
                             if (next_key == other.underground_entry_key and behind == key)
-                                or (next_key == other.underground_exit_key and ahead == key) then enqueue(next_key) end
+                                or (next_key == other.underground_exit_key and ahead == key) then
+                                route_chain_enqueue(queue, queue_x, queue_y, seen, next_key, nx, ny)
+                            end
                         elseif other and other.kind == "pipe" then
-                            enqueue(next_key)
+                            route_chain_enqueue(queue, queue_x, queue_y, seen, next_key, nx, ny)
                         end
                     end
                 end
             elseif segment.underground then
-                if key == segment.underground_entry_key then enqueue(segment.underground_exit_key) end
+                if key == segment.underground_entry_key then
+                    route_chain_enqueue(queue, queue_x, queue_y, seen, segment.underground_exit_key, segment.underground_exit_x, segment.underground_exit_y)
+                end
                 if key == segment.underground_exit_key then
-                    local x, y = segment.underground_exit_x, segment.underground_exit_y
                     local dx, dy = Grid.dir_vector(segment.direction)
-                    if dx ~= nil then enqueue(coordinate_key(x + dx, y + dy)) end
+                    if dx ~= nil then route_chain_enqueue(queue, queue_x, queue_y, seen,
+                        coordinate_key(segment.underground_exit_x + dx, segment.underground_exit_y + dy),
+                        segment.underground_exit_x + dx, segment.underground_exit_y + dy) end
                 end
             elseif segment.splitter then
-                local x, y = segment.splitter_anchor_x, segment.splitter_anchor_y
                 local dx, dy = Grid.dir_vector(segment.splitter_direction)
-                if dx ~= nil then enqueue(coordinate_key(x + dx, y + dy)) end
-                enqueue(segment.splitter_second_key)
-                --A splitter has TWO output tiles, one in front of each of the tiles it covers.  The walk only
-                --ever left by the anchor's, so a run that legally continued out of the second tile read as a
-                --broken chain: measured 2026-09-22 on the frozen candidate, item/plate 0:16 -> 12:2 leaving
-                --the splitter anchored at 10:7 through its second tile 10:6 into 9:6.
-                if dx ~= nil and segment.splitter_second_key ~= nil then
-                    local sx, sy = coordinate_from_key(segment.splitter_second_key)
-                    if sx ~= nil then enqueue(coordinate_key(sx + dx, sy + dy)) end
-                end
+                if dx ~= nil then route_chain_enqueue(queue, queue_x, queue_y, seen,
+                    coordinate_key(segment.splitter_anchor_x + dx, segment.splitter_anchor_y + dy),
+                    segment.splitter_anchor_x + dx, segment.splitter_anchor_y + dy) end
+                local sx, sy = coordinate_from_key(segment.splitter_second_key)
+                route_chain_enqueue(queue, queue_x, queue_y, seen, segment.splitter_second_key, sx, sy)
+                if dx ~= nil and sx ~= nil then route_chain_enqueue(queue, queue_x, queue_y, seen,
+                    coordinate_key(sx + dx, sy + dy), sx + dx, sy + dy) end
             else
-                local x, y = string.match(key, "^([^:]+):([^:]+)$")
                 local dx, dy = Grid.dir_vector(segment.direction)
-                if dx ~= nil then enqueue(coordinate_key(tonumber(x) + dx, tonumber(y) + dy)) end
+                if dx ~= nil then route_chain_enqueue(queue, queue_x, queue_y, seen, coordinate_key(x + dx, y + dy), x + dx, y + dy) end
             end
         end
     end
@@ -1757,53 +1759,58 @@ local function all_bindings_reach_sinks(work)
     return true
 end
 
-local function bury_candidate(work, x, y, cross_direction, allow_port_adjacent)
+local function bury_same_flows(segment)
+    local ids = {}
+    for _, allocation in ipairs(segment.allocations or {}) do ids[allocation.flow_id] = true end
+    return ids
+end
+
+local function bury_port_or_obstacle(work, px, py, allow_port_adjacent)
+    local key = coordinate_key(px, py)
+    if work.port_cells and work.port_cells[key] ~= nil then return true end
+    if not allow_port_adjacent then
+        for _, demand in ipairs(work.demands or {}) do
+            local source, sink = demand.source, demand.sink
+            if source and math.abs(source.x - px) + math.abs(source.y - py) <= 2 then return true end
+            if sink and math.abs(sink.x - px) + math.abs(sink.y - py) <= 2 then return true end
+        end
+    end
+    return static_owner(work, px, py) ~= nil
+end
+
+local function bury_candidate(work, x, y, cross_direction, allow_port_adjacent, key)
+    key = key or coordinate_key(x, y)
     local dx, dy = Grid.dir_vector(cross_direction)
     local rdx, rdy = Grid.dir_vector(Grid.rotate_dir(cross_direction, 12))
     if not rdx then return nil end
-    local function seg(px, py) return work.segments_by_cell[coordinate_key(px, py)] end
     local bx, by = x - rdx, y - rdy
     local ax, ay = x + rdx, y + rdy
     local BBx, BBy, AAx, AAy = bx - rdx, by - rdy, ax + rdx, ay + rdy
-    local b, c, a = seg(bx, by), seg(x, y), seg(ax, ay)
+    local b, c, a = work.segments_by_cell[coordinate_key(bx, by)], work.segments_by_cell[key], work.segments_by_cell[coordinate_key(ax, ay)]
     if not b or not c or not a or b.underground or c.underground or a.underground
         or b.splitter or c.splitter or a.splitter or b.kind ~= "belt" or c.kind ~= "belt" or a.kind ~= "belt"
         or b.direction ~= Grid.dir_from_vector(rdx, rdy) or c.direction ~= b.direction or a.direction ~= b.direction then return nil end
-    local function same_flows(s)
-        local ids = {}
-        for _, allocation in ipairs(s.allocations or {}) do ids[allocation.flow_id] = true end
-        return ids
-    end
-    local flows = same_flows(b)
-    for _, s in ipairs({c, a}) do
-        local other = same_flows(s)
-        for id in pairs(flows) do if not other[id] then return nil end end
-        for id in pairs(other) do if not flows[id] then return nil end end
-    end
-    local function port_or_obstacle(px, py)
-        local key = coordinate_key(px, py)
-        if work.port_cells and work.port_cells[key] ~= nil then return true end
-        if not allow_port_adjacent then
-            for _, demand in ipairs(work.demands or {}) do
-                for _, endpoint in ipairs({demand.source, demand.sink}) do
-                    if endpoint and math.abs(endpoint.x - px) + math.abs(endpoint.y - py) <= 2 then return true end
-                end
-            end
-        end
-        return static_owner(work, px, py) ~= nil
-    end
-    for _, p in ipairs({{bx,by},{x,y},{ax,ay}}) do if port_or_obstacle(p[1],p[2]) then return nil end end
+    local flows = bury_same_flows(b)
+    local other = bury_same_flows(c)
+    for id in pairs(flows) do if not other[id] then return nil end end
+    for id in pairs(other) do if not flows[id] then return nil end end
+    other = bury_same_flows(a)
+    for id in pairs(flows) do if not other[id] then return nil end end
+    for id in pairs(other) do if not flows[id] then return nil end end
+    if bury_port_or_obstacle(work, bx, by, allow_port_adjacent)
+        or bury_port_or_obstacle(work, x, y, allow_port_adjacent)
+        or bury_port_or_obstacle(work, ax, ay, allow_port_adjacent) then return nil end
     if SideFeed.into(work.segments_by_cell, coordinate_key, {{bx,by},{x,y},{ax,ay}}, b.direction) then return nil end
-    local feed = seg(BBx, BBy)
+    local feed = work.segments_by_cell[coordinate_key(BBx, BBy)]
     if not feed then return nil end
     if feed.underground then
         if feed.underground_exit_key ~= coordinate_key(BBx,BBy) or feed.direction ~= b.direction then return nil end
     elseif feed.splitter then
         if feed.splitter_direction ~= b.direction then return nil end
     elseif feed.direction ~= b.direction then return nil end
-    local after = seg(AAx, AAy)
+    local after = work.segments_by_cell[coordinate_key(AAx, AAy)]
     if not after or after.direction ~= b.direction then return nil end
-    local after_flows = same_flows(after)
+    local after_flows = bury_same_flows(after)
     for id in pairs(flows) do if not after_flows[id] then return nil end end
     local reach = math.max(0, math.floor(finite(work.belt and work.belt.underground_max_distance, 0)))
     for _, s in ipairs(work.segments) do
@@ -2144,10 +2151,29 @@ local function append_underground(work, demand, candidate, amount)
     return true
 end
 
-local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search)
+local function path_fluid_touch_blocked(cells, demand, x, y)
+    if not demand or demand.kind ~= "pipe" then return false end
+    local flow_id = demand.flow_id
+    local segment = cells[coordinate_key(x - 1, y)]
+    if segment and segment.kind == "pipe" and not segment.underground
+        and segment.flow_id ~= flow_id and not (segment.flow_ids and segment.flow_ids[flow_id] == true) then return true end
+    segment = cells[coordinate_key(x + 1, y)]
+    if segment and segment.kind == "pipe" and not segment.underground
+        and segment.flow_id ~= flow_id and not (segment.flow_ids and segment.flow_ids[flow_id] == true) then return true end
+    segment = cells[coordinate_key(x, y - 1)]
+    if segment and segment.kind == "pipe" and not segment.underground
+        and segment.flow_id ~= flow_id and not (segment.flow_ids and segment.flow_ids[flow_id] == true) then return true end
+    segment = cells[coordinate_key(x, y + 1)]
+    if segment and segment.kind == "pipe" and not segment.underground
+        and segment.flow_id ~= flow_id and not (segment.flow_ids and segment.flow_ids[flow_id] == true) then return true end
+    return false
+end
+
+local function path_cell_free(work, demand, x, y, move_direction, is_target, amount, search, key)
+    key = key or coordinate_key(x, y)
     local touch_ok = search and search.touch_ok
     if search then search.touch_refused = false end
-    if not touch_ok and FluidTouch.path_blocked(work.segments_by_cell, coordinate_key, demand, x, y) then
+    if not touch_ok and path_fluid_touch_blocked(work.segments_by_cell, demand, x, y) then
         search.saw_fluid_mix = true; search.touch_refused = true; return false
     end
     if not touch_ok and demand.kind == "pipe" and work.port_cells then
@@ -2164,9 +2190,9 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             end
         end
     end
-    local owner = static_owner(work, x, y)
+    local owner = static_owner(work, x, y, key)
     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
-    local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+    local reserved = work.port_cells and work.port_cells[key]
     if reserved ~= nil then
         local source_id = demand.source and demand.source.port_id
         local sink_id = demand.sink and demand.sink.port_id
@@ -2184,7 +2210,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         if from and from.kind == "pipe" and from.underground and from.underground_entry_x ~= nil then
             local sdx, sdy = Grid.dir_vector(from.direction)
             local from_key = coordinate_key(x - mdx, y - mdy)
-            local here = coordinate_key(x, y)
+            local here = key
             local ok = true
             if sdx ~= nil then
                 if from_key == from.underground_entry_key then
@@ -2198,7 +2224,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             if not ok then search.saw_blocked = true; return false end
         end
     end
-    local segment = work.segments_by_cell[coordinate_key(x, y)]
+    local segment = work.segments_by_cell[key]
     --On the frozen gray + magenta sheet (legalcopilot-dev, 2026-09-27), paths ended at (36,49) and
     --(66,40) from the buried side of pairs (26,49)->(36,49) and (66,30)->(66,40). A pipe-to-ground's
     --exposed side joins normal pipe; its buried side joins only its partner.
@@ -2208,14 +2234,14 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         local sdx, sdy = Grid.dir_vector(segment.direction)
         if mdx ~= nil and sdx ~= nil then
             local fx, fy = x - mdx, y - mdy
-            local here = coordinate_key(x, y)
+            local here = key
             local ok
             if here == segment.underground_entry_key then
                 ok = (fx == segment.underground_entry_x - sdx and fy == segment.underground_entry_y - sdy)
-                    or coordinate_key(fx, fy) == segment.underground_exit_key
+                    or (fx == x and fy == y and key or coordinate_key(fx, fy)) == segment.underground_exit_key
             else
                 ok = (fx == segment.underground_exit_x + sdx and fy == segment.underground_exit_y + sdy)
-                    or coordinate_key(fx, fy) == segment.underground_entry_key
+                    or (fx == x and fy == y and key or coordinate_key(fx, fy)) == segment.underground_entry_key
             end
             if not ok then search.saw_blocked = true; return false end
         end
@@ -2226,18 +2252,18 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
         --(31,32)->(24,32): BP_V_UNDERGROUND_UNPAIRED. Riding a pair never comes through here (the ride enqueues
         --the exit directly).
         if demand.kind ~= "pipe" and segment.kind == "belt" and segment.underground
-            and segment.underground_exit_key == coordinate_key(x, y) and move_direction == segment.direction then
+            and segment.underground_exit_key == key and move_direction == segment.direction then
             search.saw_blocked = true
             return false
         end
         --An underground input consumes its feed into the pair; stepping onto it from the side cannot continue.
-        if segment.underground and segment.underground_entry_key == coordinate_key(x, y)
+        if segment.underground and segment.underground_entry_key == key
             and not (search and search.allow_ride and demand.kind ~= "pipe" and move_direction == segment.direction
                 and segment_has_flow(segment, demand.flow_id)) then
             search.saw_blocked = true
             return false
         end
-        local splitter_continuation = segment.splitter and segment.splitter_second_key == coordinate_key(x, y)
+        local splitter_continuation = segment.splitter and segment.splitter_second_key == key
             and (is_target or segment.splitter_direction == move_direction)
         if segment.splitter and not splitter_continuation and move_direction ~= segment.direction then
             search.saw_blocked = true
@@ -2271,7 +2297,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
                 end
                 --On the frozen 154x154 gray + magenta route (85,39), 2026-09-27 on legalcopilot-dev,
                 --the first flow lays a belt through the shared hand and the second flow must side-join there.
-                local shared_cell = is_target and work.port_cells and work.port_cells[coordinate_key(x, y)]
+                local shared_cell = is_target and work.port_cells and work.port_cells[key]
                 local shared_hand = shared_cell and shared_cell[demand.sink and demand.sink.port_id]
                     and segment.flow_id ~= nil and shared_cell["flow:" .. tostring(segment.flow_id)]
                 if work.multi_flow_hands and not segment_has_flow(segment, demand.flow_id) and not search.merge_target
@@ -2279,7 +2305,7 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
                     search.saw_blocked = true
                     return false
                 end
-                if demand.crossing_blocked and demand.crossing_blocked[coordinate_key(x, y)] then
+                if demand.crossing_blocked and demand.crossing_blocked[key] then
                     search.saw_blocked = true
                     return false
                 end
@@ -2376,9 +2402,10 @@ local function enqueue_state(search, x, y, arrival_direction, mode, parent_key, 
     end
     search.best[key] = cost
     search.parent[key] = parent_key
-    search.points[key] = {x = x, y = y}
-    heap_push(search, {key = key, x = x, y = y, direction = arrival_direction, mode = mode, cost = cost,
-        priority = cost + heuristic(search, x, y)})
+    local node = {key = key, x = x, y = y, direction = arrival_direction, mode = mode, cost = cost,
+        priority = cost + heuristic(search, x, y)}
+    search.points[key] = node
+    heap_push(search, node)
     return true
 end
 
@@ -2416,12 +2443,12 @@ local function begin_search(work, demand, amount, order_index)
         end
     end
     search.source_key = state_key(demand.source.x, demand.source.y, seed_heading, demand.kind, 0)
-    search.points[search.source_key] = {x = demand.source.x, y = demand.source.y}
+    local seed = {key = search.source_key, x = demand.source.x, y = demand.source.y,
+        direction = seed_heading, mode = 0, cost = 0, priority = heuristic(search, demand.source.x, demand.source.y)}
+    search.points[search.source_key] = seed
     search.best[search.source_key] = 0
     search.parent[search.source_key] = nil
-    heap_push(search, {key = search.source_key, x = demand.source.x, y = demand.source.y,
-        direction = seed_heading, mode = 0, cost = 0,
-        priority = heuristic(search, demand.source.x, demand.source.y)})
+    heap_push(search, seed)
     local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
     if source_segment then
         local allowed, reason = segment_allows(work, source_segment, demand, amount)
@@ -2501,25 +2528,26 @@ local function crowded_demand(work, demand)
         and ((demand.source and cb[demand.source.block_id]) or (demand.sink and cb[demand.sink.block_id])) and true or false
 end
 
-local function crossing_targets(work, demand, search, current, direction, amount)
+local function crossing_faces_ok(work, demand, x, y, direction, key)
+    if demand.kind ~= "pipe" then return true end
+    local reserved = work.port_cells and work.port_cells[key or coordinate_key(x, y)]
+    if not (reserved and reserved._port_owners) then return true end
+    local fluid = false
+    for key_name in pairs(reserved) do
+        if type(key_name) == "string" and key_name:sub(1, 11) == "flow:fluid/" then fluid = true; break end
+    end
+    return not fluid or (reserved._fluid_dir ~= nil and reserved._fluid_dir == direction)
+end
+
+local function crossing_targets(work, demand, search, current, direction, amount, current_key)
     local reach = underground_reach(work, demand)
     if reach < 2 then return {} end
     --An underground entrance fed from its side takes only the lane on its far side; the validator refuses the
     --shape whenever the feeding lane lands on the blocked half (BP_V_UNDERGROUND_SIDELOAD_BLOCKED), and a map-edge
     --belt carries both lanes. Route and tidy therefore dive straight on only (slow hands, 2.31/s, 2026-09-25).
     if current.direction ~= nil and current.direction ~= direction then return {} end
-    local function faces_ok(x, y)
-        if demand.kind ~= "pipe" then return true end
-        local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
-        if not (reserved and reserved._port_owners) then return true end
-        local fluid = false
-        for key in pairs(reserved) do
-            if type(key) == "string" and key:sub(1, 11) == "flow:fluid/" then fluid = true; break end
-        end
-        return not fluid or (reserved._fluid_dir ~= nil and reserved._fluid_dir == direction)
-    end
-    if not faces_ok(current.x, current.y) then return {} end
-    local current_key = coordinate_key(current.x, current.y)
+    current_key = current_key or coordinate_key(current.x, current.y)
+    if not crossing_faces_ok(work, demand, current.x, current.y, direction, current_key) then return {} end
     if work.segments_by_cell[current_key] or work.underground_cells[current_key] then return {} end
     local dx, dy = Grid.dir_vector(direction)
     local targets, blocked_middle = {}, false
@@ -2528,11 +2556,12 @@ local function crossing_targets(work, demand, search, current, direction, amount
         if not inside_grid(work, middle_x, middle_y) then break end
         --A pair may not run under another pair of its own family: in the engine the two would connect to each
         --other instead of passing.
-        if work.underground_cells[coordinate_key(middle_x, middle_y)] then break end
+        local middle_key = coordinate_key(middle_x, middle_y)
+        if work.underground_cells[middle_key] then break end
         --Free middles do not end a possible longer crossing; a crossing must cover at least one blocked tile.
-        local middle_segment = work.segments_by_cell[coordinate_key(middle_x, middle_y)]
+        local middle_segment = work.segments_by_cell[middle_key]
         if middle_segment and segment_has_flow(middle_segment, demand.flow_id) then break end
-        if not path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, PROBE) then
+        if not path_cell_free(work, demand, middle_x, middle_y, direction, false, amount, PROBE, middle_key) then
             blocked_middle = true
         end
         local x, y = current.x + dx * distance, current.y + dy * distance
@@ -2545,21 +2574,21 @@ local function crossing_targets(work, demand, search, current, direction, amount
         --at (13,7) costing 20, so the straight feed (14,8) W, (13,8) N, dive at (13,7), costing 13, was never
         --offered.
         local exit_free = false
-        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and faces_ok(x, y) then
+        if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and crossing_faces_ok(work, demand, x, y, direction, key) then
             if crowded_demand(work, demand) then search.touch_ok = true end
-            exit_free = path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search)
+            exit_free = path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search, key)
             search.touch_ok = nil
         end
         if exit_free then
-            targets[#targets + 1] = {x = x, y = y, distance = distance}
+            targets[#targets + 1] = {x = x, y = y, distance = distance, key = key}
         end
     end
     return targets
 end
 
 --A tile that is ANOTHER port of this same flow: a run passing it serves that port for free (contract 28.8).
-local function same_flow_port_tile(work, demand, x, y)
-    local reserved = work.port_cells and work.port_cells[coordinate_key(x, y)]
+local function same_flow_port_tile(work, demand, x, y, key)
+    local reserved = work.port_cells and work.port_cells[key or coordinate_key(x, y)]
     if not (reserved and reserved["flow:" .. tostring(demand.flow_id)]) then return false end
     for owner, _ in pairs(reserved._port_owners or {}) do
         local owner_id = type(owner) == "table" and (owner.port_id or owner.id) or owner
@@ -2568,7 +2597,8 @@ local function same_flow_port_tile(work, demand, x, y)
     return false
 end
 
-local function transition_cost(work, demand, x, y, direction, previous_direction, mode, distance, amount)
+local function transition_cost(work, demand, x, y, direction, previous_direction, mode, distance, amount, key)
+    key = key or coordinate_key(x, y)
     local collector_alignment = demand.collector_members and demand.source.x == demand.sink.x
         and y < demand.source.y and y > demand.sink.y and x ~= demand.source.x and 80 or 0
     if demand.collector_members and demand.source.x == demand.sink.x then
@@ -2581,11 +2611,11 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
         --does.  Without it, science machine 3's dive (6,8)->(6,3) onto machine 1's output tile tied with a
         --walk east along y=9, lost the tie, and machine 1 then laid its own second long run: measured
         --2026-09-23 on legalcopilot-dev, 6 entities above the player's hand fix.
-        return 2 + distance + 2 - (same_flow_port_tile(work, demand, x, y) and 0.5 or 0) + collector_alignment
+        return 2 + distance + 2 - (same_flow_port_tile(work, demand, x, y, key) and 0.5 or 0) + collector_alignment
     end
-    local segment = work.segments_by_cell[coordinate_key(x, y)]
+    local segment = work.segments_by_cell[key]
     local cost = 1
-    if same_flow_port_tile(work, demand, x, y) then cost = 0.5 end
+    if same_flow_port_tile(work, demand, x, y, key) then cost = 0.5 end
     if segment and segment_has_flow(segment, demand.flow_id)
         and segment.kind == demand.kind
         and segment_total(segment) + amount <= segment.capacity_per_second + tolerance(segment.capacity_per_second) then
@@ -2598,7 +2628,7 @@ local function transition_cost(work, demand, x, y, direction, previous_direction
     end
     if previous_direction ~= nil and previous_direction ~= 0 and previous_direction ~= direction then cost = cost + 1 end
     if segment and segment.direction ~= direction then cost = cost + 2 end
-    if segment and segment.underground and segment.underground_exit_key == coordinate_key(x, y)
+    if segment and segment.underground and segment.underground_exit_key == key
         and (segment.direction ~= direction or (previous_direction ~= nil and previous_direction ~= 0
             and previous_direction ~= direction)) then
         --A side entry onto an underground output or a belt aimed into its side blocks one lane; keep it last.
@@ -2623,8 +2653,9 @@ local function search_step(work, search)
     if search.closed[current.key] then return "continue" end
     if search.best[current.key] ~= current.cost then return "continue" end
     search.closed[current.key] = true
+    local current_tile_key = coordinate_key(current.x, current.y)
     if search.demand.kind == "pipe" and current.key ~= search.source_key then
-        local here = work.segments_by_cell[coordinate_key(current.x, current.y)]
+        local here = work.segments_by_cell[current_tile_key]
         if here and here.kind == "pipe" and segment_has_flow(here, search.demand.flow_id) then
             search.net_memo = search.net_memo or {}
             local memo = search.net_memo[current.key]
@@ -2650,9 +2681,9 @@ local function search_step(work, search)
     --(begin_search): in first routing only after the demand found no path without it; offered there first it
     --moved frozen candidates, tests/test_route_chain.lua RC5 (a demand unserved) and RC8, and
     --tests/test_route_collision.lua RX1.
-    local riding = search.allow_ride and work.segments_by_cell[coordinate_key(current.x, current.y)]
+    local riding = search.allow_ride and work.segments_by_cell[current_tile_key]
     if riding and riding.kind ~= "pipe" and riding.underground and not riding.splitter
-        and riding.underground_entry_key == coordinate_key(current.x, current.y)
+        and riding.underground_entry_key == current_tile_key
         and current.direction == riding.direction and segment_has_flow(riding, search.demand.flow_id)
         and current.key ~= search.source_key then
         if segment_allows(work, riding, search.demand, search.amount) then
@@ -2664,6 +2695,7 @@ local function search_step(work, search)
     for _, direction in ipairs(search.directions) do
         local dx, dy = Grid.dir_vector(direction)
         local nx, ny = current.x + dx, current.y + dy
+        local next_tile_key = coordinate_key(nx, ny)
         local target = nx == search.demand.sink.x and ny == search.demand.sink.y
         if search.merge_target then
             target = nx == search.merge_target.x and ny == search.merge_target.y
@@ -2703,7 +2735,7 @@ local function search_step(work, search)
             and (work.free_source_heading or search.demand.curve_allowed)))
             and search.demand.sink.travel_dir ~= nil
             and direction ~= Grid.dir_opposite(search.demand.sink.travel_dir)
-            and work.segments_by_cell[coordinate_key(nx, ny)] == nil then
+            and work.segments_by_cell[next_tile_key] == nil then
             local sx, sy = Grid.dir_vector(search.demand.sink.travel_dir)
             local approach = sx and work.segments_by_cell[coordinate_key(search.demand.sink.x - sx,
                 search.demand.sink.y - sy)]
@@ -2712,7 +2744,7 @@ local function search_step(work, search)
         end
         if target and not search.demand.sink.perimeter and not search.demand.sink.row_port
             and search.demand.sink.travel_dir ~= nil and search.demand.sink.travel_dir ~= direction then
-            local sink_segment = work.segments_by_cell[coordinate_key(nx, ny)]
+            local sink_segment = work.segments_by_cell[next_tile_key]
             if sink_segment == nil then
                 --Only a STRAIGHT step onto the empty port tile is widened.  A turn onto it still has to be
                 --the turn the port asked for, because a turn is where the router builds a splitter and a
@@ -2735,8 +2767,8 @@ local function search_step(work, search)
         --and fenced in two copper-plate demands (BP_R_NO_PATH), measured the same day.
         local source_any_heading = false
         if first and not search.demand.source.perimeter and not search.demand.source.row_port
-            and work.segments_by_cell[coordinate_key(current.x, current.y)] == nil then
-            local landing = work.segments_by_cell[coordinate_key(nx, ny)]
+            and work.segments_by_cell[current_tile_key] == nil then
+            local landing = work.segments_by_cell[next_tile_key]
             source_any_heading = work.free_source_heading == true or search.demand.free_heading == true
                 or (landing ~= nil and not landing.underground and not landing.splitter
                     and segment_has_flow(landing, search.demand.flow_id))
@@ -2757,7 +2789,7 @@ local function search_step(work, search)
         local sink_laid = false
         if target and search.demand.sink.travel_dir ~= nil
             and direction ~= Grid.dir_opposite(search.demand.sink.travel_dir) then
-            local laid = work.segments_by_cell[coordinate_key(nx, ny)]
+            local laid = work.segments_by_cell[next_tile_key]
             sink_laid = laid ~= nil and laid.kind == "belt" and not laid.underground and not laid.splitter
                 and laid.direction == search.demand.sink.travel_dir
                 and segment_has_flow(laid, search.demand.flow_id)
@@ -2767,7 +2799,7 @@ local function search_step(work, search)
                 or source_any_heading)
             and (not target or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction
                 or sink_any_approach or sink_laid) then
-            local leaving = work.segments_by_cell[coordinate_key(current.x, current.y)]
+            local leaving = work.segments_by_cell[current_tile_key]
             --The body jump.  Leaving a belt already laid is not a turn -- no entity turns flow.  It is a
             --step into the OTHER tile of the splitter this cell is about to become, and the items keep the
             --trunk's heading right through the body.  The tile stepped into is exactly the tile
@@ -2779,7 +2811,7 @@ local function search_step(work, search)
                 and current.direction ~= nil and leaving.direction == current.direction
                 and direction ~= current.direction and work.belt and work.belt.splitter
                 and not (search.demand.crossing_blocked
-                    and search.demand.crossing_blocked[coordinate_key(current.x, current.y)])
+                    and search.demand.crossing_blocked[current_tile_key])
                 and segment_allows(work, leaving, search.demand, search.amount)
                 and splitter_can_absorb(leaving)
                 and splitter_straight_fed(work, current.x, current.y, leaving, search.demand.flow_id, search.demand.source)
@@ -2790,21 +2822,21 @@ local function search_step(work, search)
             --way that run faces, so the search must plan from there with the trunk's direction, never with
             --the direction it arrived from.  Mode 2 holds it to that heading for the one tile, exactly as it
             --does inside a splitter body.
-            local entering = work.segments_by_cell[coordinate_key(nx, ny)]
+            local entering = work.segments_by_cell[next_tile_key]
             local merge = not body_jump and entering ~= nil and not entering.splitter
                 and entering.kind ~= "pipe" and entering.direction ~= nil and entering.direction ~= direction
                 and direction ~= Grid.dir_opposite(entering.direction)
             local free = path_cell_free(work, search.demand, nx, ny,
-                body_jump and leaving.direction or direction, target, search.amount, search)
+                body_jump and leaving.direction or direction, target, search.amount, search, next_tile_key)
             if crowded_demand(work, search.demand) then
                 if current.mode == 3 then
                     free, body_jump, merge = false, false, false
                 elseif not free and search.touch_refused and not target then
                     search.touch_ok = true
-                    local dive_ok = path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search)
+                    local dive_ok = path_cell_free(work, search.demand, nx, ny, direction, target, search.amount, search, next_tile_key)
                     search.touch_ok = nil
                     if dive_ok then enqueue_state(search, nx, ny, direction, 3, current.key,
-                        current.cost + transition_cost(work, search.demand, nx, ny, direction, current.direction, 0, 0, search.amount)) end
+                        current.cost + transition_cost(work, search.demand, nx, ny, direction, current.direction, 0, 0, search.amount, next_tile_key)) end
                 end
             end
             local refused_body = leaving ~= nil and leaving.kind ~= "pipe"
@@ -2817,18 +2849,18 @@ local function search_step(work, search)
                 --whenever one exists, and this is the price that keeps it winning.
                 search.saw_branch = true
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, leaving.direction,
-                    current.direction, 0, 0, search.amount) + SPLITTER_BODY_COST
+                    current.direction, 0, 0, search.amount, next_tile_key) + SPLITTER_BODY_COST
                 enqueue_state(search, nx, ny, leaving.direction, 2, current.key, cost)
             elseif free and merge then
                 --A same-flow merge must not reconnect this branch to its own root and close a directed ring.
                 if not downstream_reaches_root(work, search, current.key, nx, ny) then
                     local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
-                        current.direction, 0, 0, search.amount)
+                        current.direction, 0, 0, search.amount, next_tile_key)
                     enqueue_state(search, nx, ny, entering.direction, 2, current.key, cost)
                 end
             elseif free and not refused_body then
                 local cost = current.cost + transition_cost(work, search.demand, nx, ny, direction,
-                    current.direction, 0, 0, search.amount)
+                    current.direction, 0, 0, search.amount, next_tile_key)
                 enqueue_state(search, nx, ny, direction, 0, current.key, cost)
             --A pipe-to-ground exit is one entity on one tile: it cannot also be the entrance of the next pair. Diving
             --from the tile the search just surfaced on laid (76,63)->(85,63) and (85,63)->(95,63) for light oil on the
@@ -2839,15 +2871,15 @@ local function search_step(work, search)
                 and not (current.mode == 1 and (search.demand.kind == "pipe" or search.demand.no_chain_dive or search.demand.strict_dive))
                 --Steel plate tried to dive from its own occupied (65,25); molten iron did the same at (86,20)
                 --on the frozen gray + magenta sheet (2026-09-27). Strict retry entrances must be free tiles.
-                and not (search.demand.strict_dive and work.segments_by_cell[coordinate_key(current.x, current.y)] ~= nil)
+                and not (search.demand.strict_dive and work.segments_by_cell[current_tile_key] ~= nil)
                 and not (current.mode == 3 and direction ~= current.direction) then
-                local bury_key = coordinate_key(nx, ny)
+                local bury_key = next_tile_key
                 --Bury is offered only inside the re-route pass, where a path is kept only when it gets
                 --smaller.  Offered during first routing it reshuffled every later path and took the player's
                 --sheet 248 -> 263 entities, measured 2026-09-23 on legalcopilot-dev.
                 local bury = work.allow_bury == true
                     and not (search.demand.bury_blocked and search.demand.bury_blocked[bury_key])
-                    and bury_candidate(work, nx, ny, direction) or nil
+                    and bury_candidate(work, nx, ny, direction, false, next_tile_key) or nil
                 if bury then
                     local inserted = enqueue_state(search, nx, ny, direction, 0, current.key,
                         current.cost + BURY_COST + (current.direction ~= direction and 1 or 0))
@@ -2869,12 +2901,12 @@ local function search_step(work, search)
                 --furnace fed.  Diving under that trunk is what the player's own factory does.  A MACHINE
                 --port keeps the old rule: its source tile is the tile an inserter drops onto, and that tile
                 --stays a plain belt.
-                local crossings = crossing_targets(work, search.demand, search, current, direction, search.amount)
+                local crossings = crossing_targets(work, search.demand, search, current, direction, search.amount, current_tile_key)
                 for _, crossing in ipairs(crossings) do
                     local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
                     if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
                         local cost = current.cost + transition_cost(work, search.demand, crossing.x, crossing.y, direction,
-                            current.direction, 1, crossing.distance, search.amount)
+                            current.direction, 1, crossing.distance, search.amount, crossing.key)
                         if current.direction ~= direction then cost = cost + SIDELOAD_UNDERGROUND_COST end
                         enqueue_state(search, crossing.x, crossing.y, direction, 1, current.key, cost)
                     end
