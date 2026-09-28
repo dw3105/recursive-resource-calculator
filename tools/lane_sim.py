@@ -144,7 +144,9 @@ def fed(p):
     cells = splitter_of[p][1] if p in splitter_of else [p]
     return any(pred[c] for c in cells)
 for p in succ:
-    if not fed(p) and not (p in ugs and ugs[p][1] == 'output'):
+    # A splitter is never a map-edge input: an unfed splitter carries nothing, so it seeds no external source
+    # (player-am2-chain-repaired 2026-09-28: an idle splitter at (27,15)-(27,16) read as a second item -> MIXED).
+    if not fed(p) and not (p in ugs and ugs[p][1] == 'output') and p not in splitter_of:
         if not any(lanes[(p, l)] for l in 'LR'):
             add(p, 'L', 'ext@%d,%d' % p); add(p, 'R', 'ext@%d,%d' % p)
 while queue:
