@@ -1,0 +1,16 @@
+# bound: 2700s
+tools/lib/slow_guard.lua
+tools/slow_guard.sh
+tools/slow_budget.json
+tests/test_slow_guard.lua
+tests/golden/generate.lua
+tools/golden_profile.lua
+tools/ckpt.lua
+tools/first_stage.lua
+tools/bytes_hash.sh
+tools/gate_sheet.sh
+tools/measure_sheet.sh
+tools/speed_probe.sh
+tests/run.sh
+tools/game_test.sh
+docs/tasks/275_tools_slow_guard.md
