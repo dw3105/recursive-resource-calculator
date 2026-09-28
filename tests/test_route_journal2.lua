@@ -90,8 +90,8 @@ refusal_case("crossing-occupied", {{x=1,y=1},{x=2,y=1},{x=4,y=1}}, 1,
     function(w) w.segments_by_cell["2:1"]={segment_id="occupied",kind="belt",direction=0,capacity_per_second=10,allocations={}} end, 4, 1)
 refusal_case("capacity", {{x=1,y=1},{x=2,y=1},{x=4,y=1}}, 11, nil, 4, 1)
 refusal_case("splitter-footprint", {{x=1,y=1},{x=2,y=1},{x=2,y=2}}, 1, function(w)
-    local segment={segment_id="old",kind="belt",flow_id="flow/other",direction=2,capacity_per_second=100,allocations={}}
-    local entity={id="old-entity",segment_id="old",name="belt",direction=2}
+    local segment={segment_id="old",kind="belt",flow_id="flow/other",direction=4,capacity_per_second=100,allocations={}}
+    local entity={id="old-entity",segment_id="old",name="belt",direction=4}
     w.multi_flow_hands=true; w.segments={segment}; w.entities={entity}; w.segments_by_cell["2:1"]=segment
     w.entity_by_segment.old=entity
 end, 2, 2)
