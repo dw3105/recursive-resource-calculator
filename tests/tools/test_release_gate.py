@@ -14,6 +14,7 @@ import copy
 import sys
 import tempfile
 import unittest
+import unittest.mock
 import zipfile
 from pathlib import Path
 
@@ -554,3 +555,67 @@ class ReleaseArchiveArgumentTest(unittest.TestCase):
         message = buffer.getvalue()
         self.assertIn("conflicting archive", message)
         self.assertIn("--archive-dir", message)
+
+
+class HandoverReceiptTests(unittest.TestCase):
+    def setUp(self):
+        import hashlib, os, subprocess
+        self.tmp = tempfile.TemporaryDirectory(); self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name); self.archives=self.root/'archives'; self.archives.mkdir()
+        self.head=subprocess.run(['git','-C',str(ROOT),'rev-parse','HEAD'],capture_output=True,text=True,check=True).stdout.strip()
+        for fv in ('2.0','2.1'):
+            p=self.archives/f'RRC-Fork_0.0.1_factorio-{fv}-test.zip'
+            with zipfile.ZipFile(p,'w') as z:
+                z.writestr('RRC-Fork_0.0.1/info.json','{"name":"RRC-Fork","version":"0.0.1"}')
+                z.writestr('RRC-Fork_0.0.1/logic/build_id.lua',f'return {{candidate_sha = "{self.head}", mod_version = "0.0.1", factorio_branch = "{fv}", packaged = true}}')
+        factorio=self.root/'factorio'; exe=factorio/'bin/x64/factorio'; exe.parent.mkdir(parents=True)
+        exe.write_text('#!/bin/sh\necho "$@" >> "$FAKE_GAME_LOG"\nif [ "${FAKE_FACTORIO_FAIL:-}" = 1 ]; then echo "Error: mod crashed"; exit 1; fi\necho "Loading mod RRC-Fork 0.0.1 (data.lua)"\n'); exe.chmod(0o755)
+        ft=self.root/'ft'; cli=ft/'node_modules/.bin/factorio-test'; cli.parent.mkdir(parents=True)
+        cli.write_text('#!/usr/bin/env python3\nimport json,os,sys\na=sys.argv; open(os.environ["FAKE_GAME_LOG"],"a").write("gui\\n"); p=a[a.index("--output-file")+1]; json.dump({"tests":[{"path":"tests.game.test_gui > gui > toggle opens and closes twice","result":os.getenv("FAKE_GUI_RESULT","passed")}],"summary":{"describeBlockErrors":0}},open(p,"w"))\n'); cli.chmod(0o755)
+        patch=ft/'node_modules/factorio-test-cli/factorio-process.js'; patch.parent.mkdir(parents=True); patch.write_text('}, 120_000);')
+        ftz=self.root/'ftzips'; ftz.mkdir(); (ftz/'factorio-test_3.0.1.zip').write_bytes(b'a'); (ftz/'factorio-test_3.1.0.zip').write_bytes(b'b')
+        lua=self.root/'lua'; lua.write_text('#!/usr/bin/env python3\nimport os,sys,time\ntime.sleep(float(os.getenv("FAKE_LUA_SLEEP","0"))); p=sys.argv[sys.argv.index("--output")+1]; open(p,"w").write("{\\\"ok\\\": "+os.getenv("FAKE_LUA_OK","true")+"}")\n'); lua.chmod(0o755)
+        self.env={'FACTORIO_ROOT':str(factorio),'RRC_FT_DIR':str(ft),'FT_ZIP_DIR':str(ftz),'RRC_LUA':str(lua),'FAKE_GAME_LOG':str(self.root/'game.log')}
+        for key in ('FACTORIO_ROOT','RRC_FT_DIR','FT_ZIP_DIR','RRC_LUA'): self.assertTrue(Path(self.env[key]).is_relative_to(self.root))
+    def call(self,args,extra=None,keep_lane=False):
+        import os
+        out,err=io.StringIO(),io.StringIO(); env=dict(self.env); env.update(extra or {})
+        with unittest.mock.patch.dict(os.environ,env,clear=False):
+            if keep_lane: os.environ['LANE_RUN_ID']='x'
+            else: os.environ.pop('LANE_RUN_ID',None)
+            with contextlib.redirect_stdout(out),contextlib.redirect_stderr(err): rc=GATE.main(args)
+        return rc,out.getvalue().splitlines(),err.getvalue().splitlines()
+    def make_receipt(self, extra=None, flags=(), keep_lane=False):
+        p=self.root/'receipt.json'; rc,out,err=self.call(['receipt','--archive-dir',str(self.archives),'--out',str(p),*flags],extra,keep_lane=keep_lane)
+        return rc,p,out,err
+    def test_receipt_all_ok_records_zip_sha_load_gui_calc(self):
+        rc,p,out,_=self.make_receipt(); d=json.loads(p.read_text()); self.assertEqual(rc,0); self.assertEqual(set(d),{'schema','candidate_sha','written_utc','tested_in_game','not_tested_reason','zips','load','gui','calc_budget'}); self.assertEqual(d['tested_in_game'],'yes'); self.assertTrue(all(d[k][f]['result']=='ok' for k in ('load','gui') for f in ('2.0','2.1'))); self.assertEqual(d['calc_budget']['result'],'ok'); self.assertEqual(out,[f"receipt {p}: tested-in-game=yes load-2.0=ok load-2.1=ok gui-2.0=ok gui-2.1=ok calc=ok"])
+        import hashlib
+        for fv in ('2.0','2.1'): self.assertEqual(d['zips'][fv]['sha256'],hashlib.sha256(Path(d['zips'][fv]['path']).read_bytes()).hexdigest())
+    def test_receipt_load_fail_recorded_and_handover_refuses(self):
+        rc,p,_,_=self.make_receipt({'FAKE_FACTORIO_FAIL':'1'}); self.assertEqual(rc,1); d=json.loads(p.read_text()); self.assertEqual([d['load'][f]['result'] for f in ('2.0','2.1')],['FAIL','FAIL']); self.assertEqual(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives)])[2],['handover refused: load-2.0 FAIL'])
+    def test_receipt_gui_fail_recorded_and_handover_refuses(self):
+        rc,p,_,_=self.make_receipt({'FAKE_GUI_RESULT':'failed'}); self.assertEqual(rc,1); d=json.loads(p.read_text()); self.assertEqual(d['gui']['2.0']['result'],'FAIL'); self.assertEqual(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives)])[2],['handover refused: gui-2.0 FAIL'])
+    def test_calc_over_budget_fails(self):
+        rc,p,_,_=self.make_receipt({'FAKE_LUA_SLEEP':'3'},['--calc-budget','1']); self.assertEqual(rc,1); self.assertTrue(json.loads(p.read_text())['calc_budget']['cases']['player-red-science-1s']['detail'].startswith('FAIL timeout')); self.assertEqual(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives)])[2],['handover refused: calc budget FAIL'])
+    def test_calc_not_ok_output_fails(self):
+        rc,p,_,_=self.make_receipt({'FAKE_LUA_OK':'false'}); self.assertEqual(rc,1); c=json.loads(p.read_text())['calc_budget']; self.assertTrue(c['cases']['player-red-science-1s']['detail'].startswith('FAIL not-ok')); self.assertEqual(c['result'],'FAIL')
+    def test_no_game_records_not_tested_in_game(self):
+        rc,p,out,_=self.make_receipt(flags=['--no-game']); d=json.loads(p.read_text()); self.assertEqual(rc,0); self.assertEqual(d['tested_in_game'],'no'); self.assertEqual(d['not_tested_reason'],'not tested in game: --no-game'); self.assertFalse(Path(self.env['FAKE_GAME_LOG']).exists()); self.assertEqual(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives)])[2],['handover refused: not tested in game: --no-game; pass --accept-not-tested to hand over untested']); self.assertEqual(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives),'--accept-not-tested'])[1],[f'handover ready: {self.head} NOT TESTED IN GAME'])
+    def test_handover_refuses_missing_receipt(self):
+        p=self.root/'missing.json'; self.assertEqual(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives)])[2],[f'handover refused: no receipt: {p}'])
+    def test_handover_refuses_zip_changed_after_receipt(self):
+        _,p,_,_=self.make_receipt(); (self.archives/'RRC-Fork_0.0.1_factorio-2.0-test.zip').write_bytes(b'changed'); self.assertTrue(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives)])[2][0].startswith('handover refused: zip 2.0 sha256 '))
+    def test_lane_run_id_makes_game_not_run(self):
+        rc,p,_,_=self.make_receipt(keep_lane=True); d=json.loads(p.read_text()); self.assertEqual(rc,1); self.assertEqual(d['load']['2.0']['result'],'not-run'); self.assertIn('lanes never run headless Factorio',d['load']['2.0']['reason']); self.assertEqual(d['tested_in_game'],'no'); self.assertFalse(Path(self.env['FAKE_GAME_LOG']).exists())
+    def test_receipt_refuses_zip_branch_or_candidate_mismatch(self):
+        p=self.archives/'RRC-Fork_0.0.1_factorio-2.1-test.zip'; tmp=p.with_suffix('.tmp')
+        with zipfile.ZipFile(tmp,'w') as z:
+            z.writestr('RRC-Fork_0.0.1/info.json','{"name":"RRC-Fork","version":"0.0.1"}'); z.writestr('RRC-Fork_0.0.1/logic/build_id.lua',f'return {{candidate_sha = "{self.head}", mod_version = "0.0.1", factorio_branch = "2.0", packaged = true}}')
+        tmp.replace(p); out=self.root/'never.json'; rc,_,err=self.call(['receipt','--archive-dir',str(self.archives),'--out',str(out)]); self.assertEqual(rc,2); self.assertTrue(err[0].startswith('receipt refused: ')); self.assertFalse(out.exists())
+    def test_calc_budget_refuses_in_lane_without_fake_lua(self):
+        import os,subprocess
+        env=dict(os.environ,LANE_RUN_ID='x'); env.pop('RRC_LUA',None); proc=subprocess.run(['sh',str(ROOT/'tools/calc_budget.sh'),'player-red-science-1s'],env=env,capture_output=True,text=True); self.assertEqual(proc.returncode,2); self.assertEqual(proc.stderr.strip(),'calc_budget: refuse, lanes never run a whole sheet')
+    def test_calc_budget_prints_case_and_summary_lines(self):
+        import os,subprocess,re
+        env=dict(os.environ,**self.env); env.pop('LANE_RUN_ID',None); proc=subprocess.run(['sh',str(ROOT/'tools/calc_budget.sh'),'player-red-science-1s'],env=env,capture_output=True,text=True); self.assertEqual(proc.returncode,0); self.assertRegex(proc.stdout.splitlines()[0],r'^calc-budget player-red-science-1s ok wall_s=[0-9]+\.[0-9]{2} budget_s=5$'); self.assertEqual(proc.stdout.splitlines()[-1],'calc-budget-ok')
