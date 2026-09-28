@@ -161,6 +161,9 @@ function ProgressPanel.update(sheet_flow, progress, job_id, interim)
     if not progress then
         return
     end
+    --Shown work means the next idle poll must sweep this sheet again (refresh_all).
+    local owner = storage and sheet_flow and storage[sheet_flow.player_index]
+    if owner and type(owner.progress_swept) == "table" then owner.progress_swept[Sheet().id_of(sheet_flow)] = nil end
     local bar, cancel = controls_of(sheet_flow)
     if not bar or not cancel or bar.valid == false or cancel.valid == false then
         return
@@ -337,8 +340,18 @@ local function refresh_all()
                         Registry.progress_note(player_index, sheet_id, nil)
                     end
                 end
-            else
+            elseif sheet_id == nil then
                 ProgressPanel.sweep(sheet_flow)
+            else
+                --An idle sheet is swept once: the sweep walks the whole sheet GUI tree, and on the player's save
+                --(headless 2.0.77, 2026-09-28) doing it every tenth tick cost 8.7-9.4 ms per poll. The mark lives
+                --in storage, never in a module local: every peer must make the same GUI calls (multiplayer).
+                local swept = player_storage.progress_swept
+                if type(swept) ~= "table" then swept = {}; player_storage.progress_swept = swept end
+                if not swept[sheet_id] then
+                    ProgressPanel.sweep(sheet_flow)
+                    swept[sheet_id] = true
+                end
             end
         end
     end

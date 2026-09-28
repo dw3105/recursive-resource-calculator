@@ -239,6 +239,28 @@ for _, shape in ipairs(H.shapes()) do
         note = child_named(sheet_flow, "hxrrc_job_note")
         H.equal(note.tags.kind, "calc", "other captions are tagged calc")
     end)
+    --PP-17 red before round 46 (2026-09-28): the tenth-tick poll swept every idle sheet every time, and the sweep walks
+    --the whole sheet GUI tree (destroy_legacy_notes). Headless 2.0.77 on the player's save SA_D0: a script spike of
+    --8.7-9.4 ms every 10 ticks vs 1.0 ms without the mod. An idle sheet is swept once, until work shows again.
+    H.test(shape .. " PP-17 an idle sheet is swept once, not on every tenth tick, and again after work ends", function()
+        local world, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local sheet_id = require("gui.sheet").id_of(sheet_flow)
+        world.handlers.events[defines.events.on_tick] = nil
+        local raw, sweeps = ProgressPanel.sweep, 0
+        ProgressPanel.sweep = function(...) sweeps = sweeps + 1; return raw(...) end
+        H.run_ticks(world, 30)
+        H.equal(sweeps, 1, "three idle polls sweep the idle sheet once")
+        storage[1].calc_jobs = {[sheet_id] = {kind="calculation", sheet_id=sheet_id, started_tick=0, done=false,
+            phase="solve", progress={stage="solve", stage_done=20, stage_total=100}}}
+        H.run_ticks(world, 10)
+        H.equal(require("gui.sheet").progressbar_of(sheet_flow).visible, true, "running work shows the bar")
+        storage[1].calc_jobs = nil
+        H.run_ticks(world, 30)
+        H.equal(sweeps, 2, "the first idle poll after work sweeps once more, later polls do not")
+        H.equal(require("gui.sheet").progressbar_of(sheet_flow).visible, false, "the bar is hidden after work ends")
+        ProgressPanel.sweep = raw
+    end)
 end
 
 H.done("test_progress_panel")
