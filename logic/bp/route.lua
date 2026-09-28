@@ -1864,7 +1864,7 @@ local function apply_bury(work, candidate, allow_port_adjacent)
         for _, al in ipairs(old_segment.allocations or {}) do
             local key = tostring(al.flow_id) .. "\0" .. tostring(al.sink)
             local existing = allocation_by_key[key]
-            if existing then existing.rate_per_second = math.max(existing.rate_per_second, al.rate_per_second)
+            if existing then jset(work, existing, "rate_per_second", math.max(existing.rate_per_second, al.rate_per_second))
             else
                 local copy = {flow_id=al.flow_id,sink=al.sink,rate_per_second=al.rate_per_second}
                 jinsert(work, segment.allocations, copy)
