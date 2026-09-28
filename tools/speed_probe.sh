@@ -8,7 +8,7 @@
 # Measured 2026-09-23 on legalcopilot-dev at 59e31ff, CAP=40: not done; worst pack.step 8.157 s,
 # route.begin 1.340 s, route.step 0.783 s, groups.begin 0.611 s; power.step 1997 calls.
 # Usage (repository root): CAP=40 sh tools/speed_probe.sh
-sh tools/slow_guard.sh speed_probe "${INPUT:-tests/golden/cases/player-red-science-1s/prepared_input.json}"
+sh tools/slow_guard.sh speed_probe "${INPUT:-tests/golden/cases/player-red-science-1s/prepared_input.json}" || exit $?
 CAP=${CAP:-40} INPUT=${INPUT:-tests/golden/cases/player-red-science-1s/prepared_input.json} lua5.2 -e '
 package.path = "./?.lua;./?/init.lua;" .. package.path
 local stats, cpu0 = {}, os.clock()

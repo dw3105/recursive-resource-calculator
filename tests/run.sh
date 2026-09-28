@@ -1,6 +1,6 @@
 #!/bin/sh
 # Runs every offline test file under each interpreter in LUAS (default: lua5.2, which Factorio's runtime is based on, then lua5.4)
-sh tools/slow_guard.sh tests/run.sh "tests/test_*.lua"
+sh tools/slow_guard.sh tests/run.sh "tests/test_*.lua" || exit $?
 cd "$(dirname "$0")/.." || exit 1
 status=0
 for lua in ${LUAS:-lua5.2 lua5.4}; do
