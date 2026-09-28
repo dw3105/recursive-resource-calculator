@@ -48,22 +48,26 @@ do
     local world, G, a, b = fixture(H.shapes()[1])
     local newest
     for _ = 1, 10 do newest = start(world, G, a); finish(world, G, newest) end
+    print("GP1")
     H.test("GP1", function()
         H.equal((function() local n=0; for _ in pairs(storage.blueprint_generations.jobs) do n=n+1 end; return n end)(), 1)
         H.equal(G.lookup(1, a).job_id, newest)
         H.equal(G.capture(1, newest) ~= nil, true)
     end)
+    print("GP2")
     H.test("GP2", function()
         for _, sid in ipairs({a,b}) do for _=1,3 do local id=start(world,G,sid); finish(world,G,id) end end
         local n=0; for _ in pairs(storage.blueprint_generations.jobs) do n=n+1 end
         H.equal(n, 2)
     end)
+    print("GP3")
     H.test("GP3", function()
         local pending = start(world,G,a)
         storage.blueprint_generations.jobs[pending-1] = {job_id=pending-1, player_index=1, sheet_id=a, state="failure"}
         G.prune_all()
         H.equal(storage.blueprint_generations.jobs[pending] ~= nil, true)
     end)
+    print("GP4")
     H.test("GP4", function()
         local jobs={}; for id=1,21 do jobs[id]={job_id=id,player_index=1,sheet_id="sheet"..((id-1)%3),state="failure"} end
         storage.blueprint_generations.jobs=jobs
@@ -72,6 +76,7 @@ do
         H.equal(n,3)
         for id=1,18 do H.equal(G.status(1,id), nil, "pruned handle is inaccessible") end
     end)
+    print("GP5")
     H.test("GP5", function()
         storage.blueprint_generations.jobs={}
         local old=start(world,G,a)
