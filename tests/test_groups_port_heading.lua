@@ -76,6 +76,7 @@ H.test("PH1 item hand headings clear other flow hand tiles", function()
         end
     end
 end)
+print("PH1")
 
 H.test("PH2 foundry headings match round-45-w3", function()
     local rows = {}
@@ -87,5 +88,6 @@ H.test("PH2 foundry headings match round-45-w3", function()
     table.sort(rows)
     H.equal(hash(table.concat(rows, "\n")), "edf37ab0", "sorted block|port|travel hash")
 end)
+print("PH2")
 
 H.done("test_groups_port_heading")
