@@ -2,6 +2,7 @@
 # One sheet's delivery gate from bytes (round 36).
 # Usage (repository root): sh tools/gate_sheet.sh <case> <max_entities> [max_belts]
 # Last line: GATE-OK <case> entities=<n> belts=<n>  or  GATE-FAIL <case> <why>
+sh tools/slow_guard.sh gate_sheet "tests/golden/cases/${1:-}/prepared_input.json" || exit $?
 case_id=${1:?case}; cap=${2:?max entities}; belt_cap=${3:-999999}
 input=tests/golden/cases/$case_id/prepared_input.json
 d=$(mktemp -d)

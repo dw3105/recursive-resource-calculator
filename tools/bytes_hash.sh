@@ -1,5 +1,6 @@
 #!/bin/sh
 # sha256 of the delivered blueprint bytes for one golden case (generation is deterministic).
+sh tools/slow_guard.sh bytes_hash "tests/golden/cases/${1:-}/prepared_input.json" || exit $?
 # Usage: sh tools/bytes_hash.sh player-red-science-1s   -> "BYTES <case> <sha256>"
 case_id=${1:?case id}
 d=$(mktemp -d)

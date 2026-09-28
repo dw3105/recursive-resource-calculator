@@ -12,6 +12,7 @@ end
 local SCRIPT_DIR = script_directory()
 local ROOT = SCRIPT_DIR .. "/../.."
 package.path = ROOT .. "/?.lua;" .. ROOT .. "/?/init.lua;" .. package.path
+require("tools.lib.slow_guard").check("golden generate", (function() for i=1,#arg do if arg[i]=="--input" then return arg[i+1] end end end)())
 
 local function fail(message)
     io.stderr:write("golden generate: " .. tostring(message) .. "\n")

@@ -6,6 +6,7 @@ local input, out=arg[1],arg[2]; if not input or not out then error('usage: golde
 local ops,cap=2000,nil; for i=3,#arg do if arg[i]=='--ops' then ops=tonumber(arg[i+1]); i=i+1 elseif arg[i]=='--cap' then cap=tonumber(arg[i+1]); i=i+1 end end
 local root=(debug.getinfo(1,'S').source:sub(2):match('^(.*)/tools/[^/]+$') or '.')
 package.path=root..'/?.lua;'..root..'/?/init.lua;'..package.path
+require("tools.lib.slow_guard").check("golden_profile", input)
 local case=input
 if input:match('%.json$') then case=input:match('([^/]+)/[^/]+%.json$') or input:match('([^/]+)%.json$') end
 local prep=input; if not input:match('%.json$') then prep=root..'/tests/golden/cases/'..input..'/prepared_input.json' end
