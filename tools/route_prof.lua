@@ -60,7 +60,7 @@ do local raw=search_step; search_step=function(work,search)
     local sn = "local function route_snapshot(work)"
     local _, se = src:find(sn, 1, true)
     if se then src = src:sub(1, se) .. " _G.__route_prof.counts.snapshots=_G.__route_prof.counts.snapshots+1\n" .. src:sub(se + 1) end
-    local kn = "local function coordinate_key("; local _, ke = src:find(kn, 1, true)
+    local kn = "local function coordinate_key(x, y)"; local _, ke = src:find(kn, 1, true)
     if ke then src = src:sub(1, ke) .. " _G.__route_prof.counts.keys=_G.__route_prof.counts.keys+1\n" .. src:sub(ke + 1) end
     return src
 end

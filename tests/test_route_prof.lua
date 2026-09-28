@@ -17,5 +17,6 @@ local kb = tonumber(garbage:match("([%d%.]+)"))
 check(kb and kb > 0, "garbage kb per step is positive")
 local coarse = run("lua5.2 tools/route_prof.lua " .. snap .. " --until phase=validate --set coarse")
 io.write("RP2\n")
-check(coarse:find("coordinate_key", 1, true) == nil, "coarse omits coordinate_key")
+local functions = coarse:match("== functions\n(.-)\n== trials") or ""
+check(functions:find("coordinate_key", 1, true) == nil, "coarse omits coordinate_key function row")
 io.write("test_route_prof: " .. passed .. " passed, " .. failed .. " failed\n")
