@@ -3609,8 +3609,9 @@ function Route.tidy_step(state, budget)
         if finished then
             work.improved, work.improve_state = true, nil
             --Publish gets a tick of its own: on blue science (2026-09-28, legalcopilot-dev) result_for alone took
-            --186 ms and shared its tick with the last trials (319 ms).
-            budget.ops = 0
+            --186 ms and shared its tick with the last trials (319 ms). yield_tick ends the tick without booking ops.
+            budget.ops = math.max(0, ops)
+            state.yield_tick = true
             return state
         end
     end
@@ -3619,7 +3620,8 @@ function Route.tidy_step(state, budget)
         unbury_empty_pairs(work)
         prune_dead_route_segments(work)
         work.publish_cleaned = true
-        budget.ops = 0
+        budget.ops = math.max(0, ops)
+        state.yield_tick = true
         return state
     end
     if work.improved then

@@ -1787,6 +1787,11 @@ function Search.step(container, budget)
             Route.tidy_step(state.work.route_state, budget)
             local spent = math.max(0, before - budget.ops)
             state.ops_used = state.ops_used + spent
+            --Route asks for a fresh tick before a heavy publish step; the rest of this tick is left unused, not spent.
+            if state.work.route_state and state.work.route_state.yield_tick then
+                state.work.route_state.yield_tick = nil
+                budget.ops = 0
+            end
             state.progress.done_units = state.progress.done_units + spent
             local tidy_progress = state.work.route_state and state.work.route_state.progress or {}
             state.progress.stage_done = finite(tidy_progress.done_units, 0)
