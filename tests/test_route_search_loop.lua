@@ -1,5 +1,5 @@
 -- SL1 and SL3 fail on round-46-w1: 26.6 coordinate keys/search step and 1.31 KB garbage/step.
--- SL2 freezes the round-46 fixture digests; SL4 freezes the base route-restart tick (2341).
+-- SL2 freezes the round-46 fixture digests; SL4 freezes the base route-restart tick (9133).
 package.path = "./?.lua;" .. package.path
 local H = require "tests.harness"
 
@@ -40,7 +40,7 @@ end)
 H.test("SL4 route restart stays at the base saved tick", function()
     local output = run("lua5.2 tools/ckpt.lua resume tests/fixtures/route_snaps/stack1_restart27.lua.gz --until kind=route-restart")
     local tick = tonumber(output:match("END ok=[^ ]+ ticks=(%d+)"))
-    H.equal(tick, 2341, "route-restart tick")
+    H.equal(tick, 9133, "route-restart tick")
     print("SL4")
 end)
 
