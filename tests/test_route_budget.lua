@@ -26,7 +26,9 @@ end
 local function unroutable_input()
     return {
         grid = Grid.new(12, 5),
-        max_expansions = 500,
+        --Round 46 R1 (2026-09-28): a failed flood is no longer replayed in 3 more direction orders, so 500
+        --expansions outlived every search here and the demand ended BP_R_NO_PATH. 200 still spans a restart.
+        max_expansions = 200,
         catalog = {belt = {belt = "basic-belt", items_per_second = 10}},
         obstacles = {{x = 5, y = 0, w = 1, h = 5, owner = "wall"}},
         blocks = {
