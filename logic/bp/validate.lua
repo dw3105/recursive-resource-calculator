@@ -2551,9 +2551,7 @@ local function check_port_approaches(work, port_index)
                 local tx, ty = tile_of(info)
                 local flow_id = info.entity.flow_id or info.entity.full_name
                 local direction = entity_direction(info.entity)
-                local fluid_port = port.kind == "fluid" or port.is_fluid == true or port.fluid_pinned == true
-                local follows_approach = fluid_port or not points_into_port or direction == nil
-                    or direction == points_into_port
+                local follows_approach = not points_into_port or direction == points_into_port
                 if tx == math.floor(x) and ty == math.floor(y) and flow_id ~= nil and flow_id ~= wanted_flow
                     and follows_approach then
                     report(port, x, y, flow_id, info.entity)
@@ -2569,7 +2567,9 @@ local function check_port_approaches(work, port_index)
                 if allocation.flow_id ~= nil then flow_ids[allocation.flow_id] = true end
             end
             for flow_id, _ in pairs(flow_ids) do
-                if flow_id ~= wanted_flow and ((fluid_port and segment_kind == "pipe")
+                local segment_direction = segment.direction or segment.dir or segment.travel_dir
+                local follows_approach = not points_into_port or segment_direction == points_into_port
+                if flow_id ~= wanted_flow and follows_approach and ((fluid_port and segment_kind == "pipe")
                     or (not fluid_port and segment_kind == "belt")) then
                     local points = segment.cells or segment.tiles or segment.path or segment.positions
                     for _, point in ipairs(list_from(points)) do
