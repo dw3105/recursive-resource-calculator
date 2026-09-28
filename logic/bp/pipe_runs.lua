@@ -243,12 +243,12 @@ function PipeRuns.bury(work, h)
                             h.jinsert(work, work.entities, first_entity)
                             h.jinsert(work, work.entities, second_entity)
                             h.jinsert(work, work.segments, pair)
-                            h.jset(work, by_cell, pair.underground_entry_key, pair)
-                            h.jset(work, by_cell, pair.underground_exit_key, pair)
-                            if not work.underground_cells then h.jset(work, work, "underground_cells", {}) end
-                            h.jset(work, work.underground_cells, pair.underground_entry_key, true)
-                            h.jset(work, work.underground_cells, pair.underground_exit_key, true)
-                            h.jset(work, work.entity_by_segment, pair.segment_id, first_entity)
+                            by_cell[pair.underground_entry_key] = pair
+                            by_cell[pair.underground_exit_key] = pair
+                            work.underground_cells = work.underground_cells or {}
+                            work.underground_cells[pair.underground_entry_key] = true
+                            work.underground_cells[pair.underground_exit_key] = true
+                            work.entity_by_segment[pair.segment_id] = first_entity
                             entity_by_segment[pair.segment_id] = first_entity
                             pairs_laid = pairs_laid + 1
                         end
