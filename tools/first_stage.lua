@@ -7,6 +7,7 @@
 -- verdict costs about a minute on the blue science sheet instead of 10-20 (round 41). DETAIL=1 prints one
 -- `DETAIL <code> <ids> | <reason>` line per error and route shortfalls as `SHORT:<flow>@<source>-><sink>`.
 package.path = "./?.lua;./?/init.lua;" .. package.path
+require("tools.lib.slow_guard").check("first_stage", arg[1])
 local case_id = assert(arg[1], "usage: lua5.2 tools/first_stage.lua <case> <pack|route|validate> [max_pack_fails]")
 local stage = arg[2] or "validate"
 local max_pack_fails = tonumber(arg[3] or "12")

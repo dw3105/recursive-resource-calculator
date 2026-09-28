@@ -2,6 +2,7 @@
 # Measure one golden sheet end to end from delivered bytes (round 30).
 # Usage: sh tools/measure_sheet.sh player-red-science-1s|player-green-science-1s
 # Last line: MEASURE case=<c> ok=<true|false> entities=<n> belts=<n> splitters=<n> mixed=<m> starved=<s> bleed=<b> wall_s=<t>
+sh tools/slow_guard.sh measure_sheet "tests/golden/cases/${1:-}/prepared_input.json"
 case_id=${1:?case id}
 input=tests/golden/cases/$case_id/prepared_input.json
 d=$(mktemp -d)

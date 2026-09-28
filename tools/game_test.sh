@@ -4,6 +4,7 @@
 #        tools/game_test.sh <2.0|2.1> --full                       every tests/game test
 # One-test mode fails unless exactly one test ran and passed (a typo never passes on zero tests).
 # Runner logic copied from ~/sushi-packer-mod tools/run_tests.sh (same host, same CLI, 2026-09-26).
+sh tools/slow_guard.sh game_test.sh "${2:-}"
 set -eu
 FV=${1:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}
 T=${2:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}

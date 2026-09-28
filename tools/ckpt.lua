@@ -4,6 +4,12 @@
 -- lua5.2 tools/ckpt.lua resume <file> [--until <at-spec> --save <out>] [--ops N] [--patch file.lua] [--output result.json]
 -- lua5.2 tools/ckpt.lua uninterrupted <case> [--ops 2000]
 package.path = "./?.lua;" .. package.path
+local guard_mode = arg[1]
+if guard_mode == "save" or guard_mode == "list" or guard_mode == "uninterrupted" then
+    require("tools.lib.slow_guard").check("ckpt " .. guard_mode, arg[2])
+elseif guard_mode == "resume" then
+    _G.__rrc_slow_guard_checked = true
+end
 local Graph = require "tools.lib.graph_dump"
 local mode = table.remove(arg, 1)
 local function opts(start)
