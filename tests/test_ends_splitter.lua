@@ -4,7 +4,10 @@ local Ends=require "logic.bp.ends"
 local Grid=require "logic.bp.grid"
 local function belt(id,x,y,d,flow) return {id=id,kind="belt",name="transport-belt",x=x,y=y,dir=d,flow_id=flow} end
 H.test("ES1 belt into centred splitter tile is not turned",function()
-    local es={belt("end",4,6,Grid.NORTH,"a"),{id="sp",kind="splitter",name="splitter",x=5,y=5,position={x=5,y=5},dir=Grid.NORTH,flow_id="a"}}
+    -- Route stores a north-facing splitter by its centre: position x=5.0 covers tiles 4 and 5 (legalcopilot-dev,
+    -- 2026-09-28, iron ore belt r:113875 turned away from its own splitter). Base read tiles 5 and 6, so the belt
+    -- at (6,6) facing north into (6,5) saw a foreign splitter there and was turned.
+    local es={belt("end",6,6,Grid.NORTH,"a"),{id="sp",kind="splitter",name="splitter",position={x=5,y=5.5},dir=Grid.NORTH,flow_id="b"}}
     H.equal(Ends.turn_heads({entities=es}),0)
     H.equal(es[1].dir,Grid.NORTH)
 end)

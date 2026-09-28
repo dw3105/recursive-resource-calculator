@@ -1822,10 +1822,15 @@ build_tile_cache = function(work)
     end
     for _, segment in ipairs(work.segments) do
         local points = segment.cells or segment.tiles or segment.path or segment.positions
+        local seen = {}
         for _, point in ipairs(list_from(points)) do
             local x, y = type(point) == "table" and finite(point.x) or nil, type(point) == "table" and finite(point.y) or nil
             if x == nil and type(point) == "table" then x, y = finite(point[1]), finite(point[2]) end
-            if x ~= nil and y ~= nil then add(segments, math.floor(x), math.floor(y), segment) end
+            --A segment is listed once per tile: occupant_at walks the segment's own points again for the report.
+            if x ~= nil and y ~= nil and not seen[tile_key(math.floor(x), math.floor(y))] then
+                seen[tile_key(math.floor(x), math.floor(y))] = true
+                add(segments, math.floor(x), math.floor(y), segment)
+            end
         end
     end
     return {infos = infos, segments = segments}
