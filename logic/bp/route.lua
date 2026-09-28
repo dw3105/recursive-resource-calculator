@@ -611,6 +611,9 @@ end
 --On legalcopilot-dev (2026-09-28), duplicate row ids made improve lift a shared furnace trunk and lose 17 belts.
 local function ep_lookup(work, port_id, block_id, flow_id, role)
     if block_id ~= nil and flow_id ~= nil and role ~= nil then
+        local fast = work.endpoint_by_block and work.endpoint_by_block[flow_id]
+            and work.endpoint_by_block[flow_id][role] and work.endpoint_by_block[flow_id][role][block_id]
+        if fast and fast[port_id] then return fast[port_id] end
         for _, endpoint in ipairs(work.rear_endpoints or {}) do
             local carries = endpoint.flow_id == flow_id
             for _, id in ipairs(endpoint.flow_ids or {}) do if id == flow_id then carries = true end end
@@ -3367,7 +3370,7 @@ local function normalize_input(input)
         belt_runs = (function() local runs = {}; for i, run in ipairs(input.belt_runs or {}) do runs[i] = run end; return runs end)(),
         collectors = input.collectors ~= false, collectors_used = false,
         input_entities = input_entities,
-        grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_id = {}, rear_endpoints = {}, perimeter = {},
+        grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_block = {}, endpoint_by_id = {}, rear_endpoints = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
         --Ids were derived from the arrays' LENGTH.  merge_splitter_footprint folds a side segment out
         --of both arrays, so the next id repeated one already in the result: measured 2026-09-22 as
@@ -3391,11 +3394,19 @@ local function normalize_input(input)
                 work.endpoint_by_id[endpoint.port_id] = endpoint
                 work.endpoint_index[endpoint.flow_id] = work.endpoint_index[endpoint.flow_id] or {["in"] = {}, ["out"] = {}}
                 work.endpoint_index[endpoint.flow_id][endpoint.role][#work.endpoint_index[endpoint.flow_id][endpoint.role] + 1] = endpoint
+                work.endpoint_by_block[endpoint.flow_id] = work.endpoint_by_block[endpoint.flow_id] or { ["in"] = {}, ["out"] = {} }
+                work.endpoint_by_block[endpoint.flow_id][endpoint.role][endpoint.block_id] = work.endpoint_by_block[endpoint.flow_id][endpoint.role][endpoint.block_id] or {}
+                work.endpoint_by_block[endpoint.flow_id][endpoint.role][endpoint.block_id][endpoint.port_id] = endpoint
             elseif endpoint and port.rear and port.port_id == "row:in:rear" then
                 -- Keep the multi-flow rear door out of first-pass demand indexing, but make
                 -- its physical location available to the improve pass.
                 work.endpoint_by_id[endpoint.port_id] = endpoint
                 work.rear_endpoints[#work.rear_endpoints + 1] = endpoint
+                for _, flow_id in ipairs(endpoint.flow_ids or {}) do
+                    work.endpoint_by_block[flow_id] = work.endpoint_by_block[flow_id] or { ["in"] = {}, ["out"] = {} }
+                    work.endpoint_by_block[flow_id][endpoint.role][endpoint.block_id] = work.endpoint_by_block[flow_id][endpoint.role][endpoint.block_id] or {}
+                    work.endpoint_by_block[flow_id][endpoint.role][endpoint.block_id][endpoint.port_id] = endpoint
+                end
             end
         end
     end
