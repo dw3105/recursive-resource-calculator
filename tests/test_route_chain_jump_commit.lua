@@ -4,6 +4,8 @@ local H = require "tests.harness"
 local Grid = require "logic.bp.grid"
 local Route = require "logic.bp.route"
 
+print("CJ chained underground route commit regression")
+
 local function run(input)
     local state = Route.begin(input)
     local ticks = 0
