@@ -1,7 +1,7 @@
 # 262_route_commit_refuses_chain_jump route commit refuses any path with two underground jumps in a row
 
 Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-262`, branch `lane/262`,
-base tag `round-45-w5`, merge target `int/r44`. Host `legalcopilot-dev`.
+base tag `round-45-w5b`, merge target `int/r44`. Host `legalcopilot-dev`.
 
 This task is complete in itself. It names no other lane and no other branch.
 
@@ -57,7 +57,7 @@ Commit on `lane/262`. **Run the checks as the very LAST action.**
 ## What done mean
 
 ```checks
-{"name": "lane262-tests", "command": "git diff --name-only round-45-w5 HEAD | grep -Ev '^(logic/bp/route\\.lua|tests/test_route_chain_jump_commit\\.lua|docs/tasks/262_route_commit_refuses_chain_jump\\.md)$' | ( ! grep . ) && git diff --quiet round-45-w5 HEAD -- docs/tasks && for t in test_route_chain_jump_commit test_route test_route_belt_chain test_route_chain test_route_collision test_route_budget test_route_underground_feed test_route_no_self_cross test_route_self_cross_occupied test_route_ug_exit_rear test_route_pipe_join test_pipe_runs test_no_item_names test_no_runtime_require test_locale_keys; do [ -f tests/$t.lua ] || { echo MISSING $t; exit 1; }; timeout 900 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane262-tests-ok", "expect_exit": 0, "expect_regex": "lane262-tests-ok", "timeout_s": 3000}
+{"name": "lane262-tests", "command": "git diff --name-only round-45-w5b HEAD | grep -Ev '^(logic/bp/route\\.lua|tests/test_route_chain_jump_commit\\.lua|docs/tasks/262_route_commit_refuses_chain_jump\\.md)$' | ( ! grep . ) && git diff --quiet round-45-w5b HEAD -- docs/tasks && for t in test_route_chain_jump_commit test_route test_route_belt_chain test_route_chain test_route_collision test_route_budget test_route_underground_feed test_route_no_self_cross test_route_self_cross_occupied test_route_ug_exit_rear test_route_pipe_join test_pipe_runs test_no_item_names test_no_runtime_require test_locale_keys; do [ -f tests/$t.lua ] || { echo MISSING $t; exit 1; }; timeout 900 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane262-tests-ok", "expect_exit": 0, "expect_regex": "lane262-tests-ok", "timeout_s": 3000}
 {"name": "lane262-fast", "command": "out=$(lua5.2 tests/test_route_chain_jump_commit.lua 2>&1); echo \"$out\" | grep -q CJ || { echo MISSING CJ; exit 1; }; echo \"$out\" | tail -1 | grep -q ' 0 failed' && echo lane262-ok", "expect_exit": 0, "expect_regex": "lane262-ok", "timeout_s": 600}
 ```
 
