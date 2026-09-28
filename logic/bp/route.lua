@@ -4262,10 +4262,14 @@ local function unhop_endpoint(work, endpoint, old)
     work.port_cells = old.port_cells
 end
 
+--wanted = {source port, sink port, rate, sink block, source block}. Two row blocks share one row port id: gray +
+--magenta prod-sci rows @0 (9,160) and @7 (9,181), 2026-09-28 legalcopilot-dev; without the source block the
+--re-route of @7 lifted @7 and re-laid @0's demand, and @7 lost its whole path to the edge.
 local function find_binding(work, wanted)
     for _, candidate in ipairs(work.bindings or {}) do
         if candidate.source_port_id == wanted[1] and candidate.sink_port_id == wanted[2]
-            and candidate.rate_per_second == wanted[3] and (wanted[4] == nil or candidate.sink_block_id == wanted[4]) then return candidate end
+            and candidate.rate_per_second == wanted[3] and (wanted[4] == nil or candidate.sink_block_id == wanted[4])
+            and (wanted[5] == nil or candidate.source_block_id == wanted[5]) then return candidate end
     end
 end
 
@@ -4300,7 +4304,8 @@ local function trial_start(work, wanted, demand, option)
             local d
             for _, candidate in ipairs(work.demands or {}) do
                 if candidate.source.port_id == spec[1] and candidate.sink.port_id == spec[2]
-                    and (spec[4] == nil or candidate.sink.block_id == spec[4]) then d = candidate; break end
+                    and (spec[4] == nil or candidate.sink.block_id == spec[4])
+                    and (spec[5] == nil or candidate.source.block_id == spec[5]) then d = candidate; break end
             end
             if not binding or not d or not lift_binding(work, binding) then trial.done = true; return trial end
             trial.demands[#trial.demands + 1] = d
@@ -4389,6 +4394,7 @@ end
 local function retry_binding_skipped(st, wanted)
     st.retry_seen = st.retry_seen or {}
     local retry_key = tostring(wanted[1]) .. "|" .. tostring(wanted[2]) .. "|" .. tostring(wanted[3]) .. "|" .. tostring(wanted[4])
+        .. "|" .. tostring(wanted[5])
     local repeated = st.retry_seen[retry_key] == st.improved
     st.retry_seen[retry_key] = st.improved
     return repeated
@@ -4398,7 +4404,8 @@ improve_begin = function(work)
     --Bindings are named by fields, never held by reference: a restored snapshot replaces every table.
     local order = {}
     for _, binding in ipairs(work.bindings or {}) do
-        order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second, binding.sink_block_id}
+        order[#order + 1] = {binding.source_port_id, binding.sink_port_id, binding.rate_per_second, binding.sink_block_id,
+            binding.source_block_id}
     end
     work.port_slides = work.port_slides or {}
     return {order = order, index = 0, stage = "next", improved = 0, refused = {}}
@@ -4416,6 +4423,7 @@ local function improve_lift_can_start(work, st)
         st.lift_memo = memo
     end
     local key = tostring(spec[1]) .. "|" .. tostring(spec[2]) .. "|" .. tostring(spec[3]) .. "|" .. tostring(spec[4])
+        .. "|" .. tostring(spec[5])
     local answer = memo.answers[key]
     if answer == nil then
         answer = lift_check(work, binding, false)
@@ -4486,7 +4494,8 @@ improve_step = function(work, st, ops)
             local demand
             for _, candidate in ipairs(work.demands or {}) do
                 if candidate.source and candidate.sink and candidate.source.port_id == wanted[1]
-                    and candidate.sink.port_id == wanted[2] and (wanted[4] == nil or candidate.sink.block_id == wanted[4]) then demand = candidate; break end
+                    and candidate.sink.port_id == wanted[2] and (wanted[4] == nil or candidate.sink.block_id == wanted[4])
+                    and (wanted[5] == nil or candidate.source.block_id == wanted[5]) then demand = candidate; break end
             end
             local repeat_same_world = false
             if st.retrying then
@@ -4501,7 +4510,7 @@ improve_step = function(work, st, ops)
                     local port_bindings = {}
                     for _, b in ipairs(work.bindings or {}) do
                         if b.source_port_id == endpoint.port_id or b.sink_port_id == endpoint.port_id then
-                            port_bindings[#port_bindings + 1] = {b.source_port_id,b.sink_port_id,b.rate_per_second,b.sink_block_id}
+                            port_bindings[#port_bindings + 1] = {b.source_port_id,b.sink_port_id,b.rate_per_second,b.sink_block_id,b.source_block_id}
                         end
                     end
                     local function add_option(option)
@@ -4608,8 +4617,8 @@ improve_step = function(work, st, ops)
                 st.pair_best_weight=math.huge
             end
             st.snapshot = route_snapshot(work)
-            local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second,pair.a.sink_block_id}),
-                find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second,pair.b.sink_block_id})
+            local ba, bb = find_binding(work, {pair.a.source_port_id,pair.a.sink_port_id,pair.a.rate_per_second,pair.a.sink_block_id,pair.a.source_block_id}),
+                find_binding(work, {pair.b.source_port_id,pair.b.sink_port_id,pair.b.rate_per_second,pair.b.sink_block_id,pair.b.source_block_id})
             st.pair, st.accepted = pair, false
             local lifted_a, lifted_b = ba and lift_binding(work, ba, true), bb and lift_binding(work, bb, true)
             if ba and bb and lifted_a and lifted_b then
@@ -5011,7 +5020,7 @@ Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_op
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
-    prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end,
+    prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end, find_binding = find_binding,
     jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route

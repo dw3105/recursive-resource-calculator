@@ -2634,7 +2634,7 @@ local function check_port_approaches(work, port_index)
             if kind and ((fluid_port and kind == "pipe") or (not fluid_port and kind == "belt")) then
                 local tx, ty = tile_of(info)
                 local flow_id = info.entity.flow_id or info.entity.full_name
-                local direction = entity_direction(info.entity)
+                local direction = entity_direction(info)  --takes the info, not its entity (was always nil: PA3)
                 local follows_approach = fluid_port or not points_into_port or direction == nil
                     or direction == points_into_port
                 if tx == math.floor(x) and ty == math.floor(y) and flow_id ~= nil and flow_id ~= wanted_flow
