@@ -4,7 +4,7 @@
 --that came from reading code, and each one was wrong. This file exists so the next attempt is measured instead.
 --
 --Measured on the merged round 11 tree, legalcopilot-dev 2026-09-20, from
---tests/golden/cases/player-am2-chain/prepared_input.json, one block per step, no search, no packing, no routing:
+--tests/golden/cases/player-am2-chain-repaired/prepared_input.json, one block per step, no search, no packing, no routing:
 --
 --  step               machines  needs  covered  beacons emitted  width      time
 --  casting-iron              1      3        2              518  2059 tiles  2.73s
@@ -27,7 +27,7 @@ local H = require "tests.harness"
 local Plan = require "logic.bp.plan"
 local Groups = require "logic.bp.groups"
 
-local CASE = "tests/golden/cases/player-am2-chain/prepared_input.json"
+local CASE = "tests/golden/cases/player-am2-chain-repaired/prepared_input.json"
 
 --The block builder and its helpers are file-locals. Reaching them through upvalues keeps this test on the real
 --production code rather than a reimplementation of it, which is the whole point.

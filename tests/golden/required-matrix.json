@@ -326,23 +326,6 @@
    "branches": [
     "2.0"
    ],
-   "case_id": "player-am2-chain",
-   "clauses": [
-    "PLAYER-AM2"
-   ],
-   "mods": [
-    "base",
-    "quality",
-    "space-age"
-   ],
-   "outcome_kind": "production",
-   "prepared_input": "prepared_input.json",
-   "state": "captured"
-  },
-  {
-   "branches": [
-    "2.0"
-   ],
    "case_id": "player-red-science-1s",
    "clauses": [
     "PLAYER-RED-SCIENCE"

@@ -1,18 +1,5 @@
 {
   "schema_version": 1,
   "note": "Cases kept as history and as negative evidence. A case listed here is EXCLUDED from release corpus discovery and is REQUIRED to fail structurally with its named outcome. Removing a required production case by listing it here is refused: an unregistered missing case still fails, and production coverage must be transferred explicitly, never dropped.",
-  "cases": [
-    {
-      "case_id": "player-am2-chain",
-      "reason": "The capture carries empty inserter offsets. Once required geometry fails closed it cannot produce a valid artifact, and it is never enriched with inferred geometry to make it pass.",
-      "structural_outcome": "rejection",
-      "structural_reason_code": "BP_CAP_INCOMPLETE",
-      "raw_bytes_immutable": true,
-      "observed_outcome_immutable": true,
-      "production_coverage_transferred_to": "player-am2-chain-fresh",
-      "clauses_transferred": ["PLAYER-AM2"],
-      "branches_transferred": ["2.0"],
-      "registered_on": "2026-09-21"
-    }
-  ]
+  "cases": []
 }

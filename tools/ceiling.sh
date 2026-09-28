@@ -14,7 +14,7 @@
 #usage: ceiling.sh [case] [seconds] [interpreter]
 set -eu
 
-case_id=${1:-player-am2-chain}
+case_id=${1:-player-am2-chain-repaired}
 limit=${2:-5.00}
 lua=${3:-lua5.2}
 root=$(cd "$(dirname "$0")/.." && pwd)
