@@ -60,7 +60,7 @@ catalogs, prepared inputs without the field) use 4. `prepared_input.json` catalo
      item 99/s → still refused.
 4. Also keep green (one at a time, `timeout 90`): `test_route`, `test_route_budget`, `test_route_merge_feed`,
    `test_validate`, `test_validate_source_duplicate`, `test_validate_rows`, `test_groups_chunk_retry_ids`,
-   `test_groups_faces_beacon_rows`, `test_plan`, `test_search`, `test_catalog`, `test_no_item_names`,
+   `test_groups_faces_beacon_rows`, `test_bp_plan`, `test_search`, `test_catalog`, `test_no_item_names`,
    `test_no_runtime_require`, `test_locale_keys`.
 
 ## Files this lane owns
@@ -77,7 +77,7 @@ Commit on `lane/274`. **Run the checks as the very LAST action.**
 ## What done mean
 
 ```checks
-{"name": "lane274-tests", "command": "git diff --name-only round-47-w1 HEAD | grep -Ev '^(logic/bp/belt\\.lua|logic/catalog\\.lua|logic/bp/route\\.lua|logic/bp/validate\\.lua|logic/bp/groups\\.lua|logic/bp/plan\\.lua|logic/bp/search\\.lua|tests/test_belt_stack\\.lua|docs/tasks/274_capacity_stacked_inputs\\.md)$' | ( ! grep . ) && git diff --quiet round-47-w1 HEAD -- docs/tasks && for t in test_belt_stack test_route test_route_budget test_route_merge_feed test_validate test_validate_source_duplicate test_validate_rows test_groups_chunk_retry_ids test_groups_faces_beacon_rows test_plan test_search test_catalog test_no_item_names test_no_runtime_require test_locale_keys; do [ -f tests/$t.lua ] || { echo MISSING $t; exit 1; }; timeout 900 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane274-tests-ok", "expect_exit": 0, "expect_regex": "lane274-tests-ok", "timeout_s": 3000}
+{"name": "lane274-tests", "command": "git diff --name-only round-47-w1 HEAD | grep -Ev '^(logic/bp/belt\\.lua|logic/catalog\\.lua|logic/bp/route\\.lua|logic/bp/validate\\.lua|logic/bp/groups\\.lua|logic/bp/plan\\.lua|logic/bp/search\\.lua|tests/test_belt_stack\\.lua|docs/tasks/274_capacity_stacked_inputs\\.md)$' | ( ! grep . ) && git diff --quiet round-47-w1 HEAD -- docs/tasks && for t in test_belt_stack test_route test_route_budget test_route_merge_feed test_validate test_validate_source_duplicate test_validate_rows test_groups_chunk_retry_ids test_groups_faces_beacon_rows test_bp_plan test_search test_catalog test_no_item_names test_no_runtime_require test_locale_keys; do [ -f tests/$t.lua ] || { echo MISSING $t; exit 1; }; timeout 900 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane274-tests-ok", "expect_exit": 0, "expect_regex": "lane274-tests-ok", "timeout_s": 3000}
 {"name": "lane274-fast", "command": "out=$(timeout 120 lua5.2 tests/test_belt_stack.lua 2>&1); for c in ST0 ST1 ST2 ST3 ST4; do echo \"$out\" | grep -q \"$c\" || { echo MISSING $c; exit 1; }; done; echo \"$out\" | tail -1 | grep -q ' 0 failed' && echo lane274-ok", "expect_exit": 0, "expect_regex": "lane274-ok", "timeout_s": 600}
 ```
 
