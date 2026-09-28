@@ -26,21 +26,21 @@ belt-end bug, and two passes freeze the game (measured legalcopilot-dev 2026-09-
 - **B3 validator loses row ports.** `collect_ports` (`logic/bp/validate.lua` ~:390-397) skips a port whose id was
   seen. Row port ids (`row:in:<flow>`, `row:out:<flow>`, `row:in:rear`) repeat across blocks, so every later block
   loses its ports → 15 false "machine has no own port" BP_V_ROUTE_DISCONTINUOUS + 23 false BP_V_TRANSPORT_UNUSED.
-  Fix (reference `docs/tasks/r47_probes/p_portkey.lua`, first two replacements only; proven 30 → 13 and 62 → 39, no
+  Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_portkey.lua`, first two replacements only; proven 30 → 13 and 62 → 39, no
   new code): dedup key = id + (step_id or block_id) + member_id. `port_index` (~:116) must not keep only the first
   of equal ids for binding checks: index by id → list, and resolve by step/block where the binding says.
 - **B9a false alarm, pipe beside pipe-to-ground.** `middle_segment` (~:1277) flags a same-fluid plain pipe running
   beside a pipe-to-ground span as BP_V_UNDERGROUND_UNPAIRED; in Factorio a surface pipe never interacts with the
-  span. Fix (reference `p_valfalse.lua`): return nil when source or sink is a pipe.
+  span. Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_valfalse.lua`): return nil when source or sink is a pipe.
 - **B9b false alarm, head-on ends.** Loop walk (~:1760) follows a belt into a head-on belt (two dead ends facing each
   other) and reports BP_V_ROUTE_LOOP; other checks (~:601, lane walk ~:1638) already treat head-on as not connected.
-  Fix (reference `p_valfalse.lua`): do not follow into a tile whose direction is opposite (unless underground
+  Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_valfalse.lua`): do not follow into a tile whose direction is opposite (unless underground
   input). Proven: 135 → 133 errors, both codes gone, none new.
 - **B5 splitter footprint one tile off.** `occupies` in `logic/bp/ends.lua` (~:42-44) uses floor(position) as the
   first tile; route stores splitters by CENTRE, so the true tiles are floor(centre-0.5) and +1. A working iron-ore
-  belt got turned away from its own splitter. Fix (reference `p_endsfoot.lua`).
+  belt got turned away from its own splitter. Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_endsfoot.lua`).
 - **Freeze E.** `Ends.turn_heads` calls `tile_accepts` (scan of all entities) per belt end: 6.6 s single tick on
-  this sheet. Fix (reference `p_ends.lua`, A/B on checkpoint 8.98 s → 0.031 s, same result): build occupancy +
+  this sheet. Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_ends.lua`, A/B on checkpoint 8.98 s → 0.031 s, same result): build occupancy +
   anchor tile indexes once per call; splitter entries registered on all 8 neighbour tiles (superset; `occupies` still
   decides); feeder check looks only at entities anchored on the 4 neighbours.
 - **Freeze V.** Validate ticks of 1.5-2.1 s: `cell_occupant` (~:1780, scan of `work.infos` per call, from

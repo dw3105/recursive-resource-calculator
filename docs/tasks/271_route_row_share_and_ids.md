@@ -26,7 +26,7 @@ causes are in `logic/bp/route.lua` (measured legalcopilot-dev 2026-09-28, lua5.2
 - **B1 row belt books whole flow.** `lay_belt_runs` (~:1187) gives every tile of a row belt run an allocation for
   EVERY demand of that flow on the sheet, not only the demands whose endpoint is on this row. A flow split over 2 rows
   (rail 2 x 35.7/s) is booked 71.4/s on each 60/s belt → 132 BP_V_TRANSFER_CAPACITY + 65 BP_V_TARGET_SHORTFALL.
-  Fix (reference `docs/tasks/r47_probes/p_runbook.lua`, proven: 334 → 137 errors, bytes of 13 golden sheets
+  Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_runbook.lua`, proven: 334 → 137 errors, bytes of 13 golden sheets
   unchanged): book only demands whose run-side endpoint (`sink` for role `in`, `source` for `out`) lies on a
   "near" tile of this run: head and its 4 neighbours, every run tile, the 4 neighbours of first and last run tile,
   every feed `side_tile`. If no demand of that flow is near, keep the old whole-flow booking.
@@ -53,7 +53,7 @@ causes are in `logic/bp/route.lua` (measured legalcopilot-dev 2026-09-28, lua5.2
 - **B7 path ends on a crossing trunk.** In `append_normal_path` the existing-segment branch (`if segment then`,
   ~:2007) lets a path END on a belt already laid in another heading. For a row feed port (belt head) the items then
   pass by: stone trunk north across stone-brick row head (7,104) → row gets nothing. Fix (reference
-  `docs/tasks/r47_probes/p_rowreuse.lua`): when `index == #path`, belt demand, `demand.sink.row_port`,
+  `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_rowreuse.lua`): when `index == #path`, belt demand, `demand.sink.row_port`,
   `demand.sink.role == "in"`, `travel_dir` known, cell is the sink tile, segment not splitter/underground and
   `segment.direction ~= demand.sink.travel_dir` → `return reject("occupied")`. Static scan: fires on 1 of 32 row
   demands on the sheet (the broken one).

@@ -28,21 +28,21 @@ route (measured legalcopilot-dev 2026-09-28, lua5.2, base `06ba0a7`):
   seated ports; `Hands.offer_slides` builds `taken` from non-hand entities only (hands.lua ~:25-30). So the stone
   hand of machine rail:3 hopped onto (30,96), the tile of the (unseated) iron-stick hand, both picking from (29,96)
   → BP_V_COLLISION, BP_V_PORT_EDGE_WRONG, BP_V_SOURCE_DUPLICATE, 39 BP_V_BELT_BLEED. Fix (reference
-  `docs/tasks/r47_probes/p_hand.lua`, proven by Seat replay: shared hand tiles 1 → 0, only 1 of 181 hands moves;
+  `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_hand.lua`, proven by Seat replay: shared hand tiles 1 → 0, only 1 of 181 hands moves;
   bytes of 13 golden sheets unchanged): before the loop, mark every hand NOT in Seat's list, and the port tile of
   such a hand, as used. Do not touch hands.lua (would change hop options on every sheet).
 - **B6 row flip onto a roboport.** `RunDir.choose` (`logic/bp/run_dir.lua`) mirrors a row after pack. Its
   validity check (~:140-150) tests the flipped port tile and one tile along `q.dir` against grid edge and other
   blocks only: no roboports, and `q.dir` is the port NORMAL (for a row out port it points back into the row), so
   the exit tile is never tested. Production row @0 flipped, out port (54,102) exits west onto roboport k:8
-  (50..53 x 100..103) → BP_R_NO_PATH, 7 discontinuous + 16 unused. Fix (reference `p_rundir.lua` +
-  `p_rundir2.lua`, proven by `docs/tasks/r47_probes/fast_rundir.lua` in 0.3 s: exits on roboport 1 → 0): new
+  (50..53 x 100..103) → BP_R_NO_PATH, 7 discontinuous + 16 unused. Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_rundir.lua` +
+  `p_rundir2.lua`, proven by `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/fast_rundir.lua` in 0.3 s: exits on roboport 1 → 0): new
   last parameter `obstacles` (list of `{rect={x,y,w,h}}` or rects); flip invalid when port tile or exit tile is inside
   one; for role `out` the exit tile is along `Grid.rotate_dir(p.travel_dir, placement.dir)`. Caller in
   `logic/bp/search.lua` (the single `RunDir.choose(...)` call, ~:394) passes `state.work.robo_obstacles`.
 - **B8 beacon prune drops coverage.** `BeaconPrune.share` (`logic/bp/beacon_prune.lua`, merge test ~:70-72,
   append ~:122, `_gone` ~:125) merges two beacons of one signature even when both serve the same machine; that
-  machine then loses a beacon (rail:3 got 2 of 3 → BP_V_BEACON_COVERAGE_SHORT). Fix (reference `p_beacon.lua`):
+  machine then loses a beacon (rail:3 got 2 of 3 → BP_V_BEACON_COVERAGE_SHORT). Fix (reference `/home/dev_zaigraev_gmail_com/wt-rrc-int/docs/tasks/r47_probes/p_beacon.lua`):
   refuse a merge when `beacon.required_for` and `other.required_for` share a machine id. Synthetic proof:
   X{M1} Y{M1,M2} Z{M1} → base leaves M1 with 2, fixed keeps 3.
 
