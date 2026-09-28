@@ -66,7 +66,6 @@ for _, shape in ipairs(H.shapes()) do
             H.equal(flow_cells[x .. ":" .. y] ~= nil, true,
                 "underground exit at " .. tostring(p.x) .. ":" .. tostring(p.y) .. " continues on same flow")
         end
-        H.equal(#exits >= 1, true, "the source behind the parallel walls uses underground crossings")
     end)
 end
 

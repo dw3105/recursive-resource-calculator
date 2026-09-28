@@ -1881,6 +1881,13 @@ local function append_normal_path(work, demand, path, amount)
         restore_route_snapshot(work, snapshot)
         return false, reason
     end
+    --On legalcopilot-dev (2026-09-28), the exit at (31,33) was also the next dive entry.
+    --That tile can hold only one entity, so refuse consecutive crossing steps before committing either pair.
+    for i = 2, #path - 1 do
+        if is_crossing_step(path[i - 1], path[i]) and is_crossing_step(path[i], path[i + 1]) then
+            return reject("route-discontinuous")
+        end
+    end
     local sink = sink_key(demand.sink, work, demand.sink_port_id)
     local first_segment
     local allocated_segments = {}
