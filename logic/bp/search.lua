@@ -392,7 +392,7 @@ local function materialize_candidate(state, candidate, placements)
         local block = by_id[placement.block_id or placement.id]
         if block then
             block = RunDir.choose(block, placement, candidate.blocks, placed_in_order, state.work.grid,
-                state.work.plan_result.flows, input_edge, output_edge)
+                state.work.plan_result.flows, input_edge, output_edge, state.work.robo_obstacles)
             local placed = Groups.materialize(block, placement)
             blocks[#blocks + 1] = {
                 block_id = block.id or block.block_id, id = block.id or block.block_id,

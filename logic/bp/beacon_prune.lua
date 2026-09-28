@@ -70,6 +70,11 @@ function BeaconPrune.share(entities, route_entities, catalog)
             for _, other in ipairs(beacons) do
                 if other ~= beacon and not other._gone and other.signature == beacon.signature
                     and type(other.required_for) == "table" then
+                    local shared_required = false
+                    local own_required = required_for(beacon)
+                    for _, id in ipairs(other.required_for) do if own_required[id] then shared_required = true; break end end
+                    -- legalcopilot-dev, lua5.2, 2026-09-28: M1 coverage fell from 3 to 2 when same-machine beacons shared.
+                    if not shared_required then
                     local already_reaches = true
                     for _, id in ipairs(other.required_for) do
                         if not machines[id] or not reaches(beacon, machines[id], catalog) then
@@ -126,6 +131,7 @@ function BeaconPrune.share(entities, route_entities, catalog)
                             moved = moved + 1
                             break
                         end
+                    end
                     end
                 end
             end

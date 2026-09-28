@@ -69,6 +69,21 @@ function Seat.run(materialized, grid, flows, input_edge)
     end)
 
     local used, shared_ports, slides = {}, {}, {}
+    local seated = {}
+    for _, item in ipairs(list) do seated[item.hand] = true end
+    -- legalcopilot-dev, lua5.2, 2026-09-28: 1 of 181 hands moved on the 104x154 sheet; reserve unseated hand and port tiles.
+    for _, hand in ipairs(materialized.entities or {}) do
+        local kind = tostring(hand.kind or hand.type or "")
+        if (kind == "inserter" or tostring(hand.name or ""):find("inserter", 1, true)) and not seated[hand] then
+            used[tostring(hand.x) .. ":" .. tostring(hand.y)] = true
+            local inserter_id = tostring(hand.id):gsub("^m:", "")
+            for _, port in ipairs(materialized.ports or {}) do
+                if tostring(port.inserter_id) == inserter_id then
+                    used[tostring(port.x) .. ":" .. tostring(port.y)] = true
+                end
+            end
+        end
+    end
     for _, item in ipairs(list) do
         local port, hand, machine = item.port, item.hand, item.machine
         local shared = machine_count(port.flow_id) >= 2
