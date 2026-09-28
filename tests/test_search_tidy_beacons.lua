@@ -15,6 +15,7 @@ Route.tidy_begin = function(done_state, options)
 end
 
 H.test("TB1 tidy obstacles include live beacons", function()
+    print("TB1 tidy obstacle regression")
     local old_arg, old_exit, old_stderr = arg, os.exit, io.stderr
     arg = {[0] = "tools/first_stage.lua", "player-red-science-1s-foundry", "validate", "15"}
     os.exit = function(code) error({first_stage_exit = code}) end
