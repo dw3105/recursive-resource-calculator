@@ -18,6 +18,9 @@ local Buffer = require "logic.bp.buffer"
 local EPSILON = 1e-9
 local INF = math.huge
 local declared_cache = setmetatable({}, {__mode = "k"})
+-- Per-work tile indexes preserve infos order and avoid the measured 1.5-2.1 s scans (legalcopilot-dev, 2026-09-28).
+local tile_cache = setmetatable({}, {__mode = "k"})
+local build_tile_cache
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= INF and value ~= -INF then return value end
@@ -1297,15 +1300,35 @@ local function check_underground(work)
         -- Same-fluid surface pipes do not interact with a pipe-to-ground span (legalcopilot-dev, 2026-09-28).
         if transport_kind(source) == "pipe" or transport_kind(sink) == "pipe" then return nil end
         local source_flow = source.entity.flow_id
-        for _, candidate in ipairs(work.infos) do
-            if candidate ~= source and candidate ~= sink and transport_kind(candidate)
-                and source_flow ~= nil and candidate.entity.flow_id == source_flow
-                and parallel_to_span(entity_direction(candidate)) then
-                local x, y = tile_of(candidate)
-                if between(x, y) then return candidate, {x = x, y = y} end
+        --Walk only the tiles strictly inside the span through the per-work tile index, and keep the match that comes
+        --first in work.infos / work.segments order, so the answer equals the old whole-list scan. The scan per pair
+        --made one 0.99 s tick on the gray + magenta sheet (legalcopilot-dev, 2026-09-28).
+        local cache = tile_cache[work]
+        if not cache then cache = build_tile_cache(work); tile_cache[work] = cache end
+        local span = {}
+        if horizontal then for x = min_x + 1, max_x - 1 do span[#span + 1] = tile_key(x, sy) end
+        elseif vertical then for y = min_y + 1, max_y - 1 do span[#span + 1] = tile_key(sx, y) end end
+        local best, best_at, best_index
+        for _, key in ipairs(span) do
+            for _, candidate in ipairs(cache.infos[key] or {}) do
+                if candidate ~= source and candidate ~= sink and transport_kind(candidate)
+                    and source_flow ~= nil and candidate.entity.flow_id == source_flow
+                    and parallel_to_span(entity_direction(candidate)) then
+                    local x, y = tile_of(candidate)
+                    local index = cache.info_order[candidate]
+                    if between(x, y) and (best_index == nil or index < best_index) then
+                        best, best_at, best_index = candidate, {x = x, y = y}, index
+                    end
+                end
             end
         end
-        for _, segment in ipairs(work.segments) do
+        if best then return best, best_at end
+        local seg_best, seg_at, seg_index
+        for _, key in ipairs(span) do
+            for _, segment in ipairs(cache.segments[key] or {}) do
+                local index = cache.segment_order[segment]
+                if seg_index == nil or index < seg_index then
+                    local found, at = (function()
             local same_flow = segment.flow_id == source_flow
             if not same_flow then
                 for _, allocation in ipairs(segment.allocations or {}) do
@@ -1325,7 +1348,12 @@ local function check_underground(work)
                     end
                 end
             end
+            return nil end)()
+                    if found then seg_best, seg_at, seg_index = found, at, index end
+                end
+            end
         end
+        if seg_best then return seg_best, seg_at end
         return nil
     end
     for _, info in ipairs(underground) do
@@ -1798,9 +1826,6 @@ local function check_transport_shapes(work)
     return true
 end
 
--- Per-work tile indexes preserve infos order and avoid the measured 1.5-2.1 s scans (legalcopilot-dev, 2026-09-28).
-local tile_cache = setmetatable({}, {__mode = "k"})
-local build_tile_cache
 local function cell_occupant(work, x, y)
     if x == nil or y == nil then return nil end
     x, y = math.floor(x), math.floor(y)
@@ -1833,7 +1858,10 @@ build_tile_cache = function(work)
             end
         end
     end
-    return {infos = infos, segments = segments}
+    local info_order, segment_order = {}, {}
+    for index, info in ipairs(work.infos) do info_order[info] = index end
+    for index, segment in ipairs(work.segments) do segment_order[segment] = index end
+    return {infos = infos, segments = segments, info_order = info_order, segment_order = segment_order}
 end
 
 local function legal_transfer_occupant(info)
@@ -2971,8 +2999,12 @@ function Validate.step(state, budget)
         elseif phase == "power_coverage" then check_power_coverage(work); state.cursor.phase = "wire_legality"
         elseif phase == "wire_legality" then check_wire_legality(work); state.cursor.phase = "wire_connectivity"
         elseif phase == "wire_connectivity" then check_wire_connectivity(work); state.cursor.phase = "segments"
-        elseif phase == "segments" then check_segments(work); check_fluid_mix(work); state.cursor.phase = "underground"
-        elseif phase == "underground" then check_underground(work); check_transport_shapes(work); state.cursor.phase = "port_approaches"
+        --Each whole-list pass gets its own tick: two passes in one tick made 0.4-0.6 s ticks on the gray + magenta
+        --sheet (legalcopilot-dev, 2026-09-28). Same checks, same order, same errors.
+        elseif phase == "segments" then check_segments(work); state.cursor.phase = "fluid_mix"
+        elseif phase == "fluid_mix" then check_fluid_mix(work); state.cursor.phase = "underground"
+        elseif phase == "underground" then check_underground(work); state.cursor.phase = "shapes"
+        elseif phase == "shapes" then check_transport_shapes(work); state.cursor.phase = "port_approaches"
         elseif phase == "port_approaches" then
             local index = state.cursor.approach_index or 1
             if index <= #work.ports then check_port_approaches(work, index); state.cursor.approach_index = index + 1
@@ -2990,7 +3022,8 @@ function Validate.step(state, budget)
         end
         local spent = math.min(ops, op_cost)
         --One-shot passes (beacon, underground + transport shapes) take one game tick; per-item passes pay per item.
-        if phase == "beacon" or phase == "underground" then spent = math.min(ops, 2000) end
+        if phase == "beacon" or phase == "segments" or phase == "fluid_mix" or phase == "underground" or phase == "shapes"
+            or phase == "physical" then spent = math.min(ops, 2000) end
         if phase == "port_approaches" then spent = math.min(ops, 20) end
         ops = ops - spent; state.ops_used = state.ops_used + spent; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + spent)
     end
