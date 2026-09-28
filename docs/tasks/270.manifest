@@ -1,0 +1,5 @@
+# bound: 3000s
+logic/bp/generation.lua
+control.lua
+tests/test_generation_prune.lua
+docs/tasks/270_generation_prune_finished_jobs.md
