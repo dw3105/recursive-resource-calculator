@@ -1358,6 +1358,18 @@ local function splitter_straight_fed(work, x, y, segment, flow_id, source)
     if not segment or segment.kind ~= "belt" or segment.underground or segment.splitter then return false end
     local dx, dy = Grid.dir_vector(segment.direction)
     if dx == nil then return false end
+    --A cell something feeds from the SIDE is a turn: as a splitter that feed would hit the splitter's side and stop
+    --(gray + magenta grid 9 layered, 2026-09-28 legalcopilot-dev: 47 copper-cable belts from foundry 2 fed nothing).
+    local sdx, sdy = Grid.dir_vector(Grid.rotate_dir(segment.direction, Grid.EAST))
+    for _, sign in ipairs({1, -1}) do
+        local nx, ny = x + sign * sdx, y + sign * sdy
+        local side = work.segments_by_cell[coordinate_key(nx, ny)]
+        if side and side ~= segment and side.kind == "belt"
+            and (not side.underground or side.underground_exit_key == coordinate_key(nx, ny)) then
+            local pdx, pdy = Grid.dir_vector(side.splitter and side.splitter_direction or side.direction)
+            if pdx and nx + pdx == x and ny + pdy == y then return false end
+        end
+    end
     local feeder = work.segments_by_cell[coordinate_key(x - dx, y - dy)]
     if feeder and segment_has_flow(feeder, flow_id) and feeder.direction == segment.direction
         and (feeder.kind == "belt" or feeder.underground or feeder.splitter) then return true end
@@ -1949,10 +1961,20 @@ local function apply_bury(work, candidate, allow_port_adjacent)
     local kept={}
     for _, s in ipairs(work.segments) do if old[s.segment_id] then jset(work,s,"_route_removed",true) else kept[#kept+1]=s end end
     local underground_name = work.belt and work.belt.underground or infrastructure(work,"belt")
+    --A row belt keeps its flow in flow_ids only (flow_id nil). A buried row pair published flow nil, so the belt end
+    --turner took it for a foreign entrance and turned the row away: gray + magenta grid 9 layered, advanced-circuit
+    --row (26,155) turned east into nothing (2026-09-28, legalcopilot-dev).
+    local entity_flow = segment.flow_id
+    if entity_flow == nil then
+        local only
+        for id in pairs(b.flow_ids or {}) do if only == nil then only = id else only = false end end
+        local old_entity = work.entity_by_segment[b.segment_id]
+        entity_flow = only or (old_entity and old_entity.flow_id) or nil
+    end
     local first, second = {id=next_entity_id(work),name=underground_name,position=entity_position(fresh.entry_x,fresh.entry_y),
-        direction=segment.direction,dir=segment.direction,flow_id=segment.flow_id,ug_role="input",type="input",segment_id=segment.segment_id},
+        direction=segment.direction,dir=segment.direction,flow_id=entity_flow,ug_role="input",type="input",segment_id=segment.segment_id},
         {id=next_entity_id(work),name=underground_name,position=entity_position(fresh.exit_x,fresh.exit_y),
-        direction=segment.direction,dir=segment.direction,flow_id=segment.flow_id,ug_role="output",type="output",segment_id=segment.segment_id}
+        direction=segment.direction,dir=segment.direction,flow_id=entity_flow,ug_role="output",type="output",segment_id=segment.segment_id}
     first.ug_pair_id, second.ug_pair_id = second.id, first.id
     for _, e in ipairs(work.entities) do if old[e.segment_id] then jset(work,e,"_route_removed",true) end end
     for id in pairs(old) do jset(work,work.entity_by_segment,id,nil) end
@@ -5021,6 +5043,7 @@ Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_bindi
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
     prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end, find_binding = find_binding,
+    splitter_straight_fed = splitter_straight_fed, apply_bury = apply_bury,
     jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route
