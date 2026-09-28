@@ -1,7 +1,7 @@
 # PM0928-P21 — handover carries a game receipt: zip loads, GUI opens, calculation under 5 s
 
 Repo `recursive-resource-calculator`. Worktree `/home/dev_zaigraev_gmail_com/wt-rrc-pm21`, branch `lane/pm21`,
-base `BASE_SHA`. Host `legalcopilot-dev`.
+base `fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989`. Host `legalcopilot-dev`.
 
 **Operator ruling (`docs/RULINGS.md` `lanes-suites`, `RRC-04`, `HO-05`): this lane never runs a full suite and
 never runs headless Factorio.** Never `sh tests/run.sh`, `suite_parallel.sh`, `tests/golden/generate.lua`,
@@ -185,12 +185,12 @@ No assert weakened or deleted.
        `^calc-budget player-red-science-1s ok wall_s=[0-9]+\.[0-9]{2} budget_s=5$`, last line `calc-budget-ok`.
    Total after change: 45 passed, 8 subtests. Keep whole module under 60 s on this host.
 6. Red proof in a scratch copy, never in this worktree:
-   `D=$(mktemp -d); git archive BASE_SHA | tar -x -C "$D"; cp tests/tools/test_release_gate.py "$D/tests/tools/";
+   `D=$(mktemp -d); git archive fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989 | tar -x -C "$D"; cp tests/tools/test_release_gate.py "$D/tests/tools/";
    cd "$D" && git init -q && git add -A && git -c user.email=x@x -c user.name=x commit -qm base && python3 -m pytest -q tests/tools/test_release_gate.py 2>&1 | tail -15`
    (git init because tests read ROOT HEAD) → the 12 new tests FAIL, the 33 old pass. Paste as `EVIDENCE-RED:`.
 7. Commit once on `lane/pm21` with plain `git commit`, subject `pm21: release_gate receipt and handover; calc budget
    5 s`, body lines `EVIDENCE-RED:`, `EVIDENCE-GREEN:` (pytest summary of the four modules in the checks block),
-   `EVIDENCE-DIFFSTAT:` (`git diff --stat BASE_SHA HEAD`). Never amend, merge, rebase, push, touch `main`,
+   `EVIDENCE-DIFFSTAT:` (`git diff --stat fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989 HEAD`). Never amend, merge, rebase, push, touch `main`,
    `int/pm-260928` or any tag. Run checks LAST.
 
 ## What done mean
@@ -203,12 +203,12 @@ No assert weakened or deleted.
 {"name": "golden-tools-tests", "command": "python3 -m pytest -q tests/tools/test_golden_tools.py 2>&1", "expect_exit": 0, "expect_regex": "(?m)^14 passed in ", "timeout_s": 120}
 {"name": "calc-budget-refuses-in-lane", "command": "LANE_RUN_ID=x RRC_LUA= sh tools/calc_budget.sh player-red-science-1s 2>&1; echo rc=$?", "expect_exit": 0, "expect_regex": "^calc_budget: refuse, lanes never run a whole sheet\\nrc=2\\n?$", "timeout_s": 30}
 {"name": "legacy-cli-unchanged", "command": "python3 tools/release_gate.py 2.0 --matrix /nonexistent 2>&1; echo rc=$?", "expect_exit": 0, "expect_regex": "^release refused: mismatched archive: no archive supplied for branch 2\\.0\\nrc=2\\n?$", "timeout_s": 30}
-{"name": "old-tests-untouched", "command": "git diff BASE_SHA HEAD -- tests/tools/test_release_gate.py | grep -cE '^-([^-]|$)'", "expect_exit": 1, "expect_regex": "^0$", "timeout_s": 30}
-{"name": "game-scripts-byte-stable", "command": "git diff --quiet BASE_SHA HEAD -- tools/build_test_zip.sh tools/game_load_check.sh tools/game_test.sh tools/game_stage.sh tools/ft && echo stable", "expect_exit": 0, "expect_regex": "^stable$", "timeout_s": 30}
-{"name": "owned-only-by-tool", "command": "python3 tools/lane_ownership.py check --base BASE_SHA --task docs/tasks/pm21_rrc_release_gate.md", "expect_exit": 0, "expect_regex": "(?m)^owned-only: 3 file\\(s\\) changed, 1 required deliverable\\(s\\) present$", "timeout_s": 60}
-{"name": "only-owned-files", "command": "test -z \"$(git status --porcelain --untracked-files=all)\" && git diff --name-only BASE_SHA HEAD | sort | tr '\\n' ' '", "expect_exit": 0, "expect_regex": "^tests/tools/test_release_gate\\.py tools/calc_budget\\.sh tools/release_gate\\.py $", "timeout_s": 30}
-{"name": "no-file-deleted", "command": "git diff --diff-filter=D --name-only BASE_SHA HEAD | wc -l", "expect_exit": 0, "expect_regex": "^0$", "timeout_s": 30}
-{"name": "one-commit", "command": "git rev-list --count BASE_SHA..HEAD", "expect_exit": 0, "expect_regex": "^1$", "timeout_s": 30}
+{"name": "old-tests-untouched", "command": "git diff fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989 HEAD -- tests/tools/test_release_gate.py | grep -cE '^-([^-]|$)'", "expect_exit": 1, "expect_regex": "^0$", "timeout_s": 30}
+{"name": "game-scripts-byte-stable", "command": "git diff --quiet fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989 HEAD -- tools/build_test_zip.sh tools/game_load_check.sh tools/game_test.sh tools/game_stage.sh tools/ft && echo stable", "expect_exit": 0, "expect_regex": "^stable$", "timeout_s": 30}
+{"name": "owned-only-by-tool", "command": "python3 tools/lane_ownership.py check --base fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989 --task docs/tasks/pm21_rrc_release_gate.md", "expect_exit": 0, "expect_regex": "(?m)^owned-only: 3 file\\(s\\) changed, 1 required deliverable\\(s\\) present$", "timeout_s": 60}
+{"name": "only-owned-files", "command": "test -z \"$(git status --porcelain --untracked-files=all)\" && git diff --name-only fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989 HEAD | sort | tr '\\n' ' '", "expect_exit": 0, "expect_regex": "^tests/tools/test_release_gate\\.py tools/calc_budget\\.sh tools/release_gate\\.py $", "timeout_s": 30}
+{"name": "no-file-deleted", "command": "git diff --diff-filter=D --name-only fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989 HEAD | wc -l", "expect_exit": 0, "expect_regex": "^0$", "timeout_s": 30}
+{"name": "one-commit", "command": "git rev-list --count fc33b7ad1e52ba94e2d410b1dbcae2e440eb3989..HEAD", "expect_exit": 0, "expect_regex": "^1$", "timeout_s": 30}
 {"name": "evidence-in-commit-body", "command": "git log -1 --format=%B | grep -cE '^EVIDENCE-(RED|GREEN|DIFFSTAT):'", "expect_exit": 0, "expect_regex": "^([3-9]|[1-9][0-9]+)$", "timeout_s": 30}
 ```
 
