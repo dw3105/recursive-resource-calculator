@@ -80,4 +80,15 @@ H.test("SG8 checkpoint resume is exempt", function()
     H.equal(out:find("SLOW%-REFUSED") == nil, true, "resume did not invoke guard")
     H.equal(code ~= 7, true, "resume proceeded to checkpoint handling")
 end)
+--SG9 (integrator, 2026-09-28): a budget counts distinct runs. bytes_hash.sh runs generate.lua and a 13-sheet gate
+--runs bytes_hash.sh 13 times under ONE RRC_SLOW value: every nested or repeated check of that value passes.
+H.test("SG9 one RRC_SLOW value is one run for children and loop steps", function()
+    io.write("SG9\n")
+    os.remove("/tmp/rrc-sg-ledger.tsv")
+    local command = "lua5.2 -e 'package.path=\"./?.lua;\"..package.path; require(\"tools.lib.slow_guard\").check(\"golden_profile\")'"
+    local _, first = run(command, "profile", "one profile run with nested checks")
+    local _, again = run(command, "profile", "one profile run with nested checks")
+    local out, other = run(command, "profile", "a different second profile run")
+    H.equal(first, 0, "first check"); H.equal(again, 0, "same run checked again"); refused(out, other)
+end)
 H.done("test_slow_guard")
