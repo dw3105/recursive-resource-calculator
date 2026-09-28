@@ -1,7 +1,7 @@
 -- Usage:
 -- lua5.2 tools/ckpt.lua list <case|prepared.json> [--ops 2000]
 -- lua5.2 tools/ckpt.lua save <case> <at-spec> <out.lua[.gz]> [--ops 2000]
--- lua5.2 tools/ckpt.lua resume <file> [--until <at-spec> --save <out>] [--ops N] [--patch file.lua] [--output result.json]
+-- lua5.2 tools/ckpt.lua resume <file> [--until <at-spec> | --at-tick N] [--save <out>] [--ops N] [--patch file.lua] [--output result.json]
 -- lua5.2 tools/ckpt.lua uninterrupted <case> [--ops 2000]
 -- lua5.2 tools/ckpt.lua save-all <case> <dir> [--ops 2000] [--patch f.lua]   one run, a checkpoint after EVERY phase
 --   change (player rule 2026-09-28: every golden examined has snapshots after each step): <dir>/NNN_gG_aA_lL_<phase>.lua.gz
@@ -104,7 +104,8 @@ local function main()
         local loader=assert(load(src,"@logic/bp/search.lua")); local Search=loader()
         local begin,step=Search.begin,Search.step
         Search.begin=function(input) if saved then resumed=true; return saved.state end; return begin(input) end
-        Search.step=function(st,b) step_index=step_index+1; local r=step(st,{ops=ops}); _G.__ckpt_last_state=st;
+        Search.step=function(st,b) step_index=step_index+1; _G.__ckpt_tick=step_index; local r=step(st,{ops=ops}); _G.__ckpt_last_state=st;
+            if o["at-tick"] and step_index>=tonumber(o["at-tick"]) then stopped=true end
             if command=="save-all" and _G.__ckpt_pending then
                 local c=_G.__ckpt_pending; _G.__ckpt_pending=nil; _G.__ckpt_saves=(_G.__ckpt_saves or 0)+1
                 local name=string.format("%s/%03d_g%s_a%s_l%s_%s.lua.gz",out,_G.__ckpt_saves,tostring(c.grid),tostring(c.attempt or 0),tostring(c.layered),tostring(c.phase))

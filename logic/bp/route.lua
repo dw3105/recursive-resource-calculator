@@ -4070,8 +4070,12 @@ prune_dead_route_segments = function(work)
                 local dx, dy = Grid.dir_vector(segment.splitter_direction)
                 local sx, sy = coordinate_from_key(segment.splitter_second_key or "")
                 if dx and sx then
+                    --An input is fed when something points INTO it. Asking only about the tile behind called a
+                    --splitter straight after an edge source belt dead: gray + magenta lost its whole iron-ore trunk
+                    --(33 belts, 4 molten-iron blocks) here, 2026-09-28 legalcopilot-dev.
                     local first = fed[coordinate_key(segment.splitter_anchor_x - dx, segment.splitter_anchor_y - dy)]
-                    local second = fed[coordinate_key(sx - dx, sy - dy)]
+                        or fed[coordinate_key(segment.splitter_anchor_x, segment.splitter_anchor_y)]
+                    local second = fed[coordinate_key(sx - dx, sy - dy)] or fed[coordinate_key(sx, sy)]
                     --A branch splitter is fed on one input only; it is dead only when nothing feeds either input
                     --and no hand drops onto it.
                     local own = sources[coordinate_key(segment.splitter_anchor_x, segment.splitter_anchor_y)]
@@ -5007,6 +5011,7 @@ Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_op
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
+    prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end,
     jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route
