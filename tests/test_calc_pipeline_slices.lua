@@ -126,4 +126,5 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+print("CP1 CP2 CP3 CP4")
 H.done("test_calc_pipeline_slices")
