@@ -32,6 +32,7 @@ H.test("MS1 turning a tile a binding rides flags it, and its path is then gone",
     H.equal(reach(work, work.bindings[1]) ~= nil, true)
     H.equal(merge(work, anchor, key(12, 23), {flow_id = "ore"}), anchor)
     H.equal(#(work._turned_merge_risk or {}), 1)
+    H.equal(work._turned_merge_anchor, anchor)  --the refusal names this anchor so the caller blocks it and searches again
     H.equal(reach(work, work._turned_merge_risk[1]), nil)
     io.write("MS1\n")
 end)

@@ -1483,6 +1483,7 @@ local function merge_splitter_footprint(work, segment, second_key, demand)
     --(BP_PW_DISCONNECTED, bisected to c9e0305).
     if occupant.direction ~= segment.direction then
         work._turned_merge_risk = work._turned_merge_risk or {}
+        work._turned_merge_anchor = segment
         for _, binding in ipairs(work.bindings or {}) do
             if segment_has_flow(occupant, binding.flow_id) then
                 for _, key in ipairs(binding_path(work, binding) or {}) do
@@ -2088,7 +2089,7 @@ end
 
 local function append_normal_path(work, demand, path, amount)
     journal_open(work)
-    work._turned_merge_risk = nil
+    work._turned_merge_risk, work._turned_merge_anchor = nil, nil
     local pre_existing = {}
     for _, c in ipairs(path or {}) do
         local k = coordinate_key(c.x, c.y)
@@ -2288,9 +2289,16 @@ local function append_normal_path(work, demand, path, amount)
     end
     if demand.kind ~= "pipe" and end_feed_bleeds(work, demand, path, pre_existing) then return reject("occupied") end
     if work._turned_merge_risk then
-        local risk = work._turned_merge_risk; work._turned_merge_risk = nil
+        local risk, anchor = work._turned_merge_risk, work._turned_merge_anchor
+        work._turned_merge_risk, work._turned_merge_anchor = nil, nil
         for _, binding in ipairs(risk) do
-            if not binding_path(work, binding) then return reject("splitter-footprint") end
+            if not binding_path(work, binding) then
+                --The caller blocks this anchor and searches again, as for any refused footprint; without the cell it
+                --searched nothing and molten-iron:2 went unfed (gray + magenta layered, 2026-09-29).
+                work.last_route_rejection = work.last_route_rejection or {}
+                work.last_route_rejection.x, work.last_route_rejection.y = anchor and anchor.splitter_anchor_x, anchor and anchor.splitter_anchor_y
+                return reject("splitter-footprint")
+            end
         end
     end
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
