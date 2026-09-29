@@ -12,7 +12,7 @@ local function box(entity)
     return {left = x, top = y, right = x + w, bottom = y + h}
 end
 
-local function reaches(beacon, machine, catalog)
+local function reaches(beacon, machine, catalog, pad)
     local b, m = box(beacon), box(machine)
     if not b or not m then return false end
     local spec = catalog and catalog.beacon and catalog.beacon[entity_name(beacon)] or {}
@@ -20,6 +20,7 @@ local function reaches(beacon, machine, catalog)
     if type(sw) ~= "number" then sw = spec.supply_w or 0 end
     local sh = beacon.supply_h
     if type(sh) ~= "number" then sh = spec.supply_h or sw end
+    sw, sh = sw + (pad or 0), sh + (pad or 0)
     return m.right > b.left - sw and m.left < b.right + sw
         and m.bottom > b.top - sh and m.top < b.bottom + sh
 end
@@ -82,7 +83,17 @@ function BeaconPrune.share(entities, route_entities, catalog)
                             break
                         end
                     end
-                    if not already_reaches then
+                    --A shift of at most 2 tiles can only reach a machine within supply + 2 of the unshifted beacon;
+                    --when one of the other beacon's machines is farther, no shift covers it and the 25-position
+                    --search is skipped. Same answer: gray + magenta grid 9 (94 beacons) share took 1.48 s and made
+                    --the route -> hands tick 2.10 s (legalcopilot-dev 2026-09-29).
+                    local possible = not already_reaches
+                    if possible then
+                        for _, id in ipairs(other.required_for) do
+                            if not machines[id] or not reaches(beacon, machines[id], catalog, 2) then possible = false; break end
+                        end
+                    end
+                    if possible then
                         local best
                         for dy = -2, 2 do
                             for dx = -2, 2 do
