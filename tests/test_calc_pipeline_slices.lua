@@ -80,15 +80,17 @@ for _, shape in ipairs(H.shapes()) do
         ensure_snapshot_api()
         local Pipeline, Jobs = require "logic.calc_pipeline", require "logic.jobs"
         local job = Pipeline.start(flow)
-        local before = job.progress.done_units
+        local before, first = job.progress.done_units, job.progress.done_units
         local slices = 0
         repeat
             job = Jobs.step(job, {ops = 40})
             slices = slices + 1
-            if job.phase == "snapshot" then H.equal(job.progress.done_units > before, true, "snapshot progress grows") end
+            --the first slice of a large selection only reads and sorts names; after it every slice adds products
+            if job.phase == "snapshot" and slices > 1 then H.equal(job.progress.done_units > before, true, "snapshot progress grows") end
             before = job.progress.done_units
         until job.phase ~= "snapshot" or slices >= 20
         H.equal(slices >= 2, true, "snapshot spans multiple calls")
+        H.equal(before > first or job.phase ~= "snapshot", true, "snapshot progress moved")
         H.equal(job.phase ~= "snapshot", true, "snapshot finishes")
         while not job.done do job = Jobs.step(job, {ops = 2000}) end
         local expected = Snapshot.of_sheet(flow).fingerprint.input

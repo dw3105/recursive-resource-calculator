@@ -112,7 +112,13 @@ local function sorted_keys(map)
     for key, _ in pairs(map or {}) do
         keys[#keys + 1] = key
     end
-    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    --All-string keys (every storage map read here) sort the same with the plain comparison, which runs in C:
+    --player save 2026-09-29, 529 product names, begin_sheet 10.3 -> ~2 ms
+    local all_strings = true
+    for _, key in ipairs(keys) do
+        if type(key) ~= "string" then all_strings = false; break end
+    end
+    if all_strings then table.sort(keys) else table.sort(keys, function(a, b) return tostring(a) < tostring(b) end) end
     return keys
 end
 
@@ -292,8 +298,8 @@ end
 function Snapshot.begin_sheet(sheet_flow)
     local snapshot = sheet_base(sheet_flow)
     local player_storage = storage[snapshot.player_index] or {}
-    snapshot.build = {names = sorted_keys(player_storage.recipes_by_product_full_name), index = 1,
-        entries = {}, key_codes = {}, code_by_key = {}}
+    --names are read in the first step, not here: this runs in the Compute tick and the job copies its context
+    snapshot.build = {names = nil, index = 1, entries = {}, key_codes = {}, code_by_key = {}}
     return snapshot
 end
 
@@ -307,6 +313,16 @@ function Snapshot.step(snapshot, budget)
     local build = snapshot.build
     if not build then return true end
     local player_storage = storage[snapshot.player_index] or {}
+    if not build.names then
+        build.names = sorted_keys(player_storage.recipes_by_product_full_name)
+        --A selection larger than one tick's share: reading and sorting its names is this tick's work (player save
+        --2026-09-29: first slice after load 29.4 ms with sort + 20 products, 9.6 ms without the sort)
+        if #build.names * Snapshot.ENTRY_OPS > budget.ops then
+            budget.ops = 0
+            return false
+        end
+    end
+    local spanned = build.index > 1
     local processed = 0
     while budget.ops > 0 and build.index <= #build.names do
         local entry = entry_for(player_storage, build.names[build.index])
@@ -339,12 +355,16 @@ function Snapshot.step(snapshot, budget)
     snapshot.selection = selection
     snapshot.fingerprint.input = "rrc-snapshot-1:" .. assemble(top_codes, top_by)
     snapshot.build = nil
+    --A selection that needed several ticks is large: assembling it (210 696 bytes on the player save, 2026-09-29)
+    --is this tick's work and the solve starts next tick. A small one finishes in its first tick, as before.
+    if spanned then budget.ops = 0 end
     return true
 end
 
 function Snapshot.progress(snapshot)
     local build = snapshot.build
     if not build then return 1, 1 end
+    if not build.names then return 0, 1 end
     return build.index - 1, #build.names + 1
 end
 
@@ -406,7 +426,9 @@ encode_value = function(value, active)
 end
 
 Snapshot._test = {encode_value = encode_value, assemble = assemble}
-Snapshot.ENTRY_OPS = 40
+--200 of a 2000-op tick = 10 products. Player save 2026-09-29: 20 products cost 3.4 ms warm but 14-16 ms in the
+--first ticks after load (cold engine objects); 40 ops (50 products) gave 6-12 ms warm
+Snapshot.ENTRY_OPS = 200
 
 --A stable string over the parts of a snapshot a reader must not confuse: same inputs give the same fingerprint,
 --and any edit that changes what would be solved changes it.

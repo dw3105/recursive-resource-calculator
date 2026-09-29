@@ -140,7 +140,7 @@ for _, shape in ipairs(H.shapes()) do
         local state = ReportSteps.begin(async_input(sheet_flow, inputs, result))
         ReportSteps.step(state, {ops = 2000})
         Report.add_staged_solved = original
-        H.equal(calls, 10, "2000 ops renders exactly ten 200-op rows")
+        H.equal(calls, math.floor(2000 / ReportSteps.ROW_OPS), "2000 ops renders exactly 2000 / ROW_OPS rows")
     end)
 
     H.test(shape .. " RW2 positive budget always renders one report row", function()

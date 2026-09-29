@@ -8,7 +8,8 @@ local Power = require "logic.compute_power_and_pollution"
 local QualityLoops = require "logic.quality_loops"
 
 local ReportSteps = {}
-ReportSteps.ROW_OPS = 200
+--One report row with its module cells: ~1 ms on the player save (2026-09-29); 400 of a 2000-op tick = 5 rows
+ReportSteps.ROW_OPS = 400
 local parent_hints = {}
 
 local function copy_data(value, seen)
