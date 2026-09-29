@@ -1633,14 +1633,26 @@ local function check_transport_shapes(work)
     end
     --A chain start that declares two or more flows is a mixed supply whose lanes this candidate never shows;
     --its flows are witnessed as present with lane unknown ("?" suffix), which proves presence but never a mix.
+    --Hand drop tiles and each tile's feeders are indexed once: rescanning every hand per unfed belt and every tile
+    --per splitter made this phase 0.25-0.31 s on gray + magenta (legalcopilot-dev 2026-09-29, cap 300 ms).
+    local drop_tiles = {}
+    for _, hand in ipairs(work.inserters or {}) do
+        local _, _, dx, dy = transfer_cells(hand, work)
+        if dx ~= nil and dy ~= nil then drop_tiles[tile_key(dx, dy)] = true end
+    end
+    local sources_of = {}
+    for source_key in pairs(tiles) do
+        for _, dest in ipairs(outputs(source_key)) do
+            if dest then
+                local list = sources_of[dest]; if not list then list = {}; sources_of[dest] = list end
+                list[#list + 1] = source_key
+            end
+        end
+    end
     for key, tile in pairs(tiles) do
         if tile.kind == "belt" and not fed[key] then
             local declared = declared_flow_ids(tile.info)
-            local hand_fed = false
-            for _, hand in ipairs(work.inserters or {}) do
-                local _, _, dx, dy = transfer_cells(hand, work)
-                if dx == tile.x and dy == tile.y then hand_fed = true; break end
-            end
+            local hand_fed = drop_tiles[tile_key(tile.x, tile.y)] == true
             if not hand_fed then
                 local edge = tile.x == 0 or tile.y == 0 or tile.x == (work.grid_w or 0)-1 or tile.y == (work.grid_h or 0)-1
                 if not edge then
@@ -1659,14 +1671,13 @@ local function check_transport_shapes(work)
         if tile.kind == "splitter" and not checked[tile.info.id] then
             checked[tile.info.id] = true
             local input_sources, input_counts = {}, {}
-            for source_key in pairs(tiles) do
-                for _, dest in ipairs(outputs(source_key)) do
-                    if dest == tile_key(tile.x, tile.y) or dest == tile.other then
-                        local source = tiles[source_key]
-                        input_counts[dest] = (input_counts[dest] or 0) + 1
-                        if source and source.kind == "splitter" then
-                            input_sources[tile.info.id .. ":" .. dest] = {id=source.info.id, key=source_key}
-                        end
+            local own = tile_key(tile.x, tile.y)
+            for _, dest in ipairs(own == tile.other and {own} or {own, tile.other}) do
+                for _, source_key in ipairs(dest and sources_of[dest] or {}) do
+                    local source = tiles[source_key]
+                    input_counts[dest] = (input_counts[dest] or 0) + 1
+                    if source and source.kind == "splitter" then
+                        input_sources[tile.info.id .. ":" .. dest] = {id=source.info.id, key=source_key}
                     end
                 end
             end
