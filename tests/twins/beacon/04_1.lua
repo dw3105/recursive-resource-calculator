@@ -1,0 +1,3 @@
+local entities = {{id="m",kind="machine",name="assembling-machine-2",x=5,y=5,step_id="s",needs_power=false},{id="b",kind="beacon",name="beacon",x=5,y=1,needs_power=false}}
+local validator = {plan={steps={{step_id="s",machine="assembling-machine-2",machine_count=1,beacon_groups={}}}},catalog={entity={ ["assembling-machine-2"]={name="assembling-machine-2",etype="assembling-machine",needs_power=false},beacon={name="beacon",etype="beacon",beacon={supply_w=9,supply_h=9}}}}}
+return {id="T-280-V41",rule="BP_V_BEACON_REDUNDANT",class="waste",from="tests/test_beacon_coverage.lua redundant beacon",grid={w=20,h=20},entities=entities,validator=validator,stage="validate",check="beacon_effect",truth="waste",codes={"BP_V_BEACON_REDUNDANT"},audit={}}

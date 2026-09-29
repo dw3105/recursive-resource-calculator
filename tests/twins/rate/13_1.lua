@@ -1,0 +1,3 @@
+local entities = {{id="p",kind="pole",name="medium-electric-pole",x=5,y=5}}
+local validator = {flows={{flow_id="item/iron-plate",producers={{step_id="s",share_per_second=2}},producers={{step_id="s",share_per_second=2}},consumers={{step_id="s",share_per_second=2}}}},segments={{segment_id="s",kind="belt",flow_id="item/iron-plate",capacity_per_second=10,allocations={}}}}
+return {id = "T-280-V131", rule = "BP_V_TARGET_SHORTFALL", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w=20,h=20}, entities = entities, validator = validator, stage = "validate", check = "rate", truth = "defect", codes = {"BP_V_TARGET_SHORTFALL"}, audit = {}}
