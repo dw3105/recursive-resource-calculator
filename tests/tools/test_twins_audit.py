@@ -56,8 +56,16 @@ class TwinAudit(unittest.TestCase):
                         for key, value in want["blueprint_audit"].items():
                             self.assertEqual(counts.get(key), value, f"blueprint_audit {key}")
                     if "lane_sim" in want:
-                        out = subprocess.run([sys.executable, "tools/lane_sim.py", bp_file], cwd=ROOT, capture_output=True,
-                                             text=True, timeout=60)
+                        cat = subprocess.run([LUA, "tools/twin_bp.lua", "--catalog", path], cwd=ROOT, capture_output=True,
+                                             text=True, timeout=60, check=True).stdout
+                        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as c:
+                            c.write(cat)
+                            cat_file = c.name
+                        try:
+                            out = subprocess.run([sys.executable, "tools/lane_sim.py", bp_file, "--input", cat_file], cwd=ROOT,
+                                                 capture_output=True, text=True, timeout=60)
+                        finally:
+                            os.unlink(cat_file)
                         m = re.search(r"LANE-SIM mixed=(\d+) starved=(\d+) bleed=(\d+)", out.stdout)
                         self.assertIsNotNone(m, out.stdout + out.stderr)
                         got = dict(zip(("mixed", "starved", "bleed"), map(int, m.groups())))
