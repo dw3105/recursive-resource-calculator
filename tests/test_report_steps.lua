@@ -303,4 +303,5 @@ H.test("2.0 RS-08 burner power and report rows match the synchronous report", fu
     H.near_relative(state.pollution, expected_pollution, "burner pollution")
 end)
 
+print("RW1 RW2")
 H.done("test_report_steps")

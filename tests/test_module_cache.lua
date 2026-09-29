@@ -10,7 +10,7 @@ local function world_with_modules()
     world.add_module("m-prod", "productivity", {productivity = 0.1})
     world.add_module("m-eff", "efficiency", {consumption = -0.2})
     world.add_machine({name = "machine", categories = {"crafting"}, speed = 1})
-    world.add_beacon({name = "beacon"})
+    world.add_beacon({name = "beacon", distribution_effectivity = 1})
     world.add_item("ore")
     world.add_recipe({name = "ore", category = "crafting", ingredients = {}, products = {{name = "ore", amount = 1}}})
     world.add_player(1)
@@ -53,16 +53,38 @@ H.test("MC2 cached answers match the original allow/fits rules", function()
         end end
         return true
     end
-    local machine, beacon, recipe = prototypes.entity.machine, prototypes.entity.beacon, prototypes.recipe.ore
-    local cases = {{machine, recipe}, { {machine, beacon}, recipe}}
-    for _, pair in ipairs(cases) do for _, name in ipairs({"m-speed", "m-prod", "m-eff"}) do
-        H.equal(ModuleSetup.fits(name, pair[1], pair[2]), base_fits(name, pair[1], pair[2]), "base fits " .. name)
-    end end
-    -- Absent effect lists preserve the distinct entity=false and recipe=true defaults.
-    machine.allowed_effects, recipe.allowed_effects = nil, nil
-    for _, name in ipairs({"m-speed", "m-prod", "m-eff"}) do
-        H.equal(ModuleSetup.fits(name, {machine}, recipe), base_fits(name, {machine}, recipe), "nil lists " .. name)
+    local base_allowed_names = function(entities, recipe)
+        local names = {}
+        for name in pairs(storage.module_names) do
+            if base_fits(name, entities, recipe) then
+                local module = prototypes.item[name]
+                if not module.hidden and not module.parameter then names[#names + 1] = name end
+            end
+        end
+        table.sort(names)
+        return names
     end
+    local machine, beacon, recipe = prototypes.entity.machine, prototypes.entity.beacon, prototypes.recipe.ore
+    local cases = {{machine, recipe}, {{machine, beacon}, recipe}}
+    for _, category_list in ipairs({false, true}) do
+        for _, effects_list in ipairs({false, true}) do
+            machine.allowed_module_categories = category_list and {speed = true, productivity = true, efficiency = true} or nil
+            recipe.allowed_module_categories = category_list and {speed = true, productivity = true, efficiency = true} or nil
+            machine.allowed_effects = effects_list and {speed = true, productivity = true, consumption = true} or nil
+            recipe.allowed_effects = effects_list and {speed = true, productivity = true, consumption = true} or nil
+            ModuleSetup.forget_cache()
+            for _, pair in ipairs(cases) do
+                for _, name in ipairs({"m-speed", "m-prod", "m-eff"}) do
+                    H.equal(ModuleSetup.fits(name, pair[1], pair[2]), base_fits(name, pair[1], pair[2]), "base fits " .. name)
+                end
+                H.deep_equal(ModuleSetup.allowed_module_names(pair[1], pair[2]), base_allowed_names(pair[1], pair[2]), "base offered names")
+            end
+        end
+    end
+    -- Explicitly cover nil effect lists on both an entity and recipe.
+    machine.allowed_effects, recipe.allowed_effects = nil, nil
+    ModuleSetup.forget_cache()
+    H.deep_equal(ModuleSetup.allowed_module_names({machine}, recipe), base_allowed_names({machine}, recipe), "nil effect lists")
 end)
 
 H.test("MC3 module effect reads are cached and totals match the base calculation", function()
@@ -88,6 +110,7 @@ H.test("MC4 replacing prototypes root resets module facts", function()
     world_with_modules()
     ModuleSetup.forget_cache()
     local machine, recipe = prototypes.entity.machine, prototypes.recipe.ore
+    machine.allowed_module_categories = {speed = true}
     H.equal(ModuleSetup.fits("m-speed", {machine}, recipe), true, "initial category fits")
     local old = prototypes
     local replacement = {}
@@ -99,7 +122,8 @@ H.test("MC4 replacing prototypes root resets module facts", function()
     changed.category = "other"
     replacement.item["m-speed"] = changed
     _G.prototypes = replacement
-    H.equal(ModuleSetup.fits("m-speed", {machine}, recipe), true, "replacement facts used")
+    H.equal(ModuleSetup.fits("m-speed", {machine}, recipe), false, "replacement facts used")
 end)
 
+print("MC1 MC2 MC3 MC4")
 H.done("test_module_cache")

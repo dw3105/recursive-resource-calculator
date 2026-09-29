@@ -1,4 +1,28 @@
 local Utils = {}
+local cached_prototypes, module_effects_cache = nil, {}
+local normal_quality_key = {}
+
+local function fresh_module_effects_cache()
+    if cached_prototypes ~= prototypes then
+        cached_prototypes, module_effects_cache = prototypes, {}
+    end
+end
+
+local function cached_module_effects(name, quality)
+    local by_quality = module_effects_cache[name]
+    if not by_quality then by_quality = {}; module_effects_cache[name] = by_quality end
+    local key = quality == nil and normal_quality_key or quality
+    local effects = by_quality[key]
+    if effects == nil then
+        effects = prototypes.item[name].get_module_effects(quality) or false
+        by_quality[key] = effects
+    end
+    return effects or {}
+end
+
+function Utils.forget_cache()
+    cached_prototypes, module_effects_cache = nil, {}
+end
 
 --The name of an ID the engine gives as a name or as a prototype; nil stays nil. Factorio 2.0 prototypes are userdata, never tables, so an ID is
 --told apart by being a string, not by being a table.
@@ -46,9 +70,10 @@ end
 
 --Summed effects of a setup's modules and beacons, each module at its quality; stored setups are kept valid, so every module and beacon still exists
 function Utils.setup_effects(setup)
+    fresh_module_effects_cache()
     local totals = {consumption = 0, speed = 0, productivity = 0, pollution = 0, quality = 0}
     for _, module in ipairs(setup.modules) do
-        local effects = prototypes.item[module.name].get_module_effects(module.quality) or {} --2.1 marks module effects optional
+        local effects = cached_module_effects(module.name, module.quality) --2.1 marks module effects optional
         for _, effect in ipairs(Utils.module_effect_names) do
             totals[effect] = totals[effect] + (effects[effect] or 0)
         end
@@ -70,7 +95,7 @@ function Utils.setup_effects(setup)
         local sample = profile and profile[math.min(reaching, #profile)] or 1
         local weight = group.count * effectivity * sample
         for _, beacon_module in ipairs(group.modules) do
-            local effects = prototypes.item[beacon_module.name].get_module_effects(beacon_module.quality) or {}
+            local effects = cached_module_effects(beacon_module.name, beacon_module.quality)
             for _, effect in ipairs(Utils.module_effect_names) do
                 totals[effect] = totals[effect] + weight * (effects[effect] or 0)
             end
