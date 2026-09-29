@@ -1,11 +1,11 @@
 #!/bin/sh
-# Runs every offline test file under each interpreter in LUAS (default: lua5.2, which Factorio's runtime is based on, then lua5.4)
+# Runs every offline test file under lua5.2 only: Factorio runs Lua 5.2; player dropped lua5.4 on 2026-09-23 (LUAS overrides)
 sh tools/slow_guard.sh tests/run.sh "tests/test_*.lua" || exit $?
 #Child tests inherit RRC_SLOW: the *_delivers tests generate whole sheets under this suite slot (unsetting it made
 #8 files red, round 47 suite 2, 2026-09-29); tests/test_slow_guard.lua clears it itself for its refusal cases.
 cd "$(dirname "$0")/.." || exit 1
 status=0
-for lua in ${LUAS:-lua5.2 lua5.4}; do
+for lua in ${LUAS:-lua5.2}; do
     for test_file in tests/test_*.lua; do
         "$lua" "$test_file" || status=1
     done
