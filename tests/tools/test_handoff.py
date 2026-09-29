@@ -75,16 +75,13 @@ H.done('quality')
         self._write(
             "tests/run.sh",
             """#!/bin/sh
-if [ "$RRC_SHAPES" != '2.0,2.1' ] || [ "$LUAS" != 'lua5.2 lua5.4' ]; then
+if [ "$RRC_SHAPES" != '2.0,2.1' ] || [ "$LUAS" != 'lua5.2' ]; then
     echo 'narrowed environment' >&2
     exit 13
 fi
 printf '%s\n' 'test_fixture [Lua 5.2]: 1 cases, 1 passed, 0 failed'
-printf '%s\n' 'test_fixture [Lua 5.4]: 1 cases, 1 passed, 0 failed'
 printf '%s\n' 'test_quality_policy [Lua 5.2]: 1 cases, 1 passed, 0 failed'
-printf '%s\n' 'test_quality_policy [Lua 5.4]: 1 cases, 1 passed, 0 failed'
 printf '%s\n' 'test_export_completeness [Lua 5.2]: 1 cases, 1 passed, 0 failed'
-printf '%s\n' 'test_export_completeness [Lua 5.4]: 1 cases, 1 passed, 0 failed'
 exit "${FAKE_GATE_RC:-0}"
 """,
             executable=True,
@@ -254,7 +251,7 @@ class HandoffTests(unittest.TestCase):
     def test_a_narrowed_environment_cannot_pass_as_a_full_run(self):
         raw, fixture = self.fixture()
         with raw:
-            result = fixture.run(RRC_SHAPES="2.0", LUAS="lua5.2", FAKE_GOLDEN_RC="23")
+            result = fixture.run(RRC_SHAPES="2.0", LUAS="lua5.1", FAKE_GOLDEN_RC="23")
             self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
             record = json.loads(fixture.records()[0].read_text(encoding="utf-8"))
             self.assertEqual(record["result"], "refused")

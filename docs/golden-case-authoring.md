@@ -37,7 +37,6 @@ Run the focused checks with:
 
 ```sh
 lua5.2 tests/test_corpus_setups.lua
-lua5.4 tests/test_corpus_setups.lua
 ```
 
 ## Harness captures and provenance

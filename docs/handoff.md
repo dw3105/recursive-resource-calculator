@@ -22,7 +22,7 @@ generator works. A diagnostic archive is evidence-collection input, not a
 blueprint-generator verification.
 
 The command refuses an already narrowed `RRC_SHAPES` or `LUAS` environment,
-then supplies the full `2.0,2.1` and `lua5.2 lua5.4` values to every child. It
+then supplies the full `2.0,2.1` and `lua5.2` values to every child (lua5.2 only: Factorio runs Lua 5.2). It
 also gives Lua an extracted-root-only module path and refuses a module resolved
 outside that root. The expected case census is made by loading the candidate
 test files with their test bodies replaced by a counter; a missing summary or a

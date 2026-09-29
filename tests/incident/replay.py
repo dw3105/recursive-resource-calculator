@@ -21,7 +21,7 @@ ROOT = Path(__file__).resolve().parents[2]
 CASES_ROOT = ROOT / "tests" / "golden" / "cases"
 REGISTRY_PATH = ROOT / "tests" / "golden" / "historical-negatives.json"
 GENERATOR = ROOT / "tests" / "golden" / "generate.lua"
-INTERPRETERS = ("lua5.2", "lua5.4")
+INTERPRETERS = ("lua5.2",)  # Factorio runs Lua 5.2 only; lua5.4 dropped 2026-09-23
 
 
 def _load_runner():

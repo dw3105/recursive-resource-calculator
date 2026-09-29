@@ -187,10 +187,10 @@ class VerifyRound9LaneTests(unittest.TestCase):
                 recorded = calls(directory)
                 for path in expected:
                     self.assertIn(f"lua5.2 {path}", recorded)
-                    self.assertIn(f"lua5.4 {path}", recorded)
-                self.assertEqual(len(recorded), 2 * len(expected), recorded)
+                    self.assertNotIn(f"lua5.4 {path}", recorded)  # lua5.2 only since 2026-09-23
+                self.assertEqual(len(recorded), len(expected), recorded)
                 self.assertNotIn("gateslot", "".join(recorded))
-                self.assertIn(f"ran {2 * len(expected)} check(s)", result.stdout)
+                self.assertIn(f"ran {len(expected)} check(s)", result.stdout)
 
     def test_a_consumer_tag_never_runs_the_whole_suite(self):
         with tempfile.TemporaryDirectory() as raw:
@@ -284,8 +284,8 @@ class Round10DispatchTests(unittest.TestCase):
                 recorded = calls(directory)
                 for path in expected:
                     self.assertIn(f"lua5.2 {path}", recorded)
-                    self.assertIn(f"lua5.4 {path}", recorded)
-                self.assertEqual(len(recorded), 2 * len(expected), recorded)
+                    self.assertNotIn(f"lua5.4 {path}", recorded)  # lua5.2 only since 2026-09-23
+                self.assertEqual(len(recorded), len(expected), recorded)
                 self.assertNotIn("gateslot", "".join(recorded))
                 self.assertNotIn("python3", "".join(recorded))
 
@@ -365,8 +365,8 @@ class Round11DispatchTests(unittest.TestCase):
                 recorded = calls(directory)
                 for path in expected:
                     self.assertIn(f"lua5.2 {path}", recorded)
-                    self.assertIn(f"lua5.4 {path}", recorded)
-                self.assertEqual(len(recorded), 2 * len(expected), recorded)
+                    self.assertNotIn(f"lua5.4 {path}", recorded)  # lua5.2 only since 2026-09-23
+                self.assertEqual(len(recorded), len(expected), recorded)
                 self.assertNotIn("gateslot", "".join(recorded))
 
     def test_each_round11_python_tag_is_dispatched_through_python(self):
@@ -431,8 +431,8 @@ class Round13DispatchTests(unittest.TestCase):
                 self.assertNotIn("gateslot", joined, f"{tag} reached gateslot")
                 for path in expected:
                     self.assertIn(f"lua5.2 {path}", recorded, f"{tag} skipped {path} under lua5.2")
-                    self.assertIn(f"lua5.4 {path}", recorded, f"{tag} skipped {path} under lua5.4")
-                self.assertEqual(len(recorded), 2 * len(expected),
+                    self.assertNotIn(f"lua5.4 {path}", recorded)  # lua5.2 only since 2026-09-23
+                self.assertEqual(len(recorded), len(expected),
                                  f"{tag} ran something it does not own: {recorded}")
 
     def test_the_goldens_lane_is_dispatched_through_python_never_lua(self):

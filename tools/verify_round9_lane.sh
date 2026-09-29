@@ -216,7 +216,7 @@ else
             echo "verify_round9_lane.sh: $tag names a missing test: $test_file" >&2
             exit 1
         fi
-        for lua in lua5.2 lua5.4; do
+        for lua in lua5.2; do
             selected=$((selected + 1))
             "$lua" "$test_file" || status=1
         done

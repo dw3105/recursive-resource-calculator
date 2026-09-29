@@ -1,11 +1,11 @@
 #!/bin/sh
 # Round 21 regression floor: every test file that loads route.lua, search.lua or validate.lua, with the
-# number of cases it PASSED at tag round-21-base on legalcopilot-dev 2026-09-23, both interpreters.
+# number of cases it PASSED at tag round-21-base on legalcopilot-dev 2026-09-23, lua5.2 (Factorio runs Lua 5.2; lua5.4 dropped 2026-09-23).
 # A file may pass MORE cases than its floor, never fewer.  Prints `regress-ok` or names every file that fell.
 # Usage: sh tools/round21_regress.sh   (run from the repository root)
 fell=0
 while read -r file floor; do
-    for lua in lua5.2 lua5.4; do
+    for lua in lua5.2; do
         line=$($lua "tests/$file" 2>&1 | tail -1)
         passed=$(printf '%s\n' "$line" | sed -n 's/.* \([0-9][0-9]*\) passed.*/\1/p')
         if [ -z "$passed" ] || [ "$passed" -lt "$floor" ]; then

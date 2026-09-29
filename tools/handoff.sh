@@ -79,7 +79,7 @@ refuse() {
 if [ "${RRC_SHAPES+x}" = x ] && [ "$RRC_SHAPES" != '2.0,2.1' ]; then
     refuse "RRC_SHAPES is narrowed; unset it for the full handoff"
 fi
-if [ "${LUAS+x}" = x ] && [ "$LUAS" != 'lua5.2 lua5.4' ]; then
+if [ "${LUAS+x}" = x ] && [ "$LUAS" != 'lua5.2' ]; then
     refuse "LUAS is narrowed; unset it for the full handoff"
 fi
 
@@ -165,9 +165,8 @@ run_lua() {
         LUA_CPATH= \
         LUA_INIT="@$LUA_INIT_FILE" \
         LUA_INIT_5_2="@$LUA_INIT_FILE" \
-        LUA_INIT_5_4="@$LUA_INIT_FILE" \
         RRC_SHAPES='2.0,2.1' \
-        LUAS='lua5.2 lua5.4' \
+        LUAS='lua5.2' \
         "$@")
 }
 
@@ -274,9 +273,8 @@ run_check() {
         LUA_CPATH= \
         LUA_INIT="@$LUA_INIT_FILE" \
         LUA_INIT_5_2="@$LUA_INIT_FILE" \
-        LUA_INIT_5_4="@$LUA_INIT_FILE" \
         RRC_SHAPES='2.0,2.1' \
-        LUAS='lua5.2 lua5.4' \
+        LUAS='lua5.2' \
         sh -c "$command") > "$log" 2>&1; then
         rc=0
     else
@@ -344,7 +342,7 @@ run_package() {
     fi
 
     run_check "$package_root" "$branch" tests-run 'sh tests/run.sh' true \
-        "$((test_discovery * 2))" "$((test_file_count * 2))"
+        "$test_discovery" "$test_file_count"
     run_check "$package_root" "$branch" acceptance 'sh tests/acceptance/run' true \
         "$acceptance_discovery" "$acceptance_file_count"
     run_check "$package_root" "$branch" quality-policy 'lua5.2 tests/test_quality_policy.lua' true \

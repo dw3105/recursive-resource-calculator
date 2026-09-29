@@ -15,7 +15,7 @@
 #for every case it executes and `CASES-COMPLETE <n>` when it terminates. A case that did not run has no line,
 #which is a refusal, and a crash after the summary loses the terminator, which is also a refusal.
 #
-#usage: lane_rows.sh <test-file> --min-cases <n> [--pass a,b,c] [--fail x,y] [--interpreters "lua5.2 lua5.4"]
+#usage: lane_rows.sh <test-file> --min-cases <n> [--pass a,b,c] [--fail x,y] [--interpreters "lua5.2"]
 set -eu
 
 test_file=${1:-}
@@ -23,7 +23,7 @@ shift 2>/dev/null || true
 min_cases=0
 pass_list=
 fail_list=
-interpreters="lua5.2 lua5.4"
+interpreters="lua5.2"
 
 while [ "$#" -gt 0 ]; do
     case "$1" in
