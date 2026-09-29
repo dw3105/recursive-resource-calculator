@@ -15,6 +15,10 @@ import zipfile
 from pathlib import Path
 
 
+#The in-repo slow guard (lane 275) refuses generate.lua without a slot; these tests drive tiny fixtures, which the
+#guard allows under the test slot (tests/test_slow_guard.lua SG6). Red without it: round 47 suite, 2026-09-29.
+os.environ.setdefault("RRC_SLOW", "test:golden tool tests on tiny fixtures")
+
 ROOT = Path(__file__).resolve().parents[2]
 RUN = ROOT / "tests" / "golden" / "run"
 RUNNER = ROOT / "tests" / "golden" / "lib" / "runner.py"

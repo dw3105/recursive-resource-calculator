@@ -14,7 +14,8 @@ end
 local function refused(out, code)
     H.equal(code, 7, "refusal exit code"); H.equal(out:find("SLOW%-REFUSED") ~= nil, true, "refusal line")
 end
-local golden = "tests/golden/cases/player-red-science-1s/prepared_input.json"
+--red-science-1s became a fast case in baa1ab9 (no slot needed), so the refusal cases use a guarded sheet.
+local golden = "tests/golden/cases/player-red-science-10s/prepared_input.json"
 write("/tmp/rrc-sg-wave", "sg-wave\n")
 H.test("SG1 unapproved golden generation refuses immediately", function()
     io.write("SG1\n")
@@ -66,7 +67,7 @@ H.test("SG7 every listed tool refuses before doing work", function()
         "lua5.2 tools/golden_profile.lua small /tmp/x",
         "lua5.2 tools/ckpt.lua save x a b", "lua5.2 tools/ckpt.lua list x", "lua5.2 tools/ckpt.lua uninterrupted x",
         "lua5.2 tools/first_stage.lua x pack", "sh tools/bytes_hash.sh x", "sh tools/gate_sheet.sh x 1",
-        "sh tools/measure_sheet.sh x", "sh tools/speed_probe.sh", "sh tests/run.sh", "sh tools/game_test.sh 2.0 --full"
+        "sh tools/measure_sheet.sh x", "INPUT=" .. golden .. " sh tools/speed_probe.sh", "sh tests/run.sh", "sh tools/game_test.sh 2.0 --full"
     }
     for _, command in ipairs(commands) do
         os.remove("/tmp/rrc-sg-ledger.tsv")
@@ -90,5 +91,10 @@ H.test("SG9 one RRC_SLOW value is one run for children and loop steps", function
     local _, again = run(command, "profile", "one profile run with nested checks")
     local out, other = run(command, "profile", "a different second profile run")
     H.equal(first, 0, "first check"); H.equal(again, 0, "same run checked again"); refused(out, other)
+end)
+H.test("SG10 a listed fast case needs no slot", function()
+    io.write("SG10\n")
+    local out, code = run("lua5.2 -e \"package.path='./?.lua;'..package.path; require('tools.lib.slow_guard').check('golden generate', 'tests/golden/cases/player-red-science-1s/prepared_input.json'); print('FAST-OK')\"", nil)
+    H.equal(out:find("FAST%-OK") ~= nil, true, "fast case passes without RRC_SLOW: " .. out)
 end)
 H.done("test_slow_guard")

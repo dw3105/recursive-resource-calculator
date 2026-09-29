@@ -259,7 +259,9 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(state.work.multi_flow_hands, false, "the seam forces multi-flow hands off")
         --RE-MEASURED 2026-09-25 (round 36): no side-fed underground entrance anywhere (a side-fed entrance blocks the
         --lane on its near half) moves this candidate to 80 surface belts; was 88 since 2026-09-23.
-        H.equal(geometry.surface, 80, "forced-off surface belts stay at the measured 80")
+        --RE-MEASURED 2026-09-29 (round 47): 79 since lane 271 merge 6ef887b (row belts book own share), same shift as
+        --test_route_collision RX1 (85 -> 84); undergrounds, forks and chains below unchanged.
+        H.equal(geometry.surface, 79, "forced-off surface belts stay at the measured 79")
         --Same measurement as RC2: the foreign-flow crossing at (14,2) is dived under, never split through.
         --Round 36: one pair fewer (4 endpoints) with side-fed entrances banned; RC2 still proves the dive at (14,2).
         H.equal(geometry.underground, 4, "forced-off underground endpoints stay at the measured 4")

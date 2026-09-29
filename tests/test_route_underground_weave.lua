@@ -9,7 +9,7 @@ local inside = Route._test.inside_same_axis_span
 local function world(kind)
     local pair = {segment_id = "outer", kind = kind, underground = true, underground_entry_x = 6, underground_entry_y = 88,
         underground_exit_x = 16, underground_exit_y = 88}
-    return {segments_by_cell = {[key(6, 88)] = pair, [key(16, 88)] = pair}}
+    return {segments = {pair}, segment_serial = 1, segments_by_cell = {[key(6, 88)] = pair, [key(16, 88)] = pair}}
 end
 
 H.test("UW1 an end strictly inside a same-family pair on the same axis is refused", function()

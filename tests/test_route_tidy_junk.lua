@@ -113,6 +113,9 @@ H.test("TJ3 bulk call 4 every splitter is fed", function()
         local live=drops[own[1]] or drops[own[2]] or false
         for _,input in ipairs({{s.splitter_anchor_x-dx,s.splitter_anchor_y-dy},{sx-dx,sy-dy}}) do
             local key=tostring(input[1])..":"..tostring(input[2])
+            --A hand dropping onto the belt behind an input feeds it as surely as one dropping onto the splitter
+            --(iron-plate source (32,12) -> splitter (32,13) south, kept since 9714d0f, 2026-09-29).
+            if drops[key] and work.segments_by_cell[key] and work.segments_by_cell[key].direction==s.splitter_direction then live=true end
             for other_key,other in pairs(work.segments_by_cell) do
                 if other~=s then for _,out in ipairs(edges(work,other_key,s.flow_id)) do if out==key then live=true end end end
             end

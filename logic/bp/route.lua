@@ -2757,16 +2757,41 @@ end
 --True when (x, y) lies strictly inside an existing underground pair of the same family on the same axis. A new
 --end there would weave into that pair, which the engine does not do: gray + magenta (legalcopilot-dev
 --2026-09-28) shipped molten-iron pair (8,88)-(10,88) inside pair (6,88)-(16,88), flagged by blueprint_audit.
---Any covering span has an end on each side within reach, so one side is scanned.
-local function inside_same_axis_span(work, x, y, dx, dy, pipe, reach)
-    for d = 1, reach do
-        local segment = work.segments_by_cell[coordinate_key(x - dx * d, y - dy * d)]
-        if segment and segment.underground and (segment.kind == "pipe") == pipe and segment.underground_entry_x then
+--Spans are indexed by row and column and rebuilt only when the segment set changes: a per-candidate key scan
+--pushed test_route_search_loop SL1 to 11.7 coordinate keys per search step (cap 10, 2026-09-29).
+local function ug_span_index(work)
+    local serial, count = work.segment_serial, #work.segments
+    local index = work._ug_span_index
+    if index and index.serial == serial and index.count == count then return index end
+    index = {serial = serial, count = count, rows = {}, cols = {}}
+    for _, segment in ipairs(work.segments) do
+        if segment.underground and segment.underground_entry_x and not segment._route_removed then
             local ex, ey, xx, xy = segment.underground_entry_x, segment.underground_entry_y,
                 segment.underground_exit_x, segment.underground_exit_y
-            if dy == 0 and ey == y and xy == y and x > math.min(ex, xx) and x < math.max(ex, xx) then return true end
-            if dx == 0 and ex == x and xx == x and y > math.min(ey, xy) and y < math.max(ey, xy) then return true end
+            --Flat triples (lo, hi, pipe 1/0) per line: one table per line keeps search garbage under SL3's 1 KB.
+            local line
+            if ey == xy then
+                line = index.rows[ey]; if not line then line = {}; index.rows[ey] = line end
+                line[#line + 1] = math.min(ex, xx); line[#line + 1] = math.max(ex, xx)
+            elseif ex == xx then
+                line = index.cols[ex]; if not line then line = {}; index.cols[ex] = line end
+                line[#line + 1] = math.min(ey, xy); line[#line + 1] = math.max(ey, xy)
+            end
+            if line then line[#line + 1] = segment.kind == "pipe" and 1 or 0 end
         end
+    end
+    work._ug_span_index = index
+    return index
+end
+
+local function inside_same_axis_span(work, x, y, dx, dy, pipe, reach)
+    local index = ug_span_index(work)
+    local line, at
+    if dy == 0 then line, at = index.rows[y], x else line, at = index.cols[x], y end
+    if not line then return false end
+    local want = pipe and 1 or 0
+    for i = 1, #line, 3 do
+        if line[i + 2] == want and at > line[i] and at < line[i + 1] then return true end
     end
     return false
 end
@@ -4103,9 +4128,11 @@ prune_dead_route_segments = function(work)
     local sources = {}
     local function mark(endpoint) if endpoint and endpoint.x and endpoint.y then sources[coordinate_key(endpoint.x, endpoint.y)] = true end end
     for _, endpoint in pairs(work.endpoint_by_id or {}) do mark(endpoint) end
+    local origins = {}
     for _, demand in ipairs(work.demands or {}) do
         mark(demand.source); mark(demand.sink)
         for _, candidate in ipairs(demand.source_candidates or {}) do mark(candidate) end
+        if demand.source and demand.source.x then origins[coordinate_key(demand.source.x, demand.source.y)] = true end
     end
     local changed = true
     while changed do
@@ -4150,12 +4177,23 @@ prune_dead_route_segments = function(work)
                 local dx, dy = Grid.dir_vector(segment.splitter_direction)
                 local sx, sy = coordinate_from_key(segment.splitter_second_key or "")
                 if dx and sx then
-                    --An input is fed when something points INTO it. Asking only about the tile behind called a
-                    --splitter straight after an edge source belt dead: gray + magenta lost its whole iron-ore trunk
-                    --(33 belts, 4 molten-iron blocks) here, 2026-09-28 legalcopilot-dev.
-                    local first = fed[coordinate_key(segment.splitter_anchor_x - dx, segment.splitter_anchor_y - dy)]
-                        or fed[coordinate_key(segment.splitter_anchor_x, segment.splitter_anchor_y)]
-                    local second = fed[coordinate_key(sx - dx, sy - dy)] or fed[coordinate_key(sx, sy)]
+                    --An input is fed when the tile behind it points STRAIGHT into it. Asking only whether that tile
+                    --was fed called a splitter straight after an edge source belt dead: gray + magenta lost its
+                    --whole iron-ore trunk (33 belts, 4 molten-iron blocks), 2026-09-28 legalcopilot-dev. A belt
+                    --pointing in from the side does not enter a splitter (TJ3 kept a dead one, 2026-09-29).
+                    local function straight_in(bx, by)
+                        local behind_key = coordinate_key(bx, by)
+                        local b = work.segments_by_cell[behind_key]
+                        if not b or b.kind ~= "belt" or b == segment then return false end
+                        if b.splitter then return b.splitter_direction == segment.splitter_direction end
+                        if b.underground then return b.underground_exit_key == behind_key and b.direction == segment.splitter_direction end
+                        return b.direction == segment.splitter_direction
+                    end
+                    --The behind tile is fed, or it is a demand's origin (the map-edge belt) pointing straight in; sink tiles do not count.
+                    local ax, ay = segment.splitter_anchor_x - dx, segment.splitter_anchor_y - dy
+                    local first = fed[coordinate_key(ax, ay)] or (origins[coordinate_key(ax, ay)] and straight_in(ax, ay))
+                    local second = fed[coordinate_key(sx - dx, sy - dy)]
+                        or (origins[coordinate_key(sx - dx, sy - dy)] and straight_in(sx - dx, sy - dy))
                     --A branch splitter is fed on one input only; it is dead only when nothing feeds either input
                     --and no hand drops onto it.
                     local own = sources[coordinate_key(segment.splitter_anchor_x, segment.splitter_anchor_y)]
