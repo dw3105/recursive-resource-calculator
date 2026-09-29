@@ -86,7 +86,10 @@ describe("facts", function()
         for path, values in pairs(expected) do
             local head, name = path:match("^([%w_]+)%.([^%.]+)")
             local store = head and SECTIONS[head]
-            if not (store or FAMILY[head]) then goto continue end
+            --Family blocks (belt, inserter, pole ...) are per-sheet choices that differ between fixtures, and *_bonus
+            --fields are the player's research state: neither is a prototype fact. The prototypes behind the choices are
+            --compared through entity.* anyway.
+            if not store or path:find("_bonus$") then goto continue end
             if store and store[name] == nil then fiction[head .. "." .. name] = true; goto continue end
             checked = checked + 1
             local got = live[path]
@@ -118,6 +121,7 @@ describe("facts", function()
         for _, c in ipairs(list) do
             local p = c.probe
             if p.expect == "model" then model[#model + 1] = c.name
+            elseif p.profile == "vanilla" and player_profile() then model[#model + 1] = c.name .. " (vanilla fallback, not compared in the player profile)"
             elseif p.kind == "entity" and prototypes.entity[p.name] == nil and not player_profile() then
                 model[#model + 1] = c.name .. " (mod entity, player profile only)"
             else

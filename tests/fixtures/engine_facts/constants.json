@@ -495,19 +495,21 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 721,
+  "line": 726,
   "name": "stack_max_default",
   "probe": {
    "expect": "equal",
    "field": "inserter_max_belt_stack_size",
    "kind": "entity",
-   "name": "stack-inserter"
+   "name": "stack-inserter",
+   "profile": "vanilla",
+   "why": "fallback when the engine reports nothing; the player game reports 20 (live) and uses that"
   },
   "value": 4
  },
  {
   "file": "logic/catalog.lua",
-  "line": 728,
+  "line": 733,
   "name": "lane_capacity_half",
   "probe": {
    "expect": "model",
@@ -520,7 +522,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 792,
+  "line": 797,
   "name": "default_inserter_speed",
   "probe": {
    "expect": "model",
@@ -539,7 +541,9 @@
    "expect": "equal",
    "field": "inserter_max_belt_stack_size",
    "kind": "entity",
-   "name": "stack-inserter"
+   "name": "stack-inserter",
+   "profile": "vanilla",
+   "why": "fallback when the engine reports nothing; the player game reports 20 (live) and uses that"
   },
   "value": 4
  }

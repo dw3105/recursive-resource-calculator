@@ -3,8 +3,8 @@ local column = {recipe_name = "iron-gear-wheel", machine = {name = "assembling-m
 local catalog = {entity = { ["assembling-machine-2"] = {name = "assembling-machine-2", type = "assembling-machine", module_slots = 2, energy_source_type = "electric", effect_receiver = {status = "verified_default", source = "prototype", branch = "2.0", base_effect = {}, uses_module_effects = true, uses_beacon_effects = true, uses_surface_effects = true}}}, item = { ["iron-plate"] = {name = "iron-plate", type = "item"}}, module = {}, quality = {normal = {unlocked = true}}}
 local result = {status = "ok", columns = {column}, recipe_rates = { ["iron-gear-wheel"] = 1}}
 local options = {input_edge = "left", output_edge = "right"}
-column.recipe.ingredients = {{type = "item", name = "bioflux", amount = 1}}; catalog.item.bioflux = {name = "bioflux", type = "item", spoil_result = "spoiled"}
+column.recipe_name = "yumako-processing"; column.recipe = {name = "yumako-processing", ingredients = {{type = "item", name = "yumako", amount = 1}}, products = {{type = "item", name = "yumako-mash", amount = 2}}}; result.recipe_rates = {["yumako-processing"] = 1}; catalog.item["yumako-mash"] = {name = "yumako-mash", type = "item", spoil_result = "spoilage"}
 return {id = "T-280-41", rule = "BP_REJ_SPOILAGE", class = "engine", from = "tests/test_bp_preflight.lua twin fixture",
     stage = "preflight", grid = {w = 1, h = 1}, entities = {},
     preflight = {snapshot = snapshot, solver_result = result, catalog = catalog, options = options},
-    subject = {kind = "item", name = "bioflux"}, check = "prototype", truth = "defect", codes = {"BP_REJ_SPOILAGE"}, audit = {}}
+    subject = {kind = "recipe", name = "yumako-processing"}, check = "prototype", truth = "defect", codes = {"BP_REJ_SPOILAGE"}, audit = {}}

@@ -450,6 +450,11 @@ local function project_entity(catalog, diagnostics, entity, quality_name, qualit
         energy_usage_w = energy_per_tick and energy_per_tick * 60 or nil,
         pollution_per_min = pollution,
         needs_power = source ~= nil or (energy_per_tick ~= nil and energy_per_tick > 0),
+        --What powers the machine, read from the live prototype. Preflight's BURNER_MACHINE / NON_ELECTRIC read this;
+        --without it they could never fire on a real prototype (headless 2.0.77 stone-furnace twin, round 48).
+        energy_source_type = (entity.electric_energy_source_prototype and "electric") or (entity.burner_prototype and "burner")
+            or (entity.heat_energy_source_prototype and "heat") or (entity.fluid_energy_source_prototype and "fluid")
+            or (entity.void_energy_source_prototype and "void") or nil,
         fluid_boxes = fluid_boxes,
         beacon = nil,
         effect_receiver = project_effect_receiver(entity),

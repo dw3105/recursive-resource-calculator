@@ -78,11 +78,10 @@ function Lab.build(surface, force, bp_string, origin)
         local spec = {name = e.name, position = pos, direction = e.direction or 0, force = force,
             quality = e.quality or "normal", type = e.type, input_priority = e.input_priority,
             output_priority = e.output_priority, filter = e.filter, raise_built = false}
-        local can = surface.can_place_entity{name = e.name, position = pos, direction = e.direction or 0, force = force,
-            build_check_type = defines.build_check_type.blueprint_ghost}  --collisions without reach: manual refused every underground, script skipped collisions (2026-09-29)
-        if not can then
-            built.refused[#built.refused + 1] = e.entity_number
-        else
+        --Placement verdict from the engine's own boxes and masks: create (script), then any overlapping entity whose
+        --collision layers intersect refuses it. can_place_entity was no oracle here: manual refused every
+        --underground, script skipped collisions, blueprint_ghost refused nearly everything (2026-09-29).
+        do
             local ok, ent = pcall(surface.create_entity, spec)
             if ok and ent then
                 built.entities[e.entity_number] = ent
@@ -95,6 +94,12 @@ function Lab.build(surface, force, bp_string, origin)
                 end
             else
                 built.refused[#built.refused + 1] = e.entity_number
+            end
+            if ok and ent and ent.valid and Lab.collides(surface, ent) then
+                built.entities[e.entity_number] = nil
+                built.placed = built.placed - 1
+                built.refused[#built.refused + 1] = e.entity_number
+                ent.destroy()
             end
         end
     end
@@ -113,6 +118,22 @@ function Lab.build(surface, force, bp_string, origin)
         end
     end
     return built
+end
+
+--True when another entity's box overlaps this one (strictly) and their collision layers intersect.
+function Lab.collides(surface, ent)
+    local box = ent.bounding_box
+    local eps = 0.01
+    local area = {{box.left_top.x + eps, box.left_top.y + eps}, {box.right_bottom.x - eps, box.right_bottom.y - eps}}
+    local mine = ent.prototype.collision_mask.layers
+    for _, other in pairs(surface.find_entities_filtered{area = area}) do
+        if other.valid and other ~= ent and other.unit_number ~= ent.unit_number and other.type ~= "character" then
+            for layer in pairs(other.prototype.collision_mask.layers) do
+                if mine[layer] then return true end
+            end
+        end
+    end
+    return false
 end
 
 --Entity whose box covers grid tile (x, y).
@@ -134,13 +155,14 @@ function Lab.power(surface, force, built)
         end
     end
     if not best then return false end
-    --A small pole just outside the grid (x = -3: supply -5.5..-0.5 never reaches a grid tile, wire reach 7.5 to a twin
-    --pole at x <= 4), fed by a substation + electric-energy-interface further left. The lab must never power the
-    --twin by itself: a substation beside the grid did, and hid an uncovered machine (V61, 2026-09-29).
+    --A link pole just outside the grid, fed by a substation + electric-energy-interface further left. The lab must
+    --never power the twin by itself: a substation beside the grid did, and hid an uncovered machine (V61, 2026-09-29).
     local y = best.position.y
-    local link = surface.create_entity{name = "small-electric-pole", position = {built.origin[1] - 2.5, y}, force = force}
-    local sub = surface.create_entity{name = "substation", position = {built.origin[1] - 9, y}, force = force}
-    local eei = surface.create_entity{name = Lab.EEI, position = {built.origin[1] - 13, y}, force = force}
+    --big-electric-pole: 2x2 at tiles -4..-3, supply reaches -5..-1 only (never a grid tile), wire reach 30, so it
+    --meets a sheet's edge-most substation too (blue / gray-magenta had none within a small pole's 7.5).
+    local link = surface.create_entity{name = "big-electric-pole", position = {built.origin[1] - 3, y}, force = force}
+    local sub = surface.create_entity{name = "substation", position = {built.origin[1] - 12, y}, force = force}
+    local eei = surface.create_entity{name = Lab.EEI, position = {built.origin[1] - 16, y}, force = force}
     if not (link and sub and eei) then return false end
     eei.electric_buffer_size = 1e15
     eei.power_production = 1e13

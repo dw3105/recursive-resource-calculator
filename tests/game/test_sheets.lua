@@ -129,7 +129,7 @@ describe("sheets", function()
                         end
                     end
                 end
-                log("SHEET-SIM " .. sheet.case .. " warm=" .. warm .. " window=" .. window .. " " .. table.concat(lines, "; "))
+                log("SHEET-SIM " .. sheet.case .. " stack=" .. stack .. " warm=" .. warm .. " window=" .. window .. " " .. table.concat(lines, "; "))
                 assert(#problems == 0, sheet.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines, "; "))
                 return false
             end)
