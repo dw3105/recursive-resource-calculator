@@ -1,0 +1,14 @@
+BYTES player-am2-chain-repaired de14f4980e2da76097ae8b519d9c1270946a6f7c8b3e04b0c64cdb0630d80da0 cpu=6.10 live=1
+BYTES player-blue-science-10s 8b239bfa16d43c90aebede8bf3fe70c8536565201c64774cd516652aa2ffd930 cpu=71.04 live=1
+BYTES player-green-science-1s 434cd5fa6b8ff156c4965b108c071f8a4ca9bc9254c3e91fbbffd3a2da74efaa cpu=5.79 live=1
+BYTES player-inserter-10s b1357e2f42443d09d3edf0a1da89933c4c26909e6dfb9c6b1f8e685d6161dad0 cpu=10.00 live=1
+BYTES player-inserter-10s-bulk 076b5d1986830d688a098a9207e1979f43a13ae658b9922ae77ab3dc07bb53e1 cpu=6.16 live=1
+BYTES player-inserter-10s-stack1 4991fcddf593a30950d0f7f02ed18afc1dae9da6cda9fa55e5637793ef3771ad cpu=83.90 live=1
+BYTES player-red-green-science-10s 5fa9b02ed56f1a29f773f1b2d0a403737872c661fc1f8cc6ad08fe5d40729d96 cpu=20.95 live=1
+BYTES player-red-science-10s 694f14a50ccf6aa58fa8beb112165384148156c39b2e4afd89fdfeb6e357bc44 cpu=11.47 live=1
+BYTES player-red-science-10s-bulk 64490533461dba68937f236f9febb9385e18887293a1101f51f55d0bba1f0be4 cpu=4.62 live=1
+BYTES player-red-science-10s-stack1 698ebfe9469ff0a008701ad9f19b45aee9df79419d5b846bcc3699c618183861 cpu=13.94 live=1
+BYTES player-red-science-1s 6fea7eb3a28e8145896318a86a8f1f4b1e4acbd3a243b2d4d2b50707841bbf15 cpu=1.74 live=1
+BYTES player-red-science-1s-bulk 07759442ffb55e00988bd8d7fcf036fc475219dee92a7ad642556351d47ed648 cpu=3.12 live=1
+BYTES player-red-science-1s-foundry ec415235e062edbf1272ac508fff566309978df3db05793b3e5c7c20adebc8ec cpu=2.33 live=1
+DONE

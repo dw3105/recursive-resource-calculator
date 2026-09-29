@@ -1,0 +1,3 @@
+tools/blueprint_audit.py
+tests/tools/test_blueprint_audit.py
+docs/tasks/278_audit_head_on_ends.md

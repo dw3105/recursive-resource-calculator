@@ -1,0 +1,3 @@
+logic/bp/search.lua
+tests/test_search_strict.lua
+docs/tasks/277_search_strict_reroute.md

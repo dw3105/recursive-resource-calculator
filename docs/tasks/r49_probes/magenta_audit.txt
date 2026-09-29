@@ -1,0 +1,39 @@
+blueprint_audit: /tmp/claude-1079723731/-home-dev-zaigraev-gmail-com-recursive-resource-calculator/c41a6d74-3da7-4645-9f5b-72ff01856d18/scratchpad/r48/cc/bp.txt  label='Recursive Resource Calculator'
+  back_to_back             0
+  backward_hands           0
+  beacons                  66
+  belts                    1411
+  cycles                   1
+  entities                 2155
+  entities_excluding_roboports 2146
+  inferred_terminals       6
+  inserters                127
+  invalid_inserters        0
+  machines                 58
+  other                    0
+  pipes                    325
+  poles                    30
+  redundant_beacons        0
+  roboports                9
+  sideload                 0
+  sideload_blocked         0
+  splitters                17
+  undergrounds             112
+  unpairable_pipe_to_ground 0
+  unpairable_underground   0
+  unpairable_underground_belt 0
+  unused_belt_tiles        0
+  unused_pipe_tiles        0
+  wires                    29
+  roboport entities are excluded from entities_excluding_roboports: 9 excluded
+
+inferred external terminals: 6
+  inferred external SUPPLY terminal at (0.5, 4.5)
+  inferred external SUPPLY terminal at (0.5, 9.5)
+  inferred external SUPPLY terminal at (0.5, 27.5)
+  inferred external SUPPLY terminal at (0.5, 28.5)
+  inferred external SUPPLY terminal at (0.5, 66.5)
+  inferred external DRAIN terminal at (22.5, 0.5)
+
+belt route cycles: 1
+  0

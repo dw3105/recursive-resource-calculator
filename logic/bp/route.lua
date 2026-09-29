@@ -2065,6 +2065,13 @@ local function end_feed_bleeds(work, demand, path, pre_existing)
         and end_cannot_turn(work, last.x, last.y, seg.direction, demand.flow_id, seg) then
         return true
     end
+    -- 2026-09-29: strict B1 catches 80 belt bleeds plus one side-load; B3 checks the
+    -- connected ring once per call, catching the 93,96 advanced-circuit exit onto row end 93,95.
+    local ring_tiles = {}
+    if work.strict_ends and work.improve_state ~= nil then
+        local _, tiles = route_chain_walk(work, path[#path], nil, demand.flow_id)
+        for _, ring_key in ipairs(tiles) do ring_tiles[ring_key] = true end
+    end
     for _, cell in ipairs(path) do
         local k = coordinate_key(cell.x, cell.y)
         local mine = work.segments_by_cell[k]
@@ -2074,11 +2081,25 @@ local function end_feed_bleeds(work, demand, path, pre_existing)
                 local ox, oy = cell.x - dx, cell.y - dy
                 local ok_key = coordinate_key(ox, oy)
                 local other = work.segments_by_cell[ok_key]
+                local function foreign_end(flow_id)
+                    return flow_id ~= nil and not segment_has_flow(mine, flow_id)
+                        and (not other.underground or ok_key == other.underground_exit_key)
+                        and mine.direction ~= Grid.dir_opposite(d)
+                        and end_cannot_turn(work, ox, oy, d, flow_id, other)
+                end
                 if other and other ~= mine and other.kind == "belt" and other.direction == d and not other.splitter
-                    and other.flow_id ~= nil and not segment_has_flow(mine, other.flow_id)
+                    and (foreign_end(other.flow_id) or (work.strict_ends and (function()
+                        for flow_id, present in pairs(other.flow_ids or {}) do
+                            if present and foreign_end(flow_id) then return true end
+                        end
+                        return false
+                    end)())) then
+                    return true
+                elseif work.strict_ends and work.improve_state ~= nil and other and other ~= mine
+                    and other.kind == "belt" and other.direction == d and not other.splitter
+                    and segment_has_flow(other, demand.flow_id) and ring_tiles[ok_key]
                     and (not other.underground or ok_key == other.underground_exit_key)
-                    and mine.direction ~= Grid.dir_opposite(d)
-                    and end_cannot_turn(work, ox, oy, d, other.flow_id, other) then
+                    and mine.direction ~= Grid.dir_opposite(d) then
                     return true
                 end
             end
@@ -2699,7 +2720,9 @@ local function begin_search(work, demand, amount, order_index)
                     --tests/test_route_footprints.lua RF1 requires at the turn.
                     seed_cost = SEEDED_SINK_LAST
                 end
-                enqueue_state(search, x, y, heading, 0, nil, seed_cost)
+                if not Route._test.row_seed_passes(work, demand, x, y, heading, segment) then
+                    enqueue_state(search, x, y, heading, 0, nil, seed_cost)
+                end
             end
         end
     end
@@ -3563,6 +3586,7 @@ local function normalize_input(input)
         --A copy: collectors append synthetic runs, and a keep-if-cheaper retry routes the same input again.
         belt_runs = (function() local runs = {}; for i, run in ipairs(input.belt_runs or {}) do runs[i] = run end; return runs end)(),
         collectors = input.collectors ~= false, collectors_used = false,
+        strict_ends = input.strict_ends == true,
         input_entities = input_entities,
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_block = {}, endpoint_by_id = {}, rear_endpoints = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},
@@ -5146,6 +5170,17 @@ Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_op
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
+    row_seed_passes = function(work, demand, x, y, heading, segment)
+        -- 2026-09-29: strict B2 prevents 32 errors when the stone trunk crosses row port (40,4) south.
+        if not work.strict_ends or not demand.sink or (x ~= demand.sink.x or y ~= demand.sink.y)
+            or demand.sink.travel_dir == nil or heading == demand.sink.travel_dir
+            or not (demand.sink.row_port or demand.sink.perimeter) then return false end
+        if segment.underground or segment.splitter then return true end
+        local dx, dy = Grid.dir_vector(heading)
+        if dx == nil then return false end
+        local ahead = work.segments_by_cell[coordinate_key(x + dx, y + dy)]
+        return ahead ~= nil and segment_has_flow(ahead, demand.flow_id)
+    end,
     prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end, find_binding = find_binding,
     splitter_straight_fed = splitter_straight_fed, apply_bury = apply_bury, reanchor_bindings = function(w) return reanchor_bindings(w) end,
     inside_same_axis_span = inside_same_axis_span, merge_splitter_footprint = merge_splitter_footprint,

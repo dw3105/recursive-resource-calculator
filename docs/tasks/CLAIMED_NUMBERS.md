@@ -210,3 +210,6 @@
 | `279` | `rrc/agent` | twins: every belt, underground and fluid rule gets a clean and a breach twin (round 48) | 2026-09-29 |
 | `280` | `rrc/agent` | twins: placement, power, beacon, hand, rate, identity, artifact, preflight twins; code registry (round 48) | 2026-09-29 |
 | `281` | `rrc/agent` | facts: fixture catalog facts, engine constants, mock members as rows; export startup settings (round 48) | 2026-09-29 |
+| `276` | `rrc/agent` | route: strict mode sees row-belt ends, refuses wrong-way row head seeds, refuses tidy rings | 2026-09-29 |
+| `277` | `rrc/agent` | search: a layout refused for belt shape is routed once more in strict mode | 2026-09-29 |
+| `278` | `rrc/agent` | audit: two belts facing each other are not a belt cycle | 2026-09-29 |
