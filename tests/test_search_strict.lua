@@ -72,5 +72,5 @@ H.test("ST3 each belt refusal gets one strict redo then next candidate starts no
     end
 end)
 
-H.done("test_search_strict")
 print("ST1 ST2 ST3")
+H.done("test_search_strict")
