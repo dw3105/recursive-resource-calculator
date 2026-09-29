@@ -24,7 +24,8 @@ return {
   artifact = nil,                   -- artifact stage: {artifact, plan, catalog} for Validate.reconcile_artifact
   subject = nil,                    -- check "prototype": {kind = "recipe"|"entity"|"item"|"quality", name = "<real prototype name>"}
                                     --   the live prototype the engine inspects for the fact the code claims
-  feeds = {{tile = {5, 0}, item = "iron-plate"}},  -- flow heads; MUST sit on the grid edge
+  feeds = {{tile = {5, 0}, item = "iron-plate"}},  -- flow heads; MUST sit on the grid edge; optional rate = items/s
+                                    --   (default half the belt's max: a FULL belt refuses side-loads, so bleed needs gaps)
   sinks = {{tile = {8, 3}, items = {"copper-plate"}}},
   check = "flow_purity",            -- what the engine looks at, see below
   truth = "defect",                 -- ok | defect | waste

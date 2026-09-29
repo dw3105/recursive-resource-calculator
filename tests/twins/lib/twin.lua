@@ -2,6 +2,12 @@
 --load and check a twin file, turn it into the validator's input, read the validator's verdict, and publish the
 --blueprint string the python auditors and the headless builder read.
 local Grid = require "logic.bp.grid"
+local Validate = require "logic.bp.validate"
+local Preflight = require "logic.bp.preflight"
+local Serialize = require "logic.bp.serialize"
+local BlueprintString = require "logic.bp.blueprint_string"
+--Every require sits here: Factorio refuses require after control.lua parsing, and tests/game/test_twins.lua runs
+--this module inside the engine (to_candidate, verdict, to_bp). list() and load() are offline only (io, loadfile).
 
 local Twin = {}
 
@@ -121,11 +127,9 @@ end
 function Twin.verdict(twin)
     local stage = twin.stage or "validate"
     if stage == "preflight" then
-        local Preflight = require "logic.bp.preflight"
         local q = twin.preflight
         return unique_sorted(Preflight.check(copy(q.snapshot), copy(q.solver_result), copy(q.catalog), copy(q.options)))
     end
-    local Validate = require "logic.bp.validate"
     if stage == "artifact" then
         local result = Validate.reconcile_artifact(copy(twin.artifact))
         return unique_sorted(result.errors), result
@@ -143,8 +147,6 @@ end
 --Blueprint string through the pipeline's own publish path: Serialize (flips inserter dir to pickup,
 --logic/bp/serialize.lua:406) then BlueprintString.build. Needs global `helpers` (engine or tests/harness.lua).
 function Twin.to_bp(twin)
-    local Serialize = require "logic.bp.serialize"
-    local BlueprintString = require "logic.bp.blueprint_string"
     local cand = Twin.to_candidate(twin)
     local state = Serialize.begin({entities = cand.entities, catalog = cand.catalog, wires = cand.wires})
     while not state.done do Serialize.step(state, {ops = 1000}) end

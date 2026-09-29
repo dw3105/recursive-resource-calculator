@@ -1,0 +1,301 @@
+{
+  "_base": "2.0.77",
+  "_capture": "docs/incidents/2026-09-20-search-budget/payload.json",
+  "_missing_required_deps": [],
+  "mods": {
+    "FNEI": {
+      "file": "FNEI_0.4.6.zip",
+      "sha1": "addd339a6e06dc2d669adaea7e3534742d8d5ed7",
+      "url": "/download/FNEI/67e936c2ce22a3e5bafc4578",
+      "version": "0.4.6"
+    },
+    "InfiniteOresAndOil": {
+      "file": "InfiniteOresAndOil_2.2.1.zip",
+      "sha1": "dedd52f10c630aa39552cfd63e9ee7e109f85882",
+      "url": "/download/InfiniteOresAndOil/694874322396a36a742806c2",
+      "version": "2.2.1"
+    },
+    "Krastorio2Assets": {
+      "file": "Krastorio2Assets_2.0.5.zip",
+      "sha1": "6a56e6ed11b15b25e16a0ec7b826fa45b33d8a7c",
+      "url": "/download/Krastorio2Assets/6a3d7709353f65fde86d8850",
+      "version": "2.0.5"
+    },
+    "Moshine": {
+      "file": "Moshine_1.1.4.zip",
+      "sha1": "f463192a9cfa0f7088baa96e60126456c6105a2b",
+      "url": "/download/Moshine/6a2f1a94c7ce38a47153126b",
+      "version": "1.1.4"
+    },
+    "Moshine-assets": {
+      "file": "Moshine-assets_0.4.0.zip",
+      "sha1": "bc051835b46480ac7adffb6d0adb2414ce7bc64d",
+      "url": "/download/Moshine-assets/68e9a00f9eee4d33ba615f45",
+      "version": "0.4.0"
+    },
+    "Muria": {
+      "file": "Muria_1.2.7.zip",
+      "sha1": "7bcf99202a7c4e3495f3258954427b53c308d78a",
+      "url": "/download/Muria/6a317d434a2c0d56d4fcf382",
+      "version": "1.2.7"
+    },
+    "Muria-Graphics": {
+      "file": "Muria-Graphics_1.2.5.zip",
+      "sha1": "414f55b5e69ab92cae58d9267a8ac3b45292db02",
+      "url": "/download/Muria-Graphics/6a22e22cb0d0ba61e66d2abb",
+      "version": "1.2.5"
+    },
+    "PlanetsLib": {
+      "file": "PlanetsLib_1.18.0.zip",
+      "sha1": "6b4de4b2e5e419dbb0d6596d9c3d0b22cab15ccd",
+      "url": "/download/PlanetsLib/6a1c4f7e66d3580e59a30488",
+      "version": "1.18.0"
+    },
+    "RocketCargoInsertion": {
+      "file": "RocketCargoInsertion_1.1.1.zip",
+      "sha1": "30a743bc37714fcc1a1b9565bd36c2fac4078034",
+      "url": "/download/RocketCargoInsertion/69ddc493e984fe92edcd0963",
+      "version": "1.1.1"
+    },
+    "VoidChestByYunli": {
+      "file": "VoidChestByYunli_2.7.3.zip",
+      "sha1": "fa2684b36aa9a582f3beb37c30201b9b1b609d4c",
+      "url": "/download/VoidChestByYunli/67ff4d8f9c63e96fde435657",
+      "version": "2.7.3"
+    },
+    "Waterfill_v17": {
+      "file": "Waterfill_v17_2.0.5.zip",
+      "sha1": "42887da68748fed09c8d3773561d2d8661517f5d",
+      "url": "/download/Waterfill_v17/674f35a236b15f088fcbdcae",
+      "version": "2.0.5"
+    },
+    "WorkerRobotCargoSizeResearch": {
+      "file": "WorkerRobotCargoSizeResearch_0.1.0.zip",
+      "sha1": "de5b00d571d2255af146c2492a0dc6694d5f40b7",
+      "url": "/download/WorkerRobotCargoSizeResearch/693cd19e1085b9d16e34ab01",
+      "version": "0.1.0"
+    },
+    "aai-containers": {
+      "file": "aai-containers_0.3.2.zip",
+      "sha1": "564fd44cf4d5b46e7285fb53fe08111c33c0242e",
+      "url": "/download/aai-containers/68d2ad73257dad1106e089a4",
+      "version": "0.3.2"
+    },
+    "aai-loaders": {
+      "file": "aai-loaders_0.2.11.zip",
+      "sha1": "5bb51a2139da67f245ae84428e1f31686322570f",
+      "url": "/download/aai-loaders/69ac16a14f31bbbe51435ee5",
+      "version": "0.2.11"
+    },
+    "alien-biomes-graphics": {
+      "file": "alien-biomes-graphics_0.7.1.zip",
+      "sha1": "a8e0c2f2b9c17763b8c0671524c70e30eeec6b12",
+      "url": "/download/alien-biomes-graphics/6859bb487173e6ebc73b434e",
+      "version": "0.7.1"
+    },
+    "bobinserters": {
+      "file": "bobinserters_2.0.3.zip",
+      "sha1": "5e09ca786bb9aa2b8544c9b6d0952ecdcfa50520",
+      "url": "/download/bobinserters/6968634db931f7180b6842e0",
+      "version": "2.0.3"
+    },
+    "carna": {
+      "file": "carna_0.2.23.zip",
+      "sha1": "0f62708184be2e3865de7cbf64855eabf1e40684",
+      "url": "/download/carna/6a0bbce90dc03ff9f1992ca8",
+      "version": "0.2.23"
+    },
+    "carna_assets": {
+      "file": "carna_assets_0.2.3.zip",
+      "sha1": "1dc68eebea701cc7a513721821de74af2049c748",
+      "url": "/download/carna_assets/69e630cc6cd0ddcabb87c0bf",
+      "version": "0.2.3"
+    },
+    "carna_assets_2": {
+      "file": "carna_assets_2_0.2.1.zip",
+      "sha1": "a54f71725cf84fb31531f29bc93e3270215514d7",
+      "url": "/download/carna_assets_2/69dcec5d442f49476b7afb26",
+      "version": "0.2.1"
+    },
+    "carna_assets_3": {
+      "file": "carna_assets_3_0.2.1.zip",
+      "sha1": "1adb84e9e4bd0a3260862bf8fa6c5d6e6eda33ec",
+      "url": "/download/carna_assets_3/69dcec8e5f78f8932d995d26",
+      "version": "0.2.1"
+    },
+    "carna_assets_enemies": {
+      "file": "carna_assets_enemies_0.1.1.zip",
+      "sha1": "006fb947736ca1154bcad3a14d753cb94529f1f5",
+      "url": "/download/carna_assets_enemies/69dceccf606166ed9ad294fe",
+      "version": "0.1.1"
+    },
+    "castra-prime": {
+      "file": "castra-prime_0.8.3.zip",
+      "sha1": "0af43e7dd358a17936d85b1ee50f6b864d09af19",
+      "url": "/download/castra-prime/6a418a8536c1e72a79028e9c",
+      "version": "0.8.3"
+    },
+    "castra-prime-assets": {
+      "file": "castra-prime-assets_1.0.0.zip",
+      "sha1": "70aa14d4d2922ab08603e82f9ac28b412b960357",
+      "url": "/download/castra-prime-assets/6a03413db8498a7ebcda685d",
+      "version": "1.0.0"
+    },
+    "early-foundations": {
+      "file": "early-foundations_0.1.3.zip",
+      "sha1": "6d6415ebd9c59a8c90fae36b4a81e02998a38b4f",
+      "url": "/download/early-foundations/69473f9097f90d0a830eedaa",
+      "version": "0.1.3"
+    },
+    "early-stack-size": {
+      "file": "early-stack-size_1.0.5.zip",
+      "sha1": "badb76739354c52bbe05cd15abc5168204c5295e",
+      "url": "/download/early-stack-size/6a9a94a9a5519ded7db60bc0",
+      "version": "1.0.5"
+    },
+    "enhanced-shadows": {
+      "file": "enhanced-shadows_1.0.5.zip",
+      "sha1": "58a378cb92a778cf9179d99618382560e947c9be",
+      "url": "/download/enhanced-shadows/6a1f615a7e100cf7c1f608f5",
+      "version": "1.0.5"
+    },
+    "flib": {
+      "file": "flib_0.16.5.zip",
+      "sha1": "be7ce1b5c9477ad3161df120a379aec091b86f77",
+      "url": "/download/flib/690aa58f2da58c0b75aadd06",
+      "version": "0.16.5"
+    },
+    "item-request-proxy-events": {
+      "file": "item-request-proxy-events_0.1.2.zip",
+      "sha1": "f667343ed2dde459c76e33513de512a98addc582",
+      "url": "/download/item-request-proxy-events/6a3b6451dafc7000fc2e5ecb",
+      "version": "0.1.2"
+    },
+    "long_stack_inserter": {
+      "file": "long_stack_inserter_1.0.1.zip",
+      "sha1": "772c1c98b83d749e2bb38f936738e2c7c8a03757",
+      "url": "/download/long_stack_inserter/67c3293ab8975c422b24167e",
+      "version": "1.0.1"
+    },
+    "machine-upgrades": {
+      "file": "machine-upgrades_0.69.21.zip",
+      "sha1": "ef9044153528c4d25b7e8352570faecf4096e96e",
+      "url": "/download/machine-upgrades/6a1c2d3864ac76025e218264",
+      "version": "0.69.21"
+    },
+    "minimalist-rails": {
+      "file": "minimalist-rails_2.0.6.zip",
+      "sha1": "8d90fcb2cc838131b38c09f9196f0d344740226c",
+      "url": "/download/minimalist-rails/6a2f12c1567ecb5062eec201",
+      "version": "2.0.6"
+    },
+    "mining-patch-planner": {
+      "file": "mining-patch-planner_1.7.19.zip",
+      "sha1": "514db392235d057a68e82454a7fad1bdb82b4cda",
+      "url": "/download/mining-patch-planner/6a1f3cd97e100cf7c1f608e7",
+      "version": "1.7.19"
+    },
+    "module-category-defaults": {
+      "file": "module-category-defaults_1.3.0.zip",
+      "sha1": "14359e5c77f68a5ee4919191896a9dbe44f6d294",
+      "url": "/download/module-category-defaults/6a2584bf38fcc28b63d02e01",
+      "version": "1.3.0"
+    },
+    "muluna-graphics": {
+      "file": "muluna-graphics_1.1.6.zip",
+      "sha1": "58f0dcb4959110deae1271a55b41267a86936438",
+      "url": "/download/muluna-graphics/6a39f965a5e817dbb6fc9a04",
+      "version": "1.1.6"
+    },
+    "muluna-utility-constants": {
+      "file": "muluna-utility-constants_1.0.2.zip",
+      "sha1": "3c7d95ee1c5ab67d452f92805b72484355d82849",
+      "url": "/download/muluna-utility-constants/6a1f61c1b0982af8d5e4ffc7",
+      "version": "1.0.2"
+    },
+    "planet-muluna": {
+      "file": "planet-muluna_2.2.107.zip",
+      "sha1": "7968dba395438ce8a9e1f7a92e665ff782cf97e6",
+      "url": "/download/planet-muluna/6a7d0db636bc348a81d009ad",
+      "version": "2.2.107"
+    },
+    "planet-rabbasca": {
+      "file": "planet-rabbasca_0.17.5.zip",
+      "sha1": "7c05c9dba29cf930b1fe4b322a78a0ec64d19066",
+      "url": "/download/planet-rabbasca/6a48f3186b2e79555025b820",
+      "version": "0.17.5"
+    },
+    "pump": {
+      "file": "pump_2.1.20.zip",
+      "sha1": "d4237b8f5142c257916873186e440e14aeb06847",
+      "url": "/download/pump/695e5f6097157835ad544e8f",
+      "version": "2.1.20"
+    },
+    "rabbasca-assets": {
+      "file": "rabbasca-assets_1.8.0.zip",
+      "sha1": "71594236480a42387bb9b8aaff7af6ab26054ff9",
+      "url": "/download/rabbasca-assets/6a21fb15750d941f6dca7f3e",
+      "version": "1.8.0"
+    },
+    "rubia": {
+      "file": "rubia_0.69.147.zip",
+      "sha1": "16504252e0409c1514a6f3769a18993412163cb1",
+      "url": "/download/rubia/6a357af92a6d6c9be0526b86",
+      "version": "0.69.147"
+    },
+    "rubia-assets": {
+      "file": "rubia-assets_0.69.26.zip",
+      "sha1": "abbac69609acb56c029d95d0bfd5e1ceea716680",
+      "url": "/download/rubia-assets/69ee76d57775de7349d3c2c1",
+      "version": "0.69.26"
+    },
+    "se-space-trains": {
+      "file": "se-space-trains_1.0.12.zip",
+      "sha1": "362fa0b65a54d407e5fb84973c62ec39da7b545f",
+      "url": "/download/se-space-trains/6a09a8c5b45f34dd88bc7c03",
+      "version": "1.0.12"
+    },
+    "snouz-big-accumulator": {
+      "file": "snouz-big-accumulator_1.0.5.zip",
+      "sha1": "696a52477953a5a35fa0135a386a52884816a206",
+      "url": "/download/snouz-big-accumulator/689db5685f1e17711f5c260f",
+      "version": "1.0.5"
+    },
+    "snouz-big-solar-panel": {
+      "file": "snouz-big-solar-panel_1.0.6.zip",
+      "sha1": "9cc40ada1cae86c0a7dd524dabf928ab4b943d8a",
+      "url": "/download/snouz-big-solar-panel/689db57774d4905259e03be6",
+      "version": "1.0.6"
+    },
+    "snouz_better_substation": {
+      "file": "snouz_better_substation_1.2.1.zip",
+      "sha1": "930c036e849670c44fc420d6c1251386ee2dd512",
+      "url": "/download/snouz_better_substation/689db4d974d4905259e03be4",
+      "version": "1.2.1"
+    },
+    "space-exploration-graphics": {
+      "file": "space-exploration-graphics_0.7.5.zip",
+      "sha1": "002cfc064b90182b36a118be14f6cd1aa4caac55",
+      "url": "/download/space-exploration-graphics/68d1024051385adfa7ae4780",
+      "version": "0.7.5"
+    },
+    "space-exploration-graphics-4": {
+      "file": "space-exploration-graphics-4_0.7.2.zip",
+      "sha1": "16ba7e0f5f6527c73c4b41cb09e454b6391bbc6e",
+      "url": "/download/space-exploration-graphics-4/68d1015d362159ea25b0f7da",
+      "version": "0.7.2"
+    },
+    "squeak-through-2": {
+      "file": "squeak-through-2_0.1.5.zip",
+      "sha1": "3f10fd9abb945efd96f95d8efea6bbdd7991c808",
+      "url": "/download/squeak-through-2/69e99fed55a9cf0e831988d2",
+      "version": "0.1.5"
+    },
+    "tile-upgrade-planner-muluna": {
+      "file": "tile-upgrade-planner-muluna_1.0.6.zip",
+      "sha1": "0c402f7527d7d096bda720275e4b8ba6825e35d8",
+      "url": "/download/tile-upgrade-planner-muluna/69371486b0cef891e107ca56",
+      "version": "1.0.6"
+    }
+  }
+}

@@ -22,6 +22,22 @@ done
 for d in gui locale logic; do cp -r "$ROOT/$d" "$MOD/"; done
 cp -r "$ROOT/tests/game" "$MOD/tests/"
 rm -f "$MOD/tests/game/offline.lua"
+# Twins (round 48, docs/twins.md): data files plus a static index, because the engine cannot list a directory.
+cp -r "$ROOT/tests/twins" "$MOD/tests/"
+(cd "$ROOT" && find tests/twins -name '*.lua' -not -path '*/lib/*' -not -name required.lua -not -name index.lua | LC_ALL=C sort) |
+  sed 's#\.lua$##; s#/#.#g; s#.*#    "&",#' | { echo "return {"; cat; echo "}"; } > "$MOD/tests/twins/index.lua"
+# Shard I/N: keep test files I, I+N, ... of tests/game/index.lua (game_test.sh --shard).
+if [ -n "${RRC_SHARD:-}" ]; then
+  python3 - "$MOD/tests/game/index.lua" "$RRC_SHARD" <<'PY'
+import re, sys
+path, shard = sys.argv[1:]
+i, n = (int(x) for x in shard.split("/"))
+text = open(path).read()
+names = re.findall(r'"(tests\.game\.[a-z0-9_]+)"', text)
+keep = [m for k, m in enumerate(names) if k % n == i - 1]
+open(path, "w").write("return {\n" + "".join(f'    "{m}",\n' for m in keep) + "}\n")
+PY
+fi
 SHA=$(cd "$ROOT" && git rev-parse HEAD)
 cat > "$MOD/logic/build_id.lua" <<LUA
 return {candidate_sha = "$SHA", mod_version = "$VER", factorio_branch = "$FV", packaged = true}
