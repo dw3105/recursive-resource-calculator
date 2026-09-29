@@ -20,7 +20,8 @@ local function world_with_modules()
 end
 
 local function proxy_reads(proto, counter)
-    return setmetatable({}, {__index = function(_, key) counter.count = counter.count + 1; return proto[key] end})
+    --`name` is a plain string read and is how the cache finds its entry; every other property builds an engine table
+    return setmetatable({}, {__index = function(_, key) if key ~= "name" then counter.count = counter.count + 1 end; return proto[key] end})
 end
 
 H.test("MC1 module/entity/recipe facts are read once across picker calls", function()

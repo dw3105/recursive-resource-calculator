@@ -359,6 +359,8 @@ for _, shape in ipairs(H.shapes()) do
             "efficiency-module,productivity-module,quality-module,speed-module,speed-module-3", "all offered before flags")
         prototypes.item["speed-module"].hidden = true
         prototypes.item["efficiency-module"].parameter = true
+        --the engine never edits a prototype while running; this mock does, so the module facts cache is dropped
+        ModuleSetup.forget_cache()
         H.equal(table.concat(ModuleSetup.allowed_module_names({machine}, world_recipe), ","), "productivity-module,quality-module,speed-module-3",
             "hidden and parameter modules left out")
     end)

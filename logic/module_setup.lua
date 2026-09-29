@@ -9,26 +9,30 @@ local function fresh_cache()
     end
 end
 
+--Keyed by prototype NAME: the engine hands out a fresh LuaObject on every prototypes.item[name] read, so an
+--object key would never hit. Prototypes never change while the game runs; offline mocks that edit one in place
+--call ModuleSetup.forget_cache() (player save 2026-09-29: module cells 106 -> ~20 ms for 23 rows).
 local function module_info(name)
-    local prototype = prototypes.item[name]
-    local facts = module_facts[prototype]
+    local facts = module_facts[name]
     if not facts then
+        local prototype = prototypes.item[name]
         local positive_effects = {}
-        for effect, value in pairs(prototype.module_effects or {}) do
+        for effect, value in pairs(prototype.module_effects or {}) do --2.1 marks module effects optional
             if value > 0 then positive_effects[#positive_effects + 1] = effect end
         end
         facts = {category = prototype.category, positive_effects = positive_effects,
             offered = not prototype.hidden and not prototype.parameter}
-        module_facts[prototype] = facts
+        module_facts[name] = facts
     end
     return facts
 end
 
 local function limits_for(cache, prototype)
-    local facts = cache[prototype]
+    local name = prototype.name
+    local facts = cache[name]
     if not facts then
         facts = {categories = prototype.allowed_module_categories, effects = prototype.allowed_effects}
-        cache[prototype] = facts
+        cache[name] = facts
     end
     return facts
 end
@@ -95,16 +99,14 @@ end
 
 --A module fits when the entities and the recipe accept its category and every effect it raises; lowering a disallowed effect never refuses it.
 --The module index is checked first, so nothing is read from an item a mod turned into something else.
-function ModuleSetup.fits(module_name, entities, recipe)
+--The fit test on limits already read: entity_limits one per entity, in order
+local function fits_limits(module_name, entity_limits, recipe_limits)
     if not storage.module_names[module_name] then
         return false
     end
-    fresh_cache()
     local module = module_info(module_name)
-    local recipe_limits = limits_for(recipe_facts, recipe)
-    for _, entity in ipairs(entities) do
-        local entity_limits = limits_for(entity_facts, entity)
-        if entity_limits.categories and not entity_limits.categories[module.category] then
+    for _, limits in ipairs(entity_limits) do
+        if limits.categories and not limits.categories[module.category] then
             return false
         end
     end
@@ -112,8 +114,8 @@ function ModuleSetup.fits(module_name, entities, recipe)
         return false
     end
     for _, effect in ipairs(module.positive_effects) do
-        for _, entity in ipairs(entities) do
-            if not allows(limits_for(entity_facts, entity).effects, effect, false) then
+        for _, limits in ipairs(entity_limits) do
+            if not allows(limits.effects, effect, false) then
                 return false
             end
         end
@@ -124,26 +126,34 @@ function ModuleSetup.fits(module_name, entities, recipe)
     return true
 end
 
+local function limits_of(entities, recipe)
+    fresh_cache()
+    local entity_limits = {}
+    for index, entity in ipairs(entities) do entity_limits[index] = limits_for(entity_facts, entity) end
+    return entity_limits, limits_for(recipe_facts, recipe)
+end
+
+function ModuleSetup.fits(module_name, entities, recipe)
+    if not storage.module_names[module_name] then
+        return false
+    end
+    local entity_limits, recipe_limits = limits_of(entities, recipe)
+    return fits_limits(module_name, entity_limits, recipe_limits)
+end
+
 --Modules a picker offers: not ones the engine hides, and not blueprint parameter placeholders. Kept out of fits, which also decides whether a
 --module already stored in a save survives sanitizing, so a hidden module a player stored keeps its slot and its effects.
 local function is_offered(module_name)
     fresh_cache()
-    local facts = module_info(module_name)
-    -- Offline LuaObject fixtures are mutable tables, unlike engine prototypes. Honor their raw field updates
-    -- without triggering prototype property reads (or changing the runtime cache behavior).
-    local ok, kind = pcall(rawget, prototypes.item[module_name], "type")
-    if ok and kind == "module" then
-        local module = prototypes.item[module_name]
-        return not rawget(module, "hidden") and not rawget(module, "parameter")
-    end
-    return facts.offered
+    return module_info(module_name).offered
 end
 
 --Names of the modules that fit and are offered, sorted
 function ModuleSetup.allowed_module_names(entities, recipe)
     local names = {}
+    local entity_limits, recipe_limits = limits_of(entities, recipe)
     for module_name, _ in pairs(storage.module_names) do
-        if ModuleSetup.fits(module_name, entities, recipe) and is_offered(module_name) then
+        if fits_limits(module_name, entity_limits, recipe_limits) and module_info(module_name).offered then
             names[#names + 1] = module_name
         end
     end
