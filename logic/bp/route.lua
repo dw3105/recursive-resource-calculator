@@ -1467,6 +1467,7 @@ local function terminal_splitter_refused(work, x, y, segment, direction)
     return false
 end
 
+local binding_path  --defined with the re-route pass below; merge_splitter_footprint needs it
 --A splitter replaces the two one-tile belts in its footprint.  When the side tile is already part of the
 --same-flow trunk, fold that segment into the anchor before publishing the splitter; leaving the old segment
 --in the graph would make the physical footprint overlap and would give the old binding a stale segment id.
@@ -1474,16 +1475,20 @@ local function merge_splitter_footprint(work, segment, second_key, demand)
     local occupant = work.segments_by_cell[second_key]
     if occupant == nil or occupant == segment then return segment end
     if occupant.kind ~= "belt" or occupant.underground or occupant.splitter then return nil end
-    --The merged tile takes the splitter's heading. A tile that turned away to feed a same-flow belt ahead of it would
-    --orphan that belt: gray + magenta grid 9 layered (legalcopilot-dev 2026-09-29), (12,23) west fed (11,23) ->
-    --underground (8,23) -> molten-iron:1, and a north splitter took it.
+    --The merged tile takes the splitter's heading. When it turns, a binding whose items rode that tile the old way
+    --may lose its path: gray + magenta grid 9 layered (legalcopilot-dev 2026-09-29), (12,23) west fed (11,23) ->
+    --underground (8,23) -> molten-iron:1, and a north splitter took it. The bindings that ride the tile are noted
+    --here and append_normal_path refuses the path if one no longer reaches its sink. A local "is it the only
+    --feeder" rule refused 4 harmless merges on stack1 and rerouted it until its poles could not connect
+    --(BP_PW_DISCONNECTED, bisected to c9e0305).
     if occupant.direction ~= segment.direction then
-        local ox, oy = coordinate_from_key(second_key)
-        local ddx, ddy = Grid.dir_vector(occupant.direction)
-        local ahead = ox and ddx and work.segments_by_cell[coordinate_key(ox + ddx, oy + ddy)]
-        if ahead and ahead ~= segment and ahead ~= occupant then
-            for flow_id in pairs(occupant.flow_ids or {}) do if segment_has_flow(ahead, flow_id) then return nil end end
-            if occupant.flow_id ~= nil and segment_has_flow(ahead, occupant.flow_id) then return nil end
+        work._turned_merge_risk = work._turned_merge_risk or {}
+        for _, binding in ipairs(work.bindings or {}) do
+            if segment_has_flow(occupant, binding.flow_id) then
+                for _, key in ipairs(binding_path(work, binding) or {}) do
+                    if key == second_key then work._turned_merge_risk[#work._turned_merge_risk + 1] = binding; break end
+                end
+            end
         end
     end
     local same_flow = segment_has_flow(occupant, demand.flow_id)
@@ -2083,6 +2088,7 @@ end
 
 local function append_normal_path(work, demand, path, amount)
     journal_open(work)
+    work._turned_merge_risk = nil
     local pre_existing = {}
     for _, c in ipairs(path or {}) do
         local k = coordinate_key(c.x, c.y)
@@ -2281,6 +2287,12 @@ local function append_normal_path(work, demand, path, amount)
         end
     end
     if demand.kind ~= "pipe" and end_feed_bleeds(work, demand, path, pre_existing) then return reject("occupied") end
+    if work._turned_merge_risk then
+        local risk = work._turned_merge_risk; work._turned_merge_risk = nil
+        for _, binding in ipairs(risk) do
+            if not binding_path(work, binding) then return reject("splitter-footprint") end
+        end
+    end
     local chain_reaches_sink = route_chain_reaches_sink(work, demand, path)
     if not chain_reaches_sink then return reject("route-discontinuous") end
     if first_segment then
@@ -3884,7 +3896,7 @@ end
 --belts where the straight (17,48)..(14,48) is four ("Why this bend?").
 --The tiles items actually travel from `source` to `sink`, following laid same-flow segments, pairs and both
 --splitter outputs.  nil when the chain does not reach.
-local function binding_path(work, binding)
+binding_path = function(work, binding)
     local source = ep_lookup(work,binding.source_port_id,binding.source_block_id,binding.flow_id,"out")
     local sink = ep_lookup(work,binding.sink_port_id,binding.sink_block_id,binding.flow_id,"in")
     if not source or not sink then return nil end
