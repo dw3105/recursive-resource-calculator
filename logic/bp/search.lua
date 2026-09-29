@@ -1603,6 +1603,35 @@ local function restore_collector_first(state)
     begin_serialization(state)
 end
 
+--Split retry (round 48, player's gray + magenta re-export): every grid and attempt found no fit because one
+--step sat in a single row too wide for any grid (24 electric furnaces, a 75x14 block). Before BP_FAIL_NO_LAYOUT,
+--cut the widest no-fit multi-machine step into twice as many chunks and search again from the first grid. It only
+--runs where the search would fail anyway, so every sheet that lays out today keeps its bytes.
+local MAX_SPLITS = 4
+local function split_retry(state)
+    local steps = {}
+    for _, step in ipairs((state.work.plan_result or {}).steps or {}) do steps[step.step_id] = step end
+    local best, best_n
+    for _, r in ipairs(state.work.rejections or {}) do
+        if r.code == "BP_P_NO_FIT" and type(r.block_id) == "string" then
+            local step_id = r.block_id:gsub("^block:", ""):gsub("[#@]%d+$", "")
+            local step = steps[step_id]
+            local n = step and step.machine_count or 0
+            local now = (state.work.split_steps or {})[step_id] or 1
+            if n >= 4 and now * 2 <= n and (best_n == nil or n > best_n) then best, best_n = step_id, n end
+        end
+    end
+    if not best or (state.work.split_count or 0) >= MAX_SPLITS then return false end
+    state.work.split_steps = state.work.split_steps or {}
+    state.work.split_steps[best] = ((state.work.split_steps[best]) or 1) * 2
+    state.work.split_count = (state.work.split_count or 0) + 1
+    state.work.input.split_steps = state.work.split_steps
+    state.work.attempt = 0
+    state.cursor.grid_index = 1
+    start_grid(state)
+    return true
+end
+
 local function discard_candidate(state)
     if state.work.collector_trial == "running" then restore_collector_first(state); return end
     note_edge_shortfalls(state)
@@ -1618,6 +1647,7 @@ local function discard_candidate(state)
         start_grid(state)
         return
     end
+    if split_retry(state) then return end
     failure(state, "BP_FAIL_NO_LAYOUT", {reason_details = rejection_details(state)})
     return
 

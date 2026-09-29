@@ -2460,6 +2460,10 @@ local function make_candidates_once(input, work)
                         end
                     end
                 end
+                --Search's split retry (round 48): a step whose single row found no fit on any grid is cut into more
+                --chunks (gray + magenta re-export, 24 electric furnaces in one 75x14 row).
+                local forced = type(input.split_steps) == "table" and input.split_steps[step.step_id]
+                if type(forced) == "number" then chunks = math.max(chunks, forced) end
                 chunks = math.min(chunks, step.machine_count)
             end
             if chunks > 1 then
