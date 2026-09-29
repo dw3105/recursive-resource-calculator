@@ -80,6 +80,23 @@ def audit(entities, *extra):
 
 class BlueprintAuditTest(unittest.TestCase):
 
+    def test_AUC1_head_on_belt_ends_are_not_a_cycle(self):
+        # Red on base: the directed tile graph incorrectly treats facing belt ends as connected.
+        _, counts = audit([belt(1.5, 12.5, 8), belt(1.5, 13.5, 0)])
+        self.assertEqual(counts["cycles"], 0)
+
+    def test_AUC2_real_ring_still_counts(self):
+        _, counts = audit([belt(0.5, 0.5, 4), belt(1.5, 0.5, 8),
+                           belt(1.5, 1.5, 12), belt(0.5, 1.5, 0)])
+        self.assertEqual(counts["cycles"], 1)
+
+    def test_AUC3_belt_into_opposite_underground_output_unchanged(self):
+        # Base count is one: only plain-belt destinations are affected by the AUC1 correction.
+        entities = [belt(0.5, 0.5, 4), underground(1.5, 0.5, "output", 12),
+                    underground(5.5, 0.5, "input", 12)]
+        _, counts = audit(entities)
+        self.assertEqual(counts["cycles"], 1)
+
     def test_round20_transport_shape_rows_and_manual_control(self):
         fixture = ROOT / "tests/fixtures/blueprints/round20_delivered.txt"
         done = subprocess.run([sys.executable, str(AUDIT), str(fixture), "--json"], capture_output=True, text=True)
