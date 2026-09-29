@@ -4079,6 +4079,14 @@ prune_dead_route_segments = function(work)
     while changed do
         changed = false
         local fed = {}
+        --Cells per segment, once per pass: the old per-belt scan of every cell made gray + magenta's cleanup tick
+        --4.55 s (legalcopilot-dev 2026-09-29, ~3,000 segments x 3,500 cells per pass). `fed` is a set: same answer.
+        local cells_of = {}
+        for key, owner in pairs(work.segments_by_cell or {}) do
+            local list = cells_of[owner]
+            if not list then list = {}; cells_of[owner] = list end
+            list[#list + 1] = key
+        end
         for _, segment in ipairs(work.segments or {}) do
             if segment.underground then
                 if segment.underground_entry_key then fed[segment.underground_exit_key] = true end
@@ -4096,11 +4104,9 @@ prune_dead_route_segments = function(work)
             elseif segment.kind == "belt" then
                 local dx,dy=Grid.dir_vector(segment.direction)
                 if dx then
-                    for key,owner in pairs(work.segments_by_cell or {}) do
-                        if owner == segment then
-                            local x,y=coordinate_from_key(key)
-                            fed[coordinate_key(x+dx,y+dy)] = true
-                        end
+                    for _, key in ipairs(cells_of[segment] or {}) do
+                        local x,y=coordinate_from_key(key)
+                        fed[coordinate_key(x+dx,y+dy)] = true
                     end
                 end
             end
