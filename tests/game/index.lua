@@ -7,4 +7,5 @@ return {
     "tests.game.test_twins",
     "tests.game.test_sheets",
     "tests.game.test_facts",
+    "tests.game.test_feed",
 }
