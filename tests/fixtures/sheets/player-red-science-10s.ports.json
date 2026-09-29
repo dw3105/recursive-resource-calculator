@@ -32,7 +32,12 @@
    ]
   }
  ],
- "force": {},
+ "force": {
+  "research": {
+   "casting-steel": 1.2000000476837158,
+   "plastic-bar": 1.2000000476837158
+  }
+ },
  "inputs": {
   "item/calcite": 0.07914523066627245,
   "item/copper-ore": 1.9786307666568113,

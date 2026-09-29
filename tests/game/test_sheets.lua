@@ -43,6 +43,10 @@ describe("sheets", function()
             if ports.force then
                 if ports.force.bulk_inserter_capacity_bonus then force.bulk_inserter_capacity_bonus = ports.force.bulk_inserter_capacity_bonus end
                 if ports.force.inserter_stack_size_bonus then force.inserter_stack_size_bonus = ports.force.inserter_stack_size_bonus end
+                --The player's recipe productivity research (export environment.force.research): the real game has it.
+                for recipe, bonus in pairs(ports.force.research or {}) do
+                    if force.recipes[recipe] then force.recipes[recipe].productivity_bonus = bonus end
+                end
             end
             local surface = Lab.surface()
             local box = ports.bbox

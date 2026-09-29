@@ -251,8 +251,9 @@ def main(argv):
         "targets": {p.split(":", 1)[1]: rate for p, rate in ports.items() if p.startswith("out:")},
         "inputs": {p.split(":", 1)[1]: rate for p, rate in ports.items() if p.startswith("in:")},
         "problems": problems,
-        "force": {k: (catalog.get("inserter") or {}).get(k) for k in ("bulk_inserter_capacity_bonus", "inserter_stack_size_bonus")
+        "force": dict({k: (catalog.get("inserter") or {}).get(k) for k in ("bulk_inserter_capacity_bonus", "inserter_stack_size_bonus")
                   if (catalog.get("inserter") or {}).get(k) is not None},
+                  research=((prepared.get("environment") or {}).get("force") or {}).get("research") or {}),
     }
     fed = {f.get("item") or "fluid/" + f["fluid"] for f in result["feeds"]}
     for p in result["inputs"]:

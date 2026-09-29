@@ -32,7 +32,12 @@
    ]
   }
  ],
- "force": {},
+ "force": {
+  "research": {
+   "casting-steel": 1.2000000476837158,
+   "plastic-bar": 1.2000000476837158
+  }
+ },
  "inputs": {
   "fluid/molten-iron": 82.51273285464012,
   "item/copper-ore": 1.8749999813735485,
