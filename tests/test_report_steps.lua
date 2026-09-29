@@ -134,7 +134,7 @@ for _, shape in ipairs(H.shapes()) do
             for key, value in pairs(source) do column[key] = value end
             result.columns[index] = column
         end
-        result.recipe_rates, result.solved_rates = nil, nil
+        result.status = "error" --Skip the power phase while retaining rates required by the solved row renderer.
         local calls, original = 0, Report.add_staged_solved
         Report.add_staged_solved = function(...) calls = calls + 1; return original(...) end
         local state = ReportSteps.begin(async_input(sheet_flow, inputs, result))
@@ -148,7 +148,7 @@ for _, shape in ipairs(H.shapes()) do
         local Report = require "gui.report"
         local ReportSteps = require "logic.report_steps"
         local _, sheet_flow, inputs, result = solved_input(world, shape)
-        result.recipe_rates, result.solved_rates = nil, nil
+        result.status = "error" --Skip the power phase while retaining rates required by the solved row renderer.
         local calls, original = 0, Report.add_staged_solved
         Report.add_staged_solved = function(...) calls = calls + 1; return original(...) end
         local state = ReportSteps.begin(async_input(sheet_flow, inputs, result))

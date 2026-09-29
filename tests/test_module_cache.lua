@@ -1,6 +1,7 @@
 -- MC1 and MC3 are red on round-50-base: prototype properties and module effects are reread on every call.
 -- Module prototype facts are cached once per prototype root; effect reads are cached by module and quality.
 local H = require "tests.harness"
+H.new_world("2.0") --Initialize runtime globals before loading Utils, which reads helpers at module load.
 local ModuleSetup = require "logic.module_setup"
 local Utils = require "logic.utils"
 

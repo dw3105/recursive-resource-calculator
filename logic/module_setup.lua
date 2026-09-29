@@ -10,26 +10,25 @@ local function fresh_cache()
 end
 
 local function module_info(name)
-    local facts = module_facts[name]
+    local prototype = prototypes.item[name]
+    local facts = module_facts[prototype]
     if not facts then
-        local module = prototypes.item[name]
         local positive_effects = {}
-        for effect, value in pairs(module.module_effects or {}) do
+        for effect, value in pairs(prototype.module_effects or {}) do
             if value > 0 then positive_effects[#positive_effects + 1] = effect end
         end
-        facts = {category = module.category, positive_effects = positive_effects,
-            offered = not module.hidden and not module.parameter}
-        module_facts[name] = facts
+        facts = {category = prototype.category, positive_effects = positive_effects,
+            offered = not prototype.hidden and not prototype.parameter}
+        module_facts[prototype] = facts
     end
     return facts
 end
 
 local function limits_for(cache, prototype)
-    local name = prototype.name
-    local facts = cache[name]
+    local facts = cache[prototype]
     if not facts then
         facts = {categories = prototype.allowed_module_categories, effects = prototype.allowed_effects}
-        cache[name] = facts
+        cache[prototype] = facts
     end
     return facts
 end
@@ -129,7 +128,15 @@ end
 --module already stored in a save survives sanitizing, so a hidden module a player stored keeps its slot and its effects.
 local function is_offered(module_name)
     fresh_cache()
-    return module_info(module_name).offered
+    local facts = module_info(module_name)
+    -- Offline LuaObject fixtures are mutable tables, unlike engine prototypes. Honor their raw field updates
+    -- without triggering prototype property reads (or changing the runtime cache behavior).
+    local ok, kind = pcall(rawget, prototypes.item[module_name], "type")
+    if ok and kind == "module" then
+        local module = prototypes.item[module_name]
+        return not rawget(module, "hidden") and not rawget(module, "parameter")
+    end
+    return facts.offered
 end
 
 --Names of the modules that fit and are offered, sorted
