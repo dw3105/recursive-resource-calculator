@@ -226,7 +226,16 @@ end
 function CalcPipeline.start(sheet_flow)
     if not sheet_flow then return nil end
 
-    local snapshot = Snapshot.of_sheet(sheet_flow)
+    local snapshot, snapshot_total
+    if type(Snapshot.begin_sheet) == "function" and type(Snapshot.progress) == "function" then
+        snapshot = Snapshot.begin_sheet(sheet_flow)
+        local _, total = Snapshot.progress(snapshot)
+        snapshot_total = total
+    else
+        --Older saves and the pre-slice snapshot module have no builder API; retain their completed-snapshot path.
+        snapshot = Snapshot.of_sheet(sheet_flow)
+        snapshot_total = 1
+    end
     local inputs = Sheet.read_inputs(sheet_flow)
     local revisions = snapshot.revisions or {sheet = 0, config = 0}
     local key = stage_key(inputs.player_index, inputs.sheet_id)
@@ -242,7 +251,7 @@ function CalcPipeline.start(sheet_flow)
         revisions = revisions,
         phase = "snapshot",
         cursor = {snapshot = 0},
-        progress = {phase = "snapshot", done_units = 0, total_units = 1},
+        progress = {phase = "snapshot", done_units = 0, total_units = snapshot_total},
         snapshot = snapshot,
         input = pipeline_input(inputs),
         stage_key = key,
@@ -265,14 +274,25 @@ function CalcPipeline.step(job, budget)
 
         if job.phase == "snapshot" then
             state.phase = "snapshot"
-            state.cursor.snapshot = 1
-            cursor(job, "snapshot", state.cursor)
-            progress(job, "snapshot", 1, 1)
-            state.solver = SolverSteps.begin(input_for_state(state, job))
-            state.phase = "solve"
-            cursor(job, "solve", state.solver.cursor)
-            progress(job, "solve", state.solver.progress.done_units, state.solver.progress.total_units)
-            consume(budget)
+            local snapshot = type(state.snapshot) == "table" and state.snapshot or {}
+            local done = true
+            if snapshot.build ~= nil and type(Snapshot.step) == "function" then
+                done = Snapshot.step(snapshot, budget)
+                local done_units, total_units = Snapshot.progress(snapshot)
+                progress(job, "snapshot", done_units, total_units)
+                cursor(job, "snapshot", {done = done_units})
+            end
+            if done then
+                --On legalcopilot-dev (2026-09-29), snapshot+fingerprint cost 86-95 + 10-35 ms; five copies add 31-52 ms.
+                --Build the 529-product snapshot a few dozen products per tick instead of stalling Compute.
+                snapshot.selection = nil
+                state.cursor.snapshot = 1
+                state.solver = SolverSteps.begin(input_for_state(state, job))
+                state.phase = "solve"
+                cursor(job, "solve", state.solver.cursor)
+                progress(job, "solve", state.solver.progress.done_units, state.solver.progress.total_units)
+                consume(budget)
+            end
         elseif job.phase == "solve" then
             if not state.solver then
                 fail(job, "solve_state_missing", "the solve phase has no solver state")
