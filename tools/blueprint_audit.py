@@ -504,7 +504,12 @@ def audit_transport_shapes(entities, pairs):
                 dest=[q for t in occupied_tiles(e) if (q:=(t[0]+v[0],t[1]+v[1])) in transport]
             else:
                 q=(cell[0]+v[0],cell[1]+v[1])
-                if q in transport: dest=[q]
+                target = transport.get(q)
+                # On legalcopilot-dev's magenta 10/s blueprint (2026-09-29), the apparent cycle was
+                # two belt ends facing each other; Factorio moves no items between those belts.
+                if target and not (e.get("name") in BELTS and target.get("name") in BELTS
+                                   and VEC.get(target.get("direction", 0)) == (-v[0], -v[1])):
+                    dest=[q]
         graph[cell]=dest
     visiting=set(); visited=set(); cycles=0
     def visit(n):
