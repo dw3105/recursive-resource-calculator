@@ -31,11 +31,11 @@ end)
 H.test("FF4 constants have provenance, value, and a matching source line", function()
     local constants=helpers.json_to_table(read("tests/fixtures/engine_facts/constants.json"))
     for _,row in ipairs(constants) do
-        H.truthy(row.file and row.line and row.name and row.value~=nil and row.probe and row.probe.kind and row.probe.field,"required fields")
+        H.equal(not not (row.file and row.line and row.name and row.value~=nil and row.probe and row.probe.kind and row.probe.field),true,"required fields")
         local lines={}; for line in io.lines(row.file) do lines[#lines+1]=line end
         local source=lines[row.line]
-        H.truthy(source,"source line exists: " .. row.file)
-        H.truthy(source:find(tostring(row.value),1,true),"source line contains value: " .. row.name)
+        H.equal(not not source,true,"source line exists: " .. row.file)
+        H.equal(not not source:find(tostring(row.value),1,true),true,"source line contains value: " .. row.name)
     end
 end)
 H.done("test_fixture_facts")
