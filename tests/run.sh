@@ -26,9 +26,22 @@ done
 for game_file in tests/game/test_*.lua; do
     lua5.2 tests/game/offline.lua "$game_file" || status=1
 done
+# Headless in shards (round 48 D8: every shard < 120 s): vanilla 2.0 and 2.1, then the player's mod set on 2.0.
+GAME_SHARDS=${GAME_SHARDS:-8}
 for fv in 2.0 2.1; do
     if [ -x "${FACTORIO_ROOT:-$HOME/factorio-$fv/factorio}/bin/x64/factorio" ]; then
-        sh tools/game_test.sh "$fv" --full || status=1
+        i=1
+        while [ $i -le "$GAME_SHARDS" ]; do
+            sh tools/game_test.sh "$fv" --shard "$i/$GAME_SHARDS" || status=1
+            i=$((i + 1))
+        done
+        if [ "$fv" = 2.0 ] && [ -f tests/player_mods.lock.json ]; then
+            i=1
+            while [ $i -le "$GAME_SHARDS" ]; do
+                RRC_PROFILE=player sh tools/game_test.sh 2.0 --shard "$i/$GAME_SHARDS" || status=1
+                i=$((i + 1))
+            done
+        fi
     else
         echo "game-skip $fv: no headless Factorio (sh tools/fetch_factorio.sh $fv)"
     fi

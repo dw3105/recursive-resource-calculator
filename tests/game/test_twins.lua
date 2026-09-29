@@ -11,6 +11,16 @@ if ok_index and type(INDEX) == "table" then
 end
 
 local WINDOW = 1200
+
+--Declared flows of a twin entity: the frozen `flows` list, or the validator-native flow_id / flow_ids some twins
+--carry (lane 279); "item/" is dropped, "fluid/" kept for the fluid check.
+local function flows_of(e)
+    local list = e.flows or e.flow_ids or (e.flow_id and {e.flow_id}) or nil
+    if not list then return nil end
+    local out = {}
+    for i, f in ipairs(list) do out[i] = (f:gsub("^item/", "")) end
+    return out
+end
 local SPACING = 128
 
 local function key(x, y) return x .. "," .. y end
@@ -195,9 +205,10 @@ describe("twins", function()
                 Lab.sink_tick(sinks, t >= warm)
                 if t >= warm and t % 60 == 0 then
                     for _, e in ipairs(twin.entities or {}) do
-                        if e.flows then
+                        local declared = flows_of(e)
+                        if declared then
                             local allowed = {}
-                            for _, f in ipairs(e.flows) do allowed[f:gsub("^fluid/", "")] = true end
+                            for _, f in ipairs(declared) do allowed[(f:gsub("^fluid/", ""))] = true end
                             for name, count in pairs(Lab.carried(by_id[e.id])) do
                                 if not allowed[name] then foreign[e.id .. ":" .. name] = true end
                                 carried[e.id] = (carried[e.id] or 0) + count
@@ -233,7 +244,7 @@ describe("twins", function()
                     for _, s in ipairs(sinks) do if s.entity then sink_ent[s.entity.unit_number] = true end end
                     for _, e in ipairs(twin.entities or {}) do
                         local ent = by_id[e.id]
-                        if e.flows and ent and not sink_ent[ent.unit_number] and not carried[e.id] then idle[#idle + 1] = e.id end
+                        if flows_of(e) and ent and not sink_ent[ent.unit_number] and not carried[e.id] then idle[#idle + 1] = e.id end
                     end
                     table.sort(idle)
                     if #defects > 0 then verdict, why = "defect", table.concat(defects, "; ")

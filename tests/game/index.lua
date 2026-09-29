@@ -6,4 +6,5 @@ return {
     "tests.game.test_parity",
     "tests.game.test_twins",
     "tests.game.test_sheets",
+    "tests.game.test_facts",
 }
