@@ -144,7 +144,7 @@ class BlueprintAuditTest(unittest.TestCase):
     def test_splitter_east_west_second_tile_output_and_inserter_pickup(self):
         entities = [belt(2.5, 4.5), belt(3.5, 4.5), belt(2.5, 5.5), belt(3.5, 5.5),
                     splitter(4.5, 5), belt(5.5, 4.5), belt(6.5, 4.5),
-                    belt(5.5, 5.5), inserter(6.5, 5.5), {"name": "assembling-machine-1", "position": {"x": 7.5, "y": 5.5}}]
+                    belt(5.5, 5.5), inserter(6.5, 5.5, 12), {"name": "assembling-machine-1", "position": {"x": 7.5, "y": 5.5}}]
         status, counts = audit(entities)
         self.assertEqual(counts["invalid_inserters"], 0, counts)
         self.assertEqual(counts["unused_belt_tiles"], 0, counts)
@@ -188,6 +188,8 @@ class BlueprintAuditTest(unittest.TestCase):
 
     def test_ACC4_a_reversed_output_inserter_is_BEYOND_byte_level_waste(self):
         """Honest limit of this tool, kept as a case so nobody re-adds the claim.
+        LIMIT LIFTED 2026-09-28 (RRC-03) for this exact shape: the hand direction audit refuses it, see
+        test_RRC03_control_output_hand_turned_is_refused. Waste and endpoint counts below stay 0.
 
         Reversing the output inserter makes the machine drain nowhere, which is a broken obligation. It is NOT
         a waste violation: the belt it used to receive from becomes an externally fed run that passes an
@@ -439,3 +441,168 @@ class HandBuiltReferenceTest(unittest.TestCase):
             self.assertIn("1", done.stdout)
         finally:
             pathlib.Path(artifact_path).unlink()
+
+
+GOLDEN_REFERENCE = ROOT / "tests/golden/cases/player-red-science-1s/reference_manual_blueprint.txt"
+GOLDEN_ROUND22 = ROOT / "tests/fixtures/blueprints/round22_v5.txt"
+ROUND18_INVERTED = ROOT / "tests/fixtures/blueprints/round18_inverted_inserters.txt"
+
+
+def decode_file(path):
+    return json.loads(zlib.decompress(base64.b64decode(path.read_text().strip()[1:])))["blueprint"]
+
+
+def run_text(text, *extra):
+    with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as handle:
+        handle.write(text + "\n")
+        path = handle.name
+    try:
+        done = subprocess.run([sys.executable, str(AUDIT), path, *extra], capture_output=True, text=True)
+        return done, path
+    finally:
+        pathlib.Path(path).unlink()
+
+
+def encode_blueprint(blueprint, tail=b""):
+    body = json.dumps({"blueprint": blueprint}, separators=(",", ":")).encode("utf-8")
+    return "0" + base64.b64encode(zlib.compress(body, 9) + tail).decode("ascii")
+
+
+def turned(blueprint, numbers=None):
+    blueprint = copy.deepcopy(blueprint)
+    for entity in blueprint["entities"]:
+        if "inserter" in entity["name"] and (numbers is None or entity["entity_number"] in numbers):
+            entity["direction"] = (entity.get("direction", 0) + 8) % 16
+    return blueprint
+
+
+class HandDirectionTest(unittest.TestCase):
+    """RRC-03: round 18 shipped every hand 180 degrees wrong and every count here read 0."""
+
+    def counts(self, text):
+        done, _ = run_text(text, "--json")
+        return done.returncode, json.loads(done.stdout)
+
+    def test_RRC03_golden_reference_has_no_backward_hand(self):
+        status, counts = self.counts(GOLDEN_REFERENCE.read_text().strip())
+        self.assertEqual((status, counts["backward_hands"]), (0, 0), counts)
+
+    def test_RRC03_golden_round22_has_no_backward_hand(self):
+        status, counts = self.counts(GOLDEN_ROUND22.read_text().strip())
+        self.assertEqual((status, counts["backward_hands"]), (0, 0), counts)
+
+    def test_RRC03_round18_delivered_inverted_bytes_are_refused(self):
+        status, counts = self.counts(ROUND18_INVERTED.read_text().strip())
+        self.assertEqual(status, 1)
+        self.assertEqual(counts["backward_hands"], 20, counts)
+        self.assertEqual(counts["invalid_inserters"], 0, "endpoint validity alone never saw it")
+        done, _ = run_text(ROUND18_INVERTED.read_text().strip())
+        self.assertIn("hand direction (RRC-03): 20", done.stdout)
+
+    def test_RRC03_every_hand_of_the_reference_turned_is_refused(self):
+        status, counts = self.counts(encode_blueprint(turned(decode_file(GOLDEN_REFERENCE))))
+        self.assertEqual(status, 1)
+        self.assertEqual(counts["backward_hands"], 8, counts)
+
+    def test_RRC03_one_output_hand_turned_is_refused_by_name(self):
+        done, _ = run_text(encode_blueprint(turned(decode_file(GOLDEN_REFERENCE), {107})))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("  inserter at (210.5,1085.5) facing east: picks up from (211.5, 1085.5), "
+                      "the first tile of a belt nothing feeds\n", done.stdout)
+
+    def test_RRC03_control_output_hand_turned_is_refused(self):
+        """ACC4's shape: the belt the hand fed now starts at a hand that takes from it."""
+        entities = control()
+        entities[4]["direction"] = 4
+        status, counts = audit(entities)
+        self.assertEqual((status, counts["backward_hands"]), (1, 1), counts)
+        _, counts = audit(control())
+        self.assertEqual(counts["backward_hands"], 0, counts)
+
+    def test_RRC03_hand_dropping_onto_a_dead_end_is_refused_by_name(self):
+        entities = [belt(0.5, 0.5), belt(1.5, 0.5), inserter(2.5, 0.5, 4),
+                    {"name": "assembling-machine-3", "position": {"x": 4.5, "y": 0.5}, "recipe": "iron-gear-wheel"}]
+        done, _ = run_text(encode(entities))
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("  inserter at (2.5,0.5) facing east: drops onto (1.5, 0.5), "
+                      "the last tile of a belt that leads nowhere\n", done.stdout)
+
+
+class StringSchemaTest(unittest.TestCase):
+    """RRC-03: a string the game will not import is named before any geometry is judged."""
+
+    def refused(self, text):
+        done, path = run_text(text)
+        self.assertEqual(done.returncode, 1, done.stdout + done.stderr)
+        self.assertEqual(done.stdout, "")
+        self.assertNotIn("Traceback", done.stderr)
+        return done.stderr, path
+
+    def blueprint(self, entities=None, **extra):
+        entities = copy.deepcopy(entities if entities is not None else control())
+        for index, entity in enumerate(entities, start=1):
+            entity.setdefault("entity_number", index)
+        return {"item": "blueprint", "version": (2 << 48) | (77 << 16), "entities": entities, **extra}
+
+    def test_RRC03_bad_base64_is_named(self):
+        stderr, path = self.refused("0eNq!!not-base64")
+        self.assertTrue(stderr.startswith(f"blueprint_audit.py: {path} does not decode: base64: "), stderr)
+
+    def test_RRC03_truncated_zlib_is_named(self):
+        whole = encode_blueprint(self.blueprint())
+        raw = base64.b64decode(whole[1:])[:-8]
+        stderr, path = self.refused("0" + base64.b64encode(raw).decode("ascii"))
+        self.assertEqual(stderr, f"blueprint_audit.py: {path} does not decode: zlib stream is truncated\n")
+
+    def test_RRC03_bytes_after_zlib_are_named(self):
+        stderr, path = self.refused(encode_blueprint(self.blueprint(), tail=b"junk"))
+        self.assertEqual(stderr, f"blueprint_audit.py: {path} does not decode: bytes after the zlib stream\n")
+
+    def test_RRC03_schema_rows_are_named(self):
+        cases = {
+            "internal key": (lambda b: b["entities"][2].update(port_id=4),
+                             "blueprint_audit.py: schema: entity 3 (inserter): unknown key 'port_id'"),
+            "untyped underground": (lambda b: b["entities"][6].pop("type"),
+                                    "blueprint_audit.py: schema: entity 7 (underground-belt): has no 'type'; "
+                                    "it imports as an entrance"),
+            "typed pipe": (lambda b: b["entities"].append({"entity_number": 99, "name": "pipe-to-ground",
+                                                            "position": {"x": 30.5, "y": 30.5}, "type": "input"}),
+                           "blueprint_audit.py: schema: entity 10 (pipe-to-ground): carries 'type' but is not an "
+                           "underground belt or loader"),
+            "direction 16": (lambda b: b["entities"][2].update(direction=16),
+                             "blueprint_audit.py: schema: entity 3 (inserter): direction 16 is not an integer 0..15"),
+            "repeated number": (lambda b: b["entities"][1].update(entity_number=1),
+                                "blueprint_audit.py: schema: entity 2 (transport-belt): entity_number 1 repeats"),
+            "string position": (lambda b: b["entities"][0]["position"].update(x="0.5"),
+                                "blueprint_audit.py: schema: entity 1 (transport-belt): position is not numeric x and y"),
+            "wire to nothing": (lambda b: b.update(wires=[[1, 5, 77, 5]]),
+                                "blueprint_audit.py: schema: wire 1: names an entity_number the blueprint does not hold"),
+            "wire connector 0": (lambda b: b.update(wires=[[1, 0, 2, 5]]),
+                                 "blueprint_audit.py: schema: wire 1: connector id below 1"),
+            "not a blueprint item": (lambda b: b.update(item="blueprint-book"),
+                                     "blueprint_audit.py: schema: blueprint: item is 'blueprint-book', not 'blueprint'"),
+        }
+        for label, (plant, line) in cases.items():
+            with self.subTest(label):
+                blueprint = self.blueprint()
+                plant(blueprint)
+                stderr, _ = self.refused(encode_blueprint(blueprint))
+                self.assertIn(line + "\n", stderr)
+
+    def test_RRC03_goldens_pass_the_schema(self):
+        for path in (GOLDEN_REFERENCE, GOLDEN_ROUND22, ROUND18_INVERTED):
+            with self.subTest(path.name):
+                done = subprocess.run([sys.executable, str(AUDIT), str(path), "--json"], capture_output=True, text=True)
+                self.assertNotIn("schema:", done.stderr)
+                self.assertIn("backward_hands", json.loads(done.stdout))
+
+    def test_RRC03_generator_json_skips_the_string_schema(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"ok": True, "result": {"entities": [dict(e, port_id=1) for e in control()]}}, handle)
+            path = handle.name
+        try:
+            done = subprocess.run([sys.executable, str(AUDIT), path, "--json"], capture_output=True, text=True)
+        finally:
+            pathlib.Path(path).unlink()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(json.loads(done.stdout)["backward_hands"], 0)

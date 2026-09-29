@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Fail-closed release verification for the packaged engine evidence.
-
-The gate is deliberately a file verifier.  It never starts Factorio, creates an
-observation, or rebuilds an archive.  The archive supplied to it is the exact
-byte sequence named by the host-side receipt.
-"""
+"""Release verification for packaged engine evidence. File verifier mode never starts Factorio; receipt mode runs the integrator game scripts (integrator only, lanes never)."""
 
 from __future__ import annotations
 
@@ -13,6 +8,8 @@ import hashlib
 import importlib.util
 import json
 import math
+import os
+import datetime
 import subprocess
 import sys
 from pathlib import Path
@@ -621,7 +618,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def main(argv: Optional[Iterable[str]] = None) -> int:
+def _legacy_main(argv: Optional[Iterable[str]] = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.release and args.branch:
@@ -659,6 +656,127 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     except (OSError, ValueError) as exc:
         print(f"release refused: {exc}", file=sys.stderr)
         return 2
+
+
+REPO = Path(__file__).resolve().parents[1]
+GUI_PATTERN = "tests/game/test_gui.lua::gui > toggle opens and closes twice"
+
+
+def _run_script(script: str, args: Sequence[str], timeout: int):
+    return subprocess.run(["sh", str(REPO / "tools" / script), *args], cwd=REPO,
+                          env=os.environ.copy(), capture_output=True, text=True, timeout=timeout)
+
+
+def _last_line(text: str) -> str:
+    return next((line for line in reversed(text.splitlines()) if line.strip()), "")
+
+
+def _receipt_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(prog="release_gate.py receipt")
+    p.add_argument("--archive-dir", required=True, type=Path)
+    p.add_argument("--out", required=True, type=Path)
+    p.add_argument("--candidate")
+    p.add_argument("--no-game", action="store_true")
+    p.add_argument("--calc-budget", type=int, default=5)
+    p.add_argument("--calc-case", action="append", default=[])
+    return p
+
+
+def _receipt(argv: Sequence[str]) -> int:
+    args = _receipt_parser().parse_args(argv)
+    cases = args.calc_case or ["player-red-science-1s"]
+    if args.calc_budget <= 0:
+        print("receipt refused: calc budget must be positive", file=sys.stderr); return 2
+    try:
+        zips, ids = {}, {}
+        for fv in SUPPORTED_BRANCHES:
+            archive = _archive_for_branch(None, fv, "", args.archive_dir)
+            bid = RECEIPT.read_build_id(archive)
+            if bid.get("factorio_branch") != fv:
+                raise ReleaseGateError(f"zip {fv} build id branch is {bid.get('factorio_branch')}")
+            zips[fv] = {"path": str(archive), "sha256": RECEIPT.zip_sha256(archive)}
+            ids[fv] = bid
+        candidate = ids["2.0"].get("candidate_sha")
+        if ids["2.1"].get("candidate_sha") != candidate:
+            raise ReleaseGateError("zips have different candidate_sha values")
+        if args.candidate and candidate != args.candidate:
+            raise ReleaseGateError(f"zip candidate {candidate} does not match --candidate {args.candidate}")
+    except (ReleaseGateError, OSError, ValueError) as exc:
+        reason = exc.reason if isinstance(exc, ReleaseGateError) else str(exc)
+        print(f"receipt refused: {reason}", file=sys.stderr); return 2
+    load, gui = {}, {}
+    if args.no_game:
+        for fv in SUPPORTED_BRANCHES:
+            load[fv] = {"result":"not-run", "exit":None, "last_line":"", "reason":"--no-game"}
+            gui[fv] = {"result":"not-run", "exit":None, "last_line":"", "reason":"--no-game", "staged_tree_head":None}
+    elif os.environ.get("LANE_RUN_ID"):
+        for fv in SUPPORTED_BRANCHES:
+            load[fv] = {"result":"not-run", "exit":2, "last_line":"", "reason":"game_load_check: refuse, lanes never run headless Factorio"}
+            gui[fv] = {"result":"not-run", "exit":2, "last_line":"", "reason":"game_test: refuse, lanes never run headless" , "staged_tree_head":None}
+    else:
+        head = subprocess.run(["git", "-C", str(REPO), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        if head != candidate:
+            print(f"receipt refused: gui test stages the working tree at {head}, zips are {candidate}; check out {candidate}", file=sys.stderr); return 2
+        for fv in SUPPORTED_BRANCHES:
+            for target, script, params, limit in ((load,"game_load_check.sh",[zips[fv]["path"],fv],600),(gui,"game_test.sh",[fv,GUI_PATTERN],900)):
+                try:
+                    proc = _run_script(script, params, limit); last = _last_line(proc.stdout)
+                    good = (last == f"load-check-{fv}-ok") if target is load else any(line.startswith("game test='tests.game.test_gui > gui > toggle opens and closes twice' result=['passed']") for line in proc.stdout.splitlines())
+                    result = "ok" if proc.returncode == 0 and good else "FAIL" if proc.returncode == 1 else "not-run"
+                    reason = None if result != "not-run" else (_last_line(proc.stderr) or f"exit {proc.returncode}")
+                    record = {"result":result,"exit":proc.returncode,"last_line":last,"reason":reason}
+                except subprocess.TimeoutExpired:
+                    record = {"result":"FAIL","exit":None,"last_line":"","reason":f"timeout after {limit} s"}
+                if target is gui: record["staged_tree_head"] = head
+                target[fv] = record
+    try:
+        proc = _run_script("calc_budget.sh", ["--budget", str(args.calc_budget), *cases], (args.calc_budget+30)*len(cases))
+        lines = proc.stdout.splitlines(); last = _last_line(proc.stdout)
+        calc_result = "ok" if proc.returncode == 0 and last == "calc-budget-ok" else "FAIL" if proc.returncode == 1 else "not-run"
+        parsed = {}
+        for case in cases:
+            match = next((line for line in lines if line.startswith(f"calc-budget {case} ")), "")
+            m = __import__('re').match(r"calc-budget .*? (ok|FAIL(?: [^ ]+)?) wall_s=([0-9.]+)", match)
+            parsed[case] = {"result":"ok" if m and m.group(1)=="ok" else "FAIL", "detail":(m.group(1) if m else "not-run"), "wall_s":float(m.group(2)) if m else None}
+        calc = {"result":calc_result,"budget_s":args.calc_budget,"exit":proc.returncode,"cases":parsed}
+    except subprocess.TimeoutExpired:
+        calc = {"result":"FAIL","budget_s":args.calc_budget,"exit":None,"cases":{c:{"result":"FAIL","detail":"timeout","wall_s":None} for c in cases}}
+    tested = "yes" if all(load[f]["result"] in ("ok","FAIL") and gui[f]["result"] in ("ok","FAIL") for f in SUPPORTED_BRANCHES) else "no"
+    not_tested = None if tested == "yes" else "not tested in game: " + next((x["reason"] for f in SUPPORTED_BRANCHES for x in (load[f],gui[f]) if x["result"]=="not-run"), "not tested")
+    receipt = {"schema":"rrc-handover-receipt/1","candidate_sha":candidate,"written_utc":datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),"tested_in_game":tested,"not_tested_reason":not_tested,"zips":zips,"load":load,"gui":gui,"calc_budget":calc}
+    args.out.parent.mkdir(parents=True, exist_ok=True); args.out.write_text(json.dumps(receipt,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    print(f"receipt {args.out}: tested-in-game={tested} load-2.0={load['2.0']['result']} load-2.1={load['2.1']['result']} gui-2.0={gui['2.0']['result']} gui-2.1={gui['2.1']['result']} calc={calc['result']}")
+    all_game = all(x["result"]=="ok" for f in SUPPORTED_BRANCHES for x in (load[f],gui[f]))
+    return 0 if calc["result"]=="ok" and ((tested=="yes" and all_game) or args.no_game) else 1
+
+
+def _handover(argv: Sequence[str]) -> int:
+    p=argparse.ArgumentParser(prog="release_gate.py handover"); p.add_argument("--receipt",required=True,type=Path); p.add_argument("--archive-dir",required=True,type=Path); p.add_argument("--accept-not-tested",action="store_true")
+    a=p.parse_args(argv)
+    def refuse(msg): print(f"handover refused: {msg}",file=sys.stderr); return 2
+    if not a.receipt.is_file(): return refuse(f"no receipt: {a.receipt}")
+    try: d=json.loads(a.receipt.read_text())
+    except (OSError,ValueError): return refuse(f"bad receipt: {a.receipt}")
+    if not isinstance(d,dict) or d.get("schema")!="rrc-handover-receipt/1": return refuse(f"bad receipt: {a.receipt}")
+    for fv in SUPPORTED_BRANCHES:
+        z=_archive_for_branch(None,fv,"",a.archive_dir); actual=RECEIPT.zip_sha256(z); recorded=d.get("zips",{}).get(fv,{}).get("sha256")
+        if actual!=recorded: return refuse(f"zip {fv} sha256 {actual} is not the receipt's {recorded}")
+    if d.get("tested_in_game")!="yes" and not a.accept_not_tested: return refuse(f"{d.get('not_tested_reason')}; pass --accept-not-tested to hand over untested")
+    if d.get("tested_in_game")=="yes":
+        for kind in ("load","gui"):
+            for fv in SUPPORTED_BRANCHES:
+                result=d.get(kind,{}).get(fv,{}).get("result");
+                if result!="ok": return refuse(f"{kind}-{fv} {result}")
+    if d.get("calc_budget",{}).get("result")!="ok": return refuse(f"calc budget {d.get('calc_budget',{}).get('result')}")
+    suffix="tested-in-game=yes" if d.get("tested_in_game")=="yes" else "NOT TESTED IN GAME"
+    print(f"handover ready: {d.get('candidate_sha')} {suffix}"); return 0
+
+
+def main(argv: Optional[Iterable[str]] = None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "receipt": return _receipt(argv[1:])
+    if argv and argv[0] == "handover": return _handover(argv[1:])
+    return _legacy_main(argv)
 
 
 if __name__ == "__main__":

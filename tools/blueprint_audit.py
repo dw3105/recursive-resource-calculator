@@ -7,12 +7,15 @@ Round 13: `tests/golden/generate.lua:414` reported `Validate.reconcile_artifact`
 that function never reads a belt, a pipe or an inserter.  An auditor that decodes the delivered string and
 re-derives the geometry cannot be fooled by either, because it never sees our tables at all.
 
-It answers four questions, each of which the round 13 delivery failed:
+It answers these questions; the first four are the ones the round 13 delivery failed:
 
   * does every inserter pick up from, and drop onto, a real belt or a real machine?
   * does every underground endpoint have a legal partner it can actually pair with?
   * does every transport component serve something, or is it decoration?
   * is every beacon load-bearing, or would removing it leave every machine at its configured count?
+  * RRC-03: does any hand take from the first tile of a belt nothing feeds, or drop onto the last tile of a
+    belt that leads nowhere?  Round 18 shipped all 26 hands turned 180 degrees and every count above read 0.
+  * RRC-03: would the game import the string at all?  Decode, schema and wire rows are named before geometry.
 
 Frozen baseline, measured on this host 2026-09-21 against
 ~/share/RRC/rrc-round13-mine.txt (sha256 9e075dddf2a16485cfa4d24e45b5fc62f2ba6cb04fbc23236ca6b8c78cb3d95a):
@@ -27,6 +30,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import json
 import sys
 import zlib
@@ -515,6 +519,153 @@ def audit_transport_shapes(entities, pairs):
     return len(side), len(blocked), len(back), cycles, [f"({tile(a)[0]},{tile(a)[1]})->({tile(b)[0]},{tile(b)[1]})" for a,b in blocked]
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from blueprint_string import KEEP, TYPED  # noqa: E402  one allow-list, owned by the converter
+
+ENTITY_KEYS = {"entity_number", "type", "drop_position", *KEEP}
+
+
+def _number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def string_problems(text: str) -> List[str]:
+    """RRC-03: every reason the game would refuse to import this string, read from its bytes."""
+    text = text.strip()
+    try:
+        raw = base64.b64decode(text[1:], validate=True)
+    except (ValueError, binascii.Error) as error:
+        return [f"string: base64: {error}"]
+    inflater = zlib.decompressobj()
+    try:
+        body = inflater.decompress(raw) + inflater.flush()
+    except zlib.error as error:
+        return [f"string: zlib: {error}"]
+    if not inflater.eof:
+        return ["string: zlib stream is truncated"]
+    if inflater.unused_data:
+        return ["string: bytes after the zlib stream"]
+    try:
+        payload = json.loads(body)
+    except ValueError as error:
+        return [f"string: JSON: {error}"]
+    blueprint = payload.get("blueprint") if isinstance(payload, dict) else None
+    if not isinstance(blueprint, dict):
+        return []  # a book or planner: load_entities names it
+    problems = []
+    if blueprint.get("item") != "blueprint":
+        problems.append(f"blueprint: item is {blueprint.get('item')!r}, not 'blueprint'")
+    if not isinstance(blueprint.get("version"), int) or isinstance(blueprint.get("version"), bool):
+        problems.append("blueprint: version is not an integer")
+    entities = blueprint.get("entities")
+    if entities is None or entities == []:
+        return problems  # main names an empty artifact
+    if not isinstance(entities, list):
+        return problems + ["blueprint: entities is not a list"]
+    numbers = set()
+    for index, entity in enumerate(entities, start=1):
+        where = f"entity {index}"
+        if not isinstance(entity, dict):
+            problems.append(f"{where}: not an object")
+            continue
+        name = entity.get("name")
+        if isinstance(name, str) and name:
+            where = f"entity {index} ({name})"
+        else:
+            problems.append(f"{where}: name is not a non-empty string")
+        number = entity.get("entity_number")
+        if not isinstance(number, int) or isinstance(number, bool) or number < 1:
+            problems.append(f"{where}: entity_number is not a positive integer")
+        elif number in numbers:
+            problems.append(f"{where}: entity_number {number} repeats")
+        else:
+            numbers.add(number)
+        position = entity.get("position")
+        if not isinstance(position, dict) or not _number(position.get("x")) or not _number(position.get("y")):
+            problems.append(f"{where}: position is not numeric x and y")
+        if "direction" in entity:
+            d = entity["direction"]
+            if not isinstance(d, int) or isinstance(d, bool) or not 0 <= d <= 15:
+                problems.append(f"{where}: direction {d!r} is not an integer 0..15")
+        if "type" in entity and name not in TYPED:
+            problems.append(f"{where}: carries 'type' but is not an underground belt or loader")
+        elif name in TYPED and "type" not in entity:
+            problems.append(f"{where}: has no 'type'; it imports as an entrance")
+        elif "type" in entity and entity["type"] not in ("input", "output"):
+            problems.append(f"{where}: type {entity['type']!r} is not 'input' or 'output'")
+        for key in sorted(set(entity) - ENTITY_KEYS):
+            problems.append(f"{where}: unknown key {key!r}")
+    for index, wire in enumerate(blueprint.get("wires") or [], start=1):
+        if (not isinstance(wire, list) or len(wire) != 4
+                or not all(isinstance(v, int) and not isinstance(v, bool) for v in wire)):
+            problems.append(f"wire {index}: not four integers")
+            continue
+        if wire[0] not in numbers or wire[2] not in numbers:
+            problems.append(f"wire {index}: names an entity_number the blueprint does not hold")
+        if wire[1] < 1 or wire[3] < 1:
+            problems.append(f"wire {index}: connector id below 1")
+    return problems
+
+
+def audit_hand_direction(entities, pairs) -> List[str]:
+    """RRC-03: a hand that takes from the head of a belt nothing feeds, or drops onto the tail of a belt that leads
+    nowhere, is turned 180 degrees."""
+    transport = {tile: e for e in entities if e.get("name") in BELTS | UG_BELTS | SPLITTERS
+                 for tile in occupied_tiles(e)}
+    partner = {}
+    for first, second in pairs:
+        if first in transport and second in transport:
+            partner[first] = second
+            partner[second] = first
+    nexts = {}
+    for cell, entity in transport.items():
+        if entity.get("name") in UG_BELTS and entity.get("type") == "input":
+            dest = [partner[(entity["position"]["x"], entity["position"]["y"])]] if (entity["position"]["x"], entity["position"]["y"]) in partner else []
+        else:
+            d = entity.get("direction", 0)
+            if d not in VEC:
+                dest = []
+            else:
+                vx, vy = VEC[d]
+                if entity.get("name") in SPLITTERS:
+                    dest = [q for t in occupied_tiles(entity) if (q := (t[0] + vx, t[1] + vy)) in transport]
+                else:
+                    q = (cell[0] + vx, cell[1] + vy)
+                    dest = [q] if q in transport else []
+        nexts[cell] = dest
+    for entity in entities:
+        if entity.get("name") not in SPLITTERS or entity.get("direction", 0) not in VEC:
+            continue
+        vx, vy = VEC[entity.get("direction", 0)]
+        lanes = occupied_tiles(entity)
+        for lane in lanes:
+            source = (lane[0] - vx, lane[1] - vy)
+            if source in transport and transport[source].get("name") not in SPLITTERS:
+                nexts[source] = list(nexts[source]) + lanes
+    fed = {q for dest in nexts.values() for q in dest}
+    hands = []
+    for entity in entities:
+        if "inserter" not in entity.get("name", "") or entity.get("direction", 0) not in VEC:
+            continue
+        reach = 2 if "long-handed" in entity.get("name", "") else 1
+        vx, vy = VEC[entity.get("direction", 0)]
+        px, py = entity["position"]["x"], entity["position"]["y"]
+        hands.append((entity, (px + vx * reach, py + vy * reach), (px - vx * reach, py - vy * reach)))
+    drops = {drop for _, _, drop in hands}
+    pickups = {pickup for _, pickup, _ in hands}
+    failures = []
+    for entity, pickup, drop in hands:
+        px, py = entity["position"]["x"], entity["position"]["y"]
+        facing = NAME[entity.get("direction", 0)]
+        if pickup in transport and pickup not in fed and nexts[pickup] and pickup not in drops:
+            failures.append(f"inserter at ({px},{py}) facing {facing}: picks up from {pickup}, "
+                            f"the first tile of a belt nothing feeds")
+        elif drop in transport and not nexts[drop] and drop in fed and drop not in pickups:
+            failures.append(f"inserter at ({px},{py}) facing {facing}: drops onto {drop}, "
+                            f"the last tile of a belt that leads nowhere")
+    return failures
+
+
 def audit_beacons(entities, config: Dict[str, int]) -> Tuple[List[str], int]:
     """Contract 26.6: extra influence is legal, a REDUNDANT beacon is not.
 
@@ -563,6 +714,15 @@ def main(argv=None) -> int:
     parser.add_argument("-q", "--quiet", action="store_true", help="print counts only, never each violation")
     args = parser.parse_args(argv)
 
+    raw_text = Path(args.input).read_text().strip()
+    if raw_text.startswith("0"):
+        problems = string_problems(raw_text)
+        if problems and problems[0].startswith("string: "):
+            raise SystemExit(f"blueprint_audit.py: {args.input} does not decode: {problems[0][len('string: '):]}")
+        if problems:
+            for line in problems:
+                print(f"blueprint_audit.py: schema: {line}", file=sys.stderr)
+            return 1
     entities, wires, label = load_entities(Path(args.input))
     if not entities:
         raise SystemExit("blueprint_audit.py: the artifact carries no entities")
@@ -573,6 +733,7 @@ def main(argv=None) -> int:
     underground_failures, underground_by_family, underground_pairs = audit_underground(entities)
     orphan_failures, dead_belt, dead_pipe, terminals = audit_orphans(entities, cells, underground_pairs)
     beacon_failures, redundant = audit_beacons(entities, config)
+    hand_failures = audit_hand_direction(entities, underground_pairs)
     sideload, sideload_blocked, back_to_back, cycles, blocked_rows = audit_transport_shapes(entities, underground_pairs)
 
     counts = {
@@ -589,6 +750,7 @@ def main(argv=None) -> int:
         "redundant_beacons": redundant,
         "sideload": sideload, "sideload_blocked": sideload_blocked,
         "back_to_back": back_to_back, "cycles": cycles,
+        "backward_hands": len(hand_failures),
     }
     groups = [("inserter endpoints (contract 26.3)", inserter_failures),
               ("underground pairing (contract 26.5)", underground_failures),
@@ -596,7 +758,8 @@ def main(argv=None) -> int:
               ("beacon redundancy (contract 26.6)", beacon_failures),
               ("blocked underground side-load", blocked_rows),
               ("underground back-to-back", [str(x) for x in range(back_to_back)]),
-              ("belt route cycles", [str(x) for x in range(cycles)])]
+              ("belt route cycles", [str(x) for x in range(cycles)]),
+              ("hand direction (RRC-03)", hand_failures)]
 
     if args.json:
         print(json.dumps(counts, indent=2, sort_keys=True))
