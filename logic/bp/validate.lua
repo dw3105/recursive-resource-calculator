@@ -1274,6 +1274,21 @@ local function check_underground(work)
     for _, info in ipairs(work.infos) do
         if info.entity.ug_pair_id or info.entity.ug_role or info.entity.underground_pair_id then underground[#underground + 1] = info end
     end
+    --An underground endpoint that declares no partner and that no endpoint names as its partner is unpaired in the
+    --engine (headless 2.0.77 + 2.1.20, round 48 twin audit_ptg_unpaired): it used to be invisible here.
+    --Partners are named by ug_pair_id / underground_pair_id, or pipe_connection for pipe-to-ground (see :2759).
+    local named = {}
+    for _, info in ipairs(work.infos) do
+        local pair_id = info.entity.ug_pair_id or info.entity.underground_pair_id or info.entity.pipe_connection
+        if pair_id ~= nil then named[pair_id] = true end
+    end
+    for _, info in ipairs(work.infos) do
+        local etype = info.spec and info.spec.etype
+        local declared = info.entity.ug_pair_id or info.entity.ug_role or info.entity.underground_pair_id or info.entity.pipe_connection
+        local lone = (etype == "underground-belt" or etype == "pipe-to-ground" or info.kind == "underground-belt" or info.kind == "pipe-to-ground")
+            and not declared and not named[info.id]
+        if lone then error_record(work.errors, "BP_V_UNDERGROUND_UNPAIRED", {tostring(info.id)}, {reason = "no partner"}) end
+    end
     local checked = {}
     local function pair_key(a, b)
         local left, right = tostring(a.id), tostring(b and b.id or "")

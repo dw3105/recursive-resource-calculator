@@ -1,0 +1,87 @@
+{
+ "bbox": [
+  0,
+  0,
+  102,
+  102
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-ore",
+   "tile": [
+    0,
+    9
+   ]
+  },
+  {
+   "item": "calcite",
+   "tile": [
+    0,
+    13
+   ]
+  },
+  {
+   "item": "coal",
+   "tile": [
+    0,
+    26
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    44
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    27
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    29
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 15,
+  "inserter_stack_size_bonus": 19,
+  "research": {
+   "casting-steel": 1.2000000476837158,
+   "plastic-bar": 1.2000000476837158
+  }
+ },
+ "inputs": {
+  "fluid/crude-oil": 56.17033794002849,
+  "fluid/water": 133.6441035466879,
+  "item/calcite": 0.2334655114814333,
+  "item/coal": 2.1428570810477354,
+  "item/copper-ore": 2.5969528674164883,
+  "item/iron-ore": 9.076322706655178
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "chemical-science-pack"
+   ],
+   "tile": [
+    82,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/chemical-science-pack": 10.0
+ }
+}

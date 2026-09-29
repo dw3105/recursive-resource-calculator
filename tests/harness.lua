@@ -21,6 +21,12 @@ _G.type = function(value)
     return raw_type(value)
 end
 
+--LuaCustomTable: userdata to type() like the engine's (force.recipes), but open to any key (round 48 D6).
+function H.custom_table(t)
+    lua_objects[t] = true
+    return t
+end
+
 --LuaObject: reading or writing a key outside its member list errors like the engine does.
 --gates: member -> set of prototype types it can be used on; reading it unset on another type errors (conservative assumption, not established for every member)
 --accessors: member -> {read = function(object), write = function(object, value)}; such members never live in the table, so every read and write reaches them
@@ -940,7 +946,17 @@ function H.new_world(shape)
             world.handlers.nth_ticks[period] = handler
         end,
     }, SCRIPT_MEMBERS)
-    _G.settings = {get_player_settings = function() return {["hxrrc-displayed-floating-point-precision"] = {value = 12}} end}
+    local player_setting_values = {["hxrrc-displayed-floating-point-precision"] = {value = 12}}
+    local startup_setting_values = { ["hxrrc-startup-test"] = {value = true}, ["hxrrc-startup-count"] = {value = 7} }
+    local function settings_object(values)
+        local members = {}
+        for key in pairs(values) do members[#members + 1] = key end
+        return H.lua_object("settings", values, members)
+    end
+    _G.settings = {
+        get_player_settings = function() return settings_object(player_setting_values) end,
+        startup = settings_object(startup_setting_values),
+    }
 
     local machines = {}
     local beacons = {}
@@ -955,10 +971,13 @@ function H.new_world(shape)
         for name, _ in pairs(qualities) do qualities[name] = nil end
         local previous
         for index, spec in ipairs(specs) do
-            local next_probability = spec.next_probability or (index < #specs and 0.1 or 0)
+            --Engine (headless mock parity, round 48 D6): next_probability is 0.1 on 2.0 and 1 on 2.1 (0 on the last);
+            --beacon_power_usage_multiplier is (6 - level) / 6 on both.
+            local step = (shape == "2.1") and 1 or 0.1
+            local next_probability = spec.next_probability or (index < #specs and step or 0)
             local quality = H.lua_object("LuaQualityPrototype", {name = spec.name, valid = true, localised_name = {"quality-name." .. spec.name},
                 level = spec.level, next_probability = next_probability, crafting_machine_module_slots_bonus = spec.level,
-                beacon_module_slots_bonus = spec.level, beacon_power_usage_multiplier = 1, hidden = spec.hidden == true}, QUALITY_MEMBERS)
+                beacon_module_slots_bonus = spec.level, beacon_power_usage_multiplier = (6 - spec.level) / 6, hidden = spec.hidden == true}, QUALITY_MEMBERS)
             qualities[spec.name] = quality
             if previous then previous.next = quality end
             previous = quality
@@ -1059,14 +1078,14 @@ function H.new_world(shape)
 
     --The blueprint item itself, which set_stack{name = "blueprint"} needs to exist
     function world.add_blueprint_item()
-        world.add_item("blueprint")
+        world.add_item("blueprint", nil, nil, "blueprint")
         return prototypes.item.blueprint
     end
 
     --fuel (optional): {value (J), category, emissions_multiplier (default 1)}; items without it have fuel value 0 and no fuel category
     --spoil: {result = "<item name>", ticks = <number>}; absent means the item never spoils, as in vanilla
-    function world.add_item(name, fuel, spoil)
-        prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = "item", valid = true, localised_name = {"item-name." .. name},
+    function world.add_item(name, fuel, spoil, item_type)
+        prototypes.item[name] = H.lua_object("LuaItemPrototype", {name = name, type = item_type or "item", valid = true, localised_name = {"item-name." .. name},
             fuel_value = fuel and fuel.value or 0,
             fuel_category = shape ~= "2.1" and fuel and fuel.category or nil,
             fuel_categories = shape == "2.1" and (fuel and fuel.category and {fuel.category} or {}) or nil,
@@ -1411,7 +1430,7 @@ function H.new_world(shape)
 
     function world.add_player(index, research_bonus_by_recipe_name)
         world.research_bonus_by_recipe_name = research_bonus_by_recipe_name or {}
-        local force = H.lua_object("LuaForce", {name = "player", valid = true, recipes = {}, players = {},
+        local force = H.lua_object("LuaForce", {name = "player", valid = true, recipes = H.custom_table({}), players = {},
             inserter_stack_size_bonus = world.inserter_stack_size_bonus or 0,
             bulk_inserter_capacity_bonus = world.bulk_inserter_capacity_bonus or 0,
             --takes a quality name or prototype, as QualityID does

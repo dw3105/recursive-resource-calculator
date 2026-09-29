@@ -1,0 +1,63 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-ore",
+   "tile": [
+    0,
+    6
+   ]
+  },
+  {
+   "item": "calcite",
+   "tile": [
+    0,
+    10
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    20
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 15,
+  "inserter_stack_size_bonus": 19,
+  "research": {
+   "casting-steel": 1.2000000476837158,
+   "plastic-bar": 1.2000000476837158
+  }
+ },
+ "inputs": {
+  "item/calcite": 0.017777777777777778,
+  "item/copper-ore": 0.4444444444444444,
+  "item/iron-ore": 0.4444444444444444
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "automation-science-pack"
+   ],
+   "tile": [
+    22,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/automation-science-pack": 1.0
+ }
+}

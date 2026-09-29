@@ -1,0 +1,48 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-plate",
+   "tile": [
+    0,
+    8
+   ]
+  },
+  {
+   "item": "iron-plate",
+   "tile": [
+    0,
+    42
+   ]
+  }
+ ],
+ "force": {},
+ "inputs": {
+  "item/copper-plate": 1.5,
+  "item/iron-plate": 5.5
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "logistic-science-pack"
+   ],
+   "tile": [
+    13,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/logistic-science-pack": 1.0
+ }
+}

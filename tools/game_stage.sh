@@ -22,6 +22,62 @@ done
 for d in gui locale logic; do cp -r "$ROOT/$d" "$MOD/"; done
 cp -r "$ROOT/tests/game" "$MOD/tests/"
 rm -f "$MOD/tests/game/offline.lua"
+# Twins (round 48, docs/twins.md): data files plus a static index, because the engine cannot list a directory.
+cp -r "$ROOT/tests/twins" "$MOD/tests/"
+# Shard I/N also cuts the twin list (twins I, I+N, ...), so one shard never carries all of them.
+(cd "$ROOT" && find tests/twins -name '*.lua' -not -path '*/lib/*' -not -name required.lua -not -name index.lua | LC_ALL=C sort) |
+  awk -v shard="${RRC_SHARD:-}" 'BEGIN { split(shard, s, "/") } shard == "" || (NR - 1) % s[2] == s[1] - 1' |
+  sed 's#\.lua$##; s#/#.#g; s#.*#    "&",#' | { echo "return {"; cat; echo "}"; } > "$MOD/tests/twins/index.lua"
+# Sheet sims (round 48 D7): each tests/fixtures/sheets/<case>.bp.txt + .ports.json becomes one module, plus an index.
+python3 - "$ROOT/tests/fixtures/sheets" "$MOD/tests/game/fixtures" <<'PY'
+import os, sys
+src, out = sys.argv[1:]
+os.makedirs(out, exist_ok=True)
+cases = sorted(f[:-7] for f in os.listdir(src) if f.endswith(".bp.txt")) if os.path.isdir(src) else []
+def long(text):
+    level = "=="
+    while "]" + level + "]" in text: level += "="
+    return "[" + level + "[" + text + "]" + level + "]"
+for c in cases:
+    bp = open(os.path.join(src, c + ".bp.txt")).read().strip()
+    ports = open(os.path.join(src, c + ".ports.json")).read()
+    open(os.path.join(out, "sheet_" + c.replace("-", "_").replace(".", "_") + ".lua"), "w").write(
+        "return {bp = " + long(bp) + ", ports = " + long(ports) + "}\n")
+rows = "".join('    {case = "%s", profile = "%s"},\n' % (c, "player" if c.startswith("player-") else "vanilla") for c in cases)
+open(os.path.join(out, "sheets_index.lua"), "w").write("return {\n" + rows + "}\n")
+PY
+# Engine facts (round 48 I4): compact per-profile catalog facts (path, value; the fixture list stays in the repo),
+# constants and mock members, each as one module.
+python3 - "$ROOT/tests/fixtures/engine_facts" "$MOD/tests/game/fixtures" <<'PY'
+import os, sys
+src, out = sys.argv[1:]
+def long(text):
+    level = "=="
+    while "]" + level + "]" in text: level += "="
+    return "[" + level + "[" + text + "]" + level + "]"
+if os.path.isdir(src):
+    rows = {}
+    for line in open(os.path.join(src, "catalog_facts.tsv")):
+        parts = line.rstrip("\n").split("\t")
+        if len(parts) >= 3:
+            rows.setdefault(parts[0], set()).add(parts[1] + "\t" + parts[2])
+    for profile, lines in rows.items():
+        open(os.path.join(out, "facts_" + profile + ".lua"), "w").write("return " + long("\n".join(sorted(lines))) + "\n")
+    for name in ("constants", "mock_members"):
+        open(os.path.join(out, name + ".lua"), "w").write("return " + long(open(os.path.join(src, name + ".json")).read()) + "\n")
+PY
+# Shard I/N: keep test files I, I+N, ... of tests/game/index.lua (game_test.sh --shard).
+if [ -n "${RRC_SHARD:-}" ]; then
+  python3 - "$MOD/tests/game/index.lua" "$RRC_SHARD" <<'PY'
+import re, sys
+path, shard = sys.argv[1:]
+i, n = (int(x) for x in shard.split("/"))
+text = open(path).read()
+names = re.findall(r'"(tests\.game\.[a-z0-9_]+)"', text)
+keep = [m for k, m in enumerate(names) if k % n == i - 1 or m == "tests.game.test_twins"]
+open(path, "w").write("return {\n" + "".join(f'    "{m}",\n' for m in keep) + "}\n")
+PY
+fi
 SHA=$(cd "$ROOT" && git rev-parse HEAD)
 cat > "$MOD/logic/build_id.lua" <<LUA
 return {candidate_sha = "$SHA", mod_version = "$VER", factorio_branch = "$FV", packaged = true}

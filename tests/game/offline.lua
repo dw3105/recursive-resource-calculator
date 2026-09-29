@@ -34,48 +34,7 @@ for line in (read("tests/game/fixtures.txt") or ""):gmatch("[^\n]+") do
 end
 
 --A small vanilla-named world: the names the game tests type into a sheet exist here too.
-local world = H.new_world(os.getenv("RRC_SHAPE") or "2.0")
-world.add_item("iron-plate")
-world.add_item("copper-plate")
-world.add_item("iron-gear-wheel")
-world.add_item("automation-science-pack")
-world.add_item("coal", {value = 4e6, category = "chemical"})
-world.add_machine({name = "assembling-machine-1", categories = {"crafting"}, speed = 0.5, module_slots = 0})  -- vanilla: no slots (headless, round 42)
-world.add_machine({name = "assembling-machine-2", categories = {"crafting"}, speed = 0.75, module_slots = 2})
-world.add_recipe({name = "iron-gear-wheel", category = "crafting", energy = 0.5,
-    ingredients = {{name = "iron-plate", amount = 2}}, products = {{name = "iron-gear-wheel", amount = 1}}})
-world.add_recipe({name = "automation-science-pack", category = "crafting", energy = 5,
-    ingredients = {{name = "copper-plate", amount = 1}, {name = "iron-gear-wheel", amount = 1}},
-    products = {{name = "automation-science-pack", amount = 1}}})
---Green science chain, modules and a beacon: what the lane test files type or pick in the real game.
-world.add_item("copper-cable")
-world.add_item("electronic-circuit")
-world.add_item("logistic-science-pack")
-world.add_recipe({name = "copper-cable", category = "crafting", energy = 0.5,
-    ingredients = {{name = "copper-plate", amount = 1}}, products = {{name = "copper-cable", amount = 2}}})
-world.add_recipe({name = "electronic-circuit", category = "crafting", energy = 0.5,
-    ingredients = {{name = "iron-plate", amount = 1}, {name = "copper-cable", amount = 3}},
-    products = {{name = "electronic-circuit", amount = 1}}})
-world.add_module("speed-module", "speed", {speed = 0.2})
-world.add_module("productivity-module", "productivity", {productivity = 0.04})
-world.add_beacon({name = "beacon"})
-world.add_default_infrastructure()
---Placing items of the default infrastructure, as vanilla has them (inserter and belt recipes need them).
-for _, name in ipairs({"transport-belt", "inserter"}) do
-    if not prototypes.item[name] then world.add_item(name) end
-end
-world.add_recipe({name = "inserter", category = "crafting", energy = 0.5,
-    ingredients = {{name = "electronic-circuit", amount = 1}, {name = "iron-gear-wheel", amount = 1}, {name = "iron-plate", amount = 1}},
-    products = {{name = "inserter", amount = 1}}})
-world.add_recipe({name = "transport-belt", category = "crafting", energy = 0.5,
-    ingredients = {{name = "iron-plate", amount = 1}, {name = "iron-gear-wheel", amount = 1}},
-    products = {{name = "transport-belt", amount = 2}}})
-world.add_recipe({name = "logistic-science-pack", category = "crafting", energy = 6,
-    ingredients = {{name = "inserter", amount = 1}, {name = "transport-belt", amount = 1}},
-    products = {{name = "logistic-science-pack", amount = 1}}})
-world.add_blueprint_item()
-world.add_player(1)
-world.init()
+local world = dofile("tests/game/lib/vanilla_world.lua")(H)
 
 --The staged copy is packaged (tools/game_stage.sh writes logic/build_id.lua), so rrc-engine-test registers there.
 package.loaded["logic.build_id"] = {candidate_sha = "offline", mod_version = "offline", factorio_branch = "2.0", packaged = true}

@@ -925,15 +925,31 @@ local function environment_of(player_index, references)
     local mod_settings = {}
     if rawget(_G, "settings") and settings.get_player_settings then
         local ok, player_settings = pcall(settings.get_player_settings, player_index)
-        if ok and type(player_settings) == "table" then
-            for name, setting in pairs(player_settings) do
-                if type(setting) == "table" and setting.value ~= nil then
-                    mod_settings[name] = copy_json(setting.value, nil, name)
-                else
-                    mod_settings[name] = copy_json(setting, nil, name)
+        if ok then
+            local copied, values = pcall(function()
+                local result = {}
+                for name, setting in pairs(player_settings) do
+                    if type(setting) == "table" and setting.value ~= nil then
+                        result[name] = copy_json(setting.value, nil, name)
+                    else
+                        result[name] = copy_json(setting, nil, name)
+                    end
+                end
+                return result
+            end)
+            if copied then mod_settings = values end
+        end
+    end
+
+    local startup_settings = {}
+    if rawget(_G, "settings") and settings.startup then
+        pcall(function()
+            for name, setting in pairs(settings.startup) do
+                if setting and setting.value ~= nil then
+                    startup_settings[name] = copy_json(setting.value, nil, name)
                 end
             end
-        end
+        end)
     end
 
     local research, quality_unlocks = {}, {}
@@ -962,6 +978,7 @@ local function environment_of(player_index, references)
         base_game_version = base_version,
         active_mods = active_mods,
         mod_settings = mod_settings,
+        startup_settings = startup_settings,
         force = {research = research, quality_unlocks = quality_unlocks,
             inserter_stack_size_bonus = force and force.inserter_stack_size_bonus or 0,
             bulk_inserter_capacity_bonus = force and force.bulk_inserter_capacity_bonus or 0},

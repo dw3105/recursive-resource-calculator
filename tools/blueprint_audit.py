@@ -475,11 +475,11 @@ def audit_transport_shapes(entities, pairs):
             if not source or source.get("name") not in BELTS | SPLITTERS: continue
             if source.get("direction", 0) not in VEC or VEC[source.get("direction", 0)] != (target[0]-feeder[0], target[1]-feeder[1]): continue
             side.append((feeder, target))
-            # A lane is the item's side relative to travel. Side-feeding lanes occupy the side nearest the inlet.
+            # Engine (headless 2.0.77 + 2.1.20, round 48 twins ug_sideload_north/south): a plain belt side-loading an
+            # underground entrance loses one of its two lanes to the hood from EITHER side (3.75 of 7.5 items/s).
+            # The old rule counted one side only.
             if source.get("name") in SPLITTERS: continue
-            sd = source.get("direction", 0); sv = VEC.get(sd)
-            if sv and (-sv[1], sv[0]) == (vx, vy):
-                blocked.append((feeder, target))
+            blocked.append((feeder, target))
     inputs = [e for e in entities if e.get("name") in UG_BELTS and e.get("type")=="input"]
     outputs = [e for e in entities if e.get("name") in UG_BELTS and e.get("type")=="output"]
     for out in outputs:

@@ -1,0 +1,130 @@
+#path	class	profile	why  (round 48 D1; classes twin|catalog|sheet|algo|double|player-rule|facts; profile player|vanilla|-)
+tests/acceptance/beacon_chain_case.lua	sheet	vanilla	acceptance chain; built and run in D7
+tests/acceptance/fluid_chain_case.lua	sheet	vanilla	acceptance chain; built and run in D7
+tests/acceptance/gate_digest_case.lua	sheet	vanilla	acceptance chain; built and run in D7
+tests/acceptance/item_chain_case.lua	sheet	vanilla	acceptance chain; built and run in D7
+tests/acceptance/red_science_case.lua	sheet	vanilla	acceptance chain; built and run in D7
+tests/export_golden/expected.json	catalog	vanilla	authored export payload; shape compared with a headless export
+tests/export_golden/fixture.json	catalog	vanilla	authored export payload; shape compared with a headless export
+tests/export_golden/negative_controls.json	catalog	vanilla	authored export payload; shape compared with a headless export
+tests/fixtures/blueprints/round18_inverted_inserters.txt	sheet	player	delivered blueprint; built and run in D7
+tests/fixtures/blueprints/round20_delivered.txt	sheet	player	delivered blueprint; built and run in D7
+tests/fixtures/blueprints/round22_v5.txt	sheet	player	delivered blueprint; built and run in D7
+tests/fixtures/bytes_round30.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round31.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round32.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round33.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round34.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round35.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round36.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round37.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round38.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round39.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round40.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round41.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round43.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round45.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/bytes_round47.txt	sheet	player	bytes baseline (sha per gated sheet); I3 checks sha of stored bp strings
+tests/fixtures/engine/roboport-cell.json	catalog	vanilla	engine observation of roboport spacing; re-measured headless
+tests/fixtures/groups_am2.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/groups_gray_magenta.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/groups_ins10s_bulk.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/groups_ins_stack1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/groups_red1s_foundry.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/pack_base_green.txt	algo	-	pack output lines, no engine meaning
+tests/fixtures/pack_base_red.txt	algo	-	pack output lines, no engine meaning
+tests/fixtures/player_red10s_fix.txt	sheet	player	delivered blueprint; built and run in D7
+tests/fixtures/route_gray_magenta.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_gray_magenta_154.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_ins10s_bulk_call4.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_ins10s_call1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_red10s_attempt1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_red10s_call2.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_red10s_edge_split_call1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_red10s_final.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_red10s_stack1_call1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_red10s_stack1_call2.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_red10s_twin_call3.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/route_snaps/gray_magenta_154_fail2.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/gray_magenta_154_fail3.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/gray_magenta_154_fail4.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/gray_magenta_154_molten_iron.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/gray_magenta_154_piercing.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/gray_magenta_154_plastic.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/gray_magenta_154_stone.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/gray_magenta_54_furnace.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/green_tidy.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/ins10_tidy2.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/r46_digests.txt	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/stack1_restart27.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/route_snaps/stack1_validate_candidate.lua.gz	algo	-	route checkpoint state, no engine meaning; covered by sheet sims
+tests/fixtures/routing/player_chain_first_candidate.lua	algo	-	frozen Route.begin input from harness
+tests/fixtures/row_block.lua	sheet	vanilla	hand-built science row; built and run in D7
+tests/fixtures/search_doubles.lua	double	-	stage doubles, no engine meaning
+tests/fixtures/validate/item_chain_first.lua	catalog	vanilla	frozen Validate input from harness capture
+tests/fixtures/validate_ins10s_bulk_stub.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/validate_ins10s_v3_chain.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/validate_inserter10s_attempt1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/validate_red10s_attempt1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/validate_red10s_bulk_c1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/validate_red10s_collector.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/validate_red10s_v1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/fixtures/validate_red_green_r40_c1.json	catalog	player	stage input dumped from a player sheet; catalog facts compared, stage state is algo
+tests/game/expected/player-red-science-1s-bulk.txt	sheet	player	headless parity expectation (already engine-run)
+tests/game/expected/player-red-science-1s-foundry.txt	sheet	player	headless parity expectation (already engine-run)
+tests/game/expected/player-red-science-1s.txt	sheet	player	headless parity expectation (already engine-run)
+tests/golden/cases/assembler-chain-example/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
+tests/golden/cases/base-only-crafting-smelting/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
+tests/golden/cases/fluid-byproduct-chain/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
+tests/golden/cases/player-am2-chain-repaired/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-blue-science-10s/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-green-science-1s/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-inserter-10s-bulk/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-inserter-10s-stack1/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-inserter-10s/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-red-green-science-10s/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-red-science-10s-bulk/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-red-science-10s-stack1/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-red-science-10s/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-red-science-1s-bulk/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-red-science-1s-foundry/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/player-red-science-1s/prepared_input.json	catalog	player	captured from player game
+tests/golden/cases/repeatability/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
+tests/golden/cases/shared-intermediate-multi-target/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
+tests/fixtures/engine_facts/catalog_conflicts.tsv	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/engine_facts/catalog_facts.tsv	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/engine_facts/constants.json	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/engine_facts/mock_members.json	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/sheets/player-red-science-1s-foundry.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-1s-foundry.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-am2-chain-repaired.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-am2-chain-repaired.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-blue-science-10s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-blue-science-10s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-green-science-1s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-green-science-1s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-inserter-10s-bulk.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-inserter-10s-bulk.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-inserter-10s-stack1.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-inserter-10s-stack1.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-inserter-10s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-inserter-10s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-green-science-10s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-green-science-10s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-10s-bulk.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-10s-bulk.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-10s-stack1.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-10s-stack1.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-10s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-10s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-1s-bulk.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-1s-bulk.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-1s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-1s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/vanilla-2.1-green-science-1s.bp.txt	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
+tests/fixtures/sheets/vanilla-2.1-green-science-1s.ports.json	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
+tests/fixtures/sheets/vanilla-2.1-red-science-1s.bp.txt	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
+tests/fixtures/sheets/vanilla-2.1-red-science-1s.ports.json	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
+tests/fixtures/bytes_round49.txt	sheet	player	bytes baseline (sha per gated sheet)
+tests/golden/cases/player-magenta-science-10s/prepared_input.json	catalog	player	captured from player game
+tests/fixtures/bytes_round48.txt	sheet	player	bytes baseline round 48 (13 gated sheets, final int/r48 tree; gray-magenta case dropped by the player)
