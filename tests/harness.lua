@@ -940,7 +940,17 @@ function H.new_world(shape)
             world.handlers.nth_ticks[period] = handler
         end,
     }, SCRIPT_MEMBERS)
-    _G.settings = {get_player_settings = function() return {["hxrrc-displayed-floating-point-precision"] = {value = 12}} end}
+    local player_setting_values = {["hxrrc-displayed-floating-point-precision"] = {value = 12}}
+    local startup_setting_values = { ["hxrrc-startup-test"] = {value = true}, ["hxrrc-startup-count"] = {value = 7} }
+    local function settings_object(values)
+        local members = {}
+        for key in pairs(values) do members[#members + 1] = key end
+        return H.lua_object("settings", values, members)
+    end
+    _G.settings = {
+        get_player_settings = function() return settings_object(player_setting_values) end,
+        startup = settings_object(startup_setting_values),
+    }
 
     local machines = {}
     local beacons = {}
