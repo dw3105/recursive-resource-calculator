@@ -44,12 +44,12 @@
       "inserter": {
         "collision_box": {
           "left_top": {
-            "x": -0.45,
-            "y": -0.45
+            "x": -0.1484375,
+            "y": -0.1484375
           },
           "right_bottom": {
-            "x": 0.45,
-            "y": 0.45
+            "x": 0.1484375,
+            "y": 0.1484375
           }
         },
         "collision_mask": {
@@ -59,7 +59,7 @@
             "water_tile": true
           }
         },
-        "energy_usage_w": 13000,
+        "energy_usage_w": 14700.000000000002,
         "etype": "inserter",
         "flags": {
           "player-creation": true
@@ -75,12 +75,12 @@
       "medium-electric-pole": {
         "collision_box": {
           "left_top": {
-            "x": -0.45,
-            "y": -0.45
+            "x": -0.1484375,
+            "y": -0.1484375
           },
           "right_bottom": {
-            "x": 0.45,
-            "y": 0.45
+            "x": 0.1484375,
+            "y": 0.1484375
           }
         },
         "collision_mask": {
@@ -106,12 +106,12 @@
       "pipe": {
         "collision_box": {
           "left_top": {
-            "x": -0.45,
-            "y": -0.45
+            "x": -0.2890625,
+            "y": -0.2890625
           },
           "right_bottom": {
-            "x": 0.45,
-            "y": 0.45
+            "x": 0.2890625,
+            "y": 0.2890625
           }
         },
         "collision_mask": {
@@ -136,18 +136,18 @@
                 "positions": [
                   {
                     "x": 0,
-                    "y": -1
-                  },
-                  {
-                    "x": 1,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": 1
+                    "y": 0
                   },
                   {
-                    "x": -1,
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 0,
                     "y": 0
                   }
                 ]
@@ -158,20 +158,20 @@
                 "flow_direction": "input-output",
                 "positions": [
                   {
-                    "x": 1,
+                    "x": 0,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": 1
-                  },
-                  {
-                    "x": -1,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": -1
+                    "y": 0
+                  },
+                  {
+                    "x": 0,
+                    "y": 0
                   }
                 ]
               },
@@ -182,18 +182,18 @@
                 "positions": [
                   {
                     "x": 0,
-                    "y": 1
-                  },
-                  {
-                    "x": -1,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": -1
+                    "y": 0
                   },
                   {
-                    "x": 1,
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 0,
                     "y": 0
                   }
                 ]
@@ -204,26 +204,26 @@
                 "flow_direction": "input-output",
                 "positions": [
                   {
-                    "x": -1,
+                    "x": 0,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": -1
-                  },
-                  {
-                    "x": 1,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": 1
+                    "y": 0
+                  },
+                  {
+                    "x": 0,
+                    "y": 0
                   }
                 ]
               }
             ],
             "index": 1,
-            "production_type": "input-output",
+            "production_type": "none",
             "volume": 100
           }
         ],
@@ -237,18 +237,16 @@
       "pipe-to-ground": {
         "collision_box": {
           "left_top": {
-            "x": -0.45,
-            "y": -0.45
+            "x": -0.2890625,
+            "y": -0.2890625
           },
           "right_bottom": {
-            "x": 0.45,
-            "y": 0.45
+            "x": 0.2890625,
+            "y": 0.19921875
           }
         },
         "collision_mask": {
           "layers": {
-            "object": true,
-            "player": true,
             "water_tile": true
           }
         },
@@ -267,18 +265,18 @@
                 "positions": [
                   {
                     "x": 0,
-                    "y": -1
-                  },
-                  {
-                    "x": 1,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": 1
+                    "y": 0
                   },
                   {
-                    "x": -1,
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 0,
                     "y": 0
                   }
                 ]
@@ -291,25 +289,25 @@
                 "positions": [
                   {
                     "x": 0,
-                    "y": 1
-                  },
-                  {
-                    "x": -1,
                     "y": 0
                   },
                   {
                     "x": 0,
-                    "y": -1
+                    "y": 0
                   },
                   {
-                    "x": 1,
+                    "x": 0,
+                    "y": 0
+                  },
+                  {
+                    "x": 0,
                     "y": 0
                   }
                 ]
               }
             ],
             "index": 1,
-            "production_type": "input-output",
+            "production_type": "none",
             "volume": 100
           }
         ],
@@ -323,12 +321,12 @@
       "roboport": {
         "collision_box": {
           "left_top": {
-            "x": -1.95,
-            "y": -1.95
+            "x": -1.69921875,
+            "y": -1.69921875
           },
           "right_bottom": {
-            "x": 1.95,
-            "y": 1.95
+            "x": 1.69921875,
+            "y": 1.69921875
           }
         },
         "collision_mask": {
@@ -338,7 +336,7 @@
             "water_tile": true
           }
         },
-        "energy_usage_w": 50000,
+        "energy_usage_w": 2050000.0000000002,
         "etype": "roboport",
         "flags": {
           "player-creation": true
@@ -354,18 +352,17 @@
       "splitter": {
         "collision_box": {
           "left_top": {
-            "x": -0.95,
-            "y": -0.45
+            "x": -0.8984375,
+            "y": -0.3984375
           },
           "right_bottom": {
-            "x": 0.95,
-            "y": 0.45
+            "x": 0.8984375,
+            "y": 0.3984375
           }
         },
         "collision_mask": {
           "layers": {
             "object": true,
-            "player": true,
             "water_tile": true
           }
         },
@@ -385,18 +382,17 @@
       "transport-belt": {
         "collision_box": {
           "left_top": {
-            "x": -0.45,
-            "y": -0.45
+            "x": -0.3984375,
+            "y": -0.3984375
           },
           "right_bottom": {
-            "x": 0.45,
-            "y": 0.45
+            "x": 0.3984375,
+            "y": 0.3984375
           }
         },
         "collision_mask": {
           "layers": {
             "object": true,
-            "player": true,
             "water_tile": true
           }
         },
@@ -416,18 +412,17 @@
       "underground-belt": {
         "collision_box": {
           "left_top": {
-            "x": -0.45,
-            "y": -0.45
+            "x": -0.3984375,
+            "y": -0.3984375
           },
           "right_bottom": {
-            "x": 0.45,
-            "y": 0.45
+            "x": 0.3984375,
+            "y": 0.3984375
           }
         },
         "collision_mask": {
           "layers": {
             "object": true,
-            "player": true,
             "water_tile": true
           }
         },

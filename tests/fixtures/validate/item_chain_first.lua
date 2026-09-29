@@ -8358,12 +8358,12 @@ return {
             inserter = {
                 collision_box = {
                     left_top = {
-                        x = -0.45000000000000001,
-                        y = -0.45000000000000001,
+                        x = -0.1484375,
+                        y = -0.1484375,
                     },
                     right_bottom = {
-                        x = 0.45000000000000001,
-                        y = 0.45000000000000001,
+                        x = 0.1484375,
+                        y = 0.1484375,
                     },
                 },
                 collision_mask = {
@@ -8373,7 +8373,7 @@ return {
                         water_tile = true,
                     },
                 },
-                energy_usage_w = 13000,
+                energy_usage_w = 14700.000000000002,
                 etype = "inserter",
                 flags = {
                     ["player-creation"] = true,
@@ -8389,12 +8389,12 @@ return {
             ["medium-electric-pole"] = {
                 collision_box = {
                     left_top = {
-                        x = -0.45000000000000001,
-                        y = -0.45000000000000001,
+                        x = -0.1484375,
+                        y = -0.1484375,
                     },
                     right_bottom = {
-                        x = 0.45000000000000001,
-                        y = 0.45000000000000001,
+                        x = 0.1484375,
+                        y = 0.1484375,
                     },
                 },
                 collision_mask = {
@@ -8420,12 +8420,12 @@ return {
             pipe = {
                 collision_box = {
                     left_top = {
-                        x = -0.45000000000000001,
-                        y = -0.45000000000000001,
+                        x = -0.2890625,
+                        y = -0.2890625,
                     },
                     right_bottom = {
-                        x = 0.45000000000000001,
-                        y = 0.45000000000000001,
+                        x = 0.2890625,
+                        y = 0.2890625,
                     },
                 },
                 collision_mask = {
@@ -8450,18 +8450,18 @@ return {
                                 positions = {
                                     {
                                         x = 0,
-                                        y = -1,
-                                    },
-                                    {
-                                        x = 1,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = 1,
+                                        y = 0,
                                     },
                                     {
-                                        x = -1,
+                                        x = 0,
+                                        y = 0,
+                                    },
+                                    {
+                                        x = 0,
                                         y = 0,
                                     },
                                 },
@@ -8472,20 +8472,20 @@ return {
                                 flow_direction = "input-output",
                                 positions = {
                                     {
-                                        x = 1,
+                                        x = 0,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = 1,
-                                    },
-                                    {
-                                        x = -1,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = -1,
+                                        y = 0,
+                                    },
+                                    {
+                                        x = 0,
+                                        y = 0,
                                     },
                                 },
                             },
@@ -8496,18 +8496,18 @@ return {
                                 positions = {
                                     {
                                         x = 0,
-                                        y = 1,
-                                    },
-                                    {
-                                        x = -1,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = -1,
+                                        y = 0,
                                     },
                                     {
-                                        x = 1,
+                                        x = 0,
+                                        y = 0,
+                                    },
+                                    {
+                                        x = 0,
                                         y = 0,
                                     },
                                 },
@@ -8518,26 +8518,26 @@ return {
                                 flow_direction = "input-output",
                                 positions = {
                                     {
-                                        x = -1,
+                                        x = 0,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = -1,
-                                    },
-                                    {
-                                        x = 1,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = 1,
+                                        y = 0,
+                                    },
+                                    {
+                                        x = 0,
+                                        y = 0,
                                     },
                                 },
                             },
                         },
                         index = 1,
-                        production_type = "input-output",
+                        production_type = "none",
                         volume = 100,
                     },
                 },
@@ -8551,18 +8551,16 @@ return {
             ["pipe-to-ground"] = {
                 collision_box = {
                     left_top = {
-                        x = -0.45000000000000001,
-                        y = -0.45000000000000001,
+                        x = -0.2890625,
+                        y = -0.2890625,
                     },
                     right_bottom = {
-                        x = 0.45000000000000001,
-                        y = 0.45000000000000001,
+                        x = 0.2890625,
+                        y = 0.19921875,
                     },
                 },
                 collision_mask = {
                     layers = {
-                        object = true,
-                        player = true,
                         water_tile = true,
                     },
                 },
@@ -8581,18 +8579,18 @@ return {
                                 positions = {
                                     {
                                         x = 0,
-                                        y = -1,
-                                    },
-                                    {
-                                        x = 1,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = 1,
+                                        y = 0,
                                     },
                                     {
-                                        x = -1,
+                                        x = 0,
+                                        y = 0,
+                                    },
+                                    {
+                                        x = 0,
                                         y = 0,
                                     },
                                 },
@@ -8605,25 +8603,25 @@ return {
                                 positions = {
                                     {
                                         x = 0,
-                                        y = 1,
-                                    },
-                                    {
-                                        x = -1,
                                         y = 0,
                                     },
                                     {
                                         x = 0,
-                                        y = -1,
+                                        y = 0,
                                     },
                                     {
-                                        x = 1,
+                                        x = 0,
+                                        y = 0,
+                                    },
+                                    {
+                                        x = 0,
                                         y = 0,
                                     },
                                 },
                             },
                         },
                         index = 1,
-                        production_type = "input-output",
+                        production_type = "none",
                         volume = 100,
                     },
                 },
@@ -8648,12 +8646,12 @@ return {
             roboport = {
                 collision_box = {
                     left_top = {
-                        x = -1.95,
-                        y = -1.95,
+                        x = -1.69921875,
+                        y = -1.69921875,
                     },
                     right_bottom = {
-                        x = 1.95,
-                        y = 1.95,
+                        x = 1.69921875,
+                        y = 1.69921875,
                     },
                 },
                 collision_mask = {
@@ -8663,7 +8661,7 @@ return {
                         water_tile = true,
                     },
                 },
-                energy_usage_w = 50000,
+                energy_usage_w = 2050000.0000000002,
                 etype = "roboport",
                 flags = {
                     ["player-creation"] = true,
@@ -8679,18 +8677,17 @@ return {
             splitter = {
                 collision_box = {
                     left_top = {
-                        x = -0.94999999999999996,
-                        y = -0.45000000000000001,
+                        x = -0.8984375,
+                        y = -0.3984375,
                     },
                     right_bottom = {
-                        x = 0.94999999999999996,
-                        y = 0.45000000000000001,
+                        x = 0.8984375,
+                        y = 0.3984375,
                     },
                 },
                 collision_mask = {
                     layers = {
                         object = true,
-                        player = true,
                         water_tile = true,
                     },
                 },
@@ -8710,18 +8707,17 @@ return {
             ["transport-belt"] = {
                 collision_box = {
                     left_top = {
-                        x = -0.45000000000000001,
-                        y = -0.45000000000000001,
+                        x = -0.3984375,
+                        y = -0.3984375,
                     },
                     right_bottom = {
-                        x = 0.45000000000000001,
-                        y = 0.45000000000000001,
+                        x = 0.3984375,
+                        y = 0.3984375,
                     },
                 },
                 collision_mask = {
                     layers = {
                         object = true,
-                        player = true,
                         water_tile = true,
                     },
                 },
@@ -8741,18 +8737,17 @@ return {
             ["underground-belt"] = {
                 collision_box = {
                     left_top = {
-                        x = -0.45000000000000001,
-                        y = -0.45000000000000001,
+                        x = -0.3984375,
+                        y = -0.3984375,
                     },
                     right_bottom = {
-                        x = 0.45000000000000001,
-                        y = 0.45000000000000001,
+                        x = 0.3984375,
+                        y = 0.3984375,
                     },
                 },
                 collision_mask = {
                     layers = {
                         object = true,
-                        player = true,
                         water_tile = true,
                     },
                 },
