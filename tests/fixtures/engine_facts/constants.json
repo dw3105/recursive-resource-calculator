@@ -1,0 +1,554 @@
+[
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 43,
+    "name": "SIZE.assembling-machine-1",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "assembling-machine-1"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 43,
+    "name": "SIZE.assembling-machine-2",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "assembling-machine-2"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 43,
+    "name": "SIZE.assembling-machine-3",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "assembling-machine-3"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 44,
+    "name": "SIZE.electromagnetic-plant",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "electromagnetic-plant"
+    },
+    "value": 4
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 44,
+    "name": "SIZE.electric-furnace",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "electric-furnace"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 44,
+    "name": "SIZE.steel-furnace",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "steel-furnace"
+    },
+    "value": 2
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 44,
+    "name": "SIZE.stone-furnace",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "stone-furnace"
+    },
+    "value": 2
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 45,
+    "name": "SIZE.foundry",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "foundry"
+    },
+    "value": 5
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 45,
+    "name": "SIZE.biochamber",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "biochamber"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 45,
+    "name": "SIZE.chemical-plant",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "chemical-plant"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 45,
+    "name": "SIZE.oil-refinery",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "oil-refinery"
+    },
+    "value": 5
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 45,
+    "name": "SIZE.centrifuge",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "centrifuge"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 46,
+    "name": "SIZE.cryogenic-plant",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "cryogenic-plant"
+    },
+    "value": 5
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 46,
+    "name": "SIZE.rocket-silo",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "rocket-silo"
+    },
+    "value": 9
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 46,
+    "name": "SIZE.lab",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "lab"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 46,
+    "name": "SIZE.beacon",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "beacon"
+    },
+    "value": 3
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 46,
+    "name": "SIZE.roboport",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "roboport"
+    },
+    "value": 4
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 47,
+    "name": "SIZE.big-electric-pole",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "big-electric-pole"
+    },
+    "value": 2
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 47,
+    "name": "SIZE.substation",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "substation"
+    },
+    "value": 2
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 50,
+    "name": "SIZE.smelting-plant",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "smelting-plant"
+    },
+    "value": 4
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 50,
+    "name": "SIZE.machining-assembler",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "machining-assembler"
+    },
+    "value": 5
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 67,
+    "name": "UG_REACH.underground-belt",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "underground-belt"
+    },
+    "value": 5
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 67,
+    "name": "UG_REACH.fast-underground-belt",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "fast-underground-belt"
+    },
+    "value": 7
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 67,
+    "name": "UG_REACH.express-underground-belt",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "express-underground-belt"
+    },
+    "value": 9
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 68,
+    "name": "UG_REACH.turbo-underground-belt",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "turbo-underground-belt"
+    },
+    "value": 11
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 68,
+    "name": "UG_REACH.pipe-to-ground",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "pipe-to-ground"
+    },
+    "value": 10
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 70,
+    "name": "BEACON_SUPPLY_DISTANCE",
+    "probe": {
+      "expect": "equal",
+      "field": "supply_area_distance",
+      "kind": "entity",
+      "name": "beacon"
+    },
+    "value": 3.0
+  },
+  {
+    "file": "tools/blueprint_audit.py",
+    "line": 223,
+    "name": "long_handed_reach",
+    "probe": {
+      "expect": "offset_distance",
+      "field": "inserter_pickup_position",
+      "kind": "entity",
+      "name": "long-handed-inserter"
+    },
+    "value": 2
+  },
+  {
+    "file": "tools/lane_sim.py",
+    "line": 25,
+    "name": "SIZE_FALLBACK.foundry",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "foundry"
+    },
+    "value": 5
+  },
+  {
+    "file": "tools/lane_sim.py",
+    "line": 25,
+    "name": "SIZE_FALLBACK.electromagnetic-plant",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "electromagnetic-plant"
+    },
+    "value": 4
+  },
+  {
+    "file": "tools/lane_sim.py",
+    "line": 25,
+    "name": "SIZE_FALLBACK.roboport",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "roboport"
+    },
+    "value": 4
+  },
+  {
+    "file": "tools/lane_sim.py",
+    "line": 25,
+    "name": "SIZE_FALLBACK.beacon",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "beacon"
+    },
+    "value": 3
+  },
+  {
+    "file": "logic/bp/validate.lua",
+    "line": 1078,
+    "name": "beacon_size_fallback",
+    "probe": {
+      "expect": "tile_size",
+      "field": "tile_width",
+      "kind": "entity",
+      "name": "beacon"
+    },
+    "value": 3
+  },
+  {
+    "file": "logic/bp/validate.lua",
+    "line": 1511,
+    "name": "long_hand_offset_multiplier",
+    "probe": {
+      "expect": "offset_distance",
+      "field": "inserter_pickup_position",
+      "kind": "entity",
+      "name": "long-handed-inserter"
+    },
+    "value": 2
+  },
+  {
+    "file": "logic/bp/validate.lua",
+    "line": 1802,
+    "name": "underground_belt_default_reach",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "underground-belt"
+    },
+    "value": 5
+  },
+  {
+    "file": "logic/bp/validate.lua",
+    "line": 1802,
+    "name": "fast_underground_belt_default_reach",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "fast-underground-belt"
+    },
+    "value": 7
+  },
+  {
+    "file": "logic/bp/validate.lua",
+    "line": 1802,
+    "name": "express_underground_belt_default_reach",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "express-underground-belt"
+    },
+    "value": 9
+  },
+  {
+    "file": "logic/bp/validate.lua",
+    "line": 1802,
+    "name": "turbo_underground_belt_default_reach",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "turbo-underground-belt"
+    },
+    "value": 11
+  },
+  {
+    "file": "logic/bp/validate.lua",
+    "line": 1802,
+    "name": "pipe_to_ground_default_reach",
+    "probe": {
+      "expect": "equal",
+      "field": "max_underground_distance",
+      "kind": "entity",
+      "name": "pipe-to-ground"
+    },
+    "value": 5
+  },
+  {
+    "file": "logic/bp/groups.lua",
+    "line": 233,
+    "name": "beacon_supply_fallback",
+    "probe": {
+      "expect": "equal",
+      "field": "supply_area_distance",
+      "kind": "entity",
+      "name": "beacon"
+    },
+    "value": 3
+  },
+  {
+    "file": "logic/catalog.lua",
+    "line": 38,
+    "name": "INSERTER_RATE_K",
+    "probe": {
+      "expect": "equal",
+      "field": "get_inserter_rotation_speed",
+      "kind": "entity",
+      "name": "inserter"
+    },
+    "value": "2.31 / (60 * 0.04)"
+  },
+  {
+    "file": "logic/catalog.lua",
+    "line": 41,
+    "name": "BELT_PICKUP_FACTOR",
+    "probe": {
+      "expect": "equal",
+      "field": "belt_speed",
+      "kind": "entity",
+      "name": "transport-belt"
+    },
+    "value": 1
+  },
+  {
+    "file": "logic/catalog.lua",
+    "line": 721,
+    "name": "stack_max_default",
+    "probe": {
+      "expect": "equal",
+      "field": "inserter_max_belt_stack_size",
+      "kind": "entity",
+      "name": "inserter"
+    },
+    "value": 4
+  },
+  {
+    "file": "logic/catalog.lua",
+    "line": 728,
+    "name": "lane_capacity_half",
+    "probe": {
+      "expect": "half",
+      "field": "belt_speed",
+      "kind": "entity",
+      "name": "transport-belt"
+    },
+    "value": 2
+  },
+  {
+    "file": "logic/catalog.lua",
+    "line": 792,
+    "name": "default_inserter_speed",
+    "probe": {
+      "expect": "equal",
+      "field": "get_inserter_rotation_speed",
+      "kind": "entity",
+      "name": "inserter"
+    },
+    "value": 4.62
+  },
+  {
+    "file": "logic/bp/belt.lua",
+    "line": 9,
+    "name": "stack_max_default",
+    "probe": {
+      "expect": "equal",
+      "field": "inserter_max_belt_stack_size",
+      "kind": "entity",
+      "name": "inserter"
+    },
+    "value": 4
+  }
+]
