@@ -13,6 +13,10 @@ done
 # Tooling regressions (the mutation runner's checkout selection and kill classification). Cheap, offline, no game:
 # a gate nobody runs is not a gate, and these rules are what every later mutation batch is trusted on.
 python3 -m unittest discover -s tests/tools -p 'test_*.py' -t . || status=1
+# Top-level python tests sat outside discovery (round 48 B7: test_entity_names, test_lane_sim, test_prepared_from_export).
+for py_file in tests/test_*.py; do
+    python3 -m unittest "tests.$(basename "$py_file" .py)" || status=1
+done
 # No test loads the data stage: at least refuse a syntax error there (prototype schemas and graphics files stay in-game checks)
 for file in data.lua settings.lua; do
     luac5.2 -p "$file" || status=1
