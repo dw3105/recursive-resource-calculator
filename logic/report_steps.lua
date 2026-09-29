@@ -8,6 +8,7 @@ local Power = require "logic.compute_power_and_pollution"
 local QualityLoops = require "logic.quality_loops"
 
 local ReportSteps = {}
+ReportSteps.ROW_OPS = 200
 local parent_hints = {}
 
 local function copy_data(value, seen)
@@ -195,8 +196,8 @@ local function count_progress(state)
     state.progress.done_units = state.progress.done_units + 1
 end
 
-local function consume(budget)
-    budget.ops = budget.ops - 1
+local function consume(budget, ops)
+    budget.ops = budget.ops - (ops or 1)
 end
 
 local function step_report_once(state, budget)
@@ -227,12 +228,12 @@ local function step_report_once(state, budget)
                         state.result.recipe_rates and state.result.recipe_rates[column.recipe_name], state.round_up_machines, reasons_for(state, column), parts)
                 end
                 state.cursor.column = state.cursor.column + 1
-                consume(budget)
+                consume(budget, ReportSteps.ROW_OPS)
                 count_progress(state)
                 return
             else
                 state.cursor.column = state.cursor.column + 1
-                consume(budget)
+                consume(budget, ReportSteps.ROW_OPS)
                 count_progress(state)
                 return
             end
@@ -261,20 +262,20 @@ local function step_report_once(state, budget)
                         state.cursor.column = state.cursor.column + 1
                     end
                 end
-                consume(budget)
+                consume(budget, ReportSteps.ROW_OPS)
                 count_progress(state)
                 return
             end
         elseif loop.phase == "assist" then
             Report.add_staged_quality_assist(report, column, loop.recipe_rate, state.round_up_machines, loop.solved)
             loop.phase = info.config and "pool" or "done"
-            consume(budget)
+            consume(budget, ReportSteps.ROW_OPS)
             count_progress(state)
             return
         elseif loop.phase == "pool" then
             Report.add_staged_quality_pool(report, column, loop.recipe_rate, state.round_up_machines, loop, loop.reason)
             loop.phase = "done"
-            consume(budget)
+            consume(budget, ReportSteps.ROW_OPS)
             count_progress(state)
             return
         end
@@ -299,7 +300,7 @@ local function step_report_once(state, budget)
             Report.add_staged_unsolved(report, name, state.result.unsolved_rates[name], parts, #loops > 0 and loops or nil)
         end
         state.cursor.unsolved = state.cursor.unsolved + 1
-        consume(budget)
+        consume(budget, ReportSteps.ROW_OPS)
         count_progress(state)
     end
 end

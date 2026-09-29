@@ -1,6 +1,41 @@
 --The modules chosen per recipe: how many slots a machine has, which modules fit, keeping stored setups valid, converting old saves,
 --and the signature a report cell keeps to recognise a setup that changed after the cell was built
 local ModuleSetup = {}
+local cached_root, module_facts, entity_facts, recipe_facts = nil, {}, {}, {}
+
+local function fresh_cache()
+    if cached_root ~= prototypes then
+        cached_root, module_facts, entity_facts, recipe_facts = prototypes, {}, {}, {}
+    end
+end
+
+local function module_info(name)
+    local prototype = prototypes.item[name]
+    local facts = module_facts[prototype]
+    if not facts then
+        local positive_effects = {}
+        for effect, value in pairs(prototype.module_effects or {}) do
+            if value > 0 then positive_effects[#positive_effects + 1] = effect end
+        end
+        facts = {category = prototype.category, positive_effects = positive_effects,
+            offered = not prototype.hidden and not prototype.parameter}
+        module_facts[prototype] = facts
+    end
+    return facts
+end
+
+local function limits_for(cache, prototype)
+    local facts = cache[prototype]
+    if not facts then
+        facts = {categories = prototype.allowed_module_categories, effects = prototype.allowed_effects}
+        cache[prototype] = facts
+    end
+    return facts
+end
+
+function ModuleSetup.forget_cache()
+    cached_root, module_facts, entity_facts, recipe_facts = nil, {}, {}, {}
+end
 
 --modules: dense list of {name, quality} in slot order, quality nil meaning normal; beacons: beacon groups
 function ModuleSetup.new_setup()
@@ -64,26 +99,26 @@ function ModuleSetup.fits(module_name, entities, recipe)
     if not storage.module_names[module_name] then
         return false
     end
-    local module = prototypes.item[module_name]
-    local category = module.category
+    fresh_cache()
+    local module = module_info(module_name)
+    local recipe_limits = limits_for(recipe_facts, recipe)
     for _, entity in ipairs(entities) do
-        if entity.allowed_module_categories and not entity.allowed_module_categories[category] then
+        local entity_limits = limits_for(entity_facts, entity)
+        if entity_limits.categories and not entity_limits.categories[module.category] then
             return false
         end
     end
-    if recipe.allowed_module_categories and not recipe.allowed_module_categories[category] then
+    if recipe_limits.categories and not recipe_limits.categories[module.category] then
         return false
     end
-    for effect, value in pairs(module.module_effects or {}) do --2.1 marks module effects optional
-        if value > 0 then
-            for _, entity in ipairs(entities) do
-                if not allows(entity.allowed_effects, effect, false) then
-                    return false
-                end
-            end
-            if not allows(recipe.allowed_effects, effect, true) then
+    for _, effect in ipairs(module.positive_effects) do
+        for _, entity in ipairs(entities) do
+            if not allows(limits_for(entity_facts, entity).effects, effect, false) then
                 return false
             end
+        end
+        if not allows(recipe_limits.effects, effect, true) then
+            return false
         end
     end
     return true
@@ -92,8 +127,16 @@ end
 --Modules a picker offers: not ones the engine hides, and not blueprint parameter placeholders. Kept out of fits, which also decides whether a
 --module already stored in a save survives sanitizing, so a hidden module a player stored keeps its slot and its effects.
 local function is_offered(module_name)
-    local module = prototypes.item[module_name]
-    return not module.hidden and not module.parameter
+    fresh_cache()
+    local facts = module_info(module_name)
+    -- Offline LuaObject fixtures are mutable tables, unlike engine prototypes. Honor their raw field updates
+    -- without triggering prototype property reads (or changing the runtime cache behavior).
+    local ok, kind = pcall(rawget, prototypes.item[module_name], "type")
+    if ok and kind == "module" then
+        local module = prototypes.item[module_name]
+        return not rawget(module, "hidden") and not rawget(module, "parameter")
+    end
+    return facts.offered
 end
 
 --Names of the modules that fit and are offered, sorted
