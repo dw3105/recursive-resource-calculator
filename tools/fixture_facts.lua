@@ -14,7 +14,7 @@ local function read(path)
 end
 local function catalog_of(path, root)
     if path == "tests/fixtures/engine/roboport-cell.json" then return root.measured end
-    if path:match("^tests/export_golden/.*%.json$") then return root.prototypes end
+    if path:match("^tests/export_golden/.*%.json$") then return root.prototypes or root end
     return root.catalog or (root.candidate and root.candidate.catalog) or root.prototypes
 end
 local function leaves(value, prefix, out)

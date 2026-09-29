@@ -2,7 +2,10 @@ local H = require "tests.harness"
 local function read(path)
     local f=assert(io.open(path,"rb")); local s=f:read("*a"); f:close(); return s
 end
-local function run(command) assert(os.execute(command)==0,command .. " failed") end
+local function run(command)
+    local ok, reason, code = os.execute(command)
+    assert(ok == true or ok == 0 or code == 0, command .. " failed: " .. tostring(reason))
+end
 H.test("FF1 catalog facts match a fresh extractor run", function()
     local before=read("tests/fixtures/engine_facts/catalog_facts.tsv")
     run("lua5.2 tools/fixture_facts.lua")
