@@ -82,3 +82,5 @@ Commit on `lane/279`. **Run the checks as the very LAST action.**
 {"name": "lane279-owned", "command": "git diff --name-only round-48-base HEAD | grep -Ev '^(tests/twins/transport/[a-z0-9_]+\\.lua|tests/twins/fluid/[a-z0-9_]+\\.lua|docs/tasks/279_twins_transport\\.md)$' | ( ! grep . ) && git diff --quiet round-48-base HEAD -- tests/twins/transport/bleed_last_belt_1.lua tests/twins/transport/bleed_last_belt_2.lua && for t in test_no_item_names test_no_runtime_require test_locale_keys test_twins; do timeout 90 lua5.2 tests/$t.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL $t; exit 1; }; done && echo lane279-owned-ok", "expect_exit": 0, "expect_regex": "lane279-owned-ok", "timeout_s": 600}
 {"name": "lane279-cover", "command": "TWIN_OWNER=L279 timeout 90 lua5.2 tests/test_twins_coverage.lua 2>&1 | tail -1 | grep -q ' 0 failed' || { echo FAIL coverage; exit 1; }; timeout 300 python3 -m unittest tests.tools.test_twins_audit 2>&1 | tail -1 | grep -q '^OK' || { echo FAIL audit; exit 1; }; echo lane279-cover-ok", "expect_exit": 0, "expect_regex": "lane279-cover-ok", "timeout_s": 600}
 ```
+
+# bound: 3600s
