@@ -1,26 +1,34 @@
 package.path = "./?.lua;" .. package.path
 local H = require "tests.harness"
 if arg[1] == "--mock" then
+    --Round 48 D6: every mocked LuaObject of the vanilla-named world the offline game tests run on
+    --(tests/game/lib/vanilla_world.lua), per shape: class, object name, member, value type, and the value when it is
+    --a plain number/string/boolean (so the engine can compare facts, not only shapes).
     local captured, current_shape = {}, nil
     local original = H.lua_object
     H.lua_object = function(class, fields, members, ...)
+        local object_name = type(fields.name) == "string" and fields.name or ""
         for _, member in ipairs(members) do
             local value = fields[member]
             local value_type = value == nil and "nil" or type(value)
-            local key = class .. "\0" .. member .. "\0" .. value_type
+            local scalar = (value_type == "number" or value_type == "string" or value_type == "boolean") and tostring(value) or ""
+            local key = table.concat({class, object_name, member, value_type, scalar}, "\0")
             captured[key] = captured[key] or {}; captured[key][current_shape] = true
         end
         return original(class, fields, members, ...)
     end
-    for _, shape in ipairs(H.shapes()) do current_shape = shape; H.new_world(shape) end
+    local build = dofile("tests/game/lib/vanilla_world.lua")
+    for _, shape in ipairs(H.shapes()) do current_shape = shape; build(H, shape) end
     local rows = {}
     for key, shapes in pairs(captured) do
-        local class, member, value_type = key:match("^(.-)%z(.-)%z(.*)$")
+        local class, object_name, member, value_type, scalar = key:match("^(.-)%z(.-)%z(.-)%z(.-)%z(.*)$")
         local shape_list = {}; for shape in pairs(shapes) do shape_list[#shape_list + 1] = shape end
         table.sort(shape_list)
-        rows[#rows + 1] = {class = class, member = member, type = value_type, shapes = shape_list}
+        rows[#rows + 1] = {class = class, name = object_name, member = member, type = value_type, value = scalar, shapes = shape_list}
     end
-    table.sort(rows, function(a, b) return a.class .. a.member .. a.type < b.class .. b.member .. b.type end)
+    table.sort(rows, function(a, b)
+        return table.concat({a.class, a.name, a.member, a.type, a.value}, "\1") < table.concat({b.class, b.name, b.member, b.type, b.value}, "\1")
+    end)
     local file = assert(io.open("tests/fixtures/engine_facts/mock_members.json", "wb"))
     file:write(helpers.table_to_json(rows), "\n"); file:close()
     os.exit(0)

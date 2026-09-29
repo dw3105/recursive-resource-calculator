@@ -77,8 +77,17 @@ describe("facts", function()
             expected[row.path] = expected[row.path] or {}
             table.insert(expected[row.path], (decode(row.value)))
         end
-        local absent, differ, checked = {}, {}, 0
+        --Only catalog sections are compared. A fact about a prototype this game does not have (the harness's
+        --invented "assembler", "ore-washer") describes a mock world: counted as FICTION, never compared.
+        local SECTIONS = {entity = prototypes.entity, item = prototypes.item, recipe = prototypes.recipe, fluid = prototypes.fluid,
+            module = prototypes.item, quality = prototypes.quality, beacon = prototypes.entity}
+        local FAMILY = {belt = true, pipe = true, inserter = true, long_inserter = true, pole = true, robo = true}
+        local absent, differ, fiction, checked = {}, {}, {}, 0
         for path, values in pairs(expected) do
+            local head, name = path:match("^([%w_]+)%.([^%.]+)")
+            local store = head and SECTIONS[head]
+            if not (store or FAMILY[head]) then goto continue end
+            if store and store[name] == nil then fiction[head .. "." .. name] = true; goto continue end
             checked = checked + 1
             local got = live[path]
             if got == nil then absent[#absent + 1] = path
@@ -87,7 +96,12 @@ describe("facts", function()
                 for _, v in ipairs(values) do if same(v, got) then match = true end end
                 if not match then differ[#differ + 1] = path .. " fixture=" .. serpent.line(values) .. " live=" .. serpent.line(got) end
             end
+            ::continue::
         end
+        local fiction_list = {}
+        for k in pairs(fiction) do fiction_list[#fiction_list + 1] = k end
+        table.sort(fiction_list)
+        log("FACTS-FICTION " .. #fiction_list .. " invented prototypes: " .. table.concat(fiction_list, ", "))
         table.sort(absent); table.sort(differ)
         log("FACTS profile=" .. (player_profile() and "player" or "vanilla") .. " checked=" .. checked .. " absent=" .. #absent .. " differ=" .. #differ)
         for i = 1, #differ do log("FACTS-DIFFER " .. differ[i]) end

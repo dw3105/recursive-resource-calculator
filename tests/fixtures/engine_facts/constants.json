@@ -397,7 +397,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1511,
+  "line": 1526,
   "name": "long_hand_offset_multiplier",
   "probe": {
    "expect": "offset_distance",
@@ -409,7 +409,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1802,
+  "line": 1817,
   "name": "underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -421,7 +421,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1802,
+  "line": 1817,
   "name": "fast_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -433,7 +433,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1802,
+  "line": 1817,
   "name": "express_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -445,7 +445,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1802,
+  "line": 1817,
   "name": "turbo_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
