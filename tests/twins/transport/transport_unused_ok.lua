@@ -4,7 +4,7 @@ return {
  entities = {
   {id = "line", kind = "belt", name = "transport-belt", x = 0, y = 4, dir = "east", flows = {"iron-plate"}},
  },
- feeds = {{tile = {0, 1}, item = "iron-plate"}},
+ feeds = {{tile = {0, 4}, item = "iron-plate"}},
  check = "flow_purity", truth = "ok", codes = {},
  audit = {},
 }

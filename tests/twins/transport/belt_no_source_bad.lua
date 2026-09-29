@@ -4,7 +4,8 @@ return {
  entities = {
   {id = "orphan", kind = "belt", name = "transport-belt", x = 4, y = 4, dir = "east", flows = {"iron-plate"}},
  },
- feeds = {{tile = {0, 4}, item = "iron-plate"}},
+ --nothing feeds the stub: the engine reads it as a sink that never receives iron (no feed, no belt on the edge).
+ sinks = {{tile = {4, 4}, items = {"iron-plate"}}},
  check = "flow_purity", truth = "defect", codes = {"BP_V_BELT_NO_SOURCE"},
  audit = {blueprint_audit = {unused_belt_tiles = 1}},
 }

@@ -11,7 +11,7 @@ local validator = {
         beacon_groups = {{signature = "sb", name = "beacon", count_per_machine = 1}}}}},
     catalog = {entity = {
         ["assembling-machine-2"] = {name = "assembling-machine-2", etype = "assembling-machine", tile_w = 3, tile_h = 3, needs_power = true},
-        beacon = {name = "beacon", etype = "beacon", tile_w = 3, tile_h = 3, needs_power = true, beacon = {supply_w = 9, supply_h = 9}},
+        beacon = {name = "beacon", etype = "beacon", tile_w = 3, tile_h = 3, needs_power = true, beacon = {supply_w = 3, supply_h = 3, distribution_effectivity = 1.5}},
         substation = {name = "substation", etype = "electric-pole", tile_w = 2, tile_h = 2, supply_w = 9, supply_h = 9, wire_reach = 18},
     }, belt = {items_per_second = 15, lane_items_per_second = 7.5}},
 }

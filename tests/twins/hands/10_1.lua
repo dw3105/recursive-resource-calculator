@@ -1,3 +1,18 @@
-local entities = {{id="m",kind="machine",name="assembling-machine-2",x=5,y=5,needs_power=false},{id="i",kind="inserter",name="inserter",x=4,y=5,needs_power=false,dir="east",flow_id="fluid/water",role="input",machine_id="m"}}
-entities[#entities+1]={id="power",kind="pole",name="medium-electric-pole",x=5,y=7,supply_w=9,supply_h=9}; local validator = {catalog={entity={ ["assembling-machine-2"]={name="assembling-machine-2",etype="assembling-machine",fluid_boxes={{production_type="input",pipe_connections={{position={x=-1,y=0}}}}}},inserter={name="inserter",etype="inserter"}},inserter={items_per_second=5,pickup_offset={x=0,y=1},drop_offset={x=0,y=-1}}}}
-return {id = "T-280-V101", rule = "BP_V_FLUID_INSERTER", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w=20,h=20}, entities = entities, validator = validator, stage = "validate", check = "pickup_drop", truth = "defect", codes = {"BP_V_FLUID_INSERTER"}, audit = {}}
+--Round 48 physical twin: the plan sends water into an assembling-machine-2 through an inserter at (1,1). A hand moves
+--items, never fluid: it drops into the machine but has nothing to pick up at (0,1). Pair: 10_1 (breach) / 10_2 (clean).
+local entities = {
+    {id = "m", kind = "machine", name = "assembling-machine-2", x = 2, y = 0, w = 3, h = 3},
+    {id = "i", kind = "inserter", name = "inserter", x = 1, y = 1, dir = "east", flow_id = "fluid/water", role = "input", machine_id = "m"},
+    {id = "p", kind = "pole", name = "medium-electric-pole", x = 0, y = 0},
+}
+local validator = {catalog = {
+    entity = {
+        ["assembling-machine-2"] = {name = "assembling-machine-2", etype = "assembling-machine", tile_w = 3, tile_h = 3, needs_power = true, crafting_speed = 0.75,
+            fluid_boxes = {{production_type = "input", pipe_connections = {{position = {x = -1, y = 0}}}}}},
+        inserter = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1, needs_power = true, items_per_second = 0.83},
+        ["medium-electric-pole"] = {name = "medium-electric-pole", etype = "electric-pole", tile_w = 1, tile_h = 1, supply_w = 3.5, supply_h = 3.5, wire_reach = 9},
+    },
+    inserter = {items_per_second = 0.83, pickup_offset = {x = 0, y = 1}, drop_offset = {x = 0, y = -1}}}}
+return {id = "T-280-V101", rule = "BP_V_FLUID_INSERTER", class = "engine", from = "tests/test_validate.lua twin candidate",
+    grid = {w = 5, h = 3}, entities = entities, validator = validator, stage = "validate", check = "pickup_drop", truth = "defect",
+    codes = {"BP_V_FLUID_INSERTER"}, audit = {}}

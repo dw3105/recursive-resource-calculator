@@ -64,8 +64,10 @@ game() {  # game <pattern|""> -> runs FactorioTest, writes build/<FV>/results.js
   (cd "$FT" && "$CLI" "$@")
 }
 
-if [ "$T" = --full ] || [ -n "$SHARD" ]; then
-  game "" || true
+PATTERN=
+case "$T" in --pattern) PATTERN=${3:?usage: --pattern '<lua pattern on test path>'} ;; esac
+if [ "$T" = --full ] || [ -n "$SHARD" ] || [ -n "$PATTERN" ]; then
+  game "$PATTERN" || true
   python3 - "$BUILD/results.json" "$FV" <<'PY'
 import json, sys
 p, fv = sys.argv[1:]

@@ -4,6 +4,7 @@
 --and this file registers nothing.
 local Lab = require "tests.game.lib.lab"
 local Twin = require "tests.twins.lib.twin"
+local Catalog = require "logic.catalog"
 local ok_index, INDEX = pcall(require, "tests.twins.index")
 local TWINS = {}
 if ok_index and type(INDEX) == "table" then
@@ -14,7 +15,11 @@ local WINDOW = 1200
 
 --Declared flows of a twin entity: the frozen `flows` list, or the validator-native flow_id / flow_ids some twins
 --carry (lane 279); "item/" is dropped, "fluid/" kept for the fluid check.
+local TRANSPORT = {belt = true, ["transport-belt"] = true, ["underground-belt"] = true, underground = true, splitter = true,
+    pipe = true, ["pipe-to-ground"] = true}
 local function flows_of(e)
+    --Only transport carries a flow the engine can sample; a hand or machine with flow_ids is not "idle".
+    if not (TRANSPORT[e.kind] or TRANSPORT[e.name] or (e.name or ""):find("belt") or (e.name or ""):find("splitter") or (e.name or ""):find("pipe")) then return nil end
     local list = e.flows or e.flow_ids or (e.flow_id and {e.flow_id}) or nil
     if not list then return nil end
     local out = {}
@@ -52,52 +57,94 @@ local function sorted_keys(t)
     return out
 end
 
---Engine facts behind each preflight code (check = "prototype"). Returns true when the subject HAS the fact the code
---rejects, false when it lacks it, nil + reason when this code has no engine fact rule yet.
-local function product_list(recipe)
-    local ok, list = pcall(function() return recipe.products end)
-    return ok and list or {}
+--Engine half of a preflight twin (check "prototype"): project the twin's REAL subject from the running game with
+--Catalog.build, put that projection into the twin's preflight input in place of the hand-written entry, and ask
+--Preflight.check again. The code firing on the live projection is the engine's "defect"; a twin whose catalog
+--invented a fact (an iron-gear-wheel that spoils) meets the live prototype here and fails.
+local function deep_copy(v)
+    if type(v) ~= "table" then return v end
+    local out = {}
+    for k, x in pairs(v) do out[k] = deep_copy(x) end
+    return out
 end
-local FACTS = {
-    BP_REJ_SPOILAGE = function(kind, p)
-        if kind == "item" then local ok, t = pcall(p.get_spoil_ticks); return ok and t and t > 0 end
-        for _, r in ipairs(product_list(p)) do
-            local item = r.type == "item" and prototypes.item[r.name]
-            if item then local ok, t = pcall(item.get_spoil_ticks); if ok and t and t > 0 then return true end end
-        end
-        return false
-    end,
-    BP_REJ_PROBABILISTIC = function(_, p)
-        for _, r in ipairs(product_list(p)) do if r.probability and r.probability < 1 then return true end end
-        return false
-    end,
-    BP_REJ_RANDOM_AMOUNT = function(_, p)
-        for _, r in ipairs(product_list(p)) do if r.amount_min and r.amount_min ~= r.amount_max then return true end end
-        return false
-    end,
-    BP_REJ_MINING = function(_, p) return p.type == "mining-drill" end,
-    BP_REJ_BURNER_MACHINE = function(_, p) return p.burner_prototype ~= nil end,
-    BP_REJ_NON_ELECTRIC = function(_, p) return p.electric_energy_source_prototype == nil end,
-    BP_REJ_FUEL_CONSUMER = function(_, p) return p.burner_prototype ~= nil or p.fluid_energy_source_prototype ~= nil end,
-    BP_REJ_SURFACE_RESTRICTED = function(_, p)
-        local ok, c = pcall(function() return p.surface_conditions end)
-        return ok and c ~= nil and next(c) ~= nil
-    end,
-    BP_REJ_BELT_FAMILY_MISSING = function(_, p) return p == nil end,
-    BP_REJ_QUALITY_UNAVAILABLE = function(_, p) return p == nil or p.hidden == true end,
-}
-
 local function prototype_verdict(twin)
     local s = twin.subject or {}
-    local store = ({recipe = prototypes.recipe, entity = prototypes.entity, item = prototypes.item, quality = prototypes.quality})[s.kind]
-    if not store then return nil, "subject.kind must be recipe|entity|item|quality" end
-    local rule = FACTS[twin.rule]
-    if not rule then return nil, "no engine fact rule for " .. twin.rule .. " yet (integrator adds it)" end
-    local has = rule(s.kind, store[s.name])
-    return has and "defect" or "ok", "subject " .. s.kind .. " " .. tostring(s.name) .. " has fact: " .. tostring(has)
+    local store = ({recipe = prototypes.recipe, entity = prototypes.entity, item = prototypes.item, module = prototypes.item,
+        quality = prototypes.quality})[s.kind]
+    if not store then return nil, "subject.kind must be recipe|entity|item|module|quality" end
+    if store[s.name] == nil then return "defect", "subject " .. s.kind .. " " .. tostring(s.name) .. " does not exist in this game" end
+    local options = ({entity = {entities = {s.name}}, recipe = {recipe_names = {s.name}}, item = {item_names = {s.name}},
+        module = {module_names = {s.name}}, quality = {quality_names = {s.name}}})[s.kind]
+    local live = Catalog.build(1, options)
+    local probe = deep_copy(twin)
+    probe.preflight = deep_copy(twin.preflight)
+    probe.preflight.catalog = probe.preflight.catalog or {}
+    for _, section in ipairs({"entity", "recipe", "item", "fluid", "quality", "module"}) do
+        for name, entry in pairs(live[section] or {}) do
+            probe.preflight.catalog[section] = probe.preflight.catalog[section] or {}
+            probe.preflight.catalog[section][name] = entry
+        end
+    end
+    --Preflight reads a column's own recipe copy, not the catalog: give it the live recipe too.
+    if s.kind == "recipe" and live.recipe and live.recipe[s.name] then
+        for _, column in ipairs((probe.preflight.solver_result or {}).columns or {}) do
+            if column.recipe_name == s.name then column.recipe = deep_copy(live.recipe[s.name]) end
+        end
+    end
+    local codes = Twin.verdict(probe)
+    local fired = false
+    for _, c in ipairs(codes) do if c == twin.rule then fired = true end end
+    return fired and "defect" or "ok", "live " .. s.kind .. " " .. s.name .. " -> " .. (#codes > 0 and table.concat(codes, " ") or "no code")
 end
 
-local STATIC = {placeable = true, network = true, powered = true, pickup_drop = true, underground_pair = true}
+--Engine half of an artifact twin: publish the artifact's own entities, build them for real, read them back, and
+--compare with the plan (machine name, recipe, quality, count, modules) and with what the artifact asked for
+--(direction the engine kept). Any difference is the engine's "defect".
+local BlueprintString = require "logic.bp.blueprint_string"
+local function artifact_verdict(twin, index)
+    local input = twin.artifact or {}
+    local artifact, plan = input.artifact, input.plan
+    if type(artifact) ~= "table" or type(plan) ~= "table" or type(artifact.entities) ~= "table" or #artifact.entities == 0 then
+        return "defect", "artifact or plan missing"
+    end
+    local entities = {}
+    for i, e in ipairs(artifact.entities) do
+        local copy = deep_copy(e)
+        copy.entity_number = i
+        copy.position = copy.position or {x = 3.5 + (i - 1) * 6, y = 3.5}
+        copy.type = nil
+        entities[i] = copy
+    end
+    local ok, bp = pcall(BlueprintString.build, {entities = entities, wires = artifact.wires}, "artifact " .. twin.id)
+    if not ok then return "defect", "blueprint string refused by our builder: " .. tostring(bp) end
+    local imported = Lab.import_ok(bp)
+    if not imported then return "defect", "engine refused the artifact string" end
+    local surface, force = Lab.surface(), game.forces.player
+    Lab.research_stack(force)
+    local origin = {index * SPACING, 1024}
+    Lab.prepare(surface, {{origin[1] - 8, origin[2] - 8}, {origin[1] + 8 + 6 * #entities, origin[2] + 16}})
+    local built = Lab.build(surface, force, bp, origin)
+    local diffs = {}
+    if #built.refused > 0 then diffs[#diffs + 1] = "refused " .. serpent.line(built.refused) end
+    local by_machine = {}
+    for i, e in ipairs(artifact.entities) do
+        local ent = built.entities[i]
+        if ent then
+            if (e.direction or 0) ~= ent.direction then diffs[#diffs + 1] = e.name .. " direction " .. tostring(e.direction) .. " -> " .. ent.direction end
+            local r = ent.type == "assembling-machine" and ent.get_recipe() or nil
+            local key = ent.name .. "|" .. (r and r.name or "-") .. "|" .. ent.quality.name
+            by_machine[key] = (by_machine[key] or 0) + 1
+        end
+    end
+    for _, step in ipairs(plan.steps or {}) do
+        local key = tostring(step.machine) .. "|" .. tostring(step.recipe or "-") .. "|" .. tostring(step.machine_quality or "normal")
+        local got = by_machine[key] or 0
+        if got ~= (step.machine_count or 0) then diffs[#diffs + 1] = key .. " built " .. got .. " planned " .. tostring(step.machine_count) end
+    end
+    return #diffs > 0 and "defect" or "ok", #diffs > 0 and table.concat(diffs, "; ") or "engine read back what the plan asked for"
+end
+
+local STATIC = {placeable = true, network = true, powered = true, pickup_drop = true, underground_pair = true, beacon_effect = true}
 
 local function static_verdict(twin, surface, built, by_id, powered_ok)
     local check = twin.check
@@ -119,9 +166,12 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
     end
     if check == "powered" then
         local bad = {}
+        local CONSUMER = {["assembling-machine"] = true, furnace = true, inserter = true, beacon = true, roboport = true, lab = true, ["mining-drill"] = true}
         for id, ent in pairs(by_id) do
+          if CONSUMER[ent.type] then
             local ok, connected = pcall(ent.is_connected_to_electric_network)
             if ok and connected == false then bad[#bad + 1] = id end
+          end
         end
         table.sort(bad)
         return #bad > 0 and "defect" or "ok", "unpowered: " .. serpent.line(bad) .. " lab power " .. tostring(powered_ok)
@@ -134,13 +184,38 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
         table.sort(bad)
         return #bad > 0 and "defect" or "ok", "hands with no pickup or drop target: " .. serpent.line(bad)
     end
+    if check == "beacon_effect" then
+        --Beacons the engine applies to each machine vs the plan's count_per_machine for its step: fewer = defect,
+        --more, or a beacon that reaches no machine = waste.
+        local steps = {}
+        for _, step in ipairs(((twin.validator or {}).plan or {}).steps or {}) do steps[step.step_id] = step end
+        local short, extra, idle = {}, {}, {}
+        for _, e in ipairs(twin.entities or {}) do
+            local ent = by_id[e.id]
+            if ent and (ent.type == "assembling-machine" or ent.type == "furnace") and e.step_id and steps[e.step_id] then
+                local want = 0
+                for _, g in ipairs(steps[e.step_id].beacon_groups or {}) do want = want + (g.count_per_machine or g.count or 0) end
+                local got = #ent.get_beacons()
+                if got < want then short[#short + 1] = e.id .. " " .. got .. "<" .. want end
+                if got > want then extra[#extra + 1] = e.id .. " " .. got .. ">" .. want end
+            end
+            if ent and ent.type == "beacon" and #ent.get_beacon_effect_receivers() == 0 then idle[#idle + 1] = e.id end
+        end
+        if #short > 0 then return "defect", "machines short of beacons: " .. table.concat(short, " ") end
+        if #extra > 0 or #idle > 0 then return "waste", "surplus beacons: " .. table.concat(extra, " ") .. " idle: " .. table.concat(idle, " ") end
+        return "ok", "every machine gets its planned beacons"
+    end
     if check == "underground_pair" then
         local bad = {}
         for id, ent in pairs(by_id) do
-            if ent.type == "underground-belt" and ent.neighbours == nil then bad[#bad + 1] = id end
+            if ent.type == "underground-belt" then
+                local ok, partner = pcall(function() return ent.neighbours end)
+                if not (ok and partner) then bad[#bad + 1] = id end
+            end
             if ent.type == "pipe-to-ground" then
                 local paired = false
-                for _, c in pairs(ent.fluidbox.get_pipe_connections(1)) do
+                local ok, conns = pcall(function() return ent.fluidbox.get_pipe_connections(1) end)
+                for _, c in pairs(ok and conns or {}) do
                     if c.connection_type == "underground" and c.target then paired = true end
                 end
                 if not paired then bad[#bad + 1] = id end
@@ -158,6 +233,11 @@ describe("twins", function()
             if twin.check == "prototype" then
                 local verdict, why = prototype_verdict(twin)
                 assert(verdict ~= nil, twin.id .. ": " .. tostring(why))
+                assert.are_equal(twin.truth, verdict, twin.id .. " engine verdict (" .. why .. ")")
+                return
+            end
+            if twin.check == "artifact" then
+                local verdict, why = artifact_verdict(twin, index)
                 assert.are_equal(twin.truth, verdict, twin.id .. " engine verdict (" .. why .. ")")
                 return
             end

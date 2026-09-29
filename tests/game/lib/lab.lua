@@ -79,7 +79,7 @@ function Lab.build(surface, force, bp_string, origin)
             quality = e.quality or "normal", type = e.type, input_priority = e.input_priority,
             output_priority = e.output_priority, filter = e.filter, raise_built = false}
         local can = surface.can_place_entity{name = e.name, position = pos, direction = e.direction or 0, force = force,
-            build_check_type = defines.build_check_type.manual}
+            build_check_type = defines.build_check_type.script}  --collisions only; manual refused every underground (2026-09-29)
         if not can then
             built.refused[#built.refused + 1] = e.entity_number
         else
@@ -109,7 +109,7 @@ function Lab.build(surface, force, bp_string, origin)
         local a, b = built.entities[w[1]], built.entities[w[3]]
         if a and b then
             local ca, cb = a.get_wire_connector(w[2], true), b.get_wire_connector(w[4], true)
-            if ca and cb then ca.connect_to(cb, false, defines.wire_origin.player) end
+            if ca and cb then ca.connect_to(cb, true, defines.wire_origin.player) end  --reach_check: an over-long wire stays unconnected
         end
     end
     return built
@@ -134,7 +134,8 @@ function Lab.power(surface, force, built)
         end
     end
     if not best then return false end
-    local x = built.origin[1] - 4
+    --Right beside the grid (tiles -3..-2): a pole at x <= 5 stays inside a medium pole's 9-tile wire reach.
+    local x = built.origin[1] - 2
     local sub = surface.create_entity{name = "substation", position = {x, best.position.y}, force = force}
     local eei = surface.create_entity{name = Lab.EEI, position = {x - 3, best.position.y}, force = force}
     if not (sub and eei) then return false end
@@ -143,7 +144,7 @@ function Lab.power(surface, force, built)
     eei.power_usage = 0
     local c = sub.get_wire_connector(defines.wire_connector_id.pole_copper, true)
     c.disconnect_all(defines.wire_origin.player)
-    return c.connect_to(best.get_wire_connector(defines.wire_connector_id.pole_copper, true), false, defines.wire_origin.player)
+    return c.connect_to(best.get_wire_connector(defines.wire_connector_id.pole_copper, true), true, defines.wire_origin.player)
 end
 
 --Feeds: list of {entity, item | fluid, per_tick?}. Items: both lines at max stack. per_tick nil = every tick as much
@@ -196,20 +197,20 @@ function Lab.sink_tick(sinks, counting)
                     end
                     line.clear()
                 end
-            elseif e.fluidbox and #e.fluidbox > 0 then
-                for i = 1, #e.fluidbox do
-                    local f = e.fluidbox[i]
-                    if f then
-                        if counting then s.got[f.name] = (s.got[f.name] or 0) + f.amount end
-                        e.fluidbox[i] = nil
+            else
+                local okf, fluids = pcall(e.get_fluid_contents)
+                if okf and fluids then
+                    for name, amount in pairs(fluids) do
+                        if counting and type(amount) == "number" and amount > 0 then s.got[name] = (s.got[name] or 0) + amount end
                     end
+                    pcall(e.clear_fluid_inside)
                 end
             end
         end
     end
 end
 
---Names carried by a transport entity right now (every line), or its fluids.
+--Names carried by a transport entity right now (every line), or its fluids (get_fluid_contents: name -> amount).
 function Lab.carried(entity)
     local names = {}
     if not (entity and entity.valid) then return names end
@@ -218,10 +219,13 @@ function Lab.carried(entity)
         for lane = 1, n do
             for _, c in pairs(entity.get_transport_line(lane).get_contents()) do names[c.name] = (names[c.name] or 0) + c.count end
         end
-    elseif entity.fluidbox then
-        for i = 1, #entity.fluidbox do
-            local f = entity.fluidbox[i]
-            if f then names[f.name] = (names[f.name] or 0) + f.amount end
+        return names
+    end
+    local okf, fluids = pcall(entity.get_fluid_contents)
+    if okf and fluids then
+        for name, amount in pairs(fluids) do
+            if type(amount) == "table" then amount = amount.amount or 0; name = amount.name or name end
+            if amount > 0 then names[name] = (names[name] or 0) + amount end
         end
     end
     return names

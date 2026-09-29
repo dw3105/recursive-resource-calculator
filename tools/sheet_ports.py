@@ -41,16 +41,22 @@ def parse_description(text):
     return ports, edges
 
 
+partner = {}  # splitter half -> other half: one entity, so upstream of either half is upstream of both
+
+
 def build(entities):
     cells = {}  # tile -> (entity, kind)
+    partner.clear()
     for e in entities:
         k = kind(e["name"])
         if k == "splitter":
             x, y = e["position"]["x"], e["position"]["y"]
             d = e.get("direction", 0)
             dx, dy = (0.5, 0) if d in (0, 8) else (0, 0.5)
-            for s in (-1, 1):
-                cells[(math.floor(x + s * dx), math.floor(y + s * dy))] = (e, k)
+            halves = [(math.floor(x + s * dx), math.floor(y + s * dy)) for s in (-1, 1)]
+            for h in halves:
+                cells[h] = (e, k)
+            partner[halves[0]], partner[halves[1]] = halves[1], halves[0]
         else:
             cells[tile(e)] = (e, k)
     # underground pairs: ug_pair_id when present, else nearest partner facing the same way
@@ -58,7 +64,9 @@ def build(entities):
     pair = {}
     for e in entities:
         if kind(e["name"]) == "ug" and e.get("ug_pair_id") in by_number:
-            pair[tile(e)] = tile(by_number[e["ug_pair_id"]])
+            other = tile(by_number[e["ug_pair_id"]])
+            pair[tile(e)] = other
+            pair.setdefault(other, tile(e))  # often only one end names its partner
     return cells, pair
 
 
@@ -105,6 +113,10 @@ def main(argv):
     feeds, sinks, problems = {}, {}, []
     for e in entities:
         pid = e.get("port_id")
+        if pid:
+            if pid.startswith("row:"):
+                pid = pid[4:]  # row blocks: "row:in:item/x" -> "in:item/x"
+            pid = ":".join(pid.split(":")[:2])  # "in:item/x:hand:1" -> "in:item/x"
         if kind(e["name"]) != "hand" or not pid or pid not in ports:
             continue
         item = pid.split("/", 1)[1]
@@ -118,15 +130,20 @@ def main(argv):
                 if c in seen or c not in cells:
                     continue
                 seen.add(c)
-                if preds[c]:
-                    todo += preds[c]
-                else:
-                    heads.append(c)
-            for h in heads:
-                if on_edge(h) and cells[h][1] == "belt":
-                    feeds[h] = item
-                else:
-                    problems.append(f"{pid}: head {h} not a plain belt on the edge")
+                ups = list(preds[c])
+                if c in partner:
+                    ups += preds[partner[c]]
+                    todo.append(partner[c])
+                if ups:
+                    todo += ups
+                elif c not in partner or not preds[partner[c]]:
+                    if c not in partner:
+                        heads.append(c)
+            edge = [h for h in heads if on_edge(h) and cells[h][1] == "belt"]
+            for h in edge:
+                feeds[h] = item
+            if not edge:  # interior heads are machine outputs merging in: internal sources, not ports
+                problems.append(f"{pid}: no plain edge belt upstream (heads {sorted(heads)})")
         else:
             start = (t[0] - vx * reach(e), t[1] - vy * reach(e))
             c, seen = start, set()
@@ -140,63 +157,92 @@ def main(argv):
                 sinks.setdefault(c, set()).add(item)
             else:
                 problems.append(f"{pid}: chain end {c} not on the edge")
-    # fluid inputs
+    # fluid inputs: pipes join on 4 sides; a pipe-to-ground only on the side it faces plus its underground partner.
+    # Each input fluid box of a machine takes the recipe's fluid ingredients in order; the tile its connection
+    # points at names the fluid of that pipe network. The sheet sim proves the assignment (a wrong one starves).
     catalog = prepared.get("catalog") or {}
     recipes = catalog.get("recipe") or {}
     fluid_in = [p.split("/", 1)[1] for p in ports if p.startswith("in:fluid/")]
     fluid_feeds = {}
     if fluid_in:
-        pipes = {t for t, (e, k) in cells.items() if k in ("pipe", "ptg")}
-        ptg_pair = {}
+        pipes = {t: e for t, (e, k) in cells.items() if k in ("pipe", "ptg")}
         ptgs = [e for e in entities if kind(e["name"]) == "ptg"]
+        ptg_pair = {}
         for a in ptgs:
-            ta = tile(a)
-            best = None
+            ta, best = tile(a), None
             for b in ptgs:
                 tb = tile(b)
                 if a is b or (a.get("direction", 0) + 8) % 16 != b.get("direction", 0):
                     continue
-                if ta[0] == tb[0] or ta[1] == tb[1]:
+                vx, vy = VEC[b.get("direction", 0)]
+                along = ta[1] == tb[1] if vx != 0 else ta[0] == tb[0]  # partners sit on the facing axis only
+                if along and tb != ta and ((tb[0] - ta[0]) * vx > 0 or (tb[1] - ta[1]) * vy > 0):
                     dist = abs(ta[0] - tb[0]) + abs(ta[1] - tb[1])
                     if best is None or dist < best[0]:
                         best = (dist, tb)
             if best:
                 ptg_pair[ta] = best[1]
+
+        def links(c):
+            e = pipes[c]
+            if kind(e["name"]) == "ptg":
+                vx, vy = VEC[e.get("direction", 0)]
+                out = [(c[0] + vx, c[1] + vy)]
+                if c in ptg_pair: out.append(ptg_pair[c])
+            else:
+                out = [(c[0] + vx, c[1] + vy) for vx, vy in VEC.values()]
+            keep = []
+            for n in out:
+                if n not in pipes:
+                    continue
+                ne = pipes[n]
+                if kind(ne["name"]) == "ptg" and n != ptg_pair.get(c):
+                    vx, vy = VEC[ne.get("direction", 0)]
+                    if (n[0] + vx, n[1] + vy) != c:
+                        continue
+                keep.append(n)
+            return keep
+
         comp = {}
-        for p in pipes:
-            if p in comp:
+        for p0 in pipes:
+            if p0 in comp:
                 continue
-            stack, members = [p], []
-            comp[p] = p
+            stack = [p0]; comp[p0] = p0
             while stack:
-                c = stack.pop(); members.append(c)
-                nbrs = [(c[0] + dx, c[1] + dy) for dx, dy in VEC.values()]
-                if c in ptg_pair:
-                    nbrs.append(ptg_pair[c])
-                for n in nbrs:
-                    if n in pipes and n not in comp:
-                        comp[n] = p; stack.append(n)
-        machines = [e for e in entities if e.get("recipe")]
-        for root in set(comp.values()):
-            members = [c for c, rt in comp.items() if rt == root]
-            edge_tiles = [c for c in members if on_edge(c)]
-            if not edge_tiles:
+                c = stack.pop()
+                for n in links(c):
+                    if n not in comp:
+                        comp[n] = p0; stack.append(n)
+        fluid_of = defaultdict(set)
+        for m in entities:
+            r = recipes.get(m.get("recipe") or "")
+            if not r:
                 continue
-            fluids = set()
-            for m in machines:
-                spec = (catalog.get("entity") or {}).get(m["name"]) or {}
-                w, h = spec.get("tile_w", 3), spec.get("tile_h", 3)
-                mx, my = m["position"]["x"] - w / 2, m["position"]["y"] - h / 2
-                touch = any(mx - 1 <= c[0] < mx + w + 1 and my - 1 <= c[1] < my + h + 1 for c in members)
-                if touch:
-                    for ing in (recipes.get(m["recipe"]) or {}).get("ingredients", []):
-                        if ing.get("type") == "fluid" and ing["name"] in fluid_in:
-                            fluids.add(ing["name"])
-            if len(fluids) == 1:
-                for c in edge_tiles:
-                    fluid_feeds[c] = fluids.pop() if False else next(iter(fluids))
+            wants = [i["name"] for i in r.get("ingredients", []) if i.get("type") == "fluid"]
+            if not any(w in fluid_in for w in wants):
+                continue
+            spec = (catalog.get("entity") or {}).get(m["name"]) or {}
+            boxes = sorted((b for b in spec.get("fluid_boxes") or [] if b.get("production_type") == "input"), key=lambda b: b.get("index", 0))
+            d = m.get("direction", 0)
+            for i, fbox in enumerate(boxes):
+                if i >= len(wants) or wants[i] not in fluid_in:
+                    continue
+                for conn in fbox.get("connections") or []:
+                    pos = (conn.get("positions") or [None] * 4)[d // 4]
+                    if not pos:
+                        continue
+                    cx, cy = m["position"]["x"] + pos["x"], m["position"]["y"] + pos["y"]
+                    vx, vy = VEC[(conn.get("direction", 0) + d) % 16]
+                    n = (math.floor(cx + vx), math.floor(cy + vy))
+                    if n in comp:
+                        fluid_of[comp[n]].add(wants[i])
+        for root, fluids in fluid_of.items():
+            edge_tiles = [c for c, rt in comp.items() if rt == root and on_edge(c)]
+            if len(fluids) > 1:
+                problems.append(f"pipe network {root} gets several input fluids {sorted(fluids)}")
             elif fluids:
-                problems.append(f"pipe network at {edge_tiles[0]} reaches several input fluids {sorted(fluids)}")
+                for c in edge_tiles:
+                    fluid_feeds[c] = next(iter(fluids))
     result = {
         "bbox": list(box), "edges": edges,
         "feeds": [{"tile": list(t), "item": i} for t, i in sorted(feeds.items())]

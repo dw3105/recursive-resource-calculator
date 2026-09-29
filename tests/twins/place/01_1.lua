@@ -1,3 +1,13 @@
-local entities = {{id="m1",kind="machine",name="assembling-machine-2",x=5,y=5,needs_power=false},{id="m2",kind="machine",name="assembling-machine-2",x=5.2,y=5,needs_power=false}}
-local validator = {catalog={entity={ ["assembling-machine-2"]={name="assembling-machine-2",etype="assembling-machine",collision_box={left_top={x=-0.5,y=-0.5},right_bottom={x=0.5,y=0.5}},collision_mask={"object-layer"}}}}}
-return {id = "T-280-V11", rule = "BP_V_COLLISION", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w=20,h=20}, entities = entities, validator = validator, stage = "validate", check = "placeable", truth = "defect", codes = {"BP_V_COLLISION"}, audit = {}}
+--Round 48 physical twin: two assembling-machine-2 (3x3) one tile apart, so their boxes overlap on columns 6..7.
+--The engine refuses the second one. Pair: 01_1 (breach) / 01_2 (clean).
+local entities = {
+    {id = "m1", kind = "machine", name = "assembling-machine-2", x = 5, y = 5, w = 3, h = 3},
+    {id = "m2", kind = "machine", name = "assembling-machine-2", x = 6, y = 5, w = 3, h = 3},
+    {id = "p", kind = "pole", name = "medium-electric-pole", x = 5, y = 8},
+}
+local validator = {catalog = {entity = {
+    ["assembling-machine-2"] = {name = "assembling-machine-2", etype = "assembling-machine", tile_w = 3, tile_h = 3, crafting_speed = 0.75, needs_power = true},
+    ["medium-electric-pole"] = {name = "medium-electric-pole", etype = "electric-pole", tile_w = 1, tile_h = 1, supply_w = 3.5, supply_h = 3.5, wire_reach = 9},
+}}}
+return {id = "T-280-V11", rule = "BP_V_COLLISION", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w = 20, h = 20},
+    entities = entities, validator = validator, stage = "validate", check = "placeable", truth = "defect", codes = {"BP_V_COLLISION"}, audit = {}}
