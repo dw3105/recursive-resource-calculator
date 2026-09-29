@@ -860,6 +860,17 @@ end
 
 --N13b (amendment B): the pipette key copies and pastes beacon groups the same way
 
+--Round 50: a report is built a few rows per tick in a staged copy beside the old one; until the jobs finish both
+--hold the row's buttons, so a test counting buttons after a recompute waits for the jobs first
+local function settle_jobs(world)
+    for _ = 1, 200 do
+        local jobs = storage[1].calc_jobs
+        if not (jobs and next(jobs)) and not storage.computation_stack[1] then return end
+        world.advance_tick()
+        world.handlers.events[defines.events.on_tick]({tick = world.tick})
+    end
+end
+
 local function beacon_buttons(root, recipe_name)
     return find_all(root, function(element) return element.name == "hxrrc_choose_beacon_button" and recipe_of(element) == recipe_name end)
 end
@@ -899,12 +910,14 @@ for _, shape in ipairs(H.shapes()) do
         paste(world, beacon_buttons(sheet_flow, "cog")[1])
         H.deep_equal(setups().cog.beacons, {clipboard().group}, "cog's group replaced")
         assert(setups().cog.beacons[1] ~= clipboard().group and setups().cog.beacons[1].modules ~= clipboard().group.modules, "fresh tables")
+        settle_jobs(world)
         local add = beacon_buttons(sheet_flow, "X")
         H.equal(#add, 1, "X shows only the add button")
         paste(world, add[1])
         H.equal(#setups().X.beacons, 1, "a group added")
         H.equal(setups().X.beacons[1].count, 3, "with its count")
         sheet_flow = sheet({{item = "gear"}, {item = "cog"}, {item = "X"}}) --rebuilt: cog now shows its group and the add button
+        settle_jobs(world)
         local cog_buttons = beacon_buttons(sheet_flow, "cog")
         H.equal(#cog_buttons, 2, "group button and add button")
         paste(world, cog_buttons[2])

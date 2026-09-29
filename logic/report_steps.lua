@@ -10,6 +10,7 @@ local QualityLoops = require "logic.quality_loops"
 local ReportSteps = {}
 --One report row with its module cells: ~1 ms on the player save (2026-09-29); 400 of a 2000-op tick = 5 rows
 ReportSteps.ROW_OPS = 400
+local STAGE_PREFIX = "hxrrc_report_staging_"
 local parent_hints = {}
 
 local function copy_data(value, seen)
@@ -183,8 +184,15 @@ end
 
 local function ensure_stage(state, output_flow)
     if state.stage_started then return child_named(output_flow, state.stage_name) end
-    local old_stage = child_named(output_flow, state.stage_name)
-    if old_stage then old_stage.destroy() end
+    --A staged report left by a job that a newer request replaced mid-build is removed here. Since round 50 a report
+    --takes several ticks (ROW_OPS), so an edit while it builds is common; the orphan kept a hidden copy of every
+    --row's buttons (found by test_pipette N13s, 2026-09-29).
+    local stale = {}
+    for _, child in ipairs(output_flow.children or {}) do
+        local name = child.name
+        if type(name) == "string" and name:sub(1, #STAGE_PREFIX) == STAGE_PREFIX then stale[#stale + 1] = child end
+    end
+    for _, child in ipairs(stale) do child.destroy() end
     local stage = Report.begin_staged(output_flow, state.result,
         state.power and state.power.energy or nil, state.power and state.power.pollution or nil,
         state.round_up_machines, state.diagnostic, state.stage_name)
@@ -323,7 +331,7 @@ function ReportSteps.begin(input)
         round_up_machines = input.round_up_machines ~= nil and input.round_up_machines or (input.options and input.options.round_up) or false,
         diagnostic = diagnostic,
         stage_token = token,
-        stage_name = "hxrrc_report_staging_" .. token,
+        stage_name = STAGE_PREFIX .. token,
         stage_started = false,
         phase = (not diagnostic and result.status == "ok") and "power" or "report",
         cursor = {column = 1, section = "columns"},
