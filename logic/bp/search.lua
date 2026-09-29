@@ -26,6 +26,12 @@ local BeaconPrune = require "logic.bp.beacon_prune"
 local RunDir = require "logic.bp.run_dir"
 local Seat = require "logic.bp.seat"
 
+local STRICT_REROUTE_CODES = {
+    BP_V_BELT_BLEED = true, BP_V_UNDERGROUND_SIDELOAD_BLOCKED = true, BP_V_ROUTE_DISCONTINUOUS = true,
+    BP_V_ROUTE_LOOP = true, BP_V_BELT_NO_SOURCE = true, BP_V_TRANSPORT_UNUSED = true,
+}
+
+
 local PHASES = {
     plan = "planning", preflight = "preflight", groups = "grouping", pack = "packing", route = "routing",
     hands = "hands", power = "power", tidy = "tidying", validate = "validating", serialize = "serializing", done = "done", failed = "failed",
@@ -1604,6 +1610,7 @@ local function restore_collector_first(state)
 end
 
 local function discard_candidate(state)
+    state.work.strict_ends = nil
     if state.work.collector_trial == "running" then restore_collector_first(state); return end
     note_edge_shortfalls(state)
     if not state.work.attempt_recorded then
@@ -1696,6 +1703,7 @@ function Search.step(container, budget)
                         Hands.offer_slides(state.work.materialized, state.work.grid)
                     end
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
+                    if route_input and state.work.strict_ends then route_input.strict_ends = true end
                     if route_input then
                         state.work.route_args = {blocks = blocks, ports = ports}
                         state.work.collector_trial, state.work.collector_first = nil, nil
@@ -1837,7 +1845,17 @@ function Search.step(container, budget)
                     --failure from outside.  Counting the codes costs nothing and is what the failure message and
                     --the debug export need.
                     record_rejection(state, state.work.validate.errors, "validate")
-                    discard_candidate(state)
+                    local belt_shape = false
+                    for _, err in ipairs(state.work.validate.errors or {}) do
+                        if STRICT_REROUTE_CODES[err.code] then belt_shape = true; break end
+                    end
+                    if belt_shape and not state.work.strict_ends and state.work.collector_trial == nil then
+                        -- Magenta science: strict redo at grid 6 on 2026-09-29 (tick 18351); accepted at tick 34785.
+                        state.work.strict_ends = true
+                        start_grid(state)
+                    else
+                        discard_candidate(state)
+                    end
                 else
                     local score = state.work.validate.result and state.work.validate.result.score or {}
                     local record = record_valid_attempt(state, score)
