@@ -9,7 +9,7 @@ local ok_index, INDEX = pcall(require, "tests.game.fixtures.sheets_index")
 local SHEETS = {}
 if ok_index and type(INDEX) == "table" then
     for _, case in ipairs(INDEX) do
-        SHEETS[#SHEETS + 1] = {case = case.case, profile = case.profile, data = require("tests.game.fixtures.sheet_" .. case.case:gsub("-", "_"))}
+        SHEETS[#SHEETS + 1] = {case = case.case, profile = case.profile, data = require("tests.game.fixtures.sheet_" .. (case.case:gsub("[-%.]", "_")))}
     end
 end
 
@@ -34,6 +34,8 @@ describe("sheets", function()
         it(sheet.case, function()
             if RRC_OFFLINE then return end
             if (sheet.profile == "player") ~= player_profile() then return end
+            local only = sheet.case:match("^vanilla%-(%d+%.%d+)%-")
+            if only and only ~= (script.active_mods.base or ""):match("^(%d+%.%d+)") then return end
             local ports = helpers.json_to_table(sheet.data.ports)
             assert(#(ports.problems or {}) == 0, sheet.case .. ": ports.json problems " .. serpent.line(ports.problems))
             local force = game.forces.player

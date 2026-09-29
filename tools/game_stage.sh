@@ -41,7 +41,7 @@ def long(text):
 for c in cases:
     bp = open(os.path.join(src, c + ".bp.txt")).read().strip()
     ports = open(os.path.join(src, c + ".ports.json")).read()
-    open(os.path.join(out, "sheet_" + c.replace("-", "_") + ".lua"), "w").write(
+    open(os.path.join(out, "sheet_" + c.replace("-", "_").replace(".", "_") + ".lua"), "w").write(
         "return {bp = " + long(bp) + ", ports = " + long(ports) + "}\n")
 rows = "".join('    {case = "%s", profile = "%s"},\n' % (c, "player" if c.startswith("player-") else "vanilla") for c in cases)
 open(os.path.join(out, "sheets_index.lua"), "w").write("return {\n" + rows + "}\n")

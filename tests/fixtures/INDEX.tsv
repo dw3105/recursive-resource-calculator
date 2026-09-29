@@ -124,3 +124,7 @@ tests/fixtures/sheets/player-red-science-1s-bulk.bp.txt	sheet	player	delivered s
 tests/fixtures/sheets/player-red-science-1s-bulk.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
 tests/fixtures/sheets/player-red-science-1s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
 tests/fixtures/sheets/player-red-science-1s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/vanilla-2.1-green-science-1s.bp.txt	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
+tests/fixtures/sheets/vanilla-2.1-green-science-1s.ports.json	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
+tests/fixtures/sheets/vanilla-2.1-red-science-1s.bp.txt	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
+tests/fixtures/sheets/vanilla-2.1-red-science-1s.ports.json	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)

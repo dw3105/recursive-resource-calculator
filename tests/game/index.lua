@@ -9,4 +9,5 @@ return {
     "tests.game.test_facts",
     "tests.game.test_feed",
     "tests.game.test_mock_parity",
+    "tests.game.test_capture",
 }
