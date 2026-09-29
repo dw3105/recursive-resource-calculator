@@ -122,6 +122,41 @@ local function async_input(sheet_flow, inputs, result)
 end
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " RW1 solved report rows charge 200 ops each", function()
+        local world = basic_world(shape)
+        local Report = require "gui.report"
+        local ReportSteps = require "logic.report_steps"
+        local _, sheet_flow, inputs, result = solved_input(world, shape)
+        local source = result.columns[1]
+        result.columns = {}
+        for index = 1, 30 do
+            local column = {}
+            for key, value in pairs(source) do column[key] = value end
+            result.columns[index] = column
+        end
+        result.recipe_rates, result.solved_rates = nil, nil
+        local calls, original = 0, Report.add_staged_solved
+        Report.add_staged_solved = function(...) calls = calls + 1; return original(...) end
+        local state = ReportSteps.begin(async_input(sheet_flow, inputs, result))
+        ReportSteps.step(state, {ops = 2000})
+        Report.add_staged_solved = original
+        H.equal(calls, 10, "2000 ops renders exactly ten 200-op rows")
+    end)
+
+    H.test(shape .. " RW2 positive budget always renders one report row", function()
+        local world = basic_world(shape)
+        local Report = require "gui.report"
+        local ReportSteps = require "logic.report_steps"
+        local _, sheet_flow, inputs, result = solved_input(world, shape)
+        result.recipe_rates, result.solved_rates = nil, nil
+        local calls, original = 0, Report.add_staged_solved
+        Report.add_staged_solved = function(...) calls = calls + 1; return original(...) end
+        local state = ReportSteps.begin(async_input(sheet_flow, inputs, result))
+        ReportSteps.step(state, {ops = 1})
+        Report.add_staged_solved = original
+        H.equal(calls, 1, "one positive op renders one row")
+    end)
+
     H.test(shape .. " RS-01 a large report takes several slices and parses identically after one publish", function()
         local world = basic_world(shape)
         local Report = require "gui.report"
