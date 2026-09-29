@@ -1,0 +1,48 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-ore",
+   "tile": [
+    0,
+    5
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    14
+   ]
+  }
+ ],
+ "force": {},
+ "inputs": {
+  "item/copper-ore": 1.0,
+  "item/iron-ore": 2.0
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "automation-science-pack"
+   ],
+   "tile": [
+    17,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/automation-science-pack": 1.0
+ }
+}

@@ -1,0 +1,69 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  102
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-ore",
+   "tile": [
+    0,
+    9
+   ]
+  },
+  {
+   "item": "calcite",
+   "tile": [
+    0,
+    13
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    25
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 15,
+  "inserter_stack_size_bonus": 19
+ },
+ "inputs": {
+  "item/calcite": 0.2192982431754712,
+  "item/copper-ore": 2.7206173013890007,
+  "item/iron-ore": 8.244294857384558
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "logistic-science-pack"
+   ],
+   "tile": [
+    14,
+    0
+   ]
+  },
+  {
+   "items": [
+    "automation-science-pack"
+   ],
+   "tile": [
+    42,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/automation-science-pack": 10.0,
+  "item/logistic-science-pack": 10.0
+ }
+}

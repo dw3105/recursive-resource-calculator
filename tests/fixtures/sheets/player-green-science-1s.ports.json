@@ -1,0 +1,48 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-ore",
+   "tile": [
+    0,
+    5
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    14
+   ]
+  }
+ ],
+ "force": {},
+ "inputs": {
+  "item/copper-ore": 0.6666666666666666,
+  "item/iron-ore": 4.666666666666667
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "logistic-science-pack"
+   ],
+   "tile": [
+    34,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/logistic-science-pack": 1.0
+ }
+}

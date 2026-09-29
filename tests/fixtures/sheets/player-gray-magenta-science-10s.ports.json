@@ -1,0 +1,101 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  252
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-ore",
+   "tile": [
+    0,
+    9
+   ]
+  },
+  {
+   "item": "calcite",
+   "tile": [
+    0,
+    33
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    34
+   ]
+  },
+  {
+   "item": "stone",
+   "tile": [
+    0,
+    83
+   ]
+  },
+  {
+   "item": "coal",
+   "tile": [
+    0,
+    122
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    49
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    54
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 15,
+  "inserter_stack_size_bonus": 19
+ },
+ "inputs": {
+  "fluid/crude-oil": 37.12055700474147,
+  "fluid/water": 61.08651680761223,
+  "item/calcite": 0.9443440766678288,
+  "item/coal": 38.492063259887516,
+  "item/copper-ore": 5.180165250052212,
+  "item/iron-ore": 42.03703858333923,
+  "item/stone": 99.20634878398067
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "production-science-pack"
+   ],
+   "tile": [
+    19,
+    0
+   ]
+  },
+  {
+   "items": [
+    "military-science-pack"
+   ],
+   "tile": [
+    40,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/military-science-pack": 10.0,
+  "item/production-science-pack": 10.0
+ }
+}
