@@ -1,11 +1,12 @@
 --The vanilla-named mock world the offline game shim runs on (tests/game/offline.lua) and the mock-parity manifest is
 --read from (tools/fixture_facts.lua --mock, round 48 D6): every mocked prototype here has a real counterpart by name.
 return function(H, shape)
-    local world = H.new_world(shape or os.getenv("RRC_SHAPE") or "2.0")
+    shape = shape or os.getenv("RRC_SHAPE") or "2.0"
+    local world = H.new_world(shape)
     world.add_item("iron-plate")
     world.add_item("copper-plate")
     world.add_item("iron-gear-wheel")
-    world.add_item("automation-science-pack", nil, nil, "tool")
+    world.add_item("automation-science-pack", nil, nil, shape == "2.1" and "item" or "tool")  --2.1 types science packs item
     world.add_item("coal", {value = 4e6, category = "chemical"})
     world.add_machine({name = "assembling-machine-1", categories = {"crafting", "basic-crafting", "advanced-crafting", "electronics", "pressing"}, speed = 0.5, module_slots = 0, energy_kw = 75})  -- vanilla: no slots (headless, round 42)
     world.add_machine({name = "assembling-machine-2", categories = {"crafting", "basic-crafting", "advanced-crafting", "crafting-with-fluid", "electronics", "pressing"}, speed = 0.75, module_slots = 2, energy_kw = 150})
@@ -17,7 +18,7 @@ return function(H, shape)
     --Green science chain, modules and a beacon: what the lane test files type or pick in the real game.
     world.add_item("copper-cable")
     world.add_item("electronic-circuit")
-    world.add_item("logistic-science-pack", nil, nil, "tool")
+    world.add_item("logistic-science-pack", nil, nil, shape == "2.1" and "item" or "tool")
     world.add_recipe({name = "copper-cable", category = "electronics", energy = 0.5,
         ingredients = {{name = "copper-plate", amount = 1}}, products = {{name = "copper-cable", amount = 2}}})
     world.add_recipe({name = "electronic-circuit", category = "electronics", energy = 0.5,

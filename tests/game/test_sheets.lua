@@ -67,15 +67,33 @@ describe("sheets", function()
                 if ent.valid and ent.type == "transport-belt" then speed = math.max(speed, ent.prototype.belt_speed) end
             end
             local warm = math.max(3600, math.ceil(((box[3] - box[1]) + (box[4] - box[2])) * 2 / speed) + 600)
-            local window = math.max(7200, math.ceil(10 * slowest_cycle_ticks(built)))
+            --Adaptive measuring (G4): after warm-up, 3600-tick windows. Pass as soon as one window reaches every target
+            --x0.95; fail when two windows in a row change by < 2% (plateau) or at 60000 ticks. A long chain (green-1s
+            --0.40/s at 3600 warm-up, 0.79/s at 18000) is judged on its steady state, not on its fill time.
+            local WINDOW, LIMIT = 3600, 60000
+            local window = WINDOW
             local short, samples = 0, 0
-            local t0 = game.tick
+            local t0, window_start, history = game.tick, nil, {}
+            local function rates_now()
+                local got = {}
+                for _, s in ipairs(sinks) do for name, count in pairs(s.got) do got[name] = (got[name] or 0) + count end end
+                local out, worst = {}, math.huge
+                for full_name, rate in pairs(ports.targets) do
+                    local name = full_name:gsub("^item/", "")
+                    local per_s = (got[name] or 0) / (WINDOW / 60)
+                    out[name] = per_s
+                    worst = math.min(worst, per_s / rate)
+                end
+                return out, worst
+            end
             game.speed = 1000
             on_tick(function()
                 local t = game.tick - t0
                 Lab.feed_tick(feeds, stack)
-                Lab.sink_tick(sinks, t >= warm)
-                if t >= warm and t % 60 == 0 then
+                local measuring = t >= warm
+                if measuring and not window_start then window_start = t end
+                Lab.sink_tick(sinks, measuring)
+                if measuring and t % 60 == 0 then
                     samples = samples + 1
                     for _, belt in ipairs(port_belts) do
                         for lane = 1, 2 do
@@ -86,7 +104,17 @@ describe("sheets", function()
                         end
                     end
                 end
-                if t < warm + window then return end
+                if not window_start or t - window_start < WINDOW then return end
+                local per, worst = rates_now()
+                history[#history + 1] = worst
+                log(string.format("SHEET-WINDOW %s t=%d worst=%.3f %s", sheet.case, t, worst, serpent.line(per)))
+                local done = worst >= 0.95 or t >= LIMIT
+                if #history >= 2 and math.abs(history[#history] - history[#history - 1]) < 0.02 * math.max(history[#history], 1e-9) then done = true end
+                if not done then
+                    for _, s in ipairs(sinks) do s.got = {} end
+                    window_start = t
+                    return
+                end
                 game.speed = 1
                 local problems = {}
                 if short > 0 then problems[#problems + 1] = "FEED_SHORT " .. short .. " lane samples of " .. samples * 2 * #port_belts end
@@ -100,34 +128,12 @@ describe("sheets", function()
                     end
                 end
                 local lines = {}
+                local per = rates_now()
                 for full_name, rate in pairs(ports.targets) do
                     local name = full_name:gsub("^item/", "")
-                    local per_s = (got[name] or 0) / (window / 60)
+                    local per_s = per[name] or 0
                     lines[#lines + 1] = string.format("%s %.3f/s of %.3f/s", name, per_s, rate)
                     if per_s < 0.95 * rate then problems[#problems + 1] = string.format("SHORT %s %.3f < 0.95 x %.3f", name, per_s, rate) end
-                end
-                if #problems > 0 then
-                    local names = {}
-                    for k, v in pairs(defines.entity_status) do names[v] = k end
-                    local census = {}
-                    for _, ent in pairs(built.entities) do
-                        if ent.valid and ent.status then
-                            local k = ent.type .. ":" .. (names[ent.status] or tostring(ent.status))
-                            census[k] = (census[k] or 0) + 1
-                        end
-                    end
-                    log("SHEET-STATUS " .. sheet.case .. " " .. serpent.line(census))
-                    for _, ent in pairs(built.entities) do
-                        if ent.valid and (ent.type == "furnace" or ent.type == "assembling-machine") then
-                            local r = ent.get_recipe()
-                            log(string.format("SHEET-MACHINE %s %s at %.1f,%.1f recipe=%s status=%s energy=%s in=%s out=%s fluids=%s",
-                                sheet.case, ent.name, ent.position.x - origin[1], ent.position.y - origin[2], r and r.name or "-",
-                                names[ent.status] or "?", tostring(ent.energy),
-                                serpent.line(ent.get_inventory(defines.inventory.crafter_input) and ent.get_inventory(defines.inventory.crafter_input).get_contents() or {}),
-                                serpent.line(ent.get_inventory(defines.inventory.crafter_output) and ent.get_inventory(defines.inventory.crafter_output).get_contents() or {}),
-                                serpent.line(ent.get_fluid_contents())))
-                        end
-                    end
                 end
                 log("SHEET-SIM " .. sheet.case .. " stack=" .. stack .. " warm=" .. warm .. " window=" .. window .. " " .. table.concat(lines, "; "))
                 assert(#problems == 0, sheet.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines, "; "))

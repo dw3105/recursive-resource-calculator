@@ -6,7 +6,7 @@ local entities = {
     {id = "in0", kind = "belt", name = "transport-belt", x = 0, y = 8, dir = "east", flows = {"iron-ore"}},
     {id = "in1", kind = "belt", name = "transport-belt", x = 1, y = 8, dir = "east", flows = {"iron-ore"}},
     {id = "hand-in", kind = "inserter", name = "fast-inserter", x = 2, y = 8, dir = "east", full_name = "item/iron-ore", role = "input", machine_id = "m", pickup_target = "external-in", drop_target = "m"},
-    {id = "m", kind = "machine", name = "electric-furnace", x = 3, y = 7, w = 3, h = 3, step_id = "s", forbids_speed_beacon = true},
+    {id = "m", kind = "machine", name = "electric-furnace", x = 3, y = 7, w = 3, h = 3, step_id = "s", forbids_speed_beacon = true, modules = {{name = "quality-module", count = 2}}},
     {id = "hand-out", kind = "inserter", name = "fast-inserter", x = 6, y = 8, dir = "east", full_name = "item/iron-plate", role = "output", machine_id = "m", pickup_target = "m", drop_target = "external-out"},
     {id = "out7", kind = "belt", name = "transport-belt", x = 7, y = 8, dir = "east", flows = {"iron-plate"}},
     {id = "b", kind = "beacon", name = "beacon", x = 3, y = 4, w = 3, h = 3, modules = {{name = "speed-module", count = 2}}},

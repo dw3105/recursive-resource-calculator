@@ -1,5 +1,5 @@
 return {
- id = "ug_b2b_ok", rule = "BP_V_UNDERGROUND_BACK_TO_BACK", class = "engine", from = "tests/test_validate_transport_shapes.lua TS3 tunnels",
+ id = "ug_b2b_ok", rule = "audit:blueprint_audit:back_to_back", class = "player", from = "tests/test_validate_transport_shapes.lua TS3 tunnels",
  grid = {w = 20, h = 20},
  entities = {
   {id = "a-in", kind = "belt", name = "underground-belt", x = 1, y = 1, dir = "east", type = "input", ug_role = "input", ug_pair_id = "a-out"},

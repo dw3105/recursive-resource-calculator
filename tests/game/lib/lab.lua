@@ -42,6 +42,14 @@ function Lab.research_stack(force)
     return 1 + force.belt_stack_size_bonus
 end
 
+--A fresh force for twins: every recipe unlocked, no research at all (belt-stack techs also raise inserter hand
+--size in 2.0, which let a plain inserter beat its planned 0.83/s: V121, 2026-09-29). Sheet sims keep "player".
+function Lab.twin_force()
+    local force = game.forces["rrc-twin"] or game.create_force("rrc-twin")
+    force.enable_all_recipes()
+    return force
+end
+
 function Lab.decode(bp_string)
     local json = helpers.decode_string(bp_string:sub(2))
     assert(json, "blueprint string does not decode")

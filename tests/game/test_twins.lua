@@ -127,8 +127,7 @@ local function artifact_verdict(twin, index)
     if not ok then return "defect", "blueprint string refused by our builder: " .. tostring(bp) end
     local imported = Lab.import_ok(bp)
     if not imported then return "defect", "engine refused the artifact string" end
-    local surface, force = Lab.surface(), game.forces.player
-    Lab.research_stack(force)
+    local surface, force = Lab.surface(), Lab.twin_force()
     local origin = {index * SPACING, 1024}
     Lab.prepare(surface, {{origin[1] - 8, origin[2] - 8}, {origin[1] + 8 + 6 * #entities, origin[2] + 16}})
     local built = Lab.build(surface, force, bp, origin)
@@ -263,7 +262,9 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
         local bad = {}
         for id, ent in pairs(by_id) do
             if ent.type == "underground-belt" then
-                local ok, partner = pcall(function() return ent.neighbours end)
+                --2.0: neighbours; 2.1 renamed it underground_belt_neighbour (docs/api/2.1.19.members.json).
+                local ok, partner = pcall(function() return ent.underground_belt_neighbour end)
+                if not (ok and partner) then ok, partner = pcall(function() return ent.neighbours end) end
                 local want
                 for _, e in ipairs(twin.entities or {}) do if e.id == id then want = e.ug_pair_id end end
                 if not (ok and partner) then bad[#bad + 1] = id
@@ -274,6 +275,19 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
                 local ok, conns = pcall(function() return ent.fluidbox.get_pipe_connections(1) end)
                 for _, c in pairs(ok and conns or {}) do
                     if c.connection_type == "underground" and c.target then paired = true end
+                end
+                if not ok then
+                    --2.1 has no get_pipe_connections: a partner pipe-to-ground among the fluid box neighbours, more
+                    --than one tile away, is the underground link.
+                    local okn, nb = pcall(function() return ent.fluidbox_neighbours end)
+                    local function scan(v)
+                        if type(v) == "table" then for _, x in pairs(v) do scan(x) end
+                        elseif v and v.valid and v.type == "pipe-to-ground" and v.unit_number ~= ent.unit_number then
+                            local dx, dy = v.position.x - ent.position.x, v.position.y - ent.position.y
+                            if dx * dx + dy * dy > 1.5 then paired = true end
+                        end
+                    end
+                    if okn then scan(nb) end
                 end
                 if not paired then bad[#bad + 1] = id end
             end
@@ -299,8 +313,8 @@ describe("twins", function()
                 return
             end
             assert((twin.stage or "validate") == "validate", twin.id .. ": check " .. twin.check .. " stage " .. tostring(twin.stage) .. " has no engine build yet (integrator)")
-            local force = game.forces.player
-            local stack = Lab.research_stack(force)
+            local force = Lab.twin_force()
+            local stack = 1
             local surface = Lab.surface()
             local origin = {index * SPACING, 0}
             Lab.prepare(surface, {{origin[1] - 16, origin[2] - 16}, {origin[1] + twin.grid.w + 16, origin[2] + twin.grid.h + 16}})
@@ -395,9 +409,16 @@ describe("twins", function()
                         if flows_of(e) and ent and not sink_ent[ent.unit_number] and not carried[e.id] then idle[#idle + 1] = e.id end
                     end
                     table.sort(idle)
-                    if #defects > 0 then verdict, why = "defect", table.concat(defects, "; ")
+                    local rates = {}
+                    for _, sk in ipairs(sinks) do
+                        local total = 0
+                        for _, c in pairs(sk.got) do total = total + c end
+                        rates[#rates + 1] = string.format("%.2f/s%s", total / (WINDOW / 60), sk.rate and ("(plan " .. sk.rate .. ")") or "")
+                    end
+                    local measured = #rates > 0 and (" | sinks " .. table.concat(rates, " ")) or ""
+                    if #defects > 0 then verdict, why = "defect", table.concat(defects, "; ") .. measured
                     elseif #idle > 0 then verdict, why = "waste", "carried nothing: " .. table.concat(idle, " ")
-                    else verdict, why = "ok", "every flow pure, every sink fed" end
+                    else verdict, why = "ok", "every flow pure, every sink fed" .. measured end
                 end
                 assert(verdict ~= nil, twin.id .. ": " .. tostring(why))
                 assert.are_equal(twin.truth, verdict, twin.id .. " engine verdict (" .. tostring(why) .. ")")

@@ -12,7 +12,7 @@ local BlueprintString = require "logic.bp.blueprint_string"
 local Twin = {}
 
 Twin.DIRS = {north = Grid.NORTH, east = Grid.EAST, south = Grid.SOUTH, west = Grid.WEST}
-Twin.CLASSES = {engine = true, waste = true}
+Twin.CLASSES = {engine = true, waste = true, player = true}  --player: the validator enforces a player rule the engine runs fine
 Twin.TRUTHS = {ok = true, defect = true, waste = true}
 Twin.CHECKS = {flow_purity = true, rate = true, pickup_drop = true, placeable = true, powered = true, network = true,
     beacon_effect = true, underground_pair = true, fluid_system = true, prototype = true, artifact = true}
@@ -38,7 +38,8 @@ function Twin.check(twin, path)
     if type(twin) ~= "table" then problem(p, path, "file must return a table"); return p end
     if type(twin.id) ~= "string" or twin.id == "" then problem(p, path, "id missing") end
     if type(twin.rule) ~= "string" then problem(p, path, "rule missing") end
-    if not Twin.CLASSES[twin.class] then problem(p, path, "class must be engine|waste, got " .. tostring(twin.class)) end
+    if not Twin.CLASSES[twin.class] then problem(p, path, "class must be engine|waste|player, got " .. tostring(twin.class)) end
+    if twin.class == "player" and twin.truth ~= "ok" then problem(p, path, "a player-rule twin runs fine in the engine: truth ok") end
     if not Twin.TRUTHS[twin.truth] then problem(p, path, "truth must be ok|defect|waste, got " .. tostring(twin.truth)) end
     if not Twin.CHECKS[twin.check] then problem(p, path, "unknown check " .. tostring(twin.check)) end
     if twin.stage ~= nil and not Twin.STAGES[twin.stage] then problem(p, path, "stage must be validate|preflight|artifact") end
@@ -46,7 +47,7 @@ function Twin.check(twin, path)
     if stage == "preflight" and type(twin.preflight) ~= "table" then problem(p, path, "preflight stage needs preflight = {snapshot, solver_result, catalog, options}") end
     if stage == "artifact" and type(twin.artifact) ~= "table" then problem(p, path, "artifact stage needs artifact = {artifact, plan, catalog}") end
     if type(twin.codes) ~= "table" then problem(p, path, "codes missing (use {} when clean)") end
-    if twin.truth == "ok" and type(twin.codes) == "table" and #twin.codes > 0 then problem(p, path, "truth ok needs codes {}") end
+    if twin.truth == "ok" and twin.class ~= "player" and type(twin.codes) == "table" and #twin.codes > 0 then problem(p, path, "truth ok needs codes {}") end
     if twin.truth ~= "ok" and type(twin.codes) == "table" and #twin.codes == 0 then
         problem(p, path, "truth " .. tostring(twin.truth) .. " needs its code in codes") end
     if type(twin.grid) ~= "table" or type(twin.grid.w) ~= "number" or type(twin.grid.h) ~= "number" then problem(p, path, "grid {w,h} missing") end
