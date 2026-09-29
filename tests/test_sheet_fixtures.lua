@@ -2,7 +2,7 @@ local H = require "tests.harness"
 
 --Round 48 B6/D7: every stored sheet (tests/fixtures/sheets/<case>.bp.txt, what the headless sheet sim builds) is
 --the exact delivered bytes of the bytes baseline, and its ports file traced with no problem.
-local BASELINE = "tests/fixtures/bytes_round47.txt"
+local BASELINE = "tests/fixtures/bytes_round48.txt"
 local want = {}
 for line in io.lines(BASELINE) do
     local case, sha = line:match("^BYTES (%S+) (%x+)$")

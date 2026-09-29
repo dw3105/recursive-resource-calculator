@@ -78,7 +78,6 @@ tests/golden/cases/base-only-crafting-smelting/prepared_input.json	catalog	vanil
 tests/golden/cases/fluid-byproduct-chain/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
 tests/golden/cases/player-am2-chain-repaired/prepared_input.json	catalog	player	captured from player game
 tests/golden/cases/player-blue-science-10s/prepared_input.json	catalog	player	captured from player game
-tests/golden/cases/player-gray-magenta-science-10s/prepared_input.json	catalog	player	captured from player game
 tests/golden/cases/player-green-science-1s/prepared_input.json	catalog	player	captured from player game
 tests/golden/cases/player-inserter-10s-bulk/prepared_input.json	catalog	player	captured from player game
 tests/golden/cases/player-inserter-10s-stack1/prepared_input.json	catalog	player	captured from player game
@@ -102,8 +101,6 @@ tests/fixtures/sheets/player-am2-chain-repaired.bp.txt	sheet	player	delivered sh
 tests/fixtures/sheets/player-am2-chain-repaired.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
 tests/fixtures/sheets/player-blue-science-10s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
 tests/fixtures/sheets/player-blue-science-10s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
-tests/fixtures/sheets/player-gray-magenta-science-10s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
-tests/fixtures/sheets/player-gray-magenta-science-10s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
 tests/fixtures/sheets/player-green-science-1s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
 tests/fixtures/sheets/player-green-science-1s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
 tests/fixtures/sheets/player-inserter-10s-bulk.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
@@ -130,3 +127,4 @@ tests/fixtures/sheets/vanilla-2.1-red-science-1s.bp.txt	sheet	vanilla	sheet gene
 tests/fixtures/sheets/vanilla-2.1-red-science-1s.ports.json	sheet	vanilla	sheet generated in-game on vanilla 2.1 (tests/game/test_capture.lua), simmed on 2.1 (G7)
 tests/fixtures/bytes_round49.txt	sheet	player	bytes baseline (sha per gated sheet)
 tests/golden/cases/player-magenta-science-10s/prepared_input.json	catalog	player	captured from player game
+tests/fixtures/bytes_round48.txt	sheet	player	bytes baseline round 48 (13 gated sheets, final int/r48 tree; gray-magenta case dropped by the player)
