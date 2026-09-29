@@ -1819,9 +1819,19 @@ function Search.step(container, budget)
                     set_phase(state, "validate")
                 end
             end
+        elseif state.phase == "validate" and state.work.serialize_next then
+            --Success work is spread over ticks: gray + magenta's success tick was 0.74 s (last validate step +
+            --three deep copies 0.21 s + begin_serialization 0.24 s; legalcopilot-dev 2026-09-29, DoD 300 ms).
+            state.work.serialize_next = nil
+            begin_serialization(state)
+            budget.ops = 0
         elseif state.phase == "validate" then
-            run_stage(state, "validate", Validate, budget)
-            if stage_done(state.work.validate) then
+            local was_done = stage_done(state.work.validate)
+            if not was_done then run_stage(state, "validate", Validate, budget) end
+            if stage_done(state.work.validate) and state.work.validate.ok and not was_done then
+                --The copies below get a tick of their own, apart from the last validate step.
+                budget.ops = 0
+            elseif stage_done(state.work.validate) then
                 if not state.work.validate.ok then
                     --A candidate discarded without a record makes every validator rejection look like a routing
                     --failure from outside.  Counting the codes costs nothing and is what the failure message and
@@ -1841,7 +1851,7 @@ function Search.step(container, budget)
                             state.incumbent, state.work.incumbent_record = first.incumbent, first.record
                             first.record.chosen = true
                             state.work.attempt_recorded = true
-                            begin_serialization(state)
+                            state.work.serialize_next = true; budget.ops = 0
                             incumbent = nil
                         end
                     elseif state.work.collector_trial == nil and routed and routed.collectors_used and state.work.route_args then
@@ -1862,7 +1872,7 @@ function Search.step(container, budget)
                         state.work.incumbent_record = record
                         state.incumbent = incumbent
                         state.work.attempt_recorded = true
-                        begin_serialization(state)
+                        state.work.serialize_next = true; budget.ops = 0
                     end
                 end
             end
