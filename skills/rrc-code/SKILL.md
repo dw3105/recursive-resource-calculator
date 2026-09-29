@@ -20,9 +20,24 @@ Player said 7 times (2026-09-23..27): "did I not asked you to use fast checks wh
 | 5 | First verdict of a stage on a whole sheet | `lua5.2 tools/first_stage.lua <case> <pack|route|validate>` (`DETAIL=1`, `FAST_TIDY=1`) | 7-170 s |
 | 6 | Where time goes | `lua5.2 tools/golden_profile.lua <case> <out.json> [--cap S]` → `python3 tools/golden_report.py <dir> <out.html>` | = sheet time |
 | 7 | Does sheet build end to end | `tests/golden/generate.lua` — LAST, one run, reason said to player before start | sheet time |
+| 2a | Every golden examined (player rule 2026-09-28) | `RRC_SLOW=ckpt-save:<why> lua5.2 tools/ckpt.lua save-all <case> <dir> --output <r.json>`: snapshot per phase + `PROF phase=… worst=… at=<tick>` lines (DoD speed numbers, same run) | = sheet time, once |
+| 2b | Validate verdict of one candidate | `VALEXIT=1 lua5.2 tools/ckpt.lua resume <dir>/NNN_…_validate.lua.gz --patch p_valdetail.lua` (REJ + every `E` code) | 20-60 s |
+| 2c | Long stage in <120 s chunks | `ckpt.lua resume <snap> --at-tick N --save <out>`; chain chunks; save costs ~15 s CPU | per chunk |
+| 2d | Which tidy step breaks flow X | tidy replay patch with only X's improve trials (`FLOWONLY`) + watch cell/binding per `tidy_step` / `Route.step` | 7-50 s |
+| 2e | Cost of one stage call | load snapshot, call the module directly (`BeaconPrune.run`, exported `result_for`), `os.clock` | seconds |
+| 2f | Layout rules (row flip, seat) | `fast_rundir.lua` 0.3 s; Seat replay on ckpt 0.11 s | < 1 s |
+
+Round 47 probe patches (`p_valdetail`, `p_trunk`, `p_bindwatch`, `p_parts`, `p_vphase`, `walk.lua`, `gate13.sh`,
+`bisect_sheet.sh`): `~/.claude/plans/rrc-round-47-probes/`.
 
 - **RC-02** Before any command expected > 60 s: say why no rung below answers; build that rung next. One slow run per
   question, never a second.
+- **RC-02b** Enforced since round 47: slow tools refuse without `RRC_SLOW=<slot>:<reason>` (tools/lib/slow_guard.lua,
+  budget per wave in tools/slow_budget.json, ledger ~/.cache/rrc/slow_ledger.tsv); Claude hook caps RRC commands at
+  `timeout 120`. Goldens in `fast_cases` need no slot. Bisect byte diffs over commits in spare worktrees, one slot.
+- **RC-02c** Every run expected > 5 min: say ETA before start, run in background with log-staleness watch (Monitor:
+  log mtime older than 5 min = stalled, report at once); never say "running" without log mtime read this turn.
+  Player sheet delivers in minutes (RULINGS SIM-MINUTES): long sim = defect to find, never longer window.
 - **RC-03** Never pipe progress through `cut`/`sort` (buffers to exit). Log to file, `tail`.
 - **RC-04** Stage inputs can lie: diff a capture's catalog against a live one before diagnosing layout
   (am2-chain 2026-09-27: empty inserter offsets → rebuild via `tools/prepared_from_export.py`).
