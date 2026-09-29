@@ -50,8 +50,17 @@ class TwinAudit(unittest.TestCase):
                     bp_file = f.name
                 try:
                     if "blueprint_audit" in want:
-                        out = subprocess.run([sys.executable, "tools/blueprint_audit.py", "--json", "-q", bp_file], cwd=ROOT,
+                        cfg = subprocess.run([LUA, "tools/twin_bp.lua", "--beacon-config", path], cwd=ROOT, capture_output=True,
+                                             text=True, timeout=60, check=True).stdout.strip()
+                        extra = []
+                        if cfg not in ("", "{}", "[]"):
+                            with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as c:
+                                c.write(cfg)
+                                extra = ["--beacon-config", c.name]
+                        out = subprocess.run([sys.executable, "tools/blueprint_audit.py", "--json", "-q", bp_file] + extra, cwd=ROOT,
                                              capture_output=True, text=True, timeout=60)
+                        if extra:
+                            os.unlink(extra[1])
                         counts = json.loads(out.stdout)
                         for key, value in want["blueprint_audit"].items():
                             self.assertEqual(counts.get(key), value, f"blueprint_audit {key}")

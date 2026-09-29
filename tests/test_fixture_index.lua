@@ -2,7 +2,7 @@ local H = require "tests.harness"
 
 --Round 48 D1: every fixture file is listed in tests/fixtures/INDEX.tsv with a class, so none escapes the
 --engine checks by being forgotten. Code files (README, run, lib/, *.py, *.md) are not fixtures.
-local CLASSES = {twin = true, catalog = true, sheet = true, algo = true, double = true, ["player-rule"] = true}
+local CLASSES = {twin = true, catalog = true, sheet = true, algo = true, double = true, ["player-rule"] = true, facts = true}
 local PROFILES = {player = true, vanilla = true, ["-"] = true}
 local ROOTS = "tests/fixtures tests/acceptance tests/export_golden tests/game/expected"
 

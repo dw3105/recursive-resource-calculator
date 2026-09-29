@@ -31,6 +31,7 @@ return {
   truth = "defect",                 -- ok | defect | waste
   codes = {"BP_V_BELT_BLEED"},      -- EXACT code set the offline judge must return ({} when clean)
   audit = {lane_sim = {bleed = 1}, blueprint_audit = {cycles = 0}},  -- pinned auditor counts, listed keys only
+  audit_beacon_config = nil,        -- {["<recipe or machine>"] = N}: blueprint_audit --beacon-config (redundant_beacons)
 }
 ```
 

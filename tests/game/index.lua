@@ -5,4 +5,5 @@ return {
     "tests.game.test_generate",
     "tests.game.test_parity",
     "tests.game.test_twins",
+    "tests.game.test_sheets",
 }

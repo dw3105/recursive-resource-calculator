@@ -29,8 +29,11 @@ function Lab.prepare(surface, area)
     for _, e in pairs(surface.find_entities({{l, t}, {r, b}})) do if e.valid and e.type ~= "character" then e.destroy() end end
 end
 
---Research every tech whose effects raise belt stacking (mods included, G10). Returns the max belt stack.
+--Unlock every recipe (a fresh lab force has none researched: machines sit at recipe_not_researched, engine
+--2026-09-29), then research every tech whose effects raise belt stacking (mods included, G10). Returns the max
+--belt stack. enable_all_recipes grants no productivity or speed bonus; research_all_technologies would.
 function Lab.research_stack(force)
+    force.enable_all_recipes()
     for _, tech in pairs(force.technologies) do
         for _, e in pairs(tech.prototype.effects or {}) do
             if e.type == "belt-stack-size-bonus" then tech.researched = true end

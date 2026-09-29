@@ -26,6 +26,24 @@ rm -f "$MOD/tests/game/offline.lua"
 cp -r "$ROOT/tests/twins" "$MOD/tests/"
 (cd "$ROOT" && find tests/twins -name '*.lua' -not -path '*/lib/*' -not -name required.lua -not -name index.lua | LC_ALL=C sort) |
   sed 's#\.lua$##; s#/#.#g; s#.*#    "&",#' | { echo "return {"; cat; echo "}"; } > "$MOD/tests/twins/index.lua"
+# Sheet sims (round 48 D7): each tests/fixtures/sheets/<case>.bp.txt + .ports.json becomes one module, plus an index.
+python3 - "$ROOT/tests/fixtures/sheets" "$MOD/tests/game/fixtures" <<'PY'
+import os, sys
+src, out = sys.argv[1:]
+os.makedirs(out, exist_ok=True)
+cases = sorted(f[:-7] for f in os.listdir(src) if f.endswith(".bp.txt")) if os.path.isdir(src) else []
+def long(text):
+    level = "=="
+    while "]" + level + "]" in text: level += "="
+    return "[" + level + "[" + text + "]" + level + "]"
+for c in cases:
+    bp = open(os.path.join(src, c + ".bp.txt")).read().strip()
+    ports = open(os.path.join(src, c + ".ports.json")).read()
+    open(os.path.join(out, "sheet_" + c.replace("-", "_") + ".lua"), "w").write(
+        "return {bp = " + long(bp) + ", ports = " + long(ports) + "}\n")
+rows = "".join('    {case = "%s", profile = "%s"},\n' % (c, "player" if c.startswith("player-") else "vanilla") for c in cases)
+open(os.path.join(out, "sheets_index.lua"), "w").write("return {\n" + rows + "}\n")
+PY
 # Shard I/N: keep test files I, I+N, ... of tests/game/index.lua (game_test.sh --shard).
 if [ -n "${RRC_SHARD:-}" ]; then
   python3 - "$MOD/tests/game/index.lua" "$RRC_SHARD" <<'PY'

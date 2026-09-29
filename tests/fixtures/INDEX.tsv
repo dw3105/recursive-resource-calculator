@@ -1,4 +1,4 @@
-#path	class	profile	why  (round 48 D1; classes twin|catalog|sheet|algo|double|player-rule; profile player|vanilla|-)
+#path	class	profile	why  (round 48 D1; classes twin|catalog|sheet|algo|double|player-rule|facts; profile player|vanilla|-)
 tests/acceptance/beacon_chain_case.lua	sheet	vanilla	acceptance chain; built and run in D7
 tests/acceptance/fluid_chain_case.lua	sheet	vanilla	acceptance chain; built and run in D7
 tests/acceptance/gate_digest_case.lua	sheet	vanilla	acceptance chain; built and run in D7
@@ -92,3 +92,9 @@ tests/golden/cases/player-red-science-1s-foundry/prepared_input.json	catalog	pla
 tests/golden/cases/player-red-science-1s/prepared_input.json	catalog	player	captured from player game
 tests/golden/cases/repeatability/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
 tests/golden/cases/shared-intermediate-multi-target/prepared_input.json	catalog	vanilla	harness-made catalog (mock facts)
+tests/fixtures/engine_facts/catalog_conflicts.tsv	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/engine_facts/catalog_facts.tsv	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/engine_facts/constants.json	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/engine_facts/mock_members.json	facts	-	derived engine-fact rows (tools/fixture_facts.lua, lane 281); compared with the live game headless (I4)
+tests/fixtures/sheets/player-red-science-1s-foundry.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
+tests/fixtures/sheets/player-red-science-1s-foundry.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7)
