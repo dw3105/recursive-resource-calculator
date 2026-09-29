@@ -207,3 +207,6 @@
 | `273` | `rrc/agent` | validate + ends: row ports keyed per block; two false alarms; splitter footprint; tile index ticks | 2026-09-28 |
 | `274` | `rrc/agent` | capacity: map-edge item inputs carry max belt stack | 2026-09-28 |
 | `275` | `rrc/agent` | tools: slow-check guard refuses slow tools without a slot and reason | 2026-09-28 |
+| `279` | `rrc/agent` | twins: every belt, underground and fluid rule gets a clean and a breach twin (round 48) | 2026-09-29 |
+| `280` | `rrc/agent` | twins: placement, power, beacon, hand, rate, identity, artifact, preflight twins; code registry (round 48) | 2026-09-29 |
+| `281` | `rrc/agent` | facts: fixture catalog facts, engine constants, mock members as rows; export startup settings (round 48) | 2026-09-29 |

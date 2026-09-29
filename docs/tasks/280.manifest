@@ -1,0 +1,12 @@
+# bound: 3600s
+tests/twins/place/
+tests/twins/power/
+tests/twins/beacon/
+tests/twins/hands/
+tests/twins/rate/
+tests/twins/artifact/
+tests/twins/preflight/
+tests/twins/required.lua
+logic/bp/reason_codes.lua
+tests/test_reason_codes_registry.lua
+docs/tasks/280_twins_rest.md
