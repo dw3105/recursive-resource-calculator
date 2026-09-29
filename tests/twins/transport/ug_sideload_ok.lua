@@ -4,7 +4,7 @@ return {
  entities = {
   {id = "straight", kind = "belt", name = "transport-belt", x = 0, y = 4, dir = "east", flows = {"iron-plate"}},
   {id = "in", kind = "belt", name = "underground-belt", x = 1, y = 4, dir = "east", type = "input", ug_role = "input", ug_pair_id = "out"},
-  {id = "out", kind = "belt", name = "underground-belt", x = 7, y = 4, dir = "east", type = "output", ug_role = "output", ug_pair_id = "in"},
+  {id = "out", kind = "belt", name = "underground-belt", x = 5, y = 4, dir = "east", type = "output", ug_role = "output", ug_pair_id = "in"},
  },
  feeds = {{tile = {0, 4}, item = "iron-plate"}},
  check = "underground_pair", truth = "ok", codes = {},

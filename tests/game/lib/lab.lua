@@ -79,7 +79,7 @@ function Lab.build(surface, force, bp_string, origin)
             quality = e.quality or "normal", type = e.type, input_priority = e.input_priority,
             output_priority = e.output_priority, filter = e.filter, raise_built = false}
         local can = surface.can_place_entity{name = e.name, position = pos, direction = e.direction or 0, force = force,
-            build_check_type = defines.build_check_type.script}  --collisions only; manual refused every underground (2026-09-29)
+            build_check_type = defines.build_check_type.blueprint_ghost}  --collisions without reach: manual refused every underground, script skipped collisions (2026-09-29)
         if not can then
             built.refused[#built.refused + 1] = e.entity_number
         else
@@ -134,25 +134,31 @@ function Lab.power(surface, force, built)
         end
     end
     if not best then return false end
-    --Right beside the grid (tiles -3..-2): a pole at x <= 5 stays inside a medium pole's 9-tile wire reach.
-    local x = built.origin[1] - 2
-    local sub = surface.create_entity{name = "substation", position = {x, best.position.y}, force = force}
-    local eei = surface.create_entity{name = Lab.EEI, position = {x - 3, best.position.y}, force = force}
-    if not (sub and eei) then return false end
+    --A small pole just outside the grid (x = -3: supply -5.5..-0.5 never reaches a grid tile, wire reach 7.5 to a twin
+    --pole at x <= 4), fed by a substation + electric-energy-interface further left. The lab must never power the
+    --twin by itself: a substation beside the grid did, and hid an uncovered machine (V61, 2026-09-29).
+    local y = best.position.y
+    local link = surface.create_entity{name = "small-electric-pole", position = {built.origin[1] - 2.5, y}, force = force}
+    local sub = surface.create_entity{name = "substation", position = {built.origin[1] - 9, y}, force = force}
+    local eei = surface.create_entity{name = Lab.EEI, position = {built.origin[1] - 13, y}, force = force}
+    if not (link and sub and eei) then return false end
     eei.electric_buffer_size = 1e15
     eei.power_production = 1e13
     eei.power_usage = 0
-    local c = sub.get_wire_connector(defines.wire_connector_id.pole_copper, true)
-    c.disconnect_all(defines.wire_origin.player)
-    return c.connect_to(best.get_wire_connector(defines.wire_connector_id.pole_copper, true), true, defines.wire_origin.player)
+    local copper = defines.wire_connector_id.pole_copper
+    for _, pole in ipairs({link, sub}) do pole.get_wire_connector(copper, true).disconnect_all(defines.wire_origin.player) end
+    local a = sub.get_wire_connector(copper, true).connect_to(link.get_wire_connector(copper, true), true, defines.wire_origin.player)
+    local b = link.get_wire_connector(copper, true).connect_to(best.get_wire_connector(copper, true), true, defines.wire_origin.player)
+    return a and b
 end
 
 --Feeds: list of {entity, item | fluid, per_tick?}. Items: both lines at max stack. per_tick nil = every tick as much
 --as fits (a sheet port, G10: full belt). per_tick = items per tick per line: a partly loaded belt, which is what a
 --twin needs, because a FULL belt refuses every side-load and so can never show bleed (engine, 2026-09-29).
-function Lab.feed_tick(feeds, stack)
+function Lab.feed_tick(feeds, default_stack)
     for _, f in ipairs(feeds) do
         local e = f.entity
+        local stack = f.stack or default_stack
         if e and e.valid then
             if f.fluid then
                 pcall(e.insert_fluid, {name = f.fluid, amount = 1000})

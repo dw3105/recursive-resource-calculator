@@ -6,4 +6,4 @@ local options = {input_edge = "left", output_edge = "right"}
 return {id = "T-280-42", rule = "BP_REJ_SPOILAGE", class = "engine", from = "tests/test_bp_preflight.lua twin fixture",
     stage = "preflight", grid = {w = 1, h = 1}, entities = {},
     preflight = {snapshot = snapshot, solver_result = result, catalog = catalog, options = options},
-    subject = {kind = "recipe", name = "iron-gear-wheel"}, check = "prototype", truth = "ok", codes = {}, audit = {}}
+    subject = {kind = "item", name = "iron-plate"}, check = "prototype", truth = "ok", codes = {}, audit = {}}

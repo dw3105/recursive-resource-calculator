@@ -7,4 +7,4 @@ column.recipe.ingredients = {{type = "item", name = "bioflux", amount = 1}}; cat
 return {id = "T-280-41", rule = "BP_REJ_SPOILAGE", class = "engine", from = "tests/test_bp_preflight.lua twin fixture",
     stage = "preflight", grid = {w = 1, h = 1}, entities = {},
     preflight = {snapshot = snapshot, solver_result = result, catalog = catalog, options = options},
-    subject = {kind = "recipe", name = "iron-gear-wheel"}, check = "prototype", truth = "defect", codes = {"BP_REJ_SPOILAGE"}, audit = {}}
+    subject = {kind = "item", name = "bioflux"}, check = "prototype", truth = "defect", codes = {"BP_REJ_SPOILAGE"}, audit = {}}

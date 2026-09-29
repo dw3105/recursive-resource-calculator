@@ -3,8 +3,8 @@ local column = {recipe_name = "iron-gear-wheel", machine = {name = "assembling-m
 local catalog = {entity = { ["assembling-machine-2"] = {name = "assembling-machine-2", type = "assembling-machine", module_slots = 2, energy_source_type = "electric", effect_receiver = {status = "verified_default", source = "prototype", branch = "2.0", base_effect = {}, uses_module_effects = true, uses_beacon_effects = true, uses_surface_effects = true}}}, item = { ["iron-plate"] = {name = "iron-plate", type = "item"}}, module = {}, quality = {normal = {unlocked = true}}}
 local result = {status = "ok", columns = {column}, recipe_rates = { ["iron-gear-wheel"] = 1}}
 local options = {input_edge = "left", output_edge = "right"}
-column.recipe.products = {{type = "item", name = "iron-gear-wheel", amount = 1, probability = 0.5}}
+column.recipe_name = "uranium-processing"; column.recipe.name = "uranium-processing"; column.recipe.products = {{type = "item", name = "uranium-235", amount = 1, probability = 0.007}}; result.recipe_rates = {["uranium-processing"] = 1}
 return {id = "T-280-51", rule = "BP_REJ_PROBABILISTIC", class = "engine", from = "tests/test_bp_preflight.lua twin fixture",
     stage = "preflight", grid = {w = 1, h = 1}, entities = {},
     preflight = {snapshot = snapshot, solver_result = result, catalog = catalog, options = options},
-    subject = {kind = "recipe", name = "iron-gear-wheel"}, check = "prototype", truth = "defect", codes = {"BP_REJ_PROBABILISTIC"}, audit = {}}
+    subject = {kind = "recipe", name = "uranium-processing"}, check = "prototype", truth = "defect", codes = {"BP_REJ_PROBABILISTIC"}, audit = {}}

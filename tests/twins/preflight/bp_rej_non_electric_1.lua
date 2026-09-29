@@ -3,8 +3,8 @@ local column = {recipe_name = "iron-gear-wheel", machine = {name = "assembling-m
 local catalog = {entity = { ["assembling-machine-2"] = {name = "assembling-machine-2", type = "assembling-machine", module_slots = 2, energy_source_type = "electric", effect_receiver = {status = "verified_default", source = "prototype", branch = "2.0", base_effect = {}, uses_module_effects = true, uses_beacon_effects = true, uses_surface_effects = true}}}, item = { ["iron-plate"] = {name = "iron-plate", type = "item"}}, module = {}, quality = {normal = {unlocked = true}}}
 local result = {status = "ok", columns = {column}, recipe_rates = { ["iron-gear-wheel"] = 1}}
 local options = {input_edge = "left", output_edge = "right"}
-catalog.entity["assembling-machine-2"].non_electric = true
+column.machine = {name = "stone-furnace"}; catalog.entity["stone-furnace"] = {name = "stone-furnace", type = "furnace", module_slots = 0, energy_source_type = "burner", burner = true, non_electric = true, effect_receiver = {status = "verified_default", source = "prototype", branch = "2.0", base_effect = {}, uses_module_effects = true, uses_beacon_effects = true, uses_surface_effects = true}}; snapshot.selection[1].machine = {name = "stone-furnace", quality = "normal"}
 return {id = "T-280-111", rule = "BP_REJ_NON_ELECTRIC", class = "engine", from = "tests/test_bp_preflight.lua twin fixture",
     stage = "preflight", grid = {w = 1, h = 1}, entities = {},
     preflight = {snapshot = snapshot, solver_result = result, catalog = catalog, options = options},
-    subject = {kind = "entity", name = "assembling-machine-2"}, check = "prototype", truth = "defect", codes = {"BP_REJ_NON_ELECTRIC"}, audit = {}}
+    subject = {kind = "entity", name = "stone-furnace"}, check = "prototype", truth = "defect", codes = {"BP_REJ_BURNER_MACHINE", "BP_REJ_NON_ELECTRIC"}, audit = {}}

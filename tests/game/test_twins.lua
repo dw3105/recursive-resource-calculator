@@ -73,8 +73,18 @@ local function prototype_verdict(twin)
         quality = prototypes.quality})[s.kind]
     if not store then return nil, "subject.kind must be recipe|entity|item|module|quality" end
     if store[s.name] == nil then return "defect", "subject " .. s.kind .. " " .. tostring(s.name) .. " does not exist in this game" end
-    local options = ({entity = {entities = {s.name}}, recipe = {recipe_names = {s.name}}, item = {item_names = {s.name}},
-        module = {module_names = {s.name}}, quality = {quality_names = {s.name}}})[s.kind]
+    --Every prototype the twin's catalog names that exists in this game is replaced by its live projection, not only
+    --the subject: a fact invented on any real entry (burner = true on assembling-machine-2) must meet the engine.
+    local cat = (twin.preflight or {}).catalog or {}
+    local function real(names, store2) local out = {}; for n in pairs(names or {}) do if store2[n] then out[#out + 1] = n end end; return out end
+    local options = {entities = real(cat.entity, prototypes.entity), recipe_names = real(cat.recipe, prototypes.recipe),
+        item_names = real(cat.item, prototypes.item), module_names = real(cat.module, prototypes.item),
+        quality_names = real(cat.quality, prototypes.quality)}
+    local extra = ({entity = "entities", recipe = "recipe_names", item = "item_names", module = "module_names", quality = "quality_names"})[s.kind]
+    table.insert(options[extra], s.name)
+    for _, column in ipairs(((twin.preflight or {}).solver_result or {}).columns or {}) do
+        if column.recipe_name and prototypes.recipe[column.recipe_name] then table.insert(options.recipe_names, column.recipe_name) end
+    end
     local live = Catalog.build(1, options)
     local probe = deep_copy(twin)
     probe.preflight = deep_copy(twin.preflight)
@@ -86,10 +96,8 @@ local function prototype_verdict(twin)
         end
     end
     --Preflight reads a column's own recipe copy, not the catalog: give it the live recipe too.
-    if s.kind == "recipe" and live.recipe and live.recipe[s.name] then
-        for _, column in ipairs((probe.preflight.solver_result or {}).columns or {}) do
-            if column.recipe_name == s.name then column.recipe = deep_copy(live.recipe[s.name]) end
-        end
+    for _, column in ipairs((probe.preflight.solver_result or {}).columns or {}) do
+        if column.recipe_name and live.recipe and live.recipe[column.recipe_name] then column.recipe = deep_copy(live.recipe[column.recipe_name]) end
     end
     local codes = Twin.verdict(probe)
     local fired = false
@@ -136,7 +144,36 @@ local function artifact_verdict(twin, index)
             by_machine[key] = (by_machine[key] or 0) + 1
         end
     end
+    local function contents(inv)
+        local out = {}
+        for _, it in ipairs(inv and inv.get_contents() or {}) do out[it.name .. "@" .. (it.quality or "normal")] = (out[it.name .. "@" .. (it.quality or "normal")] or 0) + it.count end
+        return out
+    end
+    local function wanted(list)
+        local out = {}
+        for _, m in ipairs(list or {}) do local k = m.name .. "@" .. (m.quality or "normal"); out[k] = (out[k] or 0) + (m.count or 1) end
+        return out
+    end
+    local function same(a, b)
+        for k, v in pairs(a) do if b[k] ~= v then return false end end
+        for k, v in pairs(b) do if a[k] ~= v then return false end end
+        return true
+    end
     for _, step in ipairs(plan.steps or {}) do
+        for _, ent in pairs(built.entities) do
+            if ent.valid and ent.name == step.machine and not same(contents(ent.get_module_inventory()), wanted(step.modules)) then
+                diffs[#diffs + 1] = ent.name .. " modules " .. serpent.line(contents(ent.get_module_inventory())) .. " planned " .. serpent.line(wanted(step.modules))
+            end
+            if ent.valid and ent.type == "beacon" then
+                local groups = step.beacon_groups or {}
+                if #groups == 0 then diffs[#diffs + 1] = "beacon not planned"
+                else
+                    local g = groups[1]
+                    if (g.quality or "normal") ~= ent.quality.name then diffs[#diffs + 1] = "beacon quality " .. ent.quality.name .. " planned " .. tostring(g.quality) end
+                    if not same(contents(ent.get_module_inventory()), wanted(g.modules)) then diffs[#diffs + 1] = "beacon modules differ from plan" end
+                end
+            end
+        end
         local key = tostring(step.machine) .. "|" .. tostring(step.recipe or "-") .. "|" .. tostring(step.machine_quality or "normal")
         local got = by_machine[key] or 0
         if got ~= (step.machine_count or 0) then diffs[#diffs + 1] = key .. " built " .. got .. " planned " .. tostring(step.machine_count) end
@@ -201,6 +238,23 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
             end
             if ent and ent.type == "beacon" and #ent.get_beacon_effect_receivers() == 0 then idle[#idle + 1] = e.id end
         end
+        --A machine carrying quality modules under a beacon with speed modules: speed lowers quality (2.0).
+        local mixed = {}
+        for _, e in ipairs(twin.entities or {}) do
+            local ent = by_id[e.id]
+            if ent and (ent.type == "assembling-machine" or ent.type == "furnace") then
+                local inv, has_quality = ent.get_module_inventory(), false
+                for _, it in ipairs(inv and inv.get_contents() or {}) do if it.name:find("quality%-module") then has_quality = true end end
+                if has_quality then
+                    for _, b in ipairs(ent.get_beacons()) do
+                        for _, it in ipairs(b.get_module_inventory().get_contents()) do
+                            if it.name:find("speed%-module") then mixed[#mixed + 1] = e.id end
+                        end
+                    end
+                end
+            end
+        end
+        if #mixed > 0 then return "defect", "speed beacon on quality machine: " .. table.concat(mixed, " ") end
         if #short > 0 then return "defect", "machines short of beacons: " .. table.concat(short, " ") end
         if #extra > 0 or #idle > 0 then return "waste", "surplus beacons: " .. table.concat(extra, " ") .. " idle: " .. table.concat(idle, " ") end
         return "ok", "every machine gets its planned beacons"
@@ -210,7 +264,10 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
         for id, ent in pairs(by_id) do
             if ent.type == "underground-belt" then
                 local ok, partner = pcall(function() return ent.neighbours end)
-                if not (ok and partner) then bad[#bad + 1] = id end
+                local want
+                for _, e in ipairs(twin.entities or {}) do if e.id == id then want = e.ug_pair_id end end
+                if not (ok and partner) then bad[#bad + 1] = id
+                elseif want and by_id[want] and partner.unit_number ~= by_id[want].unit_number then bad[#bad + 1] = id .. "(paired with another)" end
             end
             if ent.type == "pipe-to-ground" then
                 local paired = false
@@ -267,9 +324,10 @@ describe("twins", function()
                 local per_tick
                 if not fluid then
                     --Twin default: half the lane max, so the belt has gaps a wrong side-load can enter (docs/twins.md).
-                    per_tick = f.rate and (f.rate / 60 / 2) or Lab.lane_max_per_tick(ent, stack) / 2
+                    per_tick = f.rate and (f.rate / 60 / 2) or Lab.lane_max_per_tick(ent, f.stack or 1) / 2
                 end
-                feeds[#feeds + 1] = {entity = ent, item = (not fluid) and f.item or nil, fluid = fluid, per_tick = per_tick}
+                --Twins model flows made inside a blueprint: unstacked (stack 1) unless the twin says otherwise.
+                feeds[#feeds + 1] = {entity = ent, item = (not fluid) and f.item or nil, fluid = fluid, per_tick = per_tick, stack = f.stack or 1}
             end
             for _, s in ipairs(twin.sinks or {}) do
                 sinks[#sinks + 1] = {entity = Lab.at(surface, built, s.tile[1], s.tile[2]), got = {}, items = s.items or {}, rate = s.rate}
@@ -313,6 +371,16 @@ describe("twins", function()
                             for name in pairs(allowed) do per_s = per_s + (s.got[name] or 0) end
                             per_s = per_s / (WINDOW / 60)
                             if per_s < 0.95 * s.rate then defects[#defects + 1] = string.format("sink rate %.2f < 0.95 x %.2f", per_s, s.rate) end
+                        end
+                    end
+                    --A machine must hold every fluid its recipe takes (fluid_system: a gap in the pipe starves it).
+                    for _, e in ipairs(twin.entities or {}) do
+                        local ent = by_id[e.id]
+                        if ent and (ent.type == "assembling-machine" or ent.type == "furnace") and ent.get_recipe() then
+                            local held = Lab.carried(ent)
+                            for _, ing in ipairs(ent.get_recipe().ingredients) do
+                                if ing.type == "fluid" and not held[ing.name] then defects[#defects + 1] = e.id .. " starved of " .. ing.name end
+                            end
                         end
                     end
                     if twin.check == "rate" then

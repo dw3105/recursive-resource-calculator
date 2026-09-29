@@ -40,7 +40,8 @@ return {
   {id = "in", kind = "belt", name = "underground-belt", x = 13, y = 4, dir = "north", type = "input", ug_role = "input", ug_pair_id = "out"},
   {id = "out", kind = "belt", name = "underground-belt", x = 13, y = 0, dir = "north", type = "output", ug_role = "output", ug_pair_id = "in"} },
  validator = {catalog = {entity = {}, inserter = {items_per_second = 5, pickup_offset = {x = 0, y = 1}, drop_offset = {x = 0, y = -1}}}},
- feeds = {{tile = {0, 4}, item = "iron-plate"}},
- check = "underground_pair", truth = "defect", codes = {"BP_V_UNDERGROUND_SIDELOAD_BLOCKED"},
+ feeds = {{tile = {0, 8}, item = "iron-plate"}, {tile = {0, 10}, item = "iron-plate"}},
+ sinks = {{tile = {13, 0}, items = {"iron-plate"}}},
+ check = "flow_purity", truth = "defect", codes = {"BP_V_UNDERGROUND_SIDELOAD_BLOCKED"},
  audit = {blueprint_audit = {sideload_blocked = 1}},
 }
