@@ -1,0 +1,6 @@
+logic/module_setup.lua
+logic/utils.lua
+logic/report_steps.lua
+tests/test_module_cache.lua
+tests/test_report_steps.lua
+docs/tasks/284_module_cache_rows.md

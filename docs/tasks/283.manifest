@@ -1,0 +1,3 @@
+logic/calc_pipeline.lua
+tests/test_calc_pipeline_slices.lua
+docs/tasks/283_pipeline_slices.md

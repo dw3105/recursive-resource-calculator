@@ -128,3 +128,4 @@ tests/fixtures/sheets/vanilla-2.1-red-science-1s.ports.json	sheet	vanilla	sheet 
 tests/fixtures/bytes_round49.txt	sheet	player	bytes baseline (sha per gated sheet)
 tests/golden/cases/player-magenta-science-10s/prepared_input.json	catalog	player	captured from player game
 tests/fixtures/bytes_round48.txt	sheet	player	bytes baseline round 48 (13 gated sheets, final int/r48 tree; gray-magenta case dropped by the player)
+tests/fixtures/r50_player_selection.lua	algo	player	player save selection (529 recipe setups) + fingerprint sha a1e31990; round 50 snapshot slices

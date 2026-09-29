@@ -213,3 +213,6 @@
 | `276` | `rrc/agent` | route: strict mode sees row-belt ends, refuses wrong-way row head seeds, refuses tidy rings | 2026-09-29 |
 | `277` | `rrc/agent` | search: a layout refused for belt shape is routed once more in strict mode | 2026-09-29 |
 | `278` | `rrc/agent` | audit: two belts facing each other are not a belt cycle | 2026-09-29 |
+| `282` | `rrc/agent` | snapshot: sheet snapshot built and fingerprinted in slices, same bytes (round 50) | 2026-09-29 |
+| `283` | `rrc/agent` | pipeline: calculation takes its snapshot in slices, never in the Compute tick (round 50) | 2026-09-29 |
+| `284` | `rrc/agent` | modules: prototype facts cached, report rows weighted 200 ops (round 50) | 2026-09-29 |

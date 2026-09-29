@@ -1,0 +1,3 @@
+logic/snapshot.lua
+tests/test_snapshot_slices.lua
+docs/tasks/282_snapshot_slices.md
