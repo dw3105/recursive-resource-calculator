@@ -21,8 +21,6 @@ return {
     --L280 placement, power, beacons, hands, rates, identity, artifact, preflight
     {"BP_V_COLLISION", "L280", T}, {"BP_V_ROBO_DISCONNECTED", "L280", T}, {"BP_V_BEACON_COVERAGE_SHORT", "L280", T},
     {"BP_V_BEACON_REDUNDANT", "L280", T}, {"BP_V_SPEED_BEACON_ON_QUALITY", "L280", T}, {"BP_V_POWER_UNCOVERED", "L280", T},
-    {"BP_V_POWER_DISCONNECTED", "L280", T, "registered, never emitted (B9): emit it or drop it from reason_codes and here"},
-    {"BP_V_BELT_CAPACITY", "L280", T, "registered, never emitted (B9)"}, {"BP_V_PIPE_CAPACITY", "L280", T, "registered, never emitted (B9)"},
     {"BP_V_WIRE_ILLEGAL", "L280", T}, {"BP_V_WIRE_DISCONNECTED", "L280", T}, {"BP_V_INSERTER_GEOMETRY", "L280", T},
     {"BP_V_FLUID_INSERTER", "L280", T}, {"BP_V_TRANSFER_CAPACITY", "L280", T}, {"BP_V_INSERTER_CAPACITY", "L280", T},
     {"BP_V_TARGET_SHORTFALL", "L280", T}, {"BP_V_FLOW_IMBALANCE", "L280", T}, {"BP_V_MACHINE_IDENTITY", "L280", T},
