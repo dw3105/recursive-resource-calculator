@@ -22,6 +22,8 @@ return {
   validator = {},                   -- extra Validate.begin fields copied as-is: catalog, plan, ports, bindings, wires
   preflight = nil,                  -- preflight stage: {snapshot, solver_result, catalog, options} for Preflight.check
   artifact = nil,                   -- artifact stage: {artifact, plan, catalog} for Validate.reconcile_artifact
+  subject = nil,                    -- check "prototype": {kind = "recipe"|"entity"|"item"|"quality", name = "<real prototype name>"}
+                                    --   the live prototype the engine inspects for the fact the code claims
   feeds = {{tile = {5, 0}, item = "iron-plate"}},  -- flow heads; MUST sit on the grid edge
   sinks = {{tile = {8, 3}, items = {"copper-plate"}}},
   check = "flow_purity",            -- what the engine looks at, see below
@@ -60,7 +62,7 @@ Rules:
 | `beacon_effect` | machine `effects` / beacons affecting it |
 | `underground_pair` | `neighbours` of each underground / pipe-to-ground |
 | `fluid_system` | fluid system ids and contents per pipe |
-| `prototype` | live prototype facts named by the twin (preflight twins) |
+| `prototype` | live prototype named by `subject` has (breach) or lacks (clean) the fact the code claims |
 | `artifact` | blueprint imported in the engine, read back, compared to the plan |
 
 ## Running
