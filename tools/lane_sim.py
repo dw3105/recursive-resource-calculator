@@ -156,7 +156,9 @@ while queue:
         if q in splitter_of:
             for c in splitter_of[q][1]: add(c, lane, item)  # both halves carry every input lane
             continue
-        if p in splitter_of or dp == dq or (q in ugs and ugs[q][1] == 'output'):
+        # A splitter output keeps lanes only when it runs straight on; into a belt's side it side-loads like any belt
+        # (gray + magenta 2026-09-29: west splitter (41,95)-(41,96) into south row head (40,96) read as MIXED).
+        if dp == dq or (q in ugs and ugs[q][1] == 'output'):
             add(q, lane, item)
             continue
         behind = [f for f in pred[q] if dir_of(f) == dq]
