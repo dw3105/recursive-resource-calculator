@@ -1,0 +1,3 @@
+local entities = {{id="p1",kind="pole",name="medium-electric-pole",x=1,y=1},{id="p2",kind="pole",name="substation",x=2,y=1}}
+local validator = {wires={{a_id="p1",a_connector=3,b_id="p2",b_connector=5}},catalog={entity={ ["medium-electric-pole"]={name="medium-electric-pole",etype="electric-pole",wire_reach=9},substation={name="substation",etype="electric-pole",wire_reach=18}}}}
+return {id = "T-280-V71", rule = "BP_V_WIRE_ILLEGAL", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w=20,h=20}, entities = entities, validator = validator, stage = "validate", check = "network", truth = "defect", codes = {"BP_V_WIRE_ILLEGAL"}, audit = {}}

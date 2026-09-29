@@ -1,0 +1,3 @@
+local entities = {{id="i",kind="inserter",name="inserter",x=5,y=5,dir="north",pickup_position={x=5.5,y=6.5},drop_position={x=5.5,y=4.5}}}
+local validator = {catalog={inserter={items_per_second=5,pickup_offset={x=0,y=1},drop_offset={x=0,y=-1}},entity={inserter={name="inserter",etype="inserter",items_per_second=5,needs_power=false}}}}
+return {id = "T-280-V91", rule = "BP_V_INSERTER_GEOMETRY", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w=20,h=20}, entities = entities, validator = validator, stage = "validate", check = "pickup_drop", truth = "defect", codes = {"BP_V_INSERTER_GEOMETRY"}, audit = {blueprint_audit={invalid_inserters=1}}}

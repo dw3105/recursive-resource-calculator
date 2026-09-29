@@ -1,0 +1,3 @@
+local entities = {{id="m",kind="machine",name="assembling-machine-2",x=5,y=5,needs_power=false,step_id="s",modules={}}}
+entities[#entities+1]={id="power",kind="pole",name="medium-electric-pole",x=5,y=7,supply_w=20,supply_h=20}; local validator = {plan={steps={{step_id="s",machine="assembling-machine-2",machine_count=1,modules={{name="speed-module"}}}}},catalog={entity={ ["assembling-machine-2"]={name="assembling-machine-2",etype="assembling-machine",module_slots=2}}}}
+return {id = "T-280-V161", rule = "BP_V_MODULE_MISMATCH", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w=20,h=20}, entities = entities, validator = validator, stage = "validate", check = "pickup_drop", truth = "defect", codes = {"BP_V_MODULE_MISMATCH"}, audit = {}}

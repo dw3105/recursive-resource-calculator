@@ -1,0 +1,3 @@
+local entities = {{id="m1",kind="machine",name="assembling-machine-2",x=5,y=5,needs_power=false},{id="m2",kind="machine",name="assembling-machine-2",x=5.2,y=5,needs_power=false}}
+local validator = {catalog={entity={ ["assembling-machine-2"]={name="assembling-machine-2",etype="assembling-machine",collision_box={left_top={x=-0.5,y=-0.5},right_bottom={x=0.5,y=0.5}},collision_mask={"object-layer"}}}}}
+return {id = "T-280-V11", rule = "BP_V_COLLISION", class = "engine", from = "tests/test_validate.lua twin candidate", grid = {w=20,h=20}, entities = entities, validator = validator, stage = "validate", check = "placeable", truth = "defect", codes = {"BP_V_COLLISION"}, audit = {}}
