@@ -27,14 +27,16 @@ local Snapshot
 local function ensure_snapshot_api()
     Snapshot = require "logic.snapshot"
     if type(Snapshot.begin_sheet) == "function" then return end
+    local full_of_sheet = Snapshot.of_sheet
     Snapshot.ENTRY_OPS = 40
     function Snapshot.begin_sheet(flow)
-        local full = Snapshot.of_sheet(flow)
+        local full = full_of_sheet(flow)
         local selection = full.selection
         local left = #selection
+        local fingerprint = full.fingerprint.input
         full.selection = nil
         full.fingerprint.input = nil
-        full.build = {left = left, full = Snapshot.fingerprint({targets = full.targets, options = full.options, selection = selection}), selection = selection}
+        full.build = {left = left, full = fingerprint, selection = selection}
         return full
     end
     function Snapshot.step(snapshot, budget)
@@ -109,13 +111,18 @@ for _, shape in ipairs(H.shapes()) do
         ensure_snapshot_api()
         local Pipeline, Jobs = require "logic.calc_pipeline", require "logic.jobs"
         local job = Pipeline.start(flow)
+        while not job.done do job = Jobs.step(job, {ops = 2000}) end
+        local Calculation = require "logic.calculation_result"
+        local baseline = Calculation.get(1, job.sheet_id)
+
+        job = Pipeline.start(flow)
         job.state.snapshot = Snapshot.of_sheet(flow)
         job = Jobs.step(job, {ops = 2000})
         H.equal(job.phase ~= "snapshot", true, "full saved snapshot enters solve")
         H.equal(job.state.snapshot.selection, nil, "selection is released")
         while not job.done do job = Jobs.step(job, {ops = 2000}) end
-        local record = require("logic.calculation_result").get(1, job.sheet_id)
-        H.equal(record and record.input_fingerprint, Snapshot.of_sheet(flow).fingerprint.input, "legacy snapshot publishes matching record")
+        local record = Calculation.get(1, job.sheet_id)
+        H.deep_equal(record, baseline, "legacy snapshot publishes the same record as the sliced calculation")
     end)
 end
 
