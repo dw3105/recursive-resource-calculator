@@ -316,7 +316,7 @@ class BlueprintAuditTest(unittest.TestCase):
         self.assertEqual(counts["unused_pipe_tiles"], 24)
         self.assertEqual(counts["wires"], 0)
         self.assertEqual({k: counts[k] for k in ("sideload", "sideload_blocked", "back_to_back", "cycles")},
-                         {"sideload": 14, "sideload_blocked": 6, "back_to_back": 0, "cycles": 1})
+                         {"sideload": 14, "sideload_blocked": 14, "back_to_back": 0, "cycles": 1})
 
 
 if __name__ == "__main__":

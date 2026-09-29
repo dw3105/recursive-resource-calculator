@@ -15,7 +15,8 @@ return {
  },
  validator = {catalog = {entity = {}, belt = {items_per_second = 15, lane_items_per_second = 7.5, underground_max_distance = 5}}},
  feeds = {{tile = {3, 5}, item = "iron-plate"}},
- sinks = {{tile = {9, 2}, items = {"iron-plate"}}},
- check = "flow_purity", truth = "defect", codes = {"BP_V_UNDERGROUND_SIDELOAD_BLOCKED"},  --validator claim; engine verdict pending
+ sinks = {{tile = {9, 2}, items = {"iron-plate"}, rate = 7.5}},
+ --Engine (headless 2.0.77 + 2.1.20): 3.75/s of 7.5/s fed arrive: the hood blocks one feeding lane.
+ check = "rate", truth = "defect", codes = {"BP_V_UNDERGROUND_SIDELOAD_BLOCKED"},
  audit = {blueprint_audit = {sideload_blocked = 1}},
 }
