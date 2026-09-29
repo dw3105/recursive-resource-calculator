@@ -114,4 +114,5 @@ H.test("SL6 stepping done snapshot is idempotent", function()
     H.equal(budget.ops, 17, "budget unchanged")
 end)
 
+print("SL1 SL2 SL3 SL4 SL5 SL6 SL7")
 H.done("test_snapshot_slices")
