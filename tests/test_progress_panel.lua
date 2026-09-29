@@ -261,6 +261,25 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(require("gui.sheet").progressbar_of(sheet_flow).visible, false, "the bar is hidden after work ends")
         ProgressPanel.sweep = raw
     end)
+    H.test(shape .. " PP-18 a stale visible bar with a swept mark and no job is hidden by the next idle poll", function()
+        --Player save _autosave1 (1.1.105, legalcopilot-dev headless 2026-09-29): no job stored, both sheets'
+        --bars visible at 0.9 and 0.9864, progress_swept true for both, so the poll never looked at them again.
+        local world, sheet_flow = panel_world(shape)
+        local ProgressPanel = require "gui.progress_panel"
+        local Sheet = require "gui.sheet"
+        local sheet_id = Sheet.id_of(sheet_flow)
+        world.handlers.events[defines.events.on_tick] = nil
+        H.run_ticks(world, 10)
+        ProgressPanel.show(sheet_flow, "blueprint")
+        Sheet.progressbar_of(sheet_flow).value = 0.9864
+        storage[1].progress_swept = {[sheet_id] = true}
+        storage[1].calc_jobs, storage[1].blueprint_job = nil, nil
+        H.equal(Sheet.progressbar_of(sheet_flow).visible, true, "stale bar visible before the poll")
+        H.run_ticks(world, 10)
+        H.equal(Sheet.progressbar_of(sheet_flow).visible, false, "the idle poll hides a stale visible bar")
+        H.equal(Sheet.cancel_button_of(sheet_flow).visible, false, "and its cancel button")
+        io.write("PP-18\n")
+    end)
 end
 
 H.done("test_progress_panel")

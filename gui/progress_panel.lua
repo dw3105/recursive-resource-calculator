@@ -266,13 +266,22 @@ local function sheet_job_running(sheet_flow)
         or (data.blueprint_job and data.blueprint_job.sheet_id == sheet_id)) or false
 end
 
+--Returns true only when the sheet is left idle: no job and its bar hidden. The idle mark is set on true alone.
 function ProgressPanel.sweep(sheet_flow)
-    if not sheet_flow or sheet_flow.valid == false then return end
+    if not sheet_flow or sheet_flow.valid == false then return false end
     destroy_legacy_notes(sheet_flow)
-    if sheet_job_running(sheet_flow) then return end
+    if sheet_job_running(sheet_flow) then return false end
     ProgressPanel.set_offer(sheet_flow, nil, nil)
     ProgressPanel.set_best(sheet_flow, nil)
     ProgressPanel.hide(sheet_flow)
+    local bar = controls_of(sheet_flow)
+    return not (bar and bar.valid ~= false and bar.visible)
+end
+
+--Reading two flags is cheap; the sweep walks the sheet tree. A visible bar on an idle sheet is always swept again.
+local function controls_visible(sheet_flow)
+    local bar, cancel = controls_of(sheet_flow)
+    return (bar and bar.valid ~= false and bar.visible) or (cancel and cancel.valid ~= false and cancel.visible) or false
 end
 
 local function deliver_offer(event)
@@ -348,9 +357,10 @@ local function refresh_all()
                 --in storage, never in a module local: every peer must make the same GUI calls (multiplayer).
                 local swept = player_storage.progress_swept
                 if type(swept) ~= "table" then swept = {}; player_storage.progress_swept = swept end
-                if not swept[sheet_id] then
-                    ProgressPanel.sweep(sheet_flow)
-                    swept[sheet_id] = true
+                --Player save _autosave1 (1.1.105, 2026-09-29): no job, bars visible at 0.9 / 0.9864, both sheets marked
+                --swept, so they were never looked at again. The mark now follows a hide that happened.
+                if not swept[sheet_id] or controls_visible(sheet_flow) then
+                    swept[sheet_id] = ProgressPanel.sweep(sheet_flow) or nil
                 end
             end
         end
