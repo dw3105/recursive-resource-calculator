@@ -397,7 +397,7 @@
   },
   {
     "file": "logic/bp/validate.lua",
-    "line": 1512,
+    "line": 1511,
     "name": "long_hand_offset_multiplier",
     "probe": {
       "expect": "offset_distance",

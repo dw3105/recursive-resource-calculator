@@ -1,6 +1,31 @@
 package.path = "./?.lua;" .. package.path
 local H = require "tests.harness"
-local world = H.new_world("2.0")
+if arg[1] == "--mock" then
+    local captured, current_shape = {}, nil
+    local original = H.lua_object
+    H.lua_object = function(class, fields, members, ...)
+        for _, member in ipairs(members) do
+            local value = fields[member]
+            local value_type = value == nil and "nil" or type(value)
+            local key = class .. "\0" .. member .. "\0" .. value_type
+            captured[key] = captured[key] or {}; captured[key][current_shape] = true
+        end
+        return original(class, fields, members, ...)
+    end
+    for _, shape in ipairs(H.shapes()) do current_shape = shape; H.new_world(shape) end
+    local rows = {}
+    for key, shapes in pairs(captured) do
+        local class, member, value_type = key:match("^(.-)%z(.-)%z(.*)$")
+        local shape_list = {}; for shape in pairs(shapes) do shape_list[#shape_list + 1] = shape end
+        table.sort(shape_list)
+        rows[#rows + 1] = {class = class, member = member, type = value_type, shapes = shape_list}
+    end
+    table.sort(rows, function(a, b) return a.class .. a.member .. a.type < b.class .. b.member .. b.type end)
+    local file = assert(io.open("tests/fixtures/engine_facts/mock_members.json", "wb"))
+    file:write(helpers.table_to_json(rows), "\n"); file:close()
+    os.exit(0)
+end
+H.new_world("2.0")
 local json = helpers
 local index = {}
 for line in io.lines("tests/fixtures/INDEX.tsv") do
@@ -55,26 +80,3 @@ end
 local lines = {}; for _, row in ipairs(output) do lines[#lines+1] = row.line end
 write("tests/fixtures/engine_facts/catalog_facts.tsv", lines)
 write("tests/fixtures/engine_facts/catalog_conflicts.tsv", conflicts)
-if arg[1] == "--mock" then
-    local captured = {}
-    local original = H.lua_object
-    local current_shape
-    H.lua_object = function(class, fields, members, ...)
-        for _, member in ipairs(members) do
-            local v = fields[member]
-            local kind = v == nil and "nil" or type(v)
-            local k = class .. "\0" .. member .. "\0" .. kind
-            captured[k] = captured[k] or {}; captured[k][current_shape] = true
-        end
-        return original(class, fields, members, ...)
-    end
-    for _, shape in ipairs(H.shapes()) do current_shape = shape; H.new_world(shape) end
-    local rows = {}
-    for key, shapes in pairs(captured) do
-        local class, member, kind = key:match("^(.-)%z(.-)%z(.*)$")
-        local ss = {}; for shape in pairs(shapes) do ss[#ss+1] = shape end; table.sort(ss)
-        rows[#rows+1] = {class=class, member=member, type=kind, shapes=ss}
-    end
-    table.sort(rows, function(a,b) return a.class .. a.member .. a.type < b.class .. b.member .. b.type end)
-    local f = assert(io.open("tests/fixtures/engine_facts/mock_members.json", "wb")); f:write(json.table_to_json(rows), "\n"); f:close()
-end

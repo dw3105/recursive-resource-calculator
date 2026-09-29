@@ -1,4 +1,5 @@
 local H = require "tests.harness"
+H.new_world("2.0")
 local function read(path)
     local f=assert(io.open(path,"rb")); local s=f:read("*a"); f:close(); return s
 end
