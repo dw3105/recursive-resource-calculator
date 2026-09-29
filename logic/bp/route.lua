@@ -1474,6 +1474,18 @@ local function merge_splitter_footprint(work, segment, second_key, demand)
     local occupant = work.segments_by_cell[second_key]
     if occupant == nil or occupant == segment then return segment end
     if occupant.kind ~= "belt" or occupant.underground or occupant.splitter then return nil end
+    --The merged tile takes the splitter's heading. A tile that turned away to feed a same-flow belt ahead of it would
+    --orphan that belt: gray + magenta grid 9 layered (legalcopilot-dev 2026-09-29), (12,23) west fed (11,23) ->
+    --underground (8,23) -> molten-iron:1, and a north splitter took it.
+    if occupant.direction ~= segment.direction then
+        local ox, oy = coordinate_from_key(second_key)
+        local ddx, ddy = Grid.dir_vector(occupant.direction)
+        local ahead = ox and ddx and work.segments_by_cell[coordinate_key(ox + ddx, oy + ddy)]
+        if ahead and ahead ~= segment and ahead ~= occupant then
+            for flow_id in pairs(occupant.flow_ids or {}) do if segment_has_flow(ahead, flow_id) then return nil end end
+            if occupant.flow_id ~= nil and segment_has_flow(ahead, occupant.flow_id) then return nil end
+        end
+    end
     local same_flow = segment_has_flow(occupant, demand.flow_id)
     local compatible_flow = same_flow or (work.multi_flow_hands and segment_flow_count(occupant) < 2)
     if not compatible_flow or merged_segment_total(segment, occupant)
@@ -5078,7 +5090,7 @@ Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_bindi
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
     prune_dead_route_segments = function(work) return prune_dead_route_segments(work) end, find_binding = find_binding,
     splitter_straight_fed = splitter_straight_fed, apply_bury = apply_bury, reanchor_bindings = function(w) return reanchor_bindings(w) end,
-    inside_same_axis_span = inside_same_axis_span,
+    inside_same_axis_span = inside_same_axis_span, merge_splitter_footprint = merge_splitter_footprint,
     jset = jset, jinsert = jinsert, jremove = jremove,
     journal_open = journal_open, journal_rollback = journal_rollback, journal_commit = journal_commit}
 return Route
