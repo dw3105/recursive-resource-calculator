@@ -30,6 +30,14 @@ local function slowest_cycle_ticks(built)
 end
 
 describe("sheets", function()
+    --Offline the embedded fixtures do not exist (tools/game_stage.sh writes them): check the sheets are there to stage.
+    if not ok_index then
+        it("sheet fixtures exist to stage", function()
+            local pipe = io.popen("ls tests/fixtures/sheets/*.bp.txt | wc -l")
+            local n = tonumber(pipe:read("*l")); pipe:close()
+            assert.is_true(n and n > 0, "sheet fixtures under tests/fixtures/sheets")
+        end)
+    end
     for index, sheet in ipairs(SHEETS) do
         it(sheet.case, function()
             if RRC_OFFLINE then return end

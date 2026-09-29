@@ -298,6 +298,14 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
 end
 
 describe("twins", function()
+    --Offline the static index does not exist (tools/game_stage.sh writes it): check the twins are there to stage.
+    if not ok_index then
+        it("twin files exist to stage", function()
+            local pipe = io.popen("find tests/twins -name '*.lua' -not -path '*/lib/*' -not -name required.lua | wc -l")
+            local n = tonumber(pipe:read("*l")); pipe:close()
+            assert.is_true(n and n > 0, "twin files under tests/twins")
+        end)
+    end
     for index, twin in ipairs(TWINS) do
         it(twin.id, function()
             if RRC_OFFLINE then return end
