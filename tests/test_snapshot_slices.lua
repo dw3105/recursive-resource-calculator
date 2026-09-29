@@ -1,5 +1,7 @@
 --SL1 SL2 SL4 SL5 SL6 SL7 red on round-50-base: begin_sheet / step / progress missing; SL3 green on base, pins bytes.
 local H = require "tests.harness"
+local warmup = H.new_world("2.0")
+warmup.init()
 local Snapshot = require "logic.snapshot"
 
 local function world()
