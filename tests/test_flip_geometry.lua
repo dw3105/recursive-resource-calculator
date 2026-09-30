@@ -22,20 +22,25 @@ H.test("FG1 every 2.0/2.1 fixture row follows north-frame mirror then turn", fun
             if machine then
                 local row = {machine=machine, dir=tonumber(ds), mirror=mirror == "true", box=tonumber(box), pos=pos, target=target}
                 rows[#rows + 1] = row
-                if row.dir == 0 and not row.mirror then bases[row.machine .. ":" .. row.box] = row end
+                if row.dir == 0 and not row.mirror then
+                    local key = row.machine .. ":" .. row.box
+                    bases[key] = bases[key] or {}; bases[key][#bases[key] + 1] = row
+                end
             end
         end
         H.equal(#rows > 0, true, version .. " fixture parsed")
         for _, row in ipairs(rows) do
-            local base = bases[row.machine .. ":" .. row.box]
-            if base then
+            local possible, ex, ey = bases[row.machine .. ":" .. row.box] or {}, vector(row.pos)
+            local qx, qy = vector(row.target)
+            local expected = {ex, ey, direction(qx - ex, qy - ey)}
+            local found = false
+            for _, base in ipairs(possible) do
                 local x, y = vector(base.pos)
                 local tx, ty = vector(base.target)
-                local d = direction(tx - x, ty - y)
-                local px, py, pd = Grid.fluid_connection({position={x=x,y=y}, direction=d}, row.dir, row.mirror)
-                local ex, ey = vector(row.pos); local qx, qy = vector(row.target)
-                H.deep_equal({px,py,pd}, {ex,ey,direction(qx-ex,qy-ey)}, version .. " " .. row.machine .. " box " .. row.box)
+                local px, py, pd = Grid.fluid_connection({position={x=x,y=y}, direction=direction(tx-x,ty-y)}, row.dir, row.mirror)
+                if px == expected[1] and py == expected[2] and pd == expected[3] then found = true; break end
             end
+            H.equal(found, true, version .. " " .. row.machine .. " box " .. row.box .. " row geometry")
         end
     end
 end)
