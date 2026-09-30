@@ -2680,6 +2680,11 @@ function Groups.reorient(groups_state, block, orient)
                     and tx >= member.x and tx < member.x + member.w
                     and ty >= member.y and ty < member.y + member.h then return nil end
             end
+            for _, run in ipairs(rebuilt.belt_runs or {}) do
+                for _, tile in ipairs(run.tiles or {}) do
+                    if tile.x == tx and tile.y == ty then return nil end
+                end
+            end
         end
     end
     return rebuilt
