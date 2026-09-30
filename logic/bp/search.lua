@@ -1485,6 +1485,7 @@ local function pack_layered(state)
 end
 
 local function layered_fallback(state)
+    if (state.work.input.settings or {}).force_turn_flip ~= nil then return false end
     if not pack_layered(state) or state.incumbent then return false end
     --Drawn pack (RRC_PACK=sugiyama) falls back to today's layered pack first, never straight to MaxRects: magenta
     --drawn ended BP_FAIL_NO_LAYOUT through the MaxRects fallback while layered delivers it (round 51, 2026-09-30).
@@ -1556,11 +1557,55 @@ local function candidate_links(state, candidate)
     return links
 end
 
-local function prepare_candidate(state)
+local function prepare_candidate(state, budget)
     local candidate = state.work.groups and state.work.groups.result and state.work.groups.result.candidates
         and state.work.groups.result.candidates[1]
     if not candidate then finish_grid_or_search(state); return false end
     state.work.candidate = candidate
+    local forced = (state.work.input.settings or {}).force_turn_flip
+    if forced then
+        local prep = state.work.forced_prep
+        if not prep or prep.candidate ~= candidate then
+            prep = {candidate=candidate,index=1}
+            state.work.forced_prep = prep
+        end
+        while prep.index <= #(candidate.blocks or {}) and finite(budget and budget.ops, 0) > 0 do
+            local block = candidate.blocks[prep.index]
+            prep.index = prep.index + 1
+            block.allowed_dirs = {forced.turn}
+            local cost = 1
+            if forced.flip == true then
+                local can_flip = false
+                for _, machine in ipairs(block.machines or block.members or {}) do
+                    local entity = catalog_entity(state.work.input.catalog, machine.name or machine.entity)
+                    if entity.use_mirroring == false then
+                        failure(state, "BP_FAIL_FLIP_FORBIDDEN", {subject = machine.name or machine.entity})
+                        return false
+                    end
+                    if entity.can_flip then can_flip = true end
+                end
+                if can_flip then
+                    local cache = state.work.groups and state.work.groups.work and state.work.groups.work.reorient_cache
+                    local key = tostring(block.id or block.block_id) .. "|0|true"
+                    local hit = cache and cache[key] ~= nil
+                    local rebuilt = Groups.reorient(state.work.groups, block, {dir=0, mirror=true})
+                    cost = hit and 1 or REORIENT_OPS
+                    if not rebuilt then
+                        failure(state, "BP_FAIL_FLIP_REBUILD", {subject = block.id or block.block_id})
+                        return false
+                    end
+                    for i, old in ipairs(candidate.blocks) do
+                        if old == block then candidate.blocks[i] = rebuilt; break end
+                    end
+                end
+            end
+            budget.ops = finite(budget.ops, 0) - cost
+            state.ops_used = state.ops_used + cost
+        end
+        if prep.index <= #(candidate.blocks or {}) then return false end
+        state.work.forced_prep = nil
+        candidate = state.work.candidate
+    end
     state.work.pack_links = candidate_links(state, candidate)
     state.work.candidate_rejection_start = #(state.work.rejections or {}) + 1
     state.work.attempt_recorded = false
@@ -1586,7 +1631,8 @@ local function prepare_candidate(state)
     end
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
         zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links,
-        blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state), input_edge=input_edge})
+        blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state), input_edge=input_edge,
+        forced_dir = forced and forced.turn or nil})
     set_phase(state, "pack")
     return true
 end
@@ -1740,7 +1786,7 @@ function Search.step(container, budget)
                     discard_candidate(state)
                 else
                     state.cursor.candidate_index = 1
-                    prepare_candidate(state)
+                    prepare_candidate(state, budget)
                 end
             end
         elseif state.phase == "draw" then
@@ -1758,6 +1804,8 @@ function Search.step(container, budget)
                     budget.ops = 0
                 end
                 local candidate = orient_state.candidate
+                local forced = (state.work.input.settings or {}).force_turn_flip
+                if forced then orient_state.index = #(candidate.blocks or {}) + 1 end
                 local input_edge = (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"
                 local flow_dir = ({left=4,right=12,top=8,bottom=0})[input_edge] or 4
                 local towards = (flow_dir + 8) % 16
@@ -1804,7 +1852,8 @@ function Search.step(container, budget)
                     state.work.pack = Pack.begin({area=grid_area(state.work.grid,state.work.input), obstacles=obstacles,
                         zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
                         blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
-                        mode="sugiyama", drawing=drawing, input_edge=input_edge})
+                        mode="sugiyama", drawing=drawing, input_edge=input_edge,
+                        forced_dir=forced and forced.turn or nil})
                     set_phase(state,"pack")
                 end
             end
