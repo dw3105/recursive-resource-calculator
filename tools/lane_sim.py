@@ -118,7 +118,15 @@ hand_drops = set()
 for h in hands:
     hx, hy = tile(h); vx, vy = VEC[h.get('direction', 0)]; k = reach(h)
     hand_drops.add((hx - vx * k, hy - vy * k))
-dead_inputs = {p for p, (d, typ) in ugs.items() if typ == 'input' and not pred[p] and p not in hand_drops}
+# An entrance on the blueprint's outer edge is a sheet input the player feeds from outside, not a Dead pair
+# (validator treats edge tiles as fed too). Magenta drawn 2026-09-30: edge input (0,26) read dead=1 and starved its
+# two plastic hands downstream.
+_tiles = list(belts) + list(ugs) + list(splitter_of)
+_min_x = min(t[0] for t in _tiles) if _tiles else 0; _max_x = max(t[0] for t in _tiles) if _tiles else 0
+_min_y = min(t[1] for t in _tiles) if _tiles else 0; _max_y = max(t[1] for t in _tiles) if _tiles else 0
+def on_edge(p): return p[0] in (_min_x, _max_x) or p[1] in (_min_y, _max_y)
+dead_inputs = {p for p, (d, typ) in ugs.items()
+               if typ == 'input' and not pred[p] and p not in hand_drops and not on_edge(p)}
 dead = len(dead_inputs)
 
 def right_of(d): vx, vy = VEC[d]; return (-vy, vx)

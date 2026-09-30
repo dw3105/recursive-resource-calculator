@@ -25,6 +25,18 @@ class HandDropTests(unittest.TestCase):
         self.assertIn("dead=1", out)
         self.assertIn("mixed=0", out)
 
+    def test_DP7_edge_input_is_not_dead(self):
+        """Integrator 2026-09-30: magenta drawn feeds a sheet input through an underground entrance on the edge
+        (0,26); lane_sim called it dead=1 and starved the two plastic hands behind it (starved=2)."""
+        import subprocess, sys
+        root = Path(__file__).parents[1]
+        out = subprocess.run([sys.executable, str(root / "tools/lane_sim.py"),
+            str(root / "tests/fixtures/edge_input_magenta_drawn.bp.txt"), "--input",
+            str(root / "tests/golden/cases/player-magenta-science-10s/prepared_input.json")],
+            capture_output=True, text=True, timeout=60, check=True).stdout
+        self.assertIn("starved=0", out)
+        self.assertIn("dead=0", out)
+
 
 class SplitterSideLoadTests(unittest.TestCase):
     """LS1 red on 9d5caca: gray + magenta 2026-09-29, a west splitter (41,95)-(41,96) side-loads the south row head

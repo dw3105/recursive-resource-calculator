@@ -137,3 +137,4 @@ tests/fixtures/flip_filters_2.1.txt	facts	vanilla	engine fluid box filter + conn
 tests/fixtures/dead_pair_inserter10s.bp.txt	sheet	player	drawn inserter-10s bytes round 51 (sha c3d630e6) with Dead pair at (27,16); lane_sim dead count (test_lane_sim)
 tests/fixtures/box_binding_2.0.txt	facts	vanilla	engine Box binding (fluid -> prototype box) per crafting machine x fluid recipe, headless 2.0.77 (test_box_binding)
 tests/fixtures/box_binding_2.1.txt	facts	vanilla	engine Box binding (fluid -> prototype box) per crafting machine x fluid recipe, headless 2.1.20 (test_box_binding)
+tests/fixtures/edge_input_magenta_drawn.bp.txt	sheet	player	drawn magenta bytes round 52 (sha 726dfe4b); sheet input enters through an underground at the edge (0,26): lane_sim must not call it dead (test_lane_sim)
