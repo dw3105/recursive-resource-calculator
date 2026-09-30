@@ -1,0 +1,9 @@
+# bound: 5400s
+logic/bp/search.lua
+logic/bp/pack.lua
+logic/catalog.lua
+logic/bp/reason_codes.lua
+locale/en/locale.cfg
+locale/cs/locale.cfg
+locale/ro/locale.cfg
+tests/test_force_turn_flip.lua

@@ -1,0 +1,9 @@
+# bound: 5400s
+tools/turn_flip_census.lua
+tools/lib/census_row.lua
+tools/lib/slow_guard.lua
+tools/turn_flip_census.sh
+tools/game_stage.sh
+tests/game/test_turn_flip_sims.lua
+tests/test_turn_flip_census.lua
+tests/test_turn_flip_census_tool.lua

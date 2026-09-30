@@ -226,3 +226,6 @@
 | `292` | `rrc/agent` | drawing sees real ports: Source edges, ops left, port-to-port Crossings, Turn+Flip by Material cost (round 53) | 2026-09-30 |
 | `293` | `rrc/agent` | drawn feed + apply: 8 orients per Block, apply drawn turn/mirror, pack drawn dir, export draw fields (round 53) | 2026-09-30 |
 | `294` | `rrc/agent` | Material cost: raw resources per entity from recipes, catalog.material, fixtures, material_score.py (round 53) | 2026-09-30 |
+| `298` | `rrc/agent` | switch settings.force_turn_flip: every Block one Turn + Flip, BP_FAIL_FLIP_FORBIDDEN, no Fallback when forced (round 54) | 2026-09-30 |
+| `299` | `rrc/agent` | game probe: 20 tiny turn-flip test sheets per version (10 machine types x 1/4 machines), fixture JSON (round 54) | 2026-09-30 |
+| `300` | `rrc/agent` | turn-flip census runner offline + game lab sample/full, CENSUS rows (round 54) | 2026-09-30 |
