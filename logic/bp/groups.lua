@@ -2613,6 +2613,21 @@ end
 function Groups.reorient(groups_state, block, orient)
     orient = orient or {dir = NORTH, mirror = false}
     if (orient.dir or NORTH) == NORTH and not orient.mirror then return block end
+    local work = groups_state and groups_state.work
+    --Round 51 integration: search reorients every Block on every grid attempt; one rebuild took up to 727 ms
+    --(magenta, legalcopilot-dev 2026-09-30). The answer depends only on Block id and orient: keep it (false = refused).
+    local cache_key = tostring(block and block.id) .. "|" .. tostring(orient.dir or NORTH) .. "|" .. tostring(orient.mirror == true)
+    local cache = work and work.reorient_cache
+    if cache and cache[cache_key] ~= nil then return cache[cache_key] or nil end
+    local result = Groups._reorient_build(groups_state, block, orient)
+    if work then
+        work.reorient_cache = work.reorient_cache or {}
+        work.reorient_cache[cache_key] = result or false
+    end
+    return result
+end
+
+function Groups._reorient_build(groups_state, block, orient)
     local data, build_input = block and block.rebuild_data, nil
     local work = groups_state and groups_state.work
     local build = work and (work.build or work)
@@ -2685,6 +2700,16 @@ function Groups.reorient(groups_state, block, orient)
                 end
             end
         end
+    end
+    --Pack gives a slot only to a port on the Block edge (x = -1 or w, y = -1 or h). A turned machine can put its
+    --pipe tile in a gap inside the Block: magenta light-oil-cracking got ports at (6,6) in a 10x7 Block and every
+    --grid ended BP_P_NO_FIT (round 51 integration). Such an orientation is illegal: keep the Block as built.
+    for _, port in ipairs(rebuilt.ports or {}) do
+        local ax, ay = port.attach_dx, port.attach_dy
+        if type(ax) ~= "number" or type(ay) ~= "number" then return nil end
+        local side_x = (ax == -1 or ax == rebuilt.w) and ay >= 0 and ay < rebuilt.h
+        local side_y = (ay == -1 or ay == rebuilt.h) and ax >= 0 and ax < rebuilt.w
+        if not side_x and not side_y then return nil end
     end
     return rebuilt
 end

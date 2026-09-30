@@ -34,6 +34,9 @@ local STRICT_REROUTE_CODES = {
 }
 
 
+--Round 51: ops charged for one Block rebuild (Groups.reorient cache miss), so one rebuild ends a 2000-op step.
+local REORIENT_OPS = 2000
+
 local PHASES = {
     plan = "planning", preflight = "preflight", groups = "grouping", draw = "drawing", pack = "packing", route = "routing",
     hands = "hands", power = "power", tidy = "tidying", validate = "validating", serialize = "serializing", done = "done", failed = "failed",
@@ -1731,15 +1734,27 @@ function Search.step(container, budget)
                 end
             end
         elseif state.phase == "draw" then
-            run_stage(state, "draw", FlowDraw, budget)
+            if not stage_done(state.work.draw) then run_stage(state, "draw", FlowDraw, budget) end
             if stage_done(state.work.draw) then
                 local drawing = state.work.draw.result or {}
-                local candidate = copy(state.work.candidate)
+                --Round 51 integration: one Block rebuild costs up to 580 ms (magenta); rebuilding every Block in one tick
+                --made a 1390 ms tick. Reorient one Block per step, charged REORIENT_OPS on a cache miss, and resume.
+                local orient_state = state.work.orient_state
+                if not orient_state then
+                    orient_state = {candidate = copy(state.work.candidate), index = 1}
+                    state.work.orient_state = orient_state
+                    --Start rebuilds on a fresh step: the step that ended grouping/drawing already spent up to 583 ms.
+                    state.ops_used = state.ops_used + math.max(0, finite(budget.ops, 0))
+                    budget.ops = 0
+                end
+                local candidate = orient_state.candidate
                 local input_edge = (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"
                 local flow_dir = ({left=4,right=12,top=8,bottom=0})[input_edge] or 4
                 local towards = (flow_dir + 8) % 16
                 local across = (input_edge == "left" or input_edge == "right") and 8 or 4
-                for _, block in ipairs(candidate.blocks or {}) do
+                while orient_state.index <= #(candidate.blocks or {}) and finite(budget.ops, 0) > 0 do
+                    local block = candidate.blocks[orient_state.index]
+                    orient_state.index = orient_state.index + 1
                     local id = block.id or block.block_id
                     local partners = {}
                     for _, p in ipairs(block.ports or {}) do if p.kind == "fluid" then
@@ -1760,20 +1775,28 @@ function Search.step(container, budget)
                     end end
                     local o = Orient.choose{block=block, catalog=state.work.input.catalog,
                         turn=drawing.turn_of and drawing.turn_of[id], partner_dir=partners}
+                    local cache = state.work.groups and state.work.groups.work and state.work.groups.work.reorient_cache
+                    local key = tostring(block.id) .. "|" .. tostring(o.dir or 0) .. "|" .. tostring(o.mirror == true)
+                    local hit = ((o.dir or 0) == 0 and not o.mirror) or (cache ~= nil and cache[key] ~= nil)
                     local nb = Groups.reorient(state.work.groups, block, o)
-                    if nb then block = nb end
-                    for i, old in ipairs(candidate.blocks) do if (old.id or old.block_id) == id then candidate.blocks[i] = block; break end end
+                    if nb then candidate.blocks[orient_state.index - 1] = nb end
+                    local cost = hit and 1 or REORIENT_OPS
+                    budget.ops = finite(budget.ops, 0) - cost
+                    state.ops_used = state.ops_used + cost
                 end
-                state.work.candidate = candidate
-                state.work.pack_links = candidate_links(state, candidate)
-                local obstacles = bare_rects(state.work.robo_obstacles)
-                append_all(obstacles, bare_rects(state.work.input.obstacles)); append_all(obstacles, bare_rects(state.work.input.occupied))
-                append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
-                state.work.pack = Pack.begin({area=grid_area(state.work.grid,state.work.input), obstacles=obstacles,
-                    zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
-                    blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
-                    mode="sugiyama", drawing=drawing, input_edge=input_edge})
-                set_phase(state,"pack")
+                if orient_state.index > #(candidate.blocks or {}) then
+                    state.work.orient_state = nil
+                    state.work.candidate = candidate
+                    state.work.pack_links = candidate_links(state, candidate)
+                    local obstacles = bare_rects(state.work.robo_obstacles)
+                    append_all(obstacles, bare_rects(state.work.input.obstacles)); append_all(obstacles, bare_rects(state.work.input.occupied))
+                    append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
+                    state.work.pack = Pack.begin({area=grid_area(state.work.grid,state.work.input), obstacles=obstacles,
+                        zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
+                        blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
+                        mode="sugiyama", drawing=drawing, input_edge=input_edge})
+                    set_phase(state,"pack")
+                end
             end
         elseif state.phase == "pack" then
             run_stage(state, "pack", Pack, budget)

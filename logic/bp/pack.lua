@@ -661,6 +661,52 @@ local function layered_target(state, block)
     return x, y
 end
 
+--Drawn dummy tiles depend on the drawing and the area only, never on the candidate origin: build them once per pack
+--(round 51 integration: rebuilding them per origin made Pack.step take 128 ms on magenta, legalcopilot-dev
+--2026-09-30). Returns {[layer] = {{x, y}, ...}}.
+local function drawn_dummy_tiles(state)
+    if state.dummy_tiles then return state.dummy_tiles end
+    local drawing, tiles = state.drawing or {}, {}
+    local horizontal = state.input_edge == "left" or state.input_edge == "right"
+    local positive = state.input_edge == "left" or state.input_edge == "top"
+    local layer_depth, by_layer = {}, {}
+    for _, b in ipairs(state.blocks) do
+        local bl = drawing.layer_of and drawing.layer_of[b.block_id]
+        if bl then
+            local bw, bh = Grid.rotate_size(b.w, b.h, drawing.turn_of and drawing.turn_of[b.block_id] or 0)
+            layer_depth[bl] = math.max(layer_depth[bl] or 0, horizontal and bw or bh)
+            local list = by_layer[bl] or {}
+            by_layer[bl] = list
+            list[#list + 1] = {rank = drawing.rank_of and drawing.rank_of[b.block_id] or math.huge, across = horizontal and bh or bw}
+        end
+    end
+    local specials = {}
+    for _, list in ipairs({drawing.sources or {}, drawing.outputs or {}, drawing.dummies or {}}) do
+        for _, item in ipairs(list) do
+            local l = item.layer or 1
+            specials[l] = specials[l] or {}
+            specials[l][#specials[l] + 1] = item.rank or 0
+        end
+    end
+    for _, dummy in ipairs(drawing.dummies or {}) do
+        local L, rank = dummy.layer or 1, dummy.rank or 1
+        local rank_offset = 0
+        for _, b in ipairs(by_layer[L] or {}) do
+            if b.rank < rank then rank_offset = rank_offset + b.across + Pack.DRAWN_GAP end
+        end
+        for _, r in ipairs(specials[L] or {}) do if r < rank then rank_offset = rank_offset + 1 end end
+        local layer_offset = 0
+        for layer = 1, L - 1 do layer_offset = layer_offset + (layer_depth[layer] or 0) + Pack.DRAWN_GAP end
+        local base = (horizontal and state.area.y or state.area.x) + rank_offset
+        local flow = horizontal and state.area.x or state.area.y
+        flow = positive and (flow + layer_offset) or (flow - layer_offset - 1)
+        tiles[L] = tiles[L] or {}
+        tiles[L][#tiles[L] + 1] = {x = horizontal and flow or base, y = horizontal and base or flow}
+    end
+    state.dummy_tiles = tiles
+    return tiles
+end
+
 --One origin test. Returns the candidate (or nil) and the ops it cost: a cheap reject costs 1, an origin that
 --reaches port slot choice costs PORT_ORIGIN_OPS like a MaxRects origin, a legal one twice that.
 local function layered_legal(state, block, x, y, direction, tx, ty)
@@ -695,35 +741,8 @@ local function layered_legal(state, block, x, y, direction, tx, ty)
                 if (rank > pr and coord < pc) or (rank < pr and coord > pc) then broken = broken + 1 end
             end
         end
-        for _, dummy in ipairs(state.drawing.dummies or {}) do
-            if dummy.layer == L then
-                local rank_offset, layer_depth = 0, {}
-                for _, b in ipairs(state.blocks) do
-                    local bl = state.drawing.layer_of[b.block_id]
-                    local br = state.drawing.rank_of[b.block_id] or math.huge
-                    local turn = state.drawing.turn_of[b.block_id] or 0
-                    local bw, bh = Grid.rotate_size(b.w, b.h, turn)
-                    if bl and bl < L then
-                        local dep = horizontal and bw or bh
-                        layer_depth[bl] = math.max(layer_depth[bl] or 0, dep)
-                    elseif bl == L and br < (dummy.rank or 1) then
-                        rank_offset = rank_offset + (horizontal and bh or bw) + Pack.DRAWN_GAP
-                    end
-                end
-                local layer_offset = 0
-                for layer = 1, L - 1 do layer_offset = layer_offset + (layer_depth[layer] or 0) + Pack.DRAWN_GAP end
-                for _, list in ipairs({state.drawing.sources or {}, state.drawing.outputs or {}, state.drawing.dummies or {}}) do
-                    for _, item in ipairs(list) do
-                        if (item.layer or 1) == L and (item.rank or 0) < (dummy.rank or 1) then rank_offset = rank_offset + 1 end
-                    end
-                end
-                local base = (horizontal and state.area.y or state.area.x) + rank_offset
-                local flow = (horizontal and state.area.x or state.area.y)
-                local positive = state.input_edge == "left" or state.input_edge == "top"
-                flow = positive and (flow + layer_offset) or (flow - layer_offset - 1)
-                local dx, dy = horizontal and flow or base, horizontal and base or flow
-                if x <= dx and dx < x + w and y <= dy and dy < y + h then covered = covered + 1 end
-            end
+        for _, tile in ipairs(drawn_dummy_tiles(state)[L] or {}) do
+            if x <= tile.x and tile.x < x + w and y <= tile.y and tile.y < y + h then covered = covered + 1 end
         end
         local preferred = state.drawing.turn_of[id]
         candidate.link_cost = candidate.link_cost + P * (broken + covered + (preferred ~= nil and direction ~= preferred and 1 or 0))
