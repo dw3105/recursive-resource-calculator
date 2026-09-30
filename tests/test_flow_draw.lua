@@ -89,4 +89,5 @@ H.test("FD7 Turn aligns port roles with input edge", function()
     end
 end)
 
+print("FD1 FD2 FD3 FD4 FD5 FD6 FD7")
 H.done("test_flow_draw")
