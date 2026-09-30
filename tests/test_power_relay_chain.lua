@@ -21,23 +21,26 @@ local function code(result, wanted)
 end
 
 local function frozen(path, ops)
-    return run(graph_dump.load(path), ops)
+    local state = graph_dump.load(path)
+    local original_poles = #state._work.selected
+    local result, worst, final_state = run(state, ops)
+    return result, worst, final_state, original_poles
 end
 
 H.test("PR1 red-science drawn fixture connects by relay chain", function()
-    local result, _, state = frozen("tests/fixtures/power_r10s_drawn_state.lua.gz", 2000)
+    local result, _, state, original_poles = frozen("tests/fixtures/power_r10s_drawn_state.lua.gz", 2000)
     H.equal(state.ok, true, "red-science power succeeds")
     H.equal(result.components, 1, "red-science poles form one component")
     H.equal(code(result, "BP_PW_DISCONNECTED"), nil, "red-science has no disconnected error")
-    print("PR1 relays added: " .. tostring(result.relay_count or 0))
+    print("PR1 relays added: " .. tostring(result.pole_count - original_poles))
 end)
 
 H.test("PR2 stack1 drawn fixture connects by relay chain", function()
-    local result, _, state = frozen("tests/fixtures/power_s1_drawn_state.lua.gz", 2000)
+    local result, _, state, original_poles = frozen("tests/fixtures/power_s1_drawn_state.lua.gz", 2000)
     H.equal(state.ok, true, "stack1 power succeeds")
     H.equal(result.components, 1, "stack1 poles form one component")
     H.equal(code(result, "BP_PW_DISCONNECTED"), nil, "stack1 has no disconnected error")
-    print("PR2 relays added: " .. tostring(result.relay_count or 0))
+    print("PR2 relays added: " .. tostring(result.pole_count - original_poles))
 end)
 
 local function pole(name, reach)
@@ -53,20 +56,22 @@ local function tiny(w, h, blockers)
         consumers = {{id = "left", rect = {x = 0, y = 0, w = 1, h = 1}},
             {id = "right", rect = {x = w - 1, y = 0, w = 1, h = 1}}},
         occupied = occupied,
-        poles = {pole("short", 3)},
+        poles = {pole("short-left", 4.5), pole("short-right", 4.5)},
         limits = {max_poles = 4},
     }
 end
 
 H.test("PR3 detour connects in two relays and impossible grid stays bounded", function()
-    local detour = tiny(11, 8, {{x = 3, y = 0, w = 3, h = 5}})
-    detour.poles[1].wire_reach = 3
+    local detour = tiny(11, 4, {{x = 3, y = 0, w = 3, h = 2}})
+    detour.poles[1].fixed_x, detour.poles[1].fixed_y = 0, 0
+    detour.poles[2].fixed_x, detour.poles[2].fixed_y = 10, 0
     local result = run(Power.begin(detour), 1)
     H.equal(result.components, 1, "detour joins both poles")
     H.equal(result.pole_count, 4, "detour uses exactly two relay poles")
 
-    local blocked = tiny(11, 3, {{x = 3, y = 0, w = 3, h = 3}})
-    blocked.poles[1].wire_reach = 3
+    local blocked = tiny(11, 2, {{x = 1, y = 0, w = 9, h = 2}})
+    blocked.poles[1].fixed_x, blocked.poles[1].fixed_y = 0, 0
+    blocked.poles[2].fixed_x, blocked.poles[2].fixed_y = 10, 0
     blocked.limits.max_relay_checks = 256
     local no_path = run(Power.begin(blocked), 1)
     H.equal(no_path.components > 1, true, "wall with no path stays disconnected")
