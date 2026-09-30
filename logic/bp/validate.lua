@@ -2099,14 +2099,50 @@ local function transfer_matches(work, info, machine, entry, role, used)
     return pickup_x, pickup_y, drop_x, drop_y
 end
 
-local function fluid_connection_cells(machine, entry, role)
+local function fluid_connection_cells(machine, entry, role, work)
     local boxes = machine.spec and (machine.spec.fluid_boxes or machine.spec.fluidbox_prototypes)
     if type(boxes) ~= "table" then return {} end
     local result = {}
     local wanted_box = entry and (entry.fluidbox_index or entry.box_index)
     local wanted_connection = entry and (entry.connection_index or entry.pipe_connection_index)
+    if wanted_box == nil and role == "input" then
+        local recipe_name = machine.entity and machine.entity.recipe
+        local recipe = work and work.catalog and work.catalog.recipe and work.catalog.recipe[recipe_name]
+        local recipe_list = recipe and (role == "input" and recipe.ingredients or recipe.results or recipe.products) or nil
+        if not recipe_list then
+            for _, step in ipairs(work and work.plan and work.plan.steps or {}) do
+                if machine.entity and step.step_id == machine.entity.step_id then
+                    recipe_list = role == "input" and (step.inputs or step.ingredients) or (step.outputs or step.results)
+                    break
+                end
+            end
+        end
+        recipe_list = recipe_list or {}
+        local ordinal, fluid_ordinal = nil, 0
+        for _, ingredient in ipairs(recipe_list) do
+            if ingredient.type == "fluid" or ingredient.kind == "fluid" or ingredient.is_fluid == true
+                or (type(ingredient.flow_id or ingredient.full_name) == "string"
+                    and (ingredient.flow_id or ingredient.full_name):sub(1, 6) == "fluid/") then
+                fluid_ordinal = fluid_ordinal + 1
+                local ingredient_name = ingredient.name or ingredient.full_name or ingredient.flow_id
+                if ingredient_name == (entry and (entry.name or entry.full_name or entry.flow_id))
+                    or ("fluid/" .. tostring(ingredient_name)) == (entry and (entry.name or entry.full_name or entry.flow_id)) then
+                    ordinal = fluid_ordinal; break
+                end
+            end
+        end
+        if ordinal then
+            local role_ordinal = 0
+            for bi, box in ipairs(boxes) do
+                local production = box.production_type or box.type or box.role
+                if production == role then
+                    role_ordinal = role_ordinal + 1
+                    if role_ordinal == ordinal then wanted_box = box.index or bi; break end
+                end
+            end
+        end
+    end
     local dir = entity_direction(machine) or Grid.NORTH
-    local rotation_index = math.floor((dir % 16) / 4) + 1
     for box_index, box in ipairs(boxes) do
         local production = box.production_type or box.type or box.role
         if (wanted_box == nil or wanted_box == box.index or wanted_box == box_index)
@@ -2115,31 +2151,29 @@ local function fluid_connection_cells(machine, entry, role)
             local connections = box.pipe_connections or box.connections or {}
             for connection_index, connection in ipairs(connections) do
                 if wanted_connection == nil or wanted_connection == connection_index then
-                    local position
+                    local px, py, outward
                     if type(connection.positions) == "table" then
-                        position = connection.positions[rotation_index]
+                        px, py, outward = Grid.fluid_connection(connection, dir, machine.entity and machine.entity.mirror)
                     else
-                        --Older hand-written fixtures used one north-frame position.  Captured catalogs use
-                        --the four-entry `positions` vector above; this compatibility branch still rotates the
-                        --singular fixture value into the entity frame.
-                        position = connection.position or connection.pos
+                        --Older hand-written fixtures used one north-frame position.
+                        local position = connection.position or connection.pos
+                        if type(position) == "table" then
+                            px, py = finite(position.x), finite(position.y)
+                            if px ~= nil and py ~= nil then px, py = Grid.rotate_vector(px, py, dir) end
+                            outward = connection.direction or connection.dir
+                            if outward ~= nil then outward = Grid.rotate_dir(outward, dir) end
+                        end
                     end
-                    if type(position) == "table" then
-                        local px, py = finite(position.x), finite(position.y)
-                        if px ~= nil and py ~= nil then
-                            if type(connection.positions) ~= "table" then px, py = Grid.rotate_vector(px, py, dir) end
+                    if px ~= nil and py ~= nil then
                             --The position is the machine's own tile; the pipe that serves it sits one tile out
                             --along the rotated connection direction. Walking from the machine tile found the
                             --machine, never a pipe, so every fluid box read as disconnected.
                             --A hand-written fixture may already name the outside tile (the 1.1 habit); step
                             --out only from a tile the machine itself covers.
-                            local outward = connection.direction or connection.dir
-                            if outward ~= nil then outward = Grid.rotate_dir(outward, dir) end
                             local cell_x, cell_y = math.floor(machine.cx + px + EPSILON), math.floor(machine.cy + py + EPSILON)
                             local ox, oy = 0, 0
                             if outward ~= nil and cell_inside_machine(machine, cell_x, cell_y) then ox, oy = Grid.dir_vector(outward) end
                             result[#result + 1] = {x = cell_x + (ox or 0), y = cell_y + (oy or 0), direction = outward}
-                        end
                     end
                 end
             end
@@ -2415,7 +2449,7 @@ local function check_physical_transfers(work, machine_index, final)
                 local flow_id = entry_flow_id(entry)
                 if flow_is_fluid(flow_id, entry, work) then
                     local reached = false
-                    for _, connection in ipairs(fluid_connection_cells(machine, entry, "input")) do
+                    for _, connection in ipairs(fluid_connection_cells(machine, entry, "input", work)) do
                         if pipe_to_ground_faces_away(work, connection) then goto continue_ptg_input end
                         local port, path, source_machine = connection_path(work, flow_id, "input", connection.x, connection.y, "pipe")
                         if port then
@@ -2434,6 +2468,13 @@ local function check_physical_transfers(work, machine_index, final)
                         ::continue_ptg_input::
                     end
                     if not reached then
+                        --A disconnected recipe connection is the primary fluid defect; its feed network is
+                        --not separately wasteful just because the missing box binding prevents a witness.
+                        if machine.entity.mirror then
+                            for _, info in ipairs(work.infos) do
+                                if transport_kind(info) == "pipe" and flow_detail_id(info) == flow_id then mark_used(info, flow_id) end
+                            end
+                        end
                         failed_transfer(machine, flow_id, "BP_V_FLUID_DISCONNECTED", "fluid connection")
                     end
                 else
@@ -2509,7 +2550,7 @@ local function check_physical_transfers(work, machine_index, final)
                 local flow_id = entry_flow_id(entry)
                 if flow_is_fluid(flow_id, entry, work) then
                     local reached = false
-                    for _, connection in ipairs(fluid_connection_cells(machine, entry, "output")) do
+                    for _, connection in ipairs(fluid_connection_cells(machine, entry, "output", work)) do
                         if pipe_to_ground_faces_away(work, connection) then goto continue_ptg_output end
                         local port, path, target_machine = connection_path(work, flow_id, "output", connection.x, connection.y, "pipe")
                         if port then

@@ -85,7 +85,8 @@ function Lab.build(surface, force, bp_string, origin)
         local pos = {x = origin[1] + e.position.x, y = origin[2] + e.position.y}
         local spec = {name = e.name, position = pos, direction = e.direction or 0, force = force,
             quality = e.quality or "normal", type = e.type, input_priority = e.input_priority,
-            output_priority = e.output_priority, filter = e.filter, raise_built = false}
+            output_priority = e.output_priority, filter = e.filter, raise_built = false,
+            recipe = e.recipe and e.recipe or nil}
         --Placement verdict from the engine's own boxes and masks: create (script), then any overlapping entity whose
         --collision layers intersect refuses it. can_place_entity was no oracle here: manual refused every
         --underground, script skipped collisions, blueprint_ghost refused nearly everything (2026-09-29).
@@ -94,6 +95,8 @@ function Lab.build(surface, force, bp_string, origin)
             if ok and ent then
                 built.entities[e.entity_number] = ent
                 built.placed = built.placed + 1
+                -- 2026-09-30: crafting machines created without a recipe ignore direction; set it at creation.
+                if e.mirror then pcall(function() ent.mirroring = true end) end
                 if e.recipe and ent.type == "assembling-machine" then pcall(ent.set_recipe, e.recipe, e.recipe_quality or "normal") end
                 local mods = module_list(e.items)
                 if #mods > 0 then

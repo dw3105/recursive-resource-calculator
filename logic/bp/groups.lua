@@ -756,12 +756,11 @@ local function contains_flow(hand, flow_id)
 end
 
 fluid_pipe_tile = function(machine, connection)
-    local position = connection and point(connection.position or connection.pos)
-    if not machine or not position then return nil end
-    local dx, dy = Grid.rotate_vector(position.x, position.y, machine.dir or NORTH)
+    if not machine or not connection then return nil end
+    local dx, dy, outward = Grid.fluid_connection(connection, machine.dir or NORTH, machine.mirror)
+    if dx == nil then return nil end
     local connection_x = cell_of(machine.x + machine.w / 2 + dx)
     local connection_y = cell_of(machine.y + machine.h / 2 + dy)
-    local outward = Grid.rotate_dir(connection.direction or connection.dir or NORTH, machine.dir or NORTH)
     local ox, oy = Grid.dir_vector(outward)
     local inside = connection_x >= machine.x and connection_x < machine.x + machine.w
         and connection_y >= machine.y and connection_y < machine.y + machine.h
@@ -1274,7 +1273,7 @@ local function block_ports(block, steps, ports, flows)
     end
 end
 
-local function build_block(step_group, catalog, ports, flows, input, block_id)
+local function build_block(step_group, catalog, ports, flows, input, block_id, orient)
     local steps = list_copy(step_group)
     table.sort(steps, function(a, b) return a.step_id < b.step_id end)
     local block = {
@@ -1495,6 +1494,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
             x = x, y = y, w = spec.w, h = spec.h,
             modules = list_copy(spec.step.modules), forbids_speed_beacon = spec.step.forbids_speed_beacon,
         }
+        if orient then machine.dir, machine.mirror = orient.dir or NORTH, orient.mirror == true end
         local machine_etype = spec.machine_spec and spec.machine_spec.etype
         if machine_etype ~= nil then machine.etype = machine_etype end
         -- Recipe fields are meaningful only for assembling-machine prototypes. In particular, a furnace's
@@ -2313,6 +2313,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id)
                 {rect = b, ring = b.ring, key = b.key}), "group block contains conflicting machine buffer zones")
         end
     end
+    if orient then block.rebuild_data = {steps = copy(step_group), ports = copy(ports), id = block_id} end
     return block
 end
 
@@ -2556,7 +2557,7 @@ local function make_candidates_once(input, work)
         candidates[1] = {id="one",candidate_id="one",blocks=work.blocks,physical_beacon_count=beacon_count,beacon_count=beacon_count}
     end
     multi_flow_hands = previous_multi_flow_hands
-    return candidates, work.failures, nil
+    return candidates, work.failures, work
 end
 
 local function make_candidates(input)
@@ -2610,8 +2611,83 @@ end
 --stage state that built the Block (search: state.work.groups). Returns the new Block with the same id and port ids,
 --or nil when the orientation is illegal (a fluid pipe tile blocked). Frozen contract; lane 287 fills the body.
 --STEP 0 skeleton: the Block unchanged.
-function Groups.reorient(_, block, _)
-    return block
+function Groups.reorient(groups_state, block, orient)
+    orient = orient or {dir = NORTH, mirror = false}
+    if (orient.dir or NORTH) == NORTH and not orient.mirror then return block end
+    local data, build_input = block and block.rebuild_data, nil
+    local work = groups_state and groups_state.work
+    local build = work and (work.build or work)
+    local rebuild_catalog = build and (build.catalog or (work.input and work.input.catalog))
+    local rebuild_flows = build and build.flows
+    local rebuild_input = work and work.input or {}
+    local rebuild_ports
+    if data then
+        build_input = data.steps
+        rebuild_ports = data.ports
+    elseif build and build.buckets then
+        for _, bucket in ipairs(build.buckets) do
+            local ids = {}
+            for _, step in ipairs(bucket) do
+                ids[#ids + 1] = tostring(step.step_id) .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal))
+                    or (step._ordinal_offset ~= nil and ("@" .. tostring(step._ordinal_offset)) or ""))
+            end
+            if "block:" .. table.concat(ids, "+") == block.id then
+                build_input = bucket
+                rebuild_ports = relevant_ports(bucket, build.ports, build.flows)
+                break
+            end
+        end
+    end
+    for _, machine in ipairs(block and block.machines or {}) do
+        local spec = rebuild_catalog and rebuild_catalog.entity and rebuild_catalog.entity[machine.name or machine.entity]
+        if orient.mirror and not (machine.can_flip or (spec and spec.can_flip)) then return nil end
+    end
+    if not build_input then return nil end
+    local rebuild_settings = {inserter = rebuild_input.inserter, ring_bump = rebuild_input.ring_bump}
+    local rebuilt = build_block(build_input, rebuild_catalog, rebuild_ports, rebuild_flows, rebuild_settings, block.id,
+        {dir = orient.dir or NORTH, mirror = orient.mirror == true})
+    local function port_ids(value)
+        local ids = {}; for _, port in ipairs(value.ports or {}) do ids[port.port_id] = true end; return ids
+    end
+    local old_ids, new_ids = port_ids(block), port_ids(rebuilt)
+    for id in pairs(old_ids) do if not new_ids[id] then return nil end end
+    for id in pairs(new_ids) do if not old_ids[id] then return nil end end
+    for _, port in ipairs(rebuilt.ports or {}) do
+        if port.kind == "fluid" or port.is_fluid then
+            local owner
+            for _, machine in ipairs(rebuilt.machines or {}) do
+                if port.step_id == machine.step_id then owner = machine; break end
+            end
+            if owner and port.connection then
+                local x, y, d = Grid.fluid_connection(port.connection, owner.dir, owner.mirror)
+                if x ~= nil then
+                    port.connection = {position = {x = x, y = y}, direction = d}
+                    port.mirror = false
+                end
+            end
+        end
+    end
+    for _, machine in ipairs(rebuilt.machines or {}) do
+        local step
+        for _, candidate in ipairs(build_input) do if candidate.step_id == machine.step_id then step = candidate; break end end
+        local tiles = machine_fluid_pipe_tiles(machine, step or {}, rebuild_catalog, rebuild_flows)
+        for key in pairs(tiles) do
+            local tx, ty = key:match("^(-?%d+):(-?%d+)$")
+            tx, ty = tonumber(tx), tonumber(ty)
+            for _, member in ipairs(rebuilt.members or {}) do
+                if (member.kind == "machine" or member.kind == "beacon"
+                    or member.kind == "inserter" or member.kind == "belt")
+                    and tx >= member.x and tx < member.x + member.w
+                    and ty >= member.y and ty < member.y + member.h then return nil end
+            end
+            for _, run in ipairs(rebuilt.belt_runs or {}) do
+                for _, tile in ipairs(run.tiles or {}) do
+                    if tile.x == tx and tile.y == ty then return nil end
+                end
+            end
+        end
+    end
+    return rebuilt
 end
 
 function Groups.materialize(block, placement)
@@ -2639,7 +2715,9 @@ function Groups.materialize(block, placement)
                 entity[field] = references
             end
         end
-        entity.x, entity.y, entity.w, entity.h, entity.dir = geometry.x, geometry.y, geometry.w, geometry.h, geometry.dir
+        entity.x, entity.y, entity.w, entity.h = geometry.x, geometry.y, geometry.w, geometry.h
+        entity.dir = member.kind == "machine" and Grid.rotate_dir(member.dir or NORTH, dir) or geometry.dir
+        if member.kind == "machine" and entity.mirror == false then entity.mirror = nil end
         entity.position = {x = geometry.x + geometry.w / 2, y = geometry.y + geometry.h / 2}
         if member.kind == "inserter" then
             for _, field in ipairs({"pickup_position", "drop_position"}) do

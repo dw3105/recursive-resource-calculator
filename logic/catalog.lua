@@ -1,4 +1,5 @@
 --Prototype facts as plain data, read once, so everything downstream can be pure.
+local Grid = require "logic.bp.grid"
 --
 --Owned by lane W1-catalog. Only this module and logic/bp/plan.lua touch prototypes; every geometry, routing,
 --power and serialization module takes a catalog and returns plain data, which is what lets those lanes be
@@ -459,6 +460,20 @@ local function project_entity(catalog, diagnostics, entity, quality_name, qualit
         beacon = nil,
         effect_receiver = project_effect_receiver(entity),
     }
+    if entity.type == "assembling-machine" then
+        local _, use_mirroring = pcall(function() return entity.use_mirroring end)
+        if use_mirroring ~= false then
+            local changed = false
+            for _, box in ipairs(fluid_boxes or {}) do
+                for _, connection in ipairs(box.connections or {}) do
+                    local x, y, d = Grid.fluid_connection(connection, Grid.NORTH, false)
+                    local mx, my, md = Grid.fluid_connection(connection, Grid.NORTH, true)
+                    if x ~= mx or y ~= my or d ~= md then changed = true end
+                end
+            end
+            if changed then projected.can_flip = true end
+        end
+    end
 
     if quality_valid and (entity.type == "assembling-machine" or entity.type == "furnace"
         or entity.type == "rocket-silo" or entity.type == "mining-drill" or entity.type == "lab")
