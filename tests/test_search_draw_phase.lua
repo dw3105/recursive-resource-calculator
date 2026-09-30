@@ -99,7 +99,15 @@ H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function
  Groups.reorient=function(_,b,o) if o.mirror then mirrored=true; local n={}; for k,v in pairs(b) do n[k]=v end; n.mirror_variant=true; return n end return b end
  local dirs,block_mirror
  local result,log=D.run({},function()
-  Groups.step=function(s,b) if b.ops>0 then b.ops=b.ops-1; s.result={candidates={{id='c',blocks={{id='b',block_id='b',w=2,h=2,ports={{port_id='p',step_id='one',flow_id='f',role='in',kind='fluid',attach_dx=-1,attach_dy=0}}}}}}; s.done,s.ok=true,true end; return s end
+  Groups.step=function(s,b)
+   if b.ops>0 then
+    b.ops=b.ops-1
+    s.result={candidates={{id='c',blocks={{id='b',block_id='b',w=2,h=2,
+     ports={{port_id='p',step_id='one',flow_id='f',role='in',kind='fluid',attach_dx=-1,attach_dy=0}}}}}}
+    s.done,s.ok=true,true
+   end
+   return s
+  end
   local begin=Pack.begin
   Pack.begin=function(input) dirs=input.blocks[1].allowed_dirs; block_mirror=input.blocks[1].mirror_variant; return begin(input) end
   return D.finish(Search,Search.begin(D.input()))
