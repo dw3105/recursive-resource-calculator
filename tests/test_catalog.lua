@@ -34,6 +34,10 @@ local function world_with_catalog_fixtures(shape, quality_fixtures)
             {offset = {x = 1, y = 0}, direction = defines.direction.east},
         }}),
     })
+    world.add_machine({name = "am3", categories = {"crafting"}, speed = 1, module_slots = 2})
+    world.set_fluid_boxes("am3", {world.fluid_box({connections = {
+        {offset = {x = 0, y = -1}, direction = defines.direction.north},
+    }})})
     world.add_player(1)
     world.init()
     return world
@@ -345,6 +349,15 @@ for _, shape in ipairs(H.shapes()) do
             {31, 67}, "normal roboport radii")
         H.deep_equal({legendary.robo.logistic_radius, legendary.robo.construction_radius},
             {31, 67}, "legendary roboport radii")
+    end)
+end
+
+for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " CF1 asymmetric crafting boxes can flip but symmetric boxes cannot (red on round-51-base)", function()
+        world_with_catalog_fixtures(shape)
+        local catalog = Catalog.build(1, {entities = {"assembler", "am3"}})
+        H.equal(catalog.entity.assembler.can_flip, true, "asymmetric foundry-like box set")
+        H.equal(catalog.entity.am3.can_flip, nil, "symmetric am3-like box set")
     end)
 end
 
