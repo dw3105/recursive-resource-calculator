@@ -1664,8 +1664,22 @@ local function check_transport_shapes(work)
             end
         end
     end
+    local source_ports = {}
+    for _, port in ipairs(work.ports or {}) do
+        local x, y = finite(port.x), finite(port.y)
+        if x ~= nil and y ~= nil then source_ports[tile_key(x, y)] = true end
+    end
     for key, tile in pairs(tiles) do
-        if tile.kind == "belt" and not fed[key] then
+        if tile.ug == "input" and not sources_of[key] and not drop_tiles[key] and not source_ports[key] then
+            work._dead_underground_inputs = work._dead_underground_inputs or {}
+            work._dead_underground_inputs[tile.info.id] = true
+            error_record(work.errors, "BP_V_UNDERGROUND_DEAD", {}, {x=tile.x,y=tile.y,flow_id=flow_detail_id(tile.info)})
+        end
+    end
+    for key, tile in pairs(tiles) do
+        if tile.ug == "input" and not sources_of[key] and not drop_tiles[key] and not source_ports[key] then
+            --An empty entrance is not an external supply and cannot witness its paired exit.
+        elseif tile.kind == "belt" and not fed[key] then
             local declared = declared_flow_ids(tile.info)
             local hand_fed = drop_tiles[tile_key(tile.x, tile.y)] == true
             if not hand_fed then
@@ -2239,6 +2253,29 @@ local function check_physical_transfers(work, machine_index, final)
         local partner = work._underground_partner and work._underground_partner[candidate.id] or pair_of(candidate)
         if partner == current then
             --An underground pair joins both ways in the index; the entrance is the end that faces the exit.
+            if endpoint_type(candidate) == "input" then
+                local cx, cy = transport_tile(candidate)
+                local physically_fed = false
+                for _, hand in ipairs(work.inserters or {}) do
+                    local _, _, hx, hy = transfer_cells(hand, work)
+                    if hx == cx and hy == cy then physically_fed = true; break end
+                end
+                for _, port in ipairs(work.ports or {}) do
+                    if finite(port.x) == cx and finite(port.y) == cy then physically_fed = true; break end
+                end
+                if cx == 0 or cy == 0 or cx == (work.grid_w or 0)-1 or cy == (work.grid_h or 0)-1 then physically_fed = true end
+                if not physically_fed then
+                    for _, feeder in ipairs(work.infos or {}) do
+                        if feeder ~= candidate and transport_kind(feeder) == "belt" then
+                            for _, next_info in ipairs(transport_neighbors(work, feeder, flow_id_for_feeds)) do
+                                if next_info == candidate then physically_fed = true; break end
+                            end
+                        end
+                        if physically_fed then break end
+                    end
+                end
+                if not physically_fed then return false end
+            end
             local cx, cy = transport_tile(candidate)
             local tx, ty = transport_tile(current)
             local dx, dy = Grid.dir_vector(entity_direction(candidate) or Grid.NORTH)
@@ -2263,6 +2300,10 @@ local function check_physical_transfers(work, machine_index, final)
         end
         while queue[head] do
             local current = queue[head]; head = head + 1
+            if work._dead_underground_inputs and work._dead_underground_inputs[current.id] then
+                --The paired exit cannot make a physically unfed entrance a used transport.
+                goto continue_path
+            end
             mark_used(current, flow_id)
             local x, y = transport_tile(current)
             -- A collector can be fed by several output hands. The route binding may
@@ -2352,6 +2393,7 @@ local function check_physical_transfers(work, machine_index, final)
                     seen[candidate.id] = true; queue[#queue + 1] = candidate
                 end
             end
+            ::continue_path::
         end
     end
 

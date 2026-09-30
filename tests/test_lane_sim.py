@@ -14,6 +14,17 @@ class HandDropTests(unittest.TestCase):
         exec(compile(ast.Module(body=[fn], type_ignores=[]), "lane_sim.py", "exec"), env)
         self.assertEqual(env["hand_receivers"]((1, 0)), [(1, 0), (1, 1)])
 
+    # DP5 red on round-52-base, 2026-09-30: dead underground entrances must not seed external items.
+    def test_DP5_dead_pair(self):
+        import subprocess, sys
+        root = Path(__file__).parents[1]
+        out = subprocess.run([sys.executable, str(root / "tools/lane_sim.py"),
+            str(root / "tests/fixtures/dead_pair_inserter10s.bp.txt"), "--input",
+            str(root / "tests/golden/cases/player-inserter-10s/prepared_input.json")],
+            capture_output=True, text=True, timeout=60, check=True).stdout
+        self.assertIn("dead=1", out)
+        self.assertIn("mixed=0", out)
+
 
 class SplitterSideLoadTests(unittest.TestCase):
     """LS1 red on 9d5caca: gray + magenta 2026-09-29, a west splitter (41,95)-(41,96) side-loads the south row head

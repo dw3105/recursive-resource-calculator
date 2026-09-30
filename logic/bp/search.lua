@@ -1490,6 +1490,7 @@ local function layered_fallback(state)
     --drawn ended BP_FAIL_NO_LAYOUT through the MaxRects fallback while layered delivers it (round 51, 2026-09-30).
     if Pack.mode == "sugiyama" and not state.work.drawn_off then
         state.work.drawn_off = true
+        state.work.fell_back = true
     else
         state.work.layered_off = true
     end
@@ -2027,6 +2028,7 @@ function Search.step(container, budget)
                     --plain diagnostic field, while offline callers and the job record can see exactly what was
                     --chosen and which alternatives were rejected, outscored or left beyond a declared bound.
                     state.result.search = diagnostics
+                    state.result.search.fell_back = state.work.fell_back == true
                     state.result.chosen_score = copy(diagnostics.chosen_score)
                     state.result.discarded_alternatives = copy(diagnostics.discarded_alternatives)
                     state.done, state.ok = true, true

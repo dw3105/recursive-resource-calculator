@@ -4183,10 +4183,17 @@ prune_dead_route_segments = function(work)
             if not list then list = {}; cells_of[owner] = list end
             list[#list + 1] = key
         end
+        for _ = 1, #(work.segments or {}) + 1 do
         for _, segment in ipairs(work.segments or {}) do
+            local segment_fed = false
+            for _, key in ipairs(cells_of[segment] or {}) do
+                if sources[key] or fed[key] then segment_fed = true; break end
+            end
             if segment.underground then
-                if segment.underground_entry_key then fed[segment.underground_exit_key] = true end
-                if segment.underground_exit_key then
+                --An underground exit only carries feed that reaches its entrance. Otherwise it
+                --incorrectly makes both itself and the belts after it look live.
+                if segment_fed and segment.underground_entry_key and segment.underground_exit_key then fed[segment.underground_exit_key] = true end
+                if segment_fed and segment.underground_exit_key then
                     local dx,dy=Grid.dir_vector(segment.direction)
                     if dx then fed[coordinate_key(segment.underground_exit_x+dx,segment.underground_exit_y+dy)] = true end
                 end
@@ -4201,15 +4208,22 @@ prune_dead_route_segments = function(work)
                 local dx,dy=Grid.dir_vector(segment.direction)
                 if dx then
                     for _, key in ipairs(cells_of[segment] or {}) do
+                        if segment_fed then
                         local x,y=coordinate_from_key(key)
                         fed[coordinate_key(x+dx,y+dy)] = true
+                        end
                     end
                 end
             end
         end
+        end
         local remove = {}
         local splitter_remove = {}
         for _, segment in ipairs(work.segments or {}) do
+            if segment.underground and segment.underground_entry_key
+                and not fed[segment.underground_entry_key] and not sources[segment.underground_entry_key] then
+                remove[segment.segment_id] = true
+            end
             if segment.splitter then
                 local dx, dy = Grid.dir_vector(segment.splitter_direction)
                 local sx, sy = coordinate_from_key(segment.splitter_second_key or "")

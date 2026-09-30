@@ -25,8 +25,8 @@ local function run(shape)
     end
     if shape == "underground" then
         belt("side-feed",10,5,Grid.NORTH)
-        belt("exit",10,6,Grid.NORTH,{name="underground-belt",ug_pair_id="entrance"})
-        belt("entrance",10,8,Grid.NORTH,{name="underground-belt",ug_pair_id="exit"})
+        belt("exit",10,6,Grid.NORTH,{name="underground-belt",ug_pair_id="entrance",type="output"})
+        belt("entrance",10,8,Grid.NORTH,{name="underground-belt",ug_pair_id="exit",type="input"})
     elseif shape == "dangle" then
         --fed by the used tail, going nowhere: items pile up there, it is waste
         belt("dangle",12,4,Grid.EAST)
@@ -56,7 +56,11 @@ end
 H.test("belt feeding an underground pair into a used belt is witnessed", function()
     local state=run("underground")
     H.equal(unused(state,"side-feed"),false)
-    H.equal(unused(state,"entrance"),false)
+    -- player ruling 2026-09-30: Dead pair is invalid.
+    local dead = false
+    for _, err in ipairs(state.errors or {}) do if err.code == "BP_V_UNDERGROUND_DEAD" then dead = true end end
+    H.equal(dead,true)
+    H.equal(unused(state,"entrance"),true)
     H.equal(unused(state,"exit"),false)
 end)
 H.test("belt feeding a splitter into a used belt is witnessed", function()
