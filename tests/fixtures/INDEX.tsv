@@ -141,3 +141,5 @@ tests/fixtures/edge_input_magenta_drawn.bp.txt	sheet	player	drawn magenta bytes 
 tests/fixtures/power_r10s_drawn_state.lua.gz	algo	player	power stage state, drawn red-10s round 52 (2 pole components, greedy repair gives up; test_power_relay_chain)
 tests/fixtures/power_s1_drawn_state.lua.gz	algo	player	power stage state, drawn inserter-10s-stack1 round 52 (2 pole components; test_power_relay_chain)
 tests/fixtures/bytes_round52.txt	sheet	player	bytes baseline round 52 layered (default): 12 == round 51; red-10s + red-10s-stack1 changed by power relay chain (faster, within Entity tie)
+tests/fixtures/material_cost_2.0.txt	facts	vanilla	seed material costs from Draftsman data for 2.0, replaced by headless probe at merge
+tests/fixtures/material_cost_2.1.txt	facts	vanilla	seed material costs from Draftsman data for 2.1, replaced by headless probe at merge

@@ -18,6 +18,9 @@ local function read(p) local f=assert(io.open(p)); local s=f:read("*a"); f:close
 local a=Cost.parse_fixture(read("tests/fixtures/material_cost_2.0.txt")); local b=Cost.parse_fixture(read("tests/fixtures/material_cost_2.1.txt"))
 for _,t in ipairs({a,b}) do for _,v in pairs(t) do assert(v>0) end end
 assert(a["transport-belt"]==b["transport-belt"]); print("MC5")
+local H=require "tests.harness"
+local world=H.new_world("2.0"); world.add_default_infrastructure()
 local Catalog=require "logic.catalog"
 local c={belt={belt="transport-belt",underground="underground-belt",splitter="splitter"},entity={}}
-Catalog.fill_material(c); assert(c.material["transport-belt"]>0); print("MC6")
+Catalog.fill_material(c); H.equal(c.material["transport-belt"]>0,true,"belt material from mock prototypes"); print("MC6")
+H.done("test_material_cost")
