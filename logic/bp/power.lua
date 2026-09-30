@@ -745,7 +745,8 @@ local function chain_found(state, spot)
         local key = candidate_key(candidate.spec_index, candidate.rect.x, candidate.rect.y)
         if work.candidate_index_by_key[key] == nil then new_candidates = new_candidates + 1 end
     end
-    if new_candidates > work.relay_candidate_limit - work.relay_candidates_used then
+    if #work.selected + #additions > work.max_poles
+        or new_candidates > work.relay_candidate_limit - work.relay_candidates_used then
         work.relay_bound_hit, work.chain = true, nil
         finish_repair(state)
         return
@@ -971,14 +972,14 @@ function Power.step(state, budget)
 
     while not state.done do
         local spent = state.ops_used - step_ops
-        if spent >= 250 then break end
+        if spent >= 200 then break end
         local cost, available = operation_cost(state), integer(budget.ops, 0)
         -- Publishing is the stage boundary where Search may otherwise continue
         -- into validation in this same game tick. Reserve the remainder here
         -- so the next stage starts on the next scheduler slice.
         --Capped at one game tick (Jobs.OPS_PER_TICK): a caller with a larger slice would otherwise lose it all
         --here and trip the search allowance (test_search BP-15, 2026-09-24).
-        if state.cursor.phase == "publish_finish" then cost = math.min(available, 250 - spent) end
+        if state.cursor.phase == "publish_finish" then cost = math.min(available, 200 - spent) end
         if not consume(budget, cost) then break end
         -- ops_used records charged work, not state-machine transitions.
         state.ops_used = state.ops_used + math.min(cost, available)
@@ -1298,8 +1299,8 @@ function Power.step(state, budget)
                     repair.x = repair.x + 1
                     if repair.x > repair.max_x then repair.x, repair.y = repair.min_x, repair.y + 1 end
                     if work.relay_checks >= work.relay_check_limit then
-                        if work.connect.components > 1 then start_chain(state)
-                        else work.relay_bound_hit = true; finish_repair(state) end
+                        work.relay_bound_hit = true
+                        finish_repair(state)
                     else
                         work.relay_checks = work.relay_checks + 1
                         local source = work.candidates[work.selected[repair.pair_left]]
@@ -1317,7 +1318,7 @@ function Power.step(state, budget)
                 select_repair_candidate(state, candidate)
             else
                 if repair.mode == "frontier_compare" and work.connect.components > 1
-                    and #work.selected < work.max_poles then start_chain(state)
+                    and #work.selected < work.max_poles and work.relay_checks < work.relay_check_limit then start_chain(state)
                 else finish_repair(state) end
             end
 
