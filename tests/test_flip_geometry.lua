@@ -48,7 +48,7 @@ end)
 H.test("FG3 route test helper uses the same connection geometry", function()
     local x,y,d = Grid.fluid_connection({positions={{x=-1,y=2}},direction=8}, 0, true)
     H.deep_equal({x,y,d}, {1,2,8}, "mirrored connection")
-    local rotated = Route._test.rotate_connection({positions={{x=-1,y=2}},direction=8}, 0, 9, 9, true)
+    local rotated = Route._test.rotate_connection({positions={{x=-1,y=2}},direction=8}, 0, 9, 9, true, true)
     H.deep_equal({rotated.x,rotated.y,rotated.direction}, {9,9,8}, "route mirrored connection")
 end)
 
