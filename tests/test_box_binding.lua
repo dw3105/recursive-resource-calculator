@@ -28,3 +28,4 @@ prototypes={entity={m=machine},recipe={r={name="r",ingredients={{type="fluid",na
 Binding.fill(c,{{machine="m",recipe="r"}},function() return nil end); assert(c.recipe.r.fluid_boxes==nil)
 local n=0; Binding.fill(c,{{machine="m",recipe="r"},{machine="m",recipe="r"}},function() n=n+1; return surface end)
 assert(n==1 and created==2 and c.recipe.r.fluid_boxes.m.water.box==3); print("BB5")
+print("test_box_binding [Lua 5.2]: 5 cases, 5 passed, 0 failed")
