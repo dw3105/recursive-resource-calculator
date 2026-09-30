@@ -1208,13 +1208,7 @@ local function step(job, budget)
                     if not bind.seen[key] then
                         bind.seen[key] = true
                         local provider = function()
-                            if bind.surface then return bind.surface end
-                            local g = rawget(_G, "game")
-                            if type(g) ~= "table" and type(g) ~= "userdata" then return nil end
-                            local ok, surface = pcall(function()
-                                return g.surfaces["rrc-box-binding"] or g.create_surface("rrc-box-binding", {width = 256, height = 256})
-                            end)
-                            if ok then bind.surface = surface end
+                            bind.surface = bind.surface or BoxBinding.scratch_surface(rawget(_G, "game"))
                             return bind.surface
                         end
                         BoxBinding.fill(search_work.input.catalog, {current}, provider)

@@ -15,8 +15,14 @@ local function prototype_boxes(machine)
     return safe(function() return machine.fluidbox_prototypes end) or {}
 end
 
+--2.0 get_filter -> {name = ...}; 2.1 get_fluid_filter -> {fluid = <name or prototype>} (headless 2.1.20, 2026-09-30:
+--reading only .name bound nothing on 2.1).
 local function fluid_name(value)
-    return name_of(value)
+    if type(value) == "string" then return value end
+    local direct = safe(function() return value.name end)
+    if type(direct) == "string" then return direct end
+    local fluid = safe(function() return value.fluid end)
+    return name_of(fluid)
 end
 
 local function is_fluid_recipe(recipe)
@@ -41,16 +47,15 @@ function BoxBinding.probe(surface, machine_proto, recipe_proto)
     if not surface or not machine_proto or not recipe_proto then return {} end
     local machine_name, recipe_name = name_of(machine_proto), name_of(recipe_proto)
     if not machine_name or not recipe_name then return {} end
-    local pos = {0, 0}
-    local found = safe(function()
-        if surface.find_non_colliding_position then
-            return surface.find_non_colliding_position(machine_name, pos, 0, 1)
-        end
-    end)
-    if found then pos = found end
-    local entity = safe(function()
-        return surface.create_entity{name = machine_name, position = pos, force = "neutral", recipe = recipe_name}
-    end)
+    --Fixed spots, never find_non_colliding_position: radius 0 means an unlimited search, and it hung headless 2.0.77
+    --and 2.1.20 for 300 s (integrator, 2026-09-30); the in-game path would freeze the game the same way.
+    local entity
+    for _, spot in ipairs({{0, 0}, {16, 0}, {0, 16}, {16, 16}, {-16, 0}, {0, -16}}) do
+        entity = safe(function()
+            return surface.create_entity{name = machine_name, position = spot, force = "neutral", recipe = recipe_name}
+        end)
+        if entity then break end
+    end
     if not entity then return {} end
     local result = {}
     local boxes = prototype_boxes(machine_proto)
@@ -139,6 +144,16 @@ function BoxBinding.parse_fixture(text)
         end
     end
     return result, count
+end
+
+--Scratch surface for the in-game probe: created once per fill by name, deleted after (generation.lua).
+BoxBinding.SURFACE = "rrc-box-binding"
+function BoxBinding.scratch_surface(g)
+    if type(g) ~= "table" and type(g) ~= "userdata" then return nil end
+    local ok, surface = pcall(function()
+        return g.surfaces[BoxBinding.SURFACE] or g.create_surface(BoxBinding.SURFACE, {width = 256, height = 256})
+    end)
+    return ok and surface or nil
 end
 
 return BoxBinding

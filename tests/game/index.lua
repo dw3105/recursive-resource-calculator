@@ -11,4 +11,5 @@ return {
     "tests.game.test_mock_parity",
     "tests.game.test_capture",
     "tests.game.test_flip_fluidboxes",
+    "tests.game.test_box_binding",
 }
