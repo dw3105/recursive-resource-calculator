@@ -9,6 +9,8 @@
 --is BP_FAIL_SEARCH_BUDGET, even when an earlier candidate was already valid; a partial search must not claim that
 --no layout exists.
 local Search = {}
+local FlowDraw = require "logic.bp.flow_draw"
+local Orient = require "logic.bp.orient"
 local Belt = require "logic.bp.belt"
 
 local Grid = require "logic.bp.grid"
@@ -33,7 +35,7 @@ local STRICT_REROUTE_CODES = {
 
 
 local PHASES = {
-    plan = "planning", preflight = "preflight", groups = "grouping", pack = "packing", route = "routing",
+    plan = "planning", preflight = "preflight", groups = "grouping", draw = "drawing", pack = "packing", route = "routing",
     hands = "hands", power = "power", tidy = "tidying", validate = "validating", serialize = "serializing", done = "done", failed = "failed",
 }
 
@@ -1535,8 +1537,8 @@ local function candidate_links(state, candidate)
         local ext_in, ext_out = false, false
         for _, p in ipairs(flow.producers or {}) do if p.step_id == "$external" then ext_in = true end end
         for _, p in ipairs(flow.consumers or {}) do if p.step_id == "$external" then ext_out = true end end
-        if ext_in then for _, b in ipairs(consumers) do links[#links + 1] = {a=b, b={edge=input_edge}} end end
-        if ext_out then for _, a in ipairs(producers) do links[#links + 1] = {a=a, b={edge=output_edge}} end end
+        if ext_in then for _, b in ipairs(consumers) do links[#links + 1] = {a=b, b={edge=input_edge}, flow_id=fid, ext="in"} end end
+        if ext_out then for _, a in ipairs(producers) do links[#links + 1] = {a=a, b={edge=output_edge}, flow_id=fid, ext="out"} end end
     end
     return links
 end
@@ -1554,9 +1556,24 @@ local function prepare_candidate(state)
     append_all(obstacles, bare_rects(state.work.input.obstacles))
     append_all(obstacles, bare_rects(state.work.input.occupied))
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
+    local settings = state.work.input.settings or {}
+    local input_edge = settings.input_edge or state.work.input.input_edge or "left"
+    if Pack.mode == "sugiyama" and pack_layered(state) then
+        local nodes = {}
+        for _, block in ipairs(candidate.blocks or {}) do
+            local ports = {}
+            for _, p in ipairs(block.ports or {}) do ports[#ports+1] = {port_id=p.port_id, role=p.role,
+                attach_dx=p.attach_dx, attach_dy=p.attach_dy, kind=p.kind} end
+            nodes[#nodes+1] = {id=block.id or block.block_id, w=block.w, h=block.h, ports=ports}
+        end
+        state.work.draw = FlowDraw.begin{nodes=nodes, links=state.work.pack_links, input_edge=input_edge,
+            output_edge=settings.output_edge or state.work.input.output_edge or "top", restarts=30, sweeps=8, seed=1}
+        set_phase(state, "draw")
+        return true
+    end
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
         zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links,
-        blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state)})
+        blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state), input_edge=input_edge})
     set_phase(state, "pack")
     return true
 end
@@ -1712,6 +1729,51 @@ function Search.step(container, budget)
                     state.cursor.candidate_index = 1
                     prepare_candidate(state)
                 end
+            end
+        elseif state.phase == "draw" then
+            run_stage(state, "draw", FlowDraw, budget)
+            if stage_done(state.work.draw) then
+                local drawing = state.work.draw.result or {}
+                local candidate = copy(state.work.candidate)
+                local input_edge = (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"
+                local flow_dir = ({left=4,right=12,top=8,bottom=0})[input_edge] or 4
+                local towards = (flow_dir + 8) % 16
+                local across = (input_edge == "left" or input_edge == "right") and 8 or 4
+                for _, block in ipairs(candidate.blocks or {}) do
+                    local id = block.id or block.block_id
+                    local partners = {}
+                    for _, p in ipairs(block.ports or {}) do if p.kind == "fluid" then
+                        for _, link in ipairs(state.work.pack_links) do
+                            local own = link.a.block_id == id and link.a or (link.b.block_id == id and link.b)
+                            if own and own.port_id == p.port_id then
+                                local other = own == link.a and link.b or link.a
+                                local dir = towards
+                                if other.edge then dir = ({left=12,right=4,top=0,bottom=8})[other.edge] or towards
+                                elseif other.block_id then
+                                    local ml, ol = drawing.layer_of[id] or 1, drawing.layer_of[other.block_id] or 1
+                                    if ml == ol then dir = drawing.rank_of[id] < drawing.rank_of[other.block_id] and across or ((across + 8) % 16)
+                                    else dir = (ml > ol) and towards or flow_dir end
+                                end
+                                partners[p.port_id] = dir
+                            end
+                        end
+                    end end
+                    local o = Orient.choose{block=block, catalog=state.work.input.catalog,
+                        turn=drawing.turn_of and drawing.turn_of[id], partner_dir=partners}
+                    local nb = Groups.reorient(state.work.groups, block, o)
+                    if nb then block = nb end
+                    for i, old in ipairs(candidate.blocks) do if (old.id or old.block_id) == id then candidate.blocks[i] = block; break end end
+                end
+                state.work.candidate = candidate
+                state.work.pack_links = candidate_links(state, candidate)
+                local obstacles = bare_rects(state.work.robo_obstacles)
+                append_all(obstacles, bare_rects(state.work.input.obstacles)); append_all(obstacles, bare_rects(state.work.input.occupied))
+                append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
+                state.work.pack = Pack.begin({area=grid_area(state.work.grid,state.work.input), obstacles=obstacles,
+                    zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
+                    blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
+                    mode="sugiyama", drawing=drawing, input_edge=input_edge})
+                set_phase(state,"pack")
             end
         elseif state.phase == "pack" then
             run_stage(state, "pack", Pack, budget)

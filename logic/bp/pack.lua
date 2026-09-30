@@ -21,6 +21,7 @@ local DIRECTIONS = {Grid.NORTH, Grid.EAST, Grid.SOUTH, Grid.WEST}
 --inner work so one module call stays short even when the search budget is large. Eighteen charged ops per
 --linked origin keeps expensive candidate batches below 0.06 s while retaining roughly 8 us per op.
 local PORT_ORIGIN_OPS = 18
+Pack.DRAWN_GAP = 4
 
 local function finite(value, fallback)
     if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
@@ -542,8 +543,8 @@ end
 --nearest legal origin to that target, then looks EXTRA more rings out and keeps the lowest link cost. Buffer
 --rings already keep blocks apart, so no free-rectangle search is needed. On by default (player placed red 148 and
 --green 305 in game, 2026-09-25); RRC_PACK=maxrects turns it off.
-local mode = os and os.getenv and os.getenv("RRC_PACK")
-Pack.layered = mode ~= "maxrects"
+Pack.mode = (os and os.getenv and os.getenv("RRC_PACK")) or "layered"
+Pack.layered = Pack.mode ~= "maxrects"
 local EXTRA = tonumber(os and os.getenv and os.getenv("RRC_PACK_EXTRA") or "") or 8
 
 local function layered_order(state)
@@ -578,6 +579,48 @@ local function layered_order(state)
 end
 
 local function layered_target(state, block)
+    if state.mode == "sugiyama" then
+        local id, drawing = tostring(block.block_id), state.drawing or {}
+        local L, rank = drawing.layer_of and drawing.layer_of[block.block_id], drawing.rank_of and drawing.rank_of[block.block_id]
+        L, rank = L or 1, rank or 1
+        local edge = state.input_edge or "left"
+        local horizontal = edge == "left" or edge == "right"
+        local positive = edge == "left" or edge == "top"
+        local total, across = 0, 0
+        local maxdepth = {}
+        for _, b in ipairs(state.blocks) do
+            local bl = drawing.layer_of and drawing.layer_of[b.block_id]
+            if bl then
+                local d = drawing.turn_of and drawing.turn_of[b.block_id] or 0
+                local w, h = Grid.rotate_size(b.w, b.h, d)
+                maxdepth[bl] = math.max(maxdepth[bl] or 0, horizontal and w or h)
+                if bl == L and (drawing.rank_of[b.block_id] or 0) < rank then
+                    across = across + (horizontal and h or w) + Pack.DRAWN_GAP
+                end
+            end
+        end
+        local specials = {}
+        for _, list in ipairs({drawing.sources or {}, drawing.outputs or {}, drawing.dummies or {}}) do
+            for _, item in ipairs(list) do
+                local sl, sr = item.layer or 1, item.rank or 0
+                if sl == L and sr < rank then specials[sr] = true end
+            end
+        end
+        for _ in pairs(specials) do across = across + 1 end
+        for layer = 1, L - 1 do total = total + (maxdepth[layer] or 0) + Pack.DRAWN_GAP end
+        local start = positive and (horizontal and state.area.x or state.area.y) or
+            (horizontal and state.area.x + state.area.w or state.area.y + state.area.h)
+        local prefw, prefh = Grid.rotate_size(block.w, block.h, drawing.turn_of and drawing.turn_of[block.block_id] or 0)
+        local dim = horizontal and prefw or prefh
+        local ax = state.area.x + across
+        local ay = horizontal and (state.area.y + across) or (start + (positive and total or -total - dim))
+        if horizontal then ax = positive and (start + total) or (start - total - dim) end
+        if edge == "right" then ax = start - total - dim end
+        if edge == "bottom" then ay = start - total - dim end
+        ax = math.max(state.area.x, math.min(ax, state.area.x + state.area.w - prefw))
+        ay = math.max(state.area.y, math.min(ay, state.area.y + state.area.h - prefh))
+        return ax, ay
+    end
     local L = state.layer_of[tostring(block.block_id)]
     local area = state.area
     local far, peer_right, n = nil, nil, 0
@@ -638,6 +681,53 @@ local function layered_legal(state, block, x, y, direction, tx, ty)
         candidate.port_slots = slots
     end
     candidate.link_cost = linked_cost(state, block, candidate)
+    if state.mode == "sugiyama" then
+        local id = block.block_id
+        local L, rank = state.drawing.layer_of[id] or 1, state.drawing.rank_of[id] or 1
+        local horizontal = state.input_edge == "left" or state.input_edge == "right"
+        local P = horizontal and h or w
+        local broken, covered = 0, 0
+        local coord = horizontal and (y + h / 2) or (x + w / 2)
+        for _, placed in ipairs(state.placements) do
+            if (state.drawing.layer_of[placed.block_id] or 1) == L then
+                local pr = state.drawing.rank_of[placed.block_id] or 1
+                local pc = horizontal and (placed.y + placed.h / 2) or (placed.x + placed.w / 2)
+                if (rank > pr and coord < pc) or (rank < pr and coord > pc) then broken = broken + 1 end
+            end
+        end
+        for _, dummy in ipairs(state.drawing.dummies or {}) do
+            if dummy.layer == L then
+                local rank_offset, layer_depth = 0, {}
+                for _, b in ipairs(state.blocks) do
+                    local bl = state.drawing.layer_of[b.block_id]
+                    local br = state.drawing.rank_of[b.block_id] or math.huge
+                    local turn = state.drawing.turn_of[b.block_id] or 0
+                    local bw, bh = Grid.rotate_size(b.w, b.h, turn)
+                    if bl and bl < L then
+                        local dep = horizontal and bw or bh
+                        layer_depth[bl] = math.max(layer_depth[bl] or 0, dep)
+                    elseif bl == L and br < (dummy.rank or 1) then
+                        rank_offset = rank_offset + (horizontal and bh or bw) + Pack.DRAWN_GAP
+                    end
+                end
+                local layer_offset = 0
+                for layer = 1, L - 1 do layer_offset = layer_offset + (layer_depth[layer] or 0) + Pack.DRAWN_GAP end
+                for _, list in ipairs({state.drawing.sources or {}, state.drawing.outputs or {}, state.drawing.dummies or {}}) do
+                    for _, item in ipairs(list) do
+                        if (item.layer or 1) == L and (item.rank or 0) < (dummy.rank or 1) then rank_offset = rank_offset + 1 end
+                    end
+                end
+                local base = (horizontal and state.area.y or state.area.x) + rank_offset
+                local flow = (horizontal and state.area.x or state.area.y)
+                local positive = state.input_edge == "left" or state.input_edge == "top"
+                flow = positive and (flow + layer_offset) or (flow - layer_offset - 1)
+                local dx, dy = horizontal and flow or base, horizontal and base or flow
+                if x <= dx and dx < x + w and y <= dy and dy < y + h then covered = covered + 1 end
+            end
+        end
+        local preferred = state.drawing.turn_of[id]
+        candidate.link_cost = candidate.link_cost + P * (broken + covered + (preferred ~= nil and direction ~= preferred and 1 or 0))
+    end
     --A legal origin also pays for its link cost: twice a port origin keeps a tick near MaxRects' worst.
     return candidate, 2 * PORT_ORIGIN_OPS
 end
@@ -913,9 +1003,22 @@ function Pack.begin(input)
         buffer_zones = {},
         counters = {origins = 0, evaluated_origins = 0},
         origin_seen = {}, disable_link_cut = input.disable_link_cut == true,
+        mode = input.mode, drawing = input.drawing, input_edge = input.input_edge,
     }
     rebuild_indexes(state)
-    if state.layered and state.has_links then layered_order(state) end
+    if state.mode == "sugiyama" then
+        local pos = {}; for i,b in ipairs(blocks) do pos[tostring(b.block_id)] = i; b.allowed_dirs = {0,4,8,12} end
+        table.sort(blocks, function(a,b)
+            local la,lb=(state.drawing.layer_of or {})[a.block_id],(state.drawing.layer_of or {})[b.block_id]
+            la,lb=la or math.huge,lb or math.huge
+            if la~=lb then return la<lb end
+            local ra,rb=(state.drawing.rank_of or {})[a.block_id],(state.drawing.rank_of or {})[b.block_id]
+            if ra and rb and ra~=rb then return ra<rb end
+            if (ra~=nil)~=(rb~=nil) then return ra~=nil end
+            return pos[tostring(a.block_id)]<pos[tostring(b.block_id)]
+        end)
+        state.layered=true
+    elseif state.layered and state.has_links then layered_order(state) end
 
     if limits.max_free_regions ~= nil and #regions > limits.max_free_regions then
         fail(state, "BP_P_REGION_LIMIT")
@@ -941,7 +1044,7 @@ function Pack.step(state, budget)
             break
         end
 
-        if state.layered and state.has_links then
+        if state.mode == "sugiyama" or (state.layered and state.has_links) then
             if budget.ops == nil or budget.ops <= 0 then break end
             if layered_scan(state, block, budget) then
                 state.cursor.ring = nil
