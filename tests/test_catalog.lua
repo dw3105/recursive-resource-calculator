@@ -361,4 +361,5 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+print("CF1")
 H.done("test_catalog")
