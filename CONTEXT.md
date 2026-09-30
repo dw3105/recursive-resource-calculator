@@ -126,7 +126,7 @@ Which fluid box of a machine each fluid of its recipe uses, as the engine decide
 _Avoid_: fluid slot, port order
 
 **Crossing**:
-Two Flow graph edges whose drawn lines cross between adjacent Layers. Each line runs from its producer's port to its consumer's port, never from Block midpoints.
+Two Flow graph edges whose drawn lines cross between adjacent Layers.
 _Avoid_: using "crossing" for an underground belt passing under a run (that is an **Underpass**)
 
 **Port side**:
@@ -134,7 +134,7 @@ The side of a Block, after its Turn, that one of its ports sits on, plus the por
 _Avoid_: port direction (a belt's facing), attach offset (the code's unturned number)
 
 **Material cost**:
-What a stretch of transport costs to craft: the raw resources inside its belts, splitters, underground belts, pipes and underground pipes, worked out from the recipes in the game: follow each recipe down to items with no recipe (ores, stone, coal, crude oil, water) and add every unit, fluids included, one each. The Drawn pack weighs Crossings and port detours by Material cost.
+What a stretch of transport costs to craft: the raw resources inside its belts, splitters, underground belts, pipes and underground pipes, worked out from the recipes in the game: follow each recipe down to raw items (whatever a mined resource yields or a tile gives: ores, stone, coal, crude oil, water, even where some recipe also makes them) and add every unit, fluids included, one each.
 _Avoid_: entity count (treats a pipe and an underground belt as equal), price
 
 ## Relationships
@@ -144,8 +144,6 @@ _Avoid_: entity count (treats a pipe and an underground belt as equal), price
 - An **Output** sits one **Layer** past its producer, at the output-edge end of that Layer.
 - No two **Sources** or **Outputs** share a border position.
 - A **Block** Turns as a whole; the machines inside a Block all share one Turn and one Flip.
-- A **Block**'s Turn and Flip in the **Drawn pack** are chosen together while drawing (eight orientations), by the **Material cost** of the **Crossings** and port detours each gives; nothing Turns or Flips a Block after it is placed.
-- The **Drawn pack** scores a drawing by the **Material cost** of the Underpasses its Crossings need plus the extra belt or pipe its port detours need; lowest wins.
 
 - A **Dead pair** makes a layout invalid whichever pack placed it (Drawn pack or Layered pack).
 - A **Drawn pack** run beats a **Layered pack** run when it is valid and faster; on a **Speed tie** it loses only when it is not in a **Material tie** and costs more.
