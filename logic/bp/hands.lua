@@ -4,11 +4,15 @@ local function port_tile(port) return port.x or port._world_x, port.y or port._w
 local function move_port(port, dx, dy)
     if port._world_x ~= nil then
         port._world_x, port._world_y = port._world_x + dx, port._world_y + dy
-        local ax, ay = Grid.rotate_vector(dx, dy, (16 - (port._place_dir or 0)) % 16)
-        port.attach_dx, port.attach_dy = port.attach_dx + ax, port.attach_dy + ay
+        if type(port.attach_dx) == "number" and type(port.attach_dy) == "number" then
+            local ax, ay = Grid.rotate_vector(dx, dy, (16 - (port._place_dir or 0)) % 16)
+            port.attach_dx, port.attach_dy = port.attach_dx + ax, port.attach_dy + ay
+        end
     else
         port.x, port.y = port.x + dx, port.y + dy
-        port.attach_dx, port.attach_dy = port.attach_dx + dx, port.attach_dy + dy
+        if type(port.attach_dx) == "number" and type(port.attach_dy) == "number" then
+            port.attach_dx, port.attach_dy = port.attach_dx + dx, port.attach_dy + dy
+        end
     end
 end
 local function finite(v, fallback) if type(v)=="number" and v==v then return v end return fallback end
