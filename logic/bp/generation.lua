@@ -1211,7 +1211,7 @@ local function step(job, budget)
                         if ok then bind.surface = surface end
                         return bind.surface
                     end
-                    BoxBinding.fill(state.prepared.catalog, {current}, provider)
+                    BoxBinding.fill(search_work.input.catalog, {current}, provider)
                 end
                 bind.cursor = bind.cursor + 1
                 budget.ops = budget.ops - 1
