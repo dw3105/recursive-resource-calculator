@@ -15,7 +15,9 @@ local function run(feeder)
  ports={{port_id="mo",flow_id="item/o",role="out",step_id="m",x=9,y=4,travel_dir=Grid.EAST},{port_id="eo",flow_id="item/o",role="out",perimeter=true,x=11,y=4,travel_dir=Grid.EAST}},segments={{segment_id="r",kind="belt",flow_id="item/o",length=2,allocations={{flow_id="item/o",sink="port:eo",rate_per_second=1}}}},bindings={{source_port_id="mo",sink_port_id="eo",flow_id="item/o",segment_id="r",rate_per_second=1}}}
  local s=Validate.begin(input); while not s.done do Validate.step(s,{ops=100}) end; return s
 end
-local function dead(s) for _,e in ipairs(s.errors or {}) do if e.code=="BP_V_UNDERGROUND_DEAD" then return true end end return false end
-H.test("DP3 rejects an unfed underground pair",function() H.equal(dead(run(false)),true); io.write("DP3\n") end)
-H.test("DP4 allows a physically fed underground pair",function() H.equal(dead(run(true)),false); io.write("DP4\n") end)
+local function dead(s) for _,e in ipairs(s.errors or {}) do if e.code=="BP_V_UNDERGROUND_DEAD" then return e end end end
+H.test("DP3 rejects an unfed underground pair",function()
+ local e=dead(run(false)); H.equal(e~=nil,true); H.equal(e.detail.x,3); H.equal(e.detail.y,7); H.equal(e.detail.flow_id,"item/o"); io.write("DP3\n")
+end)
+H.test("DP4 allows a physically fed underground pair",function() H.equal(dead(run(true)),nil); io.write("DP4\n") end)
 H.done("test_validate_dead_pair")

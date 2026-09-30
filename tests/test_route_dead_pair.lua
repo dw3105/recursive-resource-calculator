@@ -28,7 +28,7 @@ local function work(with_pair1)
  return w
 end
 H.test("DP1 prunes only the unfed pair and preserves fed route",function()
- local w=work(true); prune(w); H.equal(w.segments_by_cell[key(1,0)]==nil,true); H.equal(w.segments_by_cell[key(4,0)]==nil,true)
+ local w=work(true); prune(w); H.equal(w.segments_by_cell[key(1,0)]==nil,true); H.equal(w.segments_by_cell[key(4,0)]==nil,true); H.equal(w.segments_by_cell[key(5,0)]==nil,true)
  H.equal(w.segments_by_cell[key(1,3)]~=nil,true); io.write("DP1\n")
 end)
 H.test("DP2 preserves a fed pair",function()

@@ -1670,7 +1670,22 @@ local function check_transport_shapes(work)
         if x ~= nil and y ~= nil then source_ports[tile_key(x, y)] = true end
     end
     for key, tile in pairs(tiles) do
-        if tile.ug == "input" and not sources_of[key] and not drop_tiles[key] and not source_ports[key] then
+        local partner_key = pair_of[key]
+        local partner = partner_key and tiles[partner_key]
+        local dx, dy = Grid.dir_vector(tile.d)
+        local distance = partner and (math.abs(tile.x-partner.x) + math.abs(tile.y-partner.y)) or 0
+        local max_distance = finite(work.catalog.belt and work.catalog.belt.underground_max_distance, INF)
+        local paired_valid = tile.ug == "input" and partner and partner.ug == "output"
+            and (partner.info.entity.ug_pair_id or partner.info.entity.underground_pair_id) == tile.info.id
+            and partner.d == tile.d and dx ~= nil
+            and (partner.x-tile.x)*dx + (partner.y-tile.y)*dy > 0
+            and (tile.x == partner.x or tile.y == partner.y)
+            and distance <= max_distance + tolerance(max_distance)
+        --A tunnel immediately feeding the next entrance is structurally back-to-back;
+        --leave that existing structural violation as the diagnostic for the malformed chain.
+        local after_partner = partner and dx and tile_key(partner.x+dx, partner.y+dy)
+        if after_partner and tiles[after_partner] and tiles[after_partner].ug == "input" then paired_valid = false end
+        if paired_valid and #(work.flows or {}) > 0 and not sources_of[key] and not drop_tiles[key] and not source_ports[key] then
             work._dead_underground_inputs = work._dead_underground_inputs or {}
             work._dead_underground_inputs[tile.info.id] = true
             error_record(work.errors, "BP_V_UNDERGROUND_DEAD", {}, {x=tile.x,y=tile.y,flow_id=flow_detail_id(tile.info)})
