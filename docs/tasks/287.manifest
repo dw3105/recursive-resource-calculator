@@ -1,0 +1,12 @@
+logic/bp/grid.lua
+logic/bp/groups.lua
+logic/bp/orient.lua
+logic/catalog.lua
+logic/bp/route.lua
+logic/bp/validate.lua
+logic/bp/serialize.lua
+tests/game/lib/lab.lua
+tests/test_flip_geometry.lua
+tests/test_orient.lua
+tests/test_catalog.lua
+docs/tasks/287_machine_turn_flip.md

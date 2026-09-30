@@ -216,3 +216,6 @@
 | `282` | `rrc/agent` | snapshot: sheet snapshot built and fingerprinted in slices, same bytes (round 50) | 2026-09-29 |
 | `283` | `rrc/agent` | pipeline: calculation takes its snapshot in slices, never in the Compute tick (round 50) | 2026-09-29 |
 | `284` | `rrc/agent` | modules: prototype facts cached, report rows weighted 200 ops (round 50) | 2026-09-29 |
+| `285` | `rrc/agent` | flow draw: Flow graph Layers + fewest Crossings (Sugiyama) before pack (round 51) | 2026-09-30 |
+| `286` | `rrc/agent` | drawn pack: RRC_PACK=sugiyama aims Blocks at drawn spots, draw phase in search (round 51) | 2026-09-30 |
+| `287` | `rrc/agent` | machine Turn + Flip in a Block so fluid boxes face partners; Lab recipe-at-create (round 51) | 2026-09-30 |

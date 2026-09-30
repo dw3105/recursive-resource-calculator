@@ -2606,6 +2606,14 @@ function Groups.step(state, budget)
     return state
 end
 
+--Rebuild one Block with every machine at orient = {dir, mirror} (round 51 drawn pack). groups_state is the Groups
+--stage state that built the Block (search: state.work.groups). Returns the new Block with the same id and port ids,
+--or nil when the orientation is illegal (a fluid pipe tile blocked). Frozen contract; lane 287 fills the body.
+--STEP 0 skeleton: the Block unchanged.
+function Groups.reorient(_, block, _)
+    return block
+end
+
 function Groups.materialize(block, placement)
     placement = placement or {x = 0, y = 0, dir = NORTH}
     local px, py, dir = finite(placement.x, 0), finite(placement.y, 0), placement.dir or NORTH

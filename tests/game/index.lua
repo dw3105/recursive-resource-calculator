@@ -10,4 +10,5 @@ return {
     "tests.game.test_feed",
     "tests.game.test_mock_parity",
     "tests.game.test_capture",
+    "tests.game.test_flip_fluidboxes",
 }

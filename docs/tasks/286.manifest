@@ -1,0 +1,5 @@
+logic/bp/pack.lua
+logic/bp/search.lua
+tests/test_pack_drawn.lua
+tests/test_search_draw_phase.lua
+docs/tasks/286_drawn_pack.md
