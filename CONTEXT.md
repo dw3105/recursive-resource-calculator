@@ -28,6 +28,14 @@ _Avoid_: twin, test
 A judge's answer on a twin: ok, defect or waste. Offline verdict also carries exact set of codes.
 _Avoid_: result, outcome
 
+**Speed tie**:
+Two runs of one sheet whose wall times differ by at most 1 s or 10%, whichever is bigger, and whose worst ticks differ by at most 10%. Only on a Speed tie do entity counts decide which run is better; otherwise the faster valid run wins.
+_Avoid_: same speed, within noise
+
+**Entity tie**:
+Two runs of one sheet in a Speed tie whose entity counts differ by at most 10%. Neither run is better; only a run more than 10% bigger loses.
+_Avoid_: close enough
+
 **Sheet sim**:
 A delivered sheet blueprint built for real in headless Factorio, powered, fed at its ports, run, and its output rate counted.
 _Avoid_: sheet test, golden run
@@ -97,6 +105,26 @@ _Avoid_: rotate-and-mirror, orient (covers both Turn and Flip)
 Mirroring a machine so its fluid boxes move to the opposite side without a Turn.
 _Avoid_: mirror (the blueprint field name), reverse (used for a Row's belt run)
 
+**Drawn pack**:
+Packing that first draws the whole Flow graph with fewest Crossings, then aims each Block at its drawn spot and Turns and Flips it. An experiment, off by default, until every golden delivers a drawn layout (no Fallback) and at most one golden loses to the Layered pack.
+_Avoid_: sugiyama mode, graph pack
+
+**Layered pack**:
+Today's default packing: Blocks placed one by one in columns away from the input edge, each near partners already placed.
+_Avoid_: normal pack
+
+**Fallback**:
+A sheet the Drawn pack gave up on and the Layered pack delivered. It keeps the player safe but counts as a Drawn pack loss, never as a valid drawn sheet.
+_Avoid_: drawn delivered, soft pass
+
+**Dead pair**:
+An underground belt pair that carries no items. A Waste rule breach, yet the player ruled it invalid: a candidate holding one is rejected.
+_Avoid_: unused underground, spare pair
+
+**Box binding**:
+Which fluid box of a machine each fluid of its recipe uses, as the engine decides it. A recipe that fills every box of a kind binds fluid k to box k; a recipe with fewer fluids binds per machine. The validator trusts only measured Box bindings.
+_Avoid_: fluid slot, port order
+
 **Crossing**:
 Two Flow graph edges whose drawn lines cross between adjacent Layers.
 _Avoid_: using "crossing" for an underground belt passing under a run (that is an **Underpass**)
@@ -108,6 +136,9 @@ _Avoid_: using "crossing" for an underground belt passing under a run (that is a
 - An **Output** sits one **Layer** past its producer, at the output-edge end of that Layer.
 - No two **Sources** or **Outputs** share a border position.
 - A **Block** Turns as a whole; the machines inside a Block all share one Turn and one Flip.
+
+- A **Dead pair** makes a layout invalid whichever pack placed it (Drawn pack or Layered pack).
+- A **Drawn pack** run beats a **Layered pack** run when it is valid and faster; on a **Speed tie** it loses only when it is not in an **Entity tie** and has more entities.
 
 ## Flagged ambiguities
 

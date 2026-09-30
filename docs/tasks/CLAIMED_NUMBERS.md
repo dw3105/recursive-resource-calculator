@@ -219,3 +219,6 @@
 | `285` | `rrc/agent` | flow draw: Flow graph Layers + fewest Crossings (Sugiyama) before pack (round 51) | 2026-09-30 |
 | `286` | `rrc/agent` | drawn pack: RRC_PACK=sugiyama aims Blocks at drawn spots, draw phase in search (round 51) | 2026-09-30 |
 | `287` | `rrc/agent` | machine Turn + Flip in a Block so fluid boxes face partners; Lab recipe-at-create (round 51) | 2026-09-30 |
+| `288` | `rrc/agent` | turned Blocks: world port tiles, slides, hops, seat, free_cell, RunDir for dir 4/8/12 (round 52) | 2026-09-30 |
+| `289` | `rrc/agent` | Dead pair: router prunes unfed underground pair, validator BP_V_UNDERGROUND_DEAD, lane_sim dead= (round 52) | 2026-09-30 |
+| `290` | `rrc/agent` | Box binding: engine fluid -> box per machine x recipe, runtime probe + catalog + fixture (round 52) | 2026-09-30 |

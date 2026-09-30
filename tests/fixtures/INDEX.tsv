@@ -134,3 +134,6 @@ tests/fixtures/flip_fluidboxes_2.0.txt	facts	vanilla	engine fluid box pos per Tu
 tests/fixtures/flip_fluidboxes_2.1.txt	facts	vanilla	engine fluid box pos per Turn and Flip, headless 2.1.20 (test_flip_fluidboxes)
 tests/fixtures/flip_filters_2.0.txt	facts	vanilla	engine fluid box filter + connections per recipe and Flip, headless 2.0.77 (test_flip_fluidboxes)
 tests/fixtures/flip_filters_2.1.txt	facts	vanilla	engine fluid box filter + connections per recipe and Flip, headless 2.1.20 (test_flip_fluidboxes)
+tests/fixtures/dead_pair_inserter10s.bp.txt	sheet	player	drawn inserter-10s bytes round 51 (sha c3d630e6) with Dead pair at (27,16); lane_sim dead count (test_lane_sim)
+tests/fixtures/box_binding_2.0.txt	facts	vanilla	engine Box binding (fluid -> prototype box) per crafting machine x fluid recipe, headless 2.0.77 (test_box_binding)
+tests/fixtures/box_binding_2.1.txt	facts	vanilla	engine Box binding (fluid -> prototype box) per crafting machine x fluid recipe, headless 2.1.20 (test_box_binding)
