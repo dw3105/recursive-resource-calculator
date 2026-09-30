@@ -145,16 +145,23 @@ end
 local function restore(g,c)
     for l=0,g.max_layer do g.order[l]={}; for i,x in ipairs(c[l]) do g.order[l][i]=x end; rank_update(g,l) end
 end
-local function pair_cost(g,u,v)
-    local cost=0
-    for _,l in ipairs({g.nodes[u].layer-1,g.nodes[u].layer+1}) do
+local function should_swap(g,u,v)
+    local improves, worsens=0,0
+    local layer=g.nodes[u].layer
+    for _,l in ipairs({layer-1,layer+1}) do
         if l>=0 and l<=g.max_layer then
             local nu=g.neighbors[u] and g.neighbors[u][l] or {}
             local nv=g.neighbors[v] and g.neighbors[v][l] or {}
-            for _,a in ipairs(nu) do for _,b in ipairs(nv) do if g.nodes[a].rank>g.nodes[b].rank then cost=cost+1 end end end
+            for _,a in ipairs(nu) do
+                local ar=g.nodes[a].rank
+                for _,b in ipairs(nv) do
+                    local br=g.nodes[b].rank
+                    if ar<br then improves=improves+1 elseif ar>br then worsens=worsens+1 end
+                end
+            end
         end
     end
-    return cost
+    return worsens>improves
 end
 
 local function result(g,best,crossings)
@@ -254,7 +261,7 @@ function FlowDraw.step(state,budget)
                     elseif c.layer>g.max_layer then c.layer=0; c.pass=c.pass+1; c.changed=false end
                 else
                     local u,v=a[c.i],a[c.i+1]
-                    if g.nodes[u].kind~="output" and g.nodes[v].kind~="output" and pair_cost(g,v,u)<pair_cost(g,u,v) then a[c.i],a[c.i+1]=v,u; rank_update(g,c.layer); c.changed=true end
+                    if g.nodes[u].kind~="output" and g.nodes[v].kind~="output" and should_swap(g,u,v) then a[c.i],a[c.i+1]=v,u; rank_update(g,c.layer); c.changed=true end
                     c.i=c.i+1; allowance=allowance-1
                 end
             end
