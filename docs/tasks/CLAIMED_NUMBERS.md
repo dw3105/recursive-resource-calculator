@@ -229,3 +229,5 @@
 | `298` | `rrc/agent` | switch settings.force_turn_flip: every Block one Turn + Flip, BP_FAIL_FLIP_FORBIDDEN, no Fallback when forced (round 54) | 2026-09-30 |
 | `299` | `rrc/agent` | game probe: 20 tiny turn-flip test sheets per version (10 machine types x 1/4 machines), fixture JSON (round 54) | 2026-09-30 |
 | `300` | `rrc/agent` | turn-flip census runner offline + game lab sample/full, CENSUS rows (round 54) | 2026-09-30 |
+| `301` | `rrc/agent` | Turn+Flip census wave 2: mirrored Block rebuild keeps ports on edge; turned Row ports off belt runs (groups.lua) (round 54) | 2026-10-01 |
+| `302` | `rrc/agent` | Turn+Flip census wave 2: fluid input reaches turned ports; fluids never mix (route.lua) (round 54) | 2026-10-01 |
