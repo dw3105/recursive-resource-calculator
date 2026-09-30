@@ -24,7 +24,7 @@ local function fill_target(sheet, product, rate)
     end
 end
 local function run_case(row, n, found, next_case)
-    local recipe, machine = prototypes.recipe[row.recipe], prototypes.entity[row.machine]
+    local recipe, machine = prototypes.recipe[row.recipe] or (row.alt and prototypes.recipe[row.alt]), prototypes.entity[row.machine]
     local product = recipe and main_product(recipe)
     --Integrator round 54 (2026-09-30): 2.0+ entity prototypes have get_crafting_speed(quality), no crafting_speed
     --field (headless 2.0.77 + 2.1.20: __index error); same read as logic/catalog.lua:481.
@@ -46,22 +46,36 @@ local function run_case(row, n, found, next_case)
         player_data.recipes_by_product_full_name[found.bound.product] = nil
         player_data.product_full_names_by_recipe_name[found.bound.recipe] = nil
     end
-    found.bound = {product = product_type .. product_name, recipe = row.recipe}
-    S.bind(product_type .. product_name, row.recipe)
-    player_data.identifiers_of_chosen_crafting_machines_by_recipe_name[row.recipe] = {name = row.machine, quality = "normal"}
+    found.bound = {product = product_type .. product_name, recipe = recipe.name}
+    S.bind(product_type .. product_name, recipe.name)
+    player_data.identifiers_of_chosen_crafting_machines_by_recipe_name[recipe.name] = {name = row.machine, quality = "normal"}
     Settings.store(1, S.sheet_id(sheet), {input_edge = "left", output_edge = "top"})
     fill_target(sheet, product, Cases.target_rate(speed, n))
     S.calculate(sheet)
     local id = row.machine .. "-" .. row.recipe .. "-" .. n
+    print("TURN_FLIP start " .. id .. " tick " .. game.tick); log("TURN_FLIP start " .. id .. " tick " .. game.tick)
     --Integrator round 54: report rows left from the previous case satisfy the wait before the new calculation is
     --current (headless 2.0.77: BP_REJ_SOLVER_NOT_OK "no finished calculation" on case 2). Retry that refusal every
     --60 ticks, 20 times; any other failure is recorded under `failed` and the probe moves on.
     local function attempt(left)
         local job_id = assert(Generation.start{player_index = 1, sheet_id = S.sheet_id(sheet), deliver = false})
-        S.wait_until(function() return S.generation_state(job_id) ~= "pending" end, 36000, function()
+        --Integrator round 54: the probe needs only the prepared input, which exists once preparation ends. Take it and
+        --cancel the job: headless 2.0.77 EM plant x4 generation ran past the runner's 300 s silence limit, and the
+        --offline census judges generation anyway.
+        S.wait_until(function()
+            return S.generation_state(job_id) ~= "pending" or Generation.capture(1, job_id) ~= nil
+        end, 36000, function()
             local state, status = S.generation_state(job_id)
+            if state == "pending" then
+                found.cases[id] = assert(Generation.capture(1, job_id))
+                Generation.cancel(1, job_id)
+                print("TURN_FLIP ok " .. id .. " (prepared, cancelled) tick " .. game.tick); log("TURN_FLIP ok " .. id .. " prepared")
+                next_case()
+                return
+            end
             if state == "success" then
                 found.cases[id] = assert(Generation.capture(1, job_id))
+                print("TURN_FLIP ok " .. id .. " tick " .. game.tick); log("TURN_FLIP ok " .. id)
                 next_case()
                 return
             end
@@ -71,7 +85,12 @@ local function run_case(row, n, found, next_case)
                 S.wait_until(function() waited = waited + 1; return waited >= 60 end, 120, function() attempt(left - 1) end, "retry wait")
                 return
             end
-            found.failed[#found.failed + 1] = {id = id, state = state, codes = codes}
+            --Integrator round 54: a case today's code cannot lay out (headless 2.0.77: refinery x4 BP_FAIL_NO_LAYOUT)
+            --still carries its prepared input; the census turns it into FAIL rows for the fix wave.
+            local capture = Generation.capture(1, job_id)
+            if capture then found.cases[id] = capture end
+            found.failed[#found.failed + 1] = {id = id, state = state, codes = codes, captured = capture ~= nil}
+            print("TURN_FLIP failed " .. id .. " " .. tostring(codes[1])); log("TURN_FLIP failed " .. id .. " " .. tostring(codes[1]))
             next_case()
         end, "generation terminal")
     end
@@ -80,7 +99,8 @@ end
 
 describe("Turn Flip cases", function()
     it("writes prepared inputs for every available contract row", function()
-        if RRC_OFFLINE then assert.are_equal(10, #Cases.CASES); return end
+        if RRC_OFFLINE then assert.are_equal(9, #Cases.CASES); return end
+        log("TURN_FLIP probe begin")
         local found = {version = script.active_mods.base, cases = {}, absent = {}, failed = {}}
         local work = {}
         for _, row in ipairs(Cases.CASES) do

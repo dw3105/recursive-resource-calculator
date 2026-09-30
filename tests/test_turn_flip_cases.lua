@@ -8,7 +8,7 @@ local function read(path)
 end
 local expected = {
     {"assembling-machine-1", "electronic-circuit"},
-    {"assembling-machine-2", "empty-water-barrel"},
+    {"assembling-machine-2", "concrete"},
     {"chemical-plant", "plastic-bar"},
     {"chemical-plant", "sulfuric-acid"},
     {"oil-refinery", "advanced-oil-processing"},
@@ -16,14 +16,13 @@ local expected = {
     {"foundry", "iron-ore-melting"},
     {"electromagnetic-plant", "electrolyte"},
     {"cryogenic-plant", "fluoroketone"},
-    {"biochamber", "rocket-fuel"},
 }
 H.test("TFC1 ordered machine recipe rows and sorted ids", function()
     H.equal(#Cases.CASES, #expected)
     for i, row in ipairs(expected) do
         H.equal(row[1], Cases.CASES[i].machine); H.equal(row[2], Cases.CASES[i].recipe)
     end
-    local ids = Cases.ids(); H.equal(#ids, 20)
+    local ids = Cases.ids(); H.equal(#ids, 18)  --biochamber dropped (burner), integrator round 54
     for i = 2, #ids do assert(ids[i - 1] < ids[i], "ids sorted") end
     print("TC1")
 end)

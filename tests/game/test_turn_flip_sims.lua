@@ -13,8 +13,9 @@ local function present(sample, row)
     return (row.turn==8 and row.flip==1) or (row.turn==8 and row.flip==0 and not has_flipped[case])
 end
 describe("Turn and Flip sheet sims", function()
-    if not ok_index then
-        it("lab loads offline",function() assert.is_true(type(Lab)=="table") end)
+    --Integrator round 54: an empty staged index left the block with no test (runner: "No tests defined", exit 1).
+    if not ok_index or #SHEETS==0 then
+        it("lab loads; no Turn and Flip sheets staged",function() assert.is_true(type(Lab)=="table") end)
     else
         for index,sheet in ipairs(SHEETS) do
             if os.getenv("RRC_TURN_FLIP_FULL")=="1" or present(true,sheet) then
