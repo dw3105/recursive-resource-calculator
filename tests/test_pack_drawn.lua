@@ -17,18 +17,28 @@ end
 local function placed(state)
  local r={}; for _,p in ipairs(state.result.placements) do r[p.block_id]=p end; return r
 end
-H.test('PD1 layered legacy LP fixtures retain placements',function()
- local blocks={b('c'),b('b'),b('a')}
- local links={{a={block_id='c'},b={block_id='b'}},{a={block_id='b'},b={block_id='a'}}}
- local s=run{area=Grid.rect(0,0,20,8),blocks=blocks,links=links,layered=true}
- local p=placed(s)
- H.equal(p.c.x,0); H.equal(p.b.x,3); H.equal(p.a.x,6)
+H.test('PD1 LP1-LP3 layered base placements remain unchanged',function()
+ local function portblock(id) return {block_id=id,w=2,h=2,allowed_dirs={0},ports={
+  {port_id=id..':in',role='in',attach_dx=-1,attach_dy=0},
+  {port_id=id..':out',role='out',attach_dx=2,attach_dy=1}}} end
+ local blocks={portblock('c'),portblock('b'),portblock('a')}
+ local links={{a={block_id='c',port_id='c:out'},b={block_id='b',port_id='b:in'}},
+  {a={block_id='b',port_id='b:out'},b={block_id='a',port_id='a:in'}},
+  {a={block_id='c',port_id='c:in'},b={edge='left'}}}
+ local input={area=Grid.rect(0,0,20,8),blocks=blocks,links=links,layered=true}
+ local s=run(input); local p=placed(s)
+ -- Coordinates copied from the round-51-base layered run.
+ H.equal(p.c.x,0); H.equal(p.c.y,0); H.equal(p.b.x,4); H.equal(p.b.y,0); H.equal(p.a.x,8); H.equal(p.a.y,0)
+ local sliced=run(input,1); H.deep_equal(sliced.result.placements,s.result.placements)
+ local plain={area=input.area,blocks=blocks,links=links,layered=false}
+ local no_flag={area=input.area,blocks=blocks,links=links}
+ H.deep_equal(run(plain).result.placements,run(no_flag).result.placements)
 end)
 H.test('PD2 rank order controls same-layer placement',function()
  local blocks={b('a'),b('c'),b('b')}
  local d=drawn('left',{a=1,b=1,c=1},{a=1,b=3,c=2})
  local s=run(input(blocks,d,Grid.rect(0,0,30,12)))
- local p=placed(s); H.equal(s.ok,true); H.equal(p.a.y<p.c.y and p.c.y<p.b.y,true)
+ local p=placed(s); H.equal(s.ok,true); H.equal(p.a.y<p.c.y and p.c.y<p.b.y,true, tostring(p.a.y)..','..tostring(p.c.y)..','..tostring(p.b.y))
 end)
 H.test('PD3 obstacle drift pays for reversed rank order',function()
  local d=drawn('left',{a=1,b=1},{a=1,b=2})

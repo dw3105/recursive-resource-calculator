@@ -610,15 +610,15 @@ local function layered_target(state, block)
         for layer = 1, L - 1 do total = total + (maxdepth[layer] or 0) + Pack.DRAWN_GAP end
         local start = positive and (horizontal and state.area.x or state.area.y) or
             (horizontal and state.area.x + state.area.w or state.area.y + state.area.h)
-        local dim = horizontal and (select(1, Grid.rotate_size(block.w, block.h, drawing.turn_of and drawing.turn_of[block.block_id] or 0))) or
-            (select(2, Grid.rotate_size(block.w, block.h, drawing.turn_of and drawing.turn_of[block.block_id] or 0)))
-        local ax = horizontal and (state.area.y + math.floor((state.area.h - dim) / 2) + across) or (start + (positive and total or -total - dim))
-        local ay = horizontal and (start + (positive and total or -total - dim)) or (state.area.x + math.floor((state.area.w - dim) / 2) + across)
+        local prefw, prefh = Grid.rotate_size(block.w, block.h, drawing.turn_of and drawing.turn_of[block.block_id] or 0)
+        local dim = horizontal and prefw or prefh
+        local ax = state.area.x + across
+        local ay = horizontal and (state.area.y + across) or (start + (positive and total or -total - dim))
         if horizontal then ax = positive and (start + total) or (start - total - dim) end
         if edge == "right" then ax = start - total - dim end
         if edge == "bottom" then ay = start - total - dim end
-        ax = math.max(state.area.x, math.min(ax, state.area.x + state.area.w - block.w))
-        ay = math.max(state.area.y, math.min(ay, state.area.y + state.area.h - block.h))
+        ax = math.max(state.area.x, math.min(ax, state.area.x + state.area.w - prefw))
+        ay = math.max(state.area.y, math.min(ay, state.area.y + state.area.h - prefh))
         return ax, ay
     end
     local L = state.layer_of[tostring(block.block_id)]
@@ -685,20 +685,43 @@ local function layered_legal(state, block, x, y, direction, tx, ty)
         local id = block.block_id
         local L, rank = state.drawing.layer_of[id] or 1, state.drawing.rank_of[id] or 1
         local horizontal = state.input_edge == "left" or state.input_edge == "right"
-        local P = horizontal and w or h
+        local P = horizontal and h or w
         local broken, covered = 0, 0
-        local coord = horizontal and (x + w / 2) or (y + h / 2)
+        local coord = horizontal and (y + h / 2) or (x + w / 2)
         for _, placed in ipairs(state.placements) do
             if (state.drawing.layer_of[placed.block_id] or 1) == L then
                 local pr = state.drawing.rank_of[placed.block_id] or 1
-                local pc = horizontal and (placed.x + placed.w / 2) or (placed.y + placed.h / 2)
+                local pc = horizontal and (placed.y + placed.h / 2) or (placed.x + placed.w / 2)
                 if (rank > pr and coord < pc) or (rank < pr and coord > pc) then broken = broken + 1 end
             end
         end
         for _, dummy in ipairs(state.drawing.dummies or {}) do
             if dummy.layer == L then
-                local dx = (horizontal and state.area.x or state.area.y) + (dummy.rank or 1) - 1
-                local dy = (horizontal and state.area.y or state.area.x) + (dummy.rank or 1) - 1
+                local rank_offset, layer_depth = 0, {}
+                for _, b in ipairs(state.blocks) do
+                    local bl = state.drawing.layer_of[b.block_id]
+                    local br = state.drawing.rank_of[b.block_id] or math.huge
+                    local turn = state.drawing.turn_of[b.block_id] or 0
+                    local bw, bh = Grid.rotate_size(b.w, b.h, turn)
+                    if bl and bl < L then
+                        local dep = horizontal and bw or bh
+                        layer_depth[bl] = math.max(layer_depth[bl] or 0, dep)
+                    elseif bl == L and br < (dummy.rank or 1) then
+                        rank_offset = rank_offset + (horizontal and bh or bw) + Pack.DRAWN_GAP
+                    end
+                end
+                local layer_offset = 0
+                for layer = 1, L - 1 do layer_offset = layer_offset + (layer_depth[layer] or 0) + Pack.DRAWN_GAP end
+                for _, list in ipairs({state.drawing.sources or {}, state.drawing.outputs or {}, state.drawing.dummies or {}}) do
+                    for _, item in ipairs(list) do
+                        if (item.layer or 1) == L and (item.rank or 0) < (dummy.rank or 1) then rank_offset = rank_offset + 1 end
+                    end
+                end
+                local base = (horizontal and state.area.y or state.area.x) + rank_offset
+                local flow = (horizontal and state.area.x or state.area.y)
+                local positive = state.input_edge == "left" or state.input_edge == "top"
+                flow = positive and (flow + layer_offset) or (flow - layer_offset - 1)
+                local dx, dy = horizontal and flow or base, horizontal and base or flow
                 if x <= dx and dx < x + w and y <= dy and dy < y + h then covered = covered + 1 end
             end
         end
@@ -1021,7 +1044,7 @@ function Pack.step(state, budget)
             break
         end
 
-        if state.layered and state.has_links then
+        if state.mode == "sugiyama" or (state.layered and state.has_links) then
             if budget.ops == nil or budget.ops <= 0 then break end
             if layered_scan(state, block, budget) then
                 state.cursor.ring = nil

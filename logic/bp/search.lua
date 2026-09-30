@@ -1736,8 +1736,9 @@ function Search.step(container, budget)
                 local drawing = state.work.draw.result or {}
                 local candidate = copy(state.work.candidate)
                 local input_edge = (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"
-                local across = (input_edge == "left" or input_edge == "right") and (input_edge == "left" and 4 or 12) or (input_edge == "top" and 8 or 0)
-                local towards = ({left=0,right=8,top=4,bottom=12})[input_edge] or 0
+                local flow_dir = ({left=4,right=12,top=8,bottom=0})[input_edge] or 4
+                local towards = (flow_dir + 8) % 16
+                local across = (input_edge == "left" or input_edge == "right") and 8 or 4
                 for _, block in ipairs(candidate.blocks or {}) do
                     local id = block.id or block.block_id
                     local partners = {}
@@ -1747,11 +1748,11 @@ function Search.step(container, budget)
                             if own and own.port_id == p.port_id then
                                 local other = own == link.a and link.b or link.a
                                 local dir = towards
-                                if other.edge then dir = towards
+                                if other.edge then dir = ({left=12,right=4,top=0,bottom=8})[other.edge] or towards
                                 elseif other.block_id then
                                     local ml, ol = drawing.layer_of[id] or 1, drawing.layer_of[other.block_id] or 1
-                                    if ml == ol then dir = across * (drawing.rank_of[id] < drawing.rank_of[other.block_id] and 1 or -1) % 16
-                                    else dir = (ml > ol) and towards or ((towards + 8) % 16) end
+                                    if ml == ol then dir = drawing.rank_of[id] < drawing.rank_of[other.block_id] and across or ((across + 8) % 16)
+                                    else dir = (ml > ol) and towards or flow_dir end
                                 end
                                 partners[p.port_id] = dir
                             end
