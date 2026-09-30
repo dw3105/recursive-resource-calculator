@@ -29,12 +29,12 @@ A judge's answer on a twin: ok, defect or waste. Offline verdict also carries ex
 _Avoid_: result, outcome
 
 **Speed tie**:
-Two runs of one sheet whose wall times differ by at most 1 s or 10%, whichever is bigger, and whose worst ticks differ by at most 10%. Only on a Speed tie do entity counts decide which run is better; otherwise the faster valid run wins.
+Two runs of one sheet whose wall times differ by at most 1 s or 10%, whichever is bigger, and whose worst ticks differ by at most 10%. Only on a Speed tie does Material cost decide which run is better; otherwise the faster valid run wins.
 _Avoid_: same speed, within noise
 
-**Entity tie**:
-Two runs of one sheet in a Speed tie whose entity counts differ by at most 10%. Neither run is better; only a run more than 10% bigger loses.
-_Avoid_: close enough
+**Material tie**:
+Two runs of one sheet in a Speed tie whose whole-blueprint Material cost (machines, beacons, inserters, poles and transport) differs by at most 10%. Neither run is better; only a run costing more than 10% more loses.
+_Avoid_: entity tie (retired 2026-09-30: entity count treats a pipe and an underground belt as equal), close enough
 
 **Sheet sim**:
 A delivered sheet blueprint built for real in headless Factorio, powered, fed at its ports, run, and its output rate counted.
@@ -106,7 +106,7 @@ Mirroring a machine so its fluid boxes move to the opposite side without a Turn.
 _Avoid_: mirror (the blueprint field name), reverse (used for a Row's belt run)
 
 **Drawn pack**:
-Packing that first draws the whole Flow graph with fewest Crossings, then aims each Block at its drawn spot and Turns and Flips it. An experiment, off by default, until every golden delivers a drawn layout (no Fallback) and at most one golden loses to the Layered pack.
+Packing that first draws the whole Flow graph with fewest Crossings, then aims each Block at its drawn spot and Turns and Flips it. An experiment, off by default, until every golden delivers a drawn layout (no Fallback) and at most one golden loses to the Layered pack; the release that meets that bar makes it the default, with the Layered pack kept as its Fallback.
 _Avoid_: sugiyama mode, graph pack
 
 **Layered pack**:
@@ -126,8 +126,16 @@ Which fluid box of a machine each fluid of its recipe uses, as the engine decide
 _Avoid_: fluid slot, port order
 
 **Crossing**:
-Two Flow graph edges whose drawn lines cross between adjacent Layers.
+Two Flow graph edges whose drawn lines cross between adjacent Layers. Each line runs from its producer's port to its consumer's port, never from Block midpoints.
 _Avoid_: using "crossing" for an underground belt passing under a run (that is an **Underpass**)
+
+**Port side**:
+The side of a Block, after its Turn, that one of its ports sits on, plus the port's place along that side. The Drawn pack draws every flow from Port side to Port side.
+_Avoid_: port direction (a belt's facing), attach offset (the code's unturned number)
+
+**Material cost**:
+What a stretch of transport costs to craft: the raw resources inside its belts, splitters, underground belts, pipes and underground pipes, worked out from the recipes in the game: follow each recipe down to items with no recipe (ores, stone, coal, crude oil, water) and add every unit, fluids included, one each. The Drawn pack weighs Crossings and port detours by Material cost.
+_Avoid_: entity count (treats a pipe and an underground belt as equal), price
 
 ## Relationships
 
@@ -136,9 +144,11 @@ _Avoid_: using "crossing" for an underground belt passing under a run (that is a
 - An **Output** sits one **Layer** past its producer, at the output-edge end of that Layer.
 - No two **Sources** or **Outputs** share a border position.
 - A **Block** Turns as a whole; the machines inside a Block all share one Turn and one Flip.
+- A **Block**'s Turn and Flip in the **Drawn pack** are chosen together while drawing (eight orientations), by the **Material cost** of the **Crossings** and port detours each gives; nothing Turns or Flips a Block after it is placed.
+- The **Drawn pack** scores a drawing by the **Material cost** of the Underpasses its Crossings need plus the extra belt or pipe its port detours need; lowest wins.
 
 - A **Dead pair** makes a layout invalid whichever pack placed it (Drawn pack or Layered pack).
-- A **Drawn pack** run beats a **Layered pack** run when it is valid and faster; on a **Speed tie** it loses only when it is not in an **Entity tie** and has more entities.
+- A **Drawn pack** run beats a **Layered pack** run when it is valid and faster; on a **Speed tie** it loses only when it is not in a **Material tie** and costs more.
 
 ## Flagged ambiguities
 
