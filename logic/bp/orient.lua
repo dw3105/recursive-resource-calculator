@@ -17,7 +17,10 @@ function Orient.choose(args)
     for _, port in ipairs(ports) do if port.kind == "fluid" or port.is_fluid then has_fluid = true end end
     if not has_fluid then return {dir = 0, mirror = false} end
     local flip_ok = true
-    for _, machine in ipairs(block.machines or {}) do if not machine.can_flip then flip_ok = false end end
+    for _, machine in ipairs(block.machines or {}) do
+        local spec = catalog.entity and catalog.entity[machine.name or machine.entity]
+        if not machine.can_flip and not (spec and spec.can_flip) then flip_ok = false end
+    end
     for _, dir in ipairs({0, 4, 8, 12}) do
         candidates[#candidates + 1] = {dir = dir, mirror = false}
         if flip_ok then candidates[#candidates + 1] = {dir = dir, mirror = true} end
