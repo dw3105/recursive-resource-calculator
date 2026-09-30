@@ -68,10 +68,10 @@ for e in ents:
     else:
         w, h = size_of(n)
         x0, y0 = round(e['position']['x'] - w / 2), round(e['position']['y'] - h / 2)
+        machines.append({'e': e, 'x0': x0, 'y0': y0, 'w': w, 'h': h})
 
 def reach(h):
     return 2 if 'long' in h['name'] else 1
-        machines.append({'e': e, 'x0': x0, 'y0': y0, 'w': w, 'h': h})
 
 def machine_at(p):
     for m in machines:
