@@ -1602,11 +1602,13 @@ local function drawing_node(block, variants)
                 local w,h=Grid.rotate_size(variant.w,variant.h,turn)
                 local ports={}
                 for _,port in ipairs(variant.ports or {}) do
-                    local x,y=Grid.rotate_rect(port.attach_dx,port.attach_dy,1,1,variant.w,variant.h,turn)
-                    local side,place
-                    if x<0 then side,place=1,(y+0.5)/h elseif x>=w then side,place=3,(y+0.5)/h
-                    elseif y<0 then side,place=2,(x+0.5)/w else side,place=4,(x+0.5)/w end
-                    ports[port.port_id]={side=side,place=place,kind=(port.kind=="fluid" or port.is_fluid) and "fluid" or "item"}
+                    if type(port.attach_dx)=="number" and type(port.attach_dy)=="number" then
+                        local x,y=Grid.rotate_rect(port.attach_dx,port.attach_dy,1,1,variant.w,variant.h,turn)
+                        local side,place
+                        if x<0 then side,place=1,(y+0.5)/h elseif x>=w then side,place=3,(y+0.5)/h
+                        elseif y<0 then side,place=2,(x+0.5)/w else side,place=4,(x+0.5)/w end
+                        ports[port.port_id]={side=side,place=place,kind=(port.kind=="fluid" or port.is_fluid) and "fluid" or "item"}
+                    end
                 end
                 node.orients[tostring(turn).."|"..tostring(mirror)]={w=w,h=h,ports=ports}
             end
