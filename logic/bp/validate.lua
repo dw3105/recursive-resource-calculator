@@ -2105,7 +2105,7 @@ local function fluid_connection_cells(machine, entry, role, work)
     local result = {}
     local wanted_box = entry and (entry.fluidbox_index or entry.box_index)
     local wanted_connection = entry and (entry.connection_index or entry.pipe_connection_index)
-    if wanted_box == nil then
+    if wanted_box == nil and role == "input" then
         local recipe_name = machine.entity and machine.entity.recipe
         local recipe = work and work.catalog and work.catalog.recipe and work.catalog.recipe[recipe_name]
         local recipe_list = recipe and (role == "input" and recipe.ingredients or recipe.results or recipe.products) or nil

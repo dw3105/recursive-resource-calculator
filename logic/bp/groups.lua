@@ -2314,8 +2314,8 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
                 {rect = b, ring = b.ring, key = b.key}), "group block contains conflicting machine buffer zones")
         end
     end
-    block.rebuild_data = {steps = copy(step_group), catalog = catalog, ports = copy(ports), flows = copy(flows),
-        input = copy(input), id = block_id}
+    block.rebuild_data = {steps = copy(step_group), ports = copy(ports), flows = copy(flows),
+        input = {inserter = copy(input and input.inserter), ring_bump = input and input.ring_bump}, id = block_id}
     return block
 end
 
@@ -2617,15 +2617,15 @@ function Groups.reorient(groups_state, block, orient)
     orient = orient or {dir = NORTH, mirror = false}
     if (orient.dir or NORTH) == NORTH and not orient.mirror then return block end
     local data = block and block.rebuild_data
-    if not data and groups_state and groups_state.work then
-        local work = groups_state.work
-        data = {catalog = work.catalog, flows = work.flows, input = work.input}
-    end
+    local work = groups_state and groups_state.work
+    local rebuild_catalog = data and data.catalog or (work and (work.catalog or (work.input and work.input.catalog)))
+    if not data and work then data = {catalog = work.catalog or (work.input and work.input.catalog),
+        flows = work.flows, input = work.input} end
     for _, machine in ipairs(block and block.machines or {}) do
         if orient.mirror and not machine.can_flip then return nil end
     end
     if not data or not data.steps then return nil end
-    local rebuilt = build_block(data.steps, data.catalog, data.ports, data.flows, data.input, block.id,
+    local rebuilt = build_block(data.steps, rebuild_catalog, data.ports, data.flows, data.input, block.id,
         {dir = orient.dir or NORTH, mirror = orient.mirror == true})
     local function port_ids(value)
         local ids = {}; for _, port in ipairs(value.ports or {}) do ids[port.port_id] = true end; return ids
@@ -2651,7 +2651,7 @@ function Groups.reorient(groups_state, block, orient)
     for _, machine in ipairs(rebuilt.machines or {}) do
         local step
         for _, candidate in ipairs(data.steps) do if candidate.step_id == machine.step_id then step = candidate; break end end
-        local tiles = machine_fluid_pipe_tiles(machine, step or {}, data.catalog, data.flows)
+        local tiles = machine_fluid_pipe_tiles(machine, step or {}, rebuild_catalog, data.flows)
         for key in pairs(tiles) do
             local tx, ty = key:match("^(-?%d+):(-?%d+)$")
             tx, ty = tonumber(tx), tonumber(ty)
