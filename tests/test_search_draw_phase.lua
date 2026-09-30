@@ -4,6 +4,8 @@ local D=require 'tests.fixtures.search_doubles'
 local Search=require 'logic.bp.search'
 local Pack=require 'logic.bp.pack'
 local Groups=require 'logic.bp.groups'
+local FlowDraw=require 'logic.bp.flow_draw'
+local Orient=require 'logic.bp.orient'
 H.test('SD1 sugiyama search visits draw before pack and finishes sliced',function()
  local old=Pack.mode; Pack.mode='sugiyama'
  local ok,log=D.run({},function()
@@ -69,5 +71,48 @@ H.test('SD4 rejected drawn candidate falls back to layered, then MaxRects',funct
  H.equal(seen[1],'sugiyama:true','first pack is drawn')
  H.equal(seen[2],'plain:true','after the drawn reject: layered, not MaxRects')
  H.equal(seen[3],'plain:false','after the layered reject: MaxRects')
+end)
+--SD5-SD8 red on base 2026-09-30: drawing received no real orientation feed and search chose orientations after it.
+H.test('SD5 draw nodes receive only buildable Turn and Flip port geometry',function()
+ local old=Pack.mode; Pack.mode='sugiyama'
+ local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step; local captured
+ FlowDraw.begin=function(i) captured=i; return {done=true,ok=true,result={turn_of={fluid=0,item=0},mirror_of={}}} end
+ FlowDraw.step=function(s) return s end
+ local oldgroups=Groups.step
+ Groups.step=function(s,b)
+  if b.ops>0 then b.ops=b.ops-1; local function block(id,kind,x)
+   return {id=id,block_id=id,w=2,h=2,ports={{port_id=id..'p',step_id=id,flow_id=id,role='in',kind=kind,attach_dx=x,attach_dy=0}}}
+  end
+  s.result={candidates={{id='c',blocks={block('fluid','fluid',-1),block('item','item',-1)}}}}; s.done,s.ok=true,true end; return s
+ end
+ local oldreorient=Groups.reorient
+ Groups.reorient=function(_,b,o) if o.mirror then local c={}; for k,v in pairs(b) do c[k]=v end; c.ports={{port_id=b.ports[1].port_id,role='in',kind='fluid',attach_dx=b.w,attach_dy=0}}; return c end return b end
+ local state=D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
+ Groups.reorient=oldreorient; Groups.step=oldgroups; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
+ local by={}; for _,n in ipairs(captured.nodes) do by[n.id]=n end
+ local nf,ni=0,0; for _ in pairs(by.fluid.orients) do nf=nf+1 end; for _ in pairs(by.item.orients) do ni=ni+1 end
+ H.equal(nf,8); H.equal(ni,4); H.equal(by.fluid.orients['0|0'].ports.fluidp.side,1); H.equal(by.fluid.orients['4|0'].ports.fluidp.side,2)
+end)
+H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function()
+ local old=Pack.mode; Pack.mode='sugiyama'; local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step
+ FlowDraw.begin=function() return {done=true,ok=true,result={turn_of={b=8},mirror_of={b=1}}} end; FlowDraw.step=function(s) return s end
+ local oldreorient=Groups.reorient; local mirrored
+ Groups.reorient=function(_,b,o) if o.mirror then mirrored=true; local n={}; for k,v in pairs(b) do n[k]=v end; n.mirror_variant=true; return n end return b end
+ local result,log=D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
+ Groups.reorient=oldreorient; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
+ H.equal(mirrored,true); H.equal(log.pack[1].links~=nil,true); H.equal(result.ok,true)
+end)
+H.test('SD7 drawn diagnostics export scoring and pack override counters',function()
+ local old=Pack.mode; Pack.mode='sugiyama'; local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step
+ FlowDraw.begin=function() return {done=true,ok=true,result={crossings=2,score=3,ug_pred=2,turn_of={b=0},mirror_of={}}} end; FlowDraw.step=function(s) return s end
+ local s=D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
+ FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
+ H.equal(type(s.result.search.draw.ug_pred),'number'); H.equal(type(s.result.search.draw.dir_overrides),'number')
+end)
+H.test('SD8 drawn path never calls Orient.choose',function()
+ local old=Pack.mode; Pack.mode='sugiyama'; local choose,calls=Orient.choose,0
+ Orient.choose=function(...) calls=calls+1; return choose(...) end
+ D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
+ Orient.choose=choose; Pack.mode=old; H.equal(calls,0)
 end)
 H.done('test_search_draw_phase')
