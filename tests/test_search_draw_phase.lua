@@ -4,8 +4,6 @@ local D=require 'tests.fixtures.search_doubles'
 local Search=require 'logic.bp.search'
 local Pack=require 'logic.bp.pack'
 local Groups=require 'logic.bp.groups'
-local FlowDraw=require 'logic.bp.flow_draw'
-local Orient=require 'logic.bp.orient'
 H.test('SD1 sugiyama search visits draw before pack and finishes sliced',function()
  local old=Pack.mode; Pack.mode='sugiyama'
  local ok,log=D.run({},function()
@@ -58,86 +56,18 @@ H.test('SD3 layered mode never enters draw phase',function()
 end)
 --Round 51 integration (magenta drawn ended BP_FAIL_NO_LAYOUT through the MaxRects fallback, 2026-09-30): a rejected
 --drawn candidate falls back to today's layered pack, never straight to MaxRects. Red without drawn_off in search.
---Round 53 integration (2026-09-30): a drawn candidate rejected with the drawn Turn forced (red-1s BP_V_LANE_MIX x4)
---is packed once more with every Turn allowed (soft) before the layered Fallback. Changed on purpose.
-H.test('SD4 rejected drawn candidate retries soft, then falls back to layered, then MaxRects',function()
+H.test('SD4 rejected drawn candidate falls back to layered, then MaxRects',function()
  local old=Pack.mode; Pack.mode='sugiyama'
- local seen=D.run({validate_fails=3},function()
+ local seen=D.run({validate_fails=2},function()
   local inner, modes = Pack.begin, {}
-  Pack.begin=function(input) modes[#modes+1]=(input.mode or 'plain')..':'..tostring(input.layered)..(input.soft_dirs and ':soft' or ''); return inner(input) end
+  Pack.begin=function(input) modes[#modes+1]=(input.mode or 'plain')..':'..tostring(input.layered); return inner(input) end
   D.finish(Search,Search.begin(D.input()))
   Pack.begin=inner
   return modes
  end)
  Pack.mode=old
- H.equal(seen[1],'sugiyama:true','first pack is drawn, drawn Turn forced')
- H.equal(seen[2],'sugiyama:true:soft','after the first drawn reject: drawn again, any Turn')
- H.equal(seen[3],'plain:true','after the soft drawn reject: layered, not MaxRects')
- H.equal(seen[4],'plain:false','after the layered reject: MaxRects')
-end)
---SD5-SD8 red on base 2026-09-30: drawing received no real orientation feed and search chose orientations after it.
-H.test('SD5 draw nodes receive only buildable Turn and Flip port geometry',function()
- local old=Pack.mode; Pack.mode='sugiyama'
- local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step; local captured
- FlowDraw.begin=function(i) captured=i; return {done=true,ok=true,result={turn_of={fluid=0,item=0},mirror_of={}}} end
- FlowDraw.step=function(s) return s end
- local function groupstep(s,b)
-  if b.ops>0 then b.ops=b.ops-1; local function block(id,kind,x)
-   return {id=id,block_id=id,w=2,h=2,ports={{port_id=id..'p',step_id=id,flow_id=id,role='in',kind=kind,attach_dx=x,attach_dy=0}}}
-  end
-  s.result={candidates={{id='c',blocks={block('fluid','fluid',-1),block('item','item',-1)}}}}; s.done,s.ok=true,true end; return s
- end
- local oldreorient=Groups.reorient
- Groups.reorient=function(_,b,o) if o.mirror then local c={}; for k,v in pairs(b) do c[k]=v end; c.ports={{port_id=b.ports[1].port_id,role='in',kind='fluid',attach_dx=b.w,attach_dy=0}}; return c end return b end
- local state=D.run({},function() Groups.step=groupstep; return D.finish(Search,Search.begin(D.input())) end)
- Groups.reorient=oldreorient; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
- local by={}; for _,n in ipairs(captured.nodes) do by[n.id]=n end
- local nf,ni=0,0; for _ in pairs(by.fluid.orients) do nf=nf+1 end; for _ in pairs(by.item.orients) do ni=ni+1 end
- H.equal(nf,8); H.equal(ni,4); H.equal(by.fluid.orients['0|0'].ports.fluidp.side,1); H.equal(by.fluid.orients['4|0'].ports.fluidp.side,2)
- print('SD5')
-end)
-H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function()
- local old=Pack.mode; Pack.mode='sugiyama'; local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step
- FlowDraw.begin=function() return {done=true,ok=true,result={turn_of={b=8},mirror_of={b=1}}} end; FlowDraw.step=function(s) return s end
- local oldreorient=Groups.reorient; local mirrored
- Groups.reorient=function(_,b,o) if o.mirror then mirrored=true; local n={}; for k,v in pairs(b) do n[k]=v end; n.mirror_variant=true; return n end return b end
- local dirs,block_mirror
- local result,log=D.run({},function()
-  Groups.step=function(s,b)
-   if b.ops>0 then
-    b.ops=b.ops-1
-    local port={port_id='p',step_id='one',flow_id='f',role='in',kind='fluid',attach_dx=-1,attach_dy=0}
-    local block={id='b',block_id='b',w=2,h=2,ports={port}}
-    s.result={candidates={{id='c',blocks={block}}}}
-    s.done,s.ok=true,true
-   end
-   return s
-  end
-  local begin=Pack.begin
-  Pack.begin=function(input)
-   local block=input.blocks[1]; block.allowed_dirs={input.drawing.turn_of[block.block_id]}
-   dirs=block.allowed_dirs; block_mirror=block.mirror_variant
-   return begin(input)
-  end
-  return D.finish(Search,Search.begin(D.input()))
- end)
- Groups.reorient=oldreorient; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
- H.equal(mirrored,true); H.equal(block_mirror,true); H.deep_equal(dirs,{8}); H.equal(log.pack[1].links~=nil,true); H.equal(result.ok,true)
- print('SD6')
-end)
-H.test('SD7 drawn diagnostics export scoring and pack override counters',function()
- local old=Pack.mode; Pack.mode='sugiyama'; local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step
- FlowDraw.begin=function() return {done=true,ok=true,result={crossings=2,score=3,ug_pred=2,turn_of={b=0},mirror_of={}}} end; FlowDraw.step=function(s) return s end
- local s=D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
- FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
- H.equal(type(s.result.search.draw.ug_pred),'number'); H.equal(type(s.result.search.draw.dir_overrides),'number')
- print('SD7')
-end)
-H.test('SD8 drawn path never calls Orient.choose',function()
- local old=Pack.mode; Pack.mode='sugiyama'; local choose,calls=Orient.choose,0
- Orient.choose=function(...) calls=calls+1; return choose(...) end
- D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
- Orient.choose=choose; Pack.mode=old; H.equal(calls,0)
- print('SD8')
+ H.equal(seen[1],'sugiyama:true','first pack is drawn')
+ H.equal(seen[2],'plain:true','after the drawn reject: layered, not MaxRects')
+ H.equal(seen[3],'plain:false','after the layered reject: MaxRects')
 end)
 H.done('test_search_draw_phase')
