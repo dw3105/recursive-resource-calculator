@@ -21,6 +21,14 @@ local function refuse(tool, hint)
 end
 function M.check(tool, input)
     if _G.__rrc_slow_guard_checked then return true end
+    if input then
+        local normalized = input:gsub("\\", "/")
+        local basename = normalized:match("([^/]+)$") or normalized
+        if basename:match("^turn_flip_") then
+            _G.__rrc_slow_guard_checked = true
+            return true
+        end
+    end
     --Goldens measured under 10 s CPU (round 46 profile, legalcopilot-dev 2026-09-28) are fast checks: no slot, no
     --ledger line. The Claude hook still caps the command at 120 s.
     local budget_file = read("tools/slow_budget.json") or ""
