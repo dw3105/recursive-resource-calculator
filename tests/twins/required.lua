@@ -9,6 +9,7 @@ return {
     {"BP_V_BELT_BLEED", "L279", T}, {"BP_V_LANE_MIX", "L279", T}, {"BP_V_BELT_NO_SOURCE", "L279", T},
     {"BP_V_SPLITTER_CHAIN", "L279", T}, {"BP_V_UNDERGROUND_SIDELOAD_BLOCKED", "L279", T},
     {"BP_V_UNDERGROUND_BACK_TO_BACK", "-", P, "matches the player's hand-built factory (0 adjacent tunnels, commit 4553a97); the engine pairs and runs back-to-back tunnels as planned (headless 2.0.77 + 2.1.20)"}, {"BP_V_ROUTE_LOOP", "L279", T}, {"BP_V_ROUTE_DISCONTINUOUS", "L279", T},
+    {"BP_V_UNDERGROUND_DEAD", "-", P, "player ruling 2026-09-30 (round 52 grill Q2): an underground pair that carries nothing is invalid in every pack; the engine runs it harmlessly (waste), so the rule is taste, not engine truth"},
     {"BP_V_ROUTE_MISSING", "L279", T}, {"BP_V_TRANSFER_BROKEN", "L279", T}, {"BP_V_TRANSPORT_UNUSED", "L279", T},
     {"BP_V_UNDERGROUND_UNPAIRED", "L279", T}, {"BP_V_UNDERGROUND_RANGE", "L279", T},
     {"BP_V_FLUID_DISCONNECTED", "L279", T}, {"BP_V_FLUID_MIX", "L279", T}, {"BP_V_FLUID_MIXING", "-", C, "route segment table claims two fluids in one segment: bookkeeping; the physical case is BP_V_FLUID_MIX"},
