@@ -25,9 +25,18 @@ except Exception:
     print(0)
 PY
 )
+draw_stats=$(python3 - "$out/$case_id.r.json" <<'PY'
+import json, sys
+try:
+    data=json.load(open(sys.argv[1])); draw=((data.get('result', data).get('search') or {}).get('draw') or {})
+    print('pred_ug=%s dir_overrides=%s' % (draw.get('ug_pred', '-'), draw.get('dir_overrides', '-')))
+except Exception:
+    print('pred_ug=- dir_overrides=-')
+PY
+)
 if ! python3 tools/blueprint_string.py "$out/$case_id.r.json" -o "$out/$case_id.bp.txt" >/dev/null 2>&1; then
   codes=$(grep -o 'BP_[A-Z_]*' "$out/$case_id.r.json" 2>/dev/null | sort | uniq -c | tr -s ' \n' ' ')
-  echo "VERDICT case=$case_id pack=$mode sha=none codes=[$codes] lanes=none fell_back=$fell_back wall_s=$((t1 - t0))"
+  echo "VERDICT case=$case_id pack=$mode sha=none codes=[$codes] lanes=none fell_back=$fell_back wall_s=$((t1 - t0)) $draw_stats"
   exit 0
 fi
 sha=$(sha256sum "$out/$case_id.bp.txt" | cut -c1-64)
@@ -48,4 +57,4 @@ print('entities=%d belts=%d undergrounds=%d splitters=%d pipes=%d ptg=%d machine
     n(crafting), n(lambda e: crafting(e) and e.get('mirror')), n(lambda e: crafting(e) and e.get('direction', 0) != 0)))
 PY
 )
-echo "VERDICT case=$case_id pack=$mode sha=$sha $mix lanes=$lanes fell_back=$fell_back names=$names wall_s=$((t1 - t0))"
+echo "VERDICT case=$case_id pack=$mode sha=$sha $mix lanes=$lanes fell_back=$fell_back names=$names wall_s=$((t1 - t0)) $draw_stats"
