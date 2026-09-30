@@ -2536,7 +2536,9 @@ local function make_candidates_once(input, work)
                         fragments[#fragments + 1] = {fragment}
                     end
                 end
-                for offset = #fragments, 1, -1 do
+                --Front to back: each position is at most #buckets + 1 (back to front raised "position out of bounds" when
+                --the list was short: asm-2 concrete x4, Turn+Flip census round 54). Same final order.
+                for offset = 1, #fragments do
                     table.insert(work.buckets, work.bucket_index + offset, fragments[offset])
                 end
             elseif ((block.invalid_coverage and not block.failure)
