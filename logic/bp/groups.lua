@@ -2557,7 +2557,7 @@ local function make_candidates_once(input, work)
         candidates[1] = {id="one",candidate_id="one",blocks=work.blocks,physical_beacon_count=beacon_count,beacon_count=beacon_count}
     end
     multi_flow_hands = previous_multi_flow_hands
-    return candidates, work.failures, nil
+    return candidates, work.failures, work
 end
 
 local function make_candidates(input)
