@@ -110,7 +110,9 @@ H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function
    return s
   end
   local begin=Pack.begin
-  Pack.begin=function(input) dirs=input.blocks[1].allowed_dirs; block_mirror=input.blocks[1].mirror_variant; return begin(input) end
+  Pack.begin=function(input)
+   local packed=begin(input); dirs=packed.blocks[1].allowed_dirs; block_mirror=packed.blocks[1].mirror_variant; return packed
+  end
   return D.finish(Search,Search.begin(D.input()))
  end)
  Groups.reorient=oldreorient; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
