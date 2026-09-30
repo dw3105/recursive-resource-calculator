@@ -222,3 +222,4 @@
 | `288` | `rrc/agent` | turned Blocks: world port tiles, slides, hops, seat, free_cell, RunDir for dir 4/8/12 (round 52) | 2026-09-30 |
 | `289` | `rrc/agent` | Dead pair: router prunes unfed underground pair, validator BP_V_UNDERGROUND_DEAD, lane_sim dead= (round 52) | 2026-09-30 |
 | `290` | `rrc/agent` | Box binding: engine fluid -> box per machine x recipe, runtime probe + catalog + fixture (round 52) | 2026-09-30 |
+| `291` | `rrc/agent` | power: repair joins pole components by a shortest relay chain when greedy repair gives up (round 52) |  2026-09-30 |
