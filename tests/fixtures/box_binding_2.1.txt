@@ -1,2 +1,30 @@
-# Round 52 STEP 0 stub (2026-09-30): Box binding per crafting machine x fluid recipe, headless 2.1.
-# Lane 290 seeds rows from flip_filters_2.1.txt; integrator replaces with full headless table after merge.
+# Box binding fixture, engine measured 2026-09-30
+# version 2.1
+BIND foundry recipe=casting-iron fluid=molten-iron role=input box=1
+BIND foundry recipe=casting-low-density-structure fluid=molten-iron role=input box=1
+BIND foundry recipe=casting-low-density-structure fluid=molten-copper role=input box=2
+BIND chemical-plant recipe=heavy-oil-cracking fluid=water role=input box=1
+BIND chemical-plant recipe=heavy-oil-cracking fluid=heavy-oil role=input box=2
+BIND chemical-plant recipe=heavy-oil-cracking fluid=light-oil role=output box=3
+BIND chemical-plant recipe=sulfuric-acid fluid=water role=input box=1
+BIND chemical-plant recipe=sulfuric-acid fluid=sulfuric-acid role=output box=3
+BIND chemical-plant recipe=lubricant fluid=heavy-oil role=input box=1
+BIND chemical-plant recipe=lubricant fluid=lubricant role=output box=3
+BIND oil-refinery recipe=basic-oil-processing fluid=crude-oil role=input box=2
+BIND oil-refinery recipe=basic-oil-processing fluid=petroleum-gas role=output box=5
+BIND oil-refinery recipe=advanced-oil-processing fluid=water role=input box=1
+BIND oil-refinery recipe=advanced-oil-processing fluid=crude-oil role=input box=2
+BIND oil-refinery recipe=advanced-oil-processing fluid=heavy-oil role=output box=3
+BIND oil-refinery recipe=advanced-oil-processing fluid=light-oil role=output box=4
+BIND oil-refinery recipe=advanced-oil-processing fluid=petroleum-gas role=output box=5
+BIND oil-refinery recipe=coal-liquefaction fluid=heavy-oil role=input box=1
+BIND oil-refinery recipe=coal-liquefaction fluid=steam role=input box=2
+BIND oil-refinery recipe=coal-liquefaction fluid=heavy-oil role=output box=3
+BIND oil-refinery recipe=coal-liquefaction fluid=light-oil role=output box=4
+BIND oil-refinery recipe=coal-liquefaction fluid=petroleum-gas role=output box=5
+BIND cryogenic-plant recipe=fluoroketone fluid=fluorine role=input box=1
+BIND cryogenic-plant recipe=fluoroketone fluid=ammonia role=input box=2
+BIND cryogenic-plant recipe=fluoroketone fluid=fluoroketone-hot role=output box=3
+BIND electromagnetic-plant recipe=electrolyte fluid=heavy-oil role=input box=1
+BIND electromagnetic-plant recipe=electrolyte fluid=holmium-solution role=input box=2
+BIND electromagnetic-plant recipe=electrolyte fluid=electrolyte role=input box=3
