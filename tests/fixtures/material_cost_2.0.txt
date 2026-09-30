@@ -30,6 +30,7 @@ MATERIAL oil-refinery 150.0000
 MATERIAL pipe 1.0000
 MATERIAL pipe-to-ground 7.5000
 MATERIAL recycler 1482.5455
+MATERIAL roboport 3129.5455
 MATERIAL rocket-silo 58018.1818
 MATERIAL small-electric-pole 1.0000
 MATERIAL splitter 23.5000

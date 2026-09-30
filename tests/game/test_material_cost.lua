@@ -4,7 +4,7 @@
 local Catalog = require "logic.catalog"
 
 local KINDS = {"transport-belt", "underground-belt", "splitter", "pipe", "pipe-to-ground", "assembling-machine",
-    "furnace", "rocket-silo", "beacon", "inserter", "electric-pole"}
+    "furnace", "rocket-silo", "beacon", "inserter", "electric-pole", "roboport"}
 
 describe("material cost", function()
     it("prints measured catalog material costs", function()
