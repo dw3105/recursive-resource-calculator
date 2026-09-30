@@ -13,6 +13,7 @@ local Grid = require "logic.bp.grid"
 --Quality is never assumed: reach, supply area, crafting speed and module slots are read at the selected quality
 --through the prototype's own accessors, never from a normal-quality constant.
 --
+--  recipe[name] = {name, category, energy, ingredients, products, fluid_boxes = {machine = {fluid = {box, role}}}}
 --  entity[name] = {name, etype, tile_w, tile_h, collision_box = {left_top = {x, y}, right_bottom = {x, y}},
 --                  collision_mask, module_slots, energy_usage_w, pollution_per_min, needs_power,
 --                  fluid_boxes = {{index, production_type, filter, connections = {
@@ -605,6 +606,8 @@ local function project_recipe(catalog, diagnostics, request, quality_name)
         energy = recipe.energy,
         ingredients = {},
         products = {},
+        -- Runtime engine measurements are plain data, so catalog copies and debug projections retain them.
+        fluid_boxes = copy_plain(vector_member(recipe, "fluid_boxes")),
         allowed_effects = copy_plain(recipe.allowed_effects),
         allowed_module_categories = copy_plain(recipe.allowed_module_categories),
         maximum_productivity = recipe.maximum_productivity,

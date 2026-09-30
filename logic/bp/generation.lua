@@ -14,6 +14,7 @@ local BlueprintString = require "logic.bp.blueprint_string"
 local Serialize = require "logic.bp.serialize"
 local BlueprintDelivery = require "gui.blueprint_delivery"
 local Settings = require "logic.bp.settings"
+local BoxBinding = require "logic.bp.box_binding"
 
 Generation.SCHEMA_VERSION = 1
 
@@ -1187,6 +1188,39 @@ local function step(job, budget)
     end
 
     if state.phase == "search" and budget.ops > 0 then
+        local search_work = state.search and state.search.work
+        local plan = search_work and search_work.plan_result
+        if plan and type(plan.steps) == "table" and rawget(_G, "game") then
+            state.box_binding = state.box_binding or {cursor = 1, seen = {}, surface = nil}
+            local bind = state.box_binding
+            local current = plan.steps[bind.cursor]
+            if current then
+                local machine = type(current.machine) == "table" and current.machine.name or current.machine
+                local recipe = current.recipe_name or current.recipe
+                if type(recipe) == "table" then recipe = recipe.name end
+                local key = tostring(machine) .. "\0" .. tostring(recipe)
+                if not bind.seen[key] then
+                    bind.seen[key] = true
+                    local provider = function()
+                        if bind.surface then return bind.surface end
+                        local g = rawget(_G, "game")
+                        if type(g) ~= "table" and type(g) ~= "userdata" then return nil end
+                        local ok, surface = pcall(function()
+                            return g.surfaces["rrc-box-binding"] or g.create_surface("rrc-box-binding", {width = 256, height = 256})
+                        end)
+                        if ok then bind.surface = surface end
+                        return bind.surface
+                    end
+                    BoxBinding.fill(search_work.input.catalog, {current}, provider)
+                end
+                bind.cursor = bind.cursor + 1
+                budget.ops = budget.ops - 1
+                if budget.ops <= 0 then return job end
+            else
+                if bind.surface then pcall(function() game.delete_surface(bind.surface) end) end
+                state.box_binding = nil
+            end
+        end
         Search.step(state.search, budget)
         job.phase = state.search.phase
         job.progress = copy_plain(state.search.progress) or job.progress
