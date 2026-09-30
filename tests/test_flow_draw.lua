@@ -1,4 +1,4 @@
---FD1-FD7 red on round-51-base except FD5: layered Flow graph drawing contract.
+--FD1-FD7 red on round-51-base except FD5; FD8-FD9 red on the sliced skeleton.
 local H = require "tests.harness"
 local FlowDraw = require "logic.bp.flow_draw"
 
@@ -11,6 +11,92 @@ local function draw(nodes,links,extra)
     while not FlowDraw.step(state,{ops=1000000000}) do end
     return state.result,input
 end
+local function label(s) print(s) end
+
+-- Count from the public layout and input links. Dummies are assigned to their
+-- link and layer, so every long edge is expanded into adjacent-layer segments.
+local function recount(input, layout, input_order)
+    local layer, rank = {}, {}
+    if not input_order then
+        for id,l in pairs(layout.layer_of or {}) do layer[id]=l; rank[id]=layout.rank_of[id] end
+        for _,s in ipairs(layout.sources or {}) do layer["@s:"..tostring(s.flow_id)]=0; rank["@s:"..tostring(s.flow_id)]=s.rank end
+        for _,o in ipairs(layout.outputs or {}) do
+            local key="@o:"..tostring(o.flow_id); layer[key]=o.layer; rank[key]=o.rank
+        end
+    else
+        for i,n in ipairs(input.nodes or {}) do layer[n.id]=1; rank[n.id]=i end
+        local source_rank, output_seen, occupied = 0, {}, {}
+        for _,l in ipairs(input.links or {}) do
+            if l.ext=="in" and l.flow_id~=nil then
+                local key="@s:"..tostring(l.flow_id)
+                if layer[key]==nil then source_rank=source_rank+1; layer[key]=0; rank[key]=source_rank end
+            end
+        end
+        for _=1,#(input.nodes or {}) do
+            local changed=false
+            for _,l in ipairs(input.links or {}) do
+                local a=l.a and l.a.block_id; local b=l.b and l.b.block_id
+                if a and b and layer[a] and layer[b] and layer[b]<layer[a]+1 then layer[b]=layer[a]+1; changed=true end
+            end
+            if not changed then break end
+        end
+        for _,l in ipairs(input.links or {}) do
+            if l.ext=="out" and l.flow_id~=nil then
+                local key=tostring(l.flow_id)
+                if not output_seen[key] then
+                    output_seen[key]=true
+                    local okey="@o:"..key; local at=(layer[l.a.block_id] or 0)+1
+                    while occupied[at] do at=at+1 end
+                    occupied[at]=true; layer[okey]=at
+                end
+            end
+        end
+        local counts={}
+        for _,n in ipairs(input.nodes or {}) do local l=layer[n.id]; counts[l]=(counts[l] or 0)+1; rank[n.id]=counts[l] end
+        for _,l in ipairs(input.links or {}) do
+            if l.ext=="out" and l.flow_id~=nil then
+                local key="@o:"..tostring(l.flow_id)
+                if rank[key]==nil then local at=layer[key]; counts[at]=(counts[at] or 0)+1; rank[key]=counts[at] end
+            end
+        end
+    end
+    local dummy={}
+    for _,d in ipairs(layout.dummies or {}) do dummy[d.link]=dummy[d.link] or {}; dummy[d.link][d.layer]=d.rank end
+    local edges, edge_seen, output_producer={},{},{}
+    for _,o in ipairs(layout.outputs or {}) do output_producer[tostring(o.flow_id)]=o.producer end
+    for li,l in ipairs(input.links or {}) do
+        local a=l.a and l.a.block_id; local b=l.b and l.b.block_id
+        if l.ext=="in" and b then a="@s:"..tostring(l.flow_id)
+        elseif l.ext=="out" and a then a=output_producer[tostring(l.flow_id)]; b="@o:"..tostring(l.flow_id) end
+        local key=a and b and tostring(a)..">"..tostring(b)
+        if a and b and layer[a]~=nil and layer[b]~=nil and not edge_seen[key] then
+            edge_seen[key]=true
+            local path={}
+            for x=layer[a],layer[b] do
+                local id
+                if x==layer[a] then id=a elseif x==layer[b] then id=b
+                elseif not input_order and dummy[li] then id="@d:"..li..":"..x; rank[id]=dummy[li][x]
+                else id="@d:"..li..":"..x end
+                if input_order and x>layer[a] and x<layer[b] then
+                    -- Input baseline inserts each dummy immediately after its tail.
+                    local tailrank=rank[path[#path]] or 0
+                    rank[id]=tailrank+0.25
+                end
+                layer[id]=x; path[#path+1]=id
+            end
+            edges[#edges+1]=path
+        end
+    end
+    local total=0
+    for i=1,#edges do for j=i+1,#edges do
+        for k=1,#edges[i]-1 do for m=1,#edges[j]-1 do
+            local a,b=edges[i][k],edges[i][k+1]
+            local c,d=edges[j][m],edges[j][m+1]
+            if layer[a]==layer[c] and layer[b]==layer[d] and (rank[a]-rank[c])*(rank[b]-rank[d])<0 then total=total+1 end
+        end end
+    end end
+    return total
+end
 
 H.test("FD1 chain layers Blocks, Source, and Output", function()
     local ns={node("a"),node("b"),node("c")}
@@ -19,12 +105,14 @@ H.test("FD1 chain layers Blocks, Source, and Output", function()
     local r=draw(ns,ls)
     H.equal(r.crossings,0); H.equal(r.layer_of.a,1); H.equal(r.layer_of.b,2); H.equal(r.layer_of.c,3)
     H.equal(r.outputs[1].layer,4)
+    label("FD1")
 end)
 
 H.test("FD2 reduces K2,2 to one crossing", function()
     local ns={node("a"),node("b"),node("x"),node("y")}
     local r=draw(ns,{link("a","y"),link("a","x"),link("b","y"),link("b","x")})
     H.equal(r.crossings,1)
+    label("FD2")
 end)
 
 H.test("FD3 slicing budget does not change the result", function()
@@ -36,6 +124,7 @@ H.test("FD3 slicing budget does not change the result", function()
     local a=FlowDraw.begin(input); while not FlowDraw.step(a,{ops=1}) do end
     local b=FlowDraw.begin(input); while not FlowDraw.step(b,{ops=1000000000}) do end
     H.deep_equal(a.result,b.result)
+    label("FD3")
 end)
 
 H.test("FD4 Outputs sharing producer occupy distinct pinned top-end spots", function()
@@ -47,6 +136,7 @@ H.test("FD4 Outputs sharing producer occupy distinct pinned top-end spots", func
         local max=0; for _,x in ipairs(r.layers[o.layer+1] or {}) do max=max+1 end
         H.equal(o.rank,1)
     end
+    label("FD4")
 end)
 
 H.test("FD5 every Block consumer is in a later Layer", function()
@@ -54,6 +144,7 @@ H.test("FD5 every Block consumer is in a later Layer", function()
         local r=draw({node("a"),node("b"),node("c")},{link("a","b"),link("b","c")},{input_edge=edge})
         H.equal(r.layer_of.b>r.layer_of.a,true); H.equal(r.layer_of.c>r.layer_of.b,true)
     end
+    label("FD5")
 end)
 
 H.test("FD6 deterministic DAG drawing is no worse than input order", function()
@@ -65,19 +156,9 @@ H.test("FD6 deterministic DAG drawing is no worse than input order", function()
         if seed%7==0 then ls[#ls+1]=link("v"..a,"v"..b) end
     end end
     local r=draw(ns,ls,{restarts=30,sweeps=8})
-    local layer, rank = {}, {}
-    for i=1,20 do layer["v"..i]=1; rank["v"..i]=i end
-    for _=1,20 do for _,e in ipairs(ls) do
-        local a,b=e.a.block_id,e.b.block_id
-        layer[b]=math.max(layer[b],layer[a]+1)
-    end end
-    for i=1,20 do rank["v"..i]=i end
-    local baseline=0
-    for i=1,#ls do for j=i+1,#ls do
-        local a,b,c,d=ls[i].a.block_id,ls[i].b.block_id,ls[j].a.block_id,ls[j].b.block_id
-        if layer[a]==layer[c] and layer[b]==layer[d] and layer[b]==layer[a]+1 and (rank[a]-rank[c])*(rank[b]-rank[d])<0 then baseline=baseline+1 end
-    end end
-    H.equal(r.crossings<=baseline,true)
+    H.equal(recount({nodes=ns,links=ls},r,false),r.crossings)
+    H.equal(r.crossings<=recount({nodes=ns,links=ls},r,true),true)
+    label("FD6")
 end)
 
 H.test("FD7 Turn aligns port roles with input edge", function()
@@ -87,7 +168,37 @@ H.test("FD7 Turn aligns port roles with input edge", function()
         local r=draw({node("a",ports)},{},{input_edge=pair[1]})
         H.equal(r.turn_of.a,pair[2])
     end
+    label("FD7")
 end)
 
-print("FD1 FD2 FD3 FD4 FD5 FD6 FD7")
+H.test("FD8 sliced 12 Block graph stays within its tick budget", function()
+    local ns,ls={},{}
+    for i=1,12 do ns[i]=node("v"..i) end
+    local seed=12345
+    for a=1,11 do for b=a+1,12 do
+        seed=(seed*1103515245+12345)%2147483648
+        if seed%4==0 then ls[#ls+1]=link("v"..a,"v"..b) end
+    end end
+    for i=1,6 do ls[#ls+1]={a={block_id="v"..i,port_id=1},b={edge="left"},flow_id="src"..i,ext="in"} end
+    ls[#ls+1]={a={block_id="v12",port_id=1},b={edge="right"},flow_id="product",ext="out"}
+    local input={nodes=ns,links=ls,input_edge="left",output_edge="right",seed=12345,restarts=30,sweeps=8}
+    local state=FlowDraw.begin(input); local started=os.clock()
+    while not state.done do
+        local t=os.clock(); FlowDraw.step(state,{ops=2000})
+        H.equal(os.clock()-t<0.02,true)
+        H.equal(os.clock()-started<3,true)
+    end
+    local full=FlowDraw.begin(input); FlowDraw.step(full,{ops=1000000000})
+    H.deep_equal(state.result,full.result)
+    label("FD8")
+end)
+
+H.test("FD9 pinned Output shuffle is valid when Output nodes meet", function()
+    local ns={node("a")}; local ls={}
+    for i=1,3 do ls[#ls+1]={a={block_id="a",port_id=i},b={edge="right"},flow_id="o"..i,ext="out"} end
+    local r=draw(ns,ls,{restarts=30,sweeps=8,output_edge="right"})
+    H.equal(#r.outputs,3)
+    label("FD9")
+end)
+
 H.done("test_flow_draw")
