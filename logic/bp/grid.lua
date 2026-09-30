@@ -199,6 +199,23 @@ function Grid.rotate_dir(d, dir)
     return (normalized_dir(d) + normalized_dir(dir)) % 16
 end
 
+-- A Flip is applied in the machine's north frame, before its clockwise Turn.
+function Grid.fluid_connection(connection, dir, mirror)
+    if type(connection) ~= "table" then return nil end
+    local position = connection.position or connection.pos
+    if type(connection.positions) == "table" then position = connection.positions[1] or position end
+    if type(position) ~= "table" then return nil end
+    local x, y = position.x, position.y
+    local facing = connection.direction or connection.dir or Grid.NORTH
+    if type(x) ~= "number" or type(y) ~= "number" then return nil end
+    if mirror then
+        x = -x
+        if facing == Grid.EAST then facing = Grid.WEST elseif facing == Grid.WEST then facing = Grid.EAST end
+    end
+    x, y = Grid.rotate_vector(x, y, dir)
+    return x, y, Grid.rotate_dir(facing, dir)
+end
+
 -- legalcopilot-dev, lua5.2, 2026-09-28: build direction vectors once; this removed 74% of measured allocation (all fixes: 5.04 to 1.31 KB/step).
 local DIR_VECTORS = {
         [Grid.NORTH] = {x = 0, y = -1}, [Grid.EAST] = {x = 1, y = 0},

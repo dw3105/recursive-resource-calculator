@@ -244,15 +244,16 @@ local function turns_for(dir)
     return math.floor((dir or Grid.NORTH) % 16 / 4)
 end
 
-local function rotate_connection(raw, placement_dir, endpoint_x, endpoint_y)
+local function rotate_connection(raw, placement_dir, endpoint_x, endpoint_y, mirror)
     if type(raw) ~= "table" then return nil end
     local result = {}
     local direction = raw.direction or raw.dir or raw.connection_dir
     local position = copy_position(raw.position)
-    if not position and type(raw.positions) == "table" then
-        position = copy_position(raw.positions[turns_for(placement_dir) + 1]) or copy_position(raw.positions[1])
-    end
-    if direction ~= nil and not raw.global_direction then direction = Grid.rotate_dir(direction, placement_dir) end
+    if type(raw.positions) == "table" and not raw.global_position then
+        local x, y, d = Grid.fluid_connection(raw, placement_dir, mirror or raw.mirror)
+        position = x and {x = x, y = y} or nil
+        direction = d
+    elseif direction ~= nil and not raw.global_direction then direction = Grid.rotate_dir(direction, placement_dir) end
     if position and raw.position ~= nil and raw.global_position then
         result.x, result.y = math.floor(position.x), math.floor(position.y)
     else
@@ -267,7 +268,7 @@ end
 local function connection_for(block, port, placement, catalog, endpoint_x, endpoint_y)
     local raw = port.connection or port.pipe_connection or port.underground_connection
     if not raw and (port.connection_type or port.connection_dir or port.connection_direction) then raw = port end
-    if raw then return rotate_connection(raw, placement.dir, endpoint_x, endpoint_y) end
+    if raw then return rotate_connection(raw, placement.dir, endpoint_x, endpoint_y, port.mirror) end
     local member = port.member_id and (block.members and block.members[port.member_id])
     local machine_name = port.machine or (type(member) == "table" and member.name) or block.machine
     local entity = catalog and catalog.entity and machine_name and catalog.entity[machine_name]
@@ -279,7 +280,7 @@ local function connection_for(block, port, placement, catalog, endpoint_x, endpo
         if wanted_box == nil or wanted_box == box.index or wanted_box == box_index then
             for connection_index, candidate in ipairs(box.connections or box.pipe_connections or {}) do
                 if wanted_connection == nil or wanted_connection == connection_index then
-                    return rotate_connection(candidate, placement.dir, endpoint_x, endpoint_y)
+                    return rotate_connection(candidate, placement.dir, endpoint_x, endpoint_y, port.mirror or entity.mirror)
                 end
             end
         end
@@ -5168,6 +5169,7 @@ Route._coordinate_key = coordinate_key
 Route._jset, Route._jinsert, Route._jremove = jset, jinsert, jremove
 Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_open, journal_rollback, journal_commit
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
+    rotate_connection = rotate_connection,
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
     row_seed_passes = function(work, demand, x, y, heading, segment)
