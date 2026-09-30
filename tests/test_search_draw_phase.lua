@@ -91,6 +91,7 @@ H.test('SD5 draw nodes receive only buildable Turn and Flip port geometry',funct
  local by={}; for _,n in ipairs(captured.nodes) do by[n.id]=n end
  local nf,ni=0,0; for _ in pairs(by.fluid.orients) do nf=nf+1 end; for _ in pairs(by.item.orients) do ni=ni+1 end
  H.equal(nf,8); H.equal(ni,4); H.equal(by.fluid.orients['0|0'].ports.fluidp.side,1); H.equal(by.fluid.orients['4|0'].ports.fluidp.side,2)
+ print('SD5')
 end)
 H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function()
  local old=Pack.mode; Pack.mode='sugiyama'; local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step
@@ -119,6 +120,7 @@ H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function
  end)
  Groups.reorient=oldreorient; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
  H.equal(mirrored,true); H.equal(block_mirror,true); H.deep_equal(dirs,{8}); H.equal(log.pack[1].links~=nil,true); H.equal(result.ok,true)
+ print('SD6')
 end)
 H.test('SD7 drawn diagnostics export scoring and pack override counters',function()
  local old=Pack.mode; Pack.mode='sugiyama'; local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step
@@ -126,11 +128,13 @@ H.test('SD7 drawn diagnostics export scoring and pack override counters',functio
  local s=D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
  FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
  H.equal(type(s.result.search.draw.ug_pred),'number'); H.equal(type(s.result.search.draw.dir_overrides),'number')
+ print('SD7')
 end)
 H.test('SD8 drawn path never calls Orient.choose',function()
  local old=Pack.mode; Pack.mode='sugiyama'; local choose,calls=Orient.choose,0
  Orient.choose=function(...) calls=calls+1; return choose(...) end
  D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
  Orient.choose=choose; Pack.mode=old; H.equal(calls,0)
+ print('SD8')
 end)
 H.done('test_search_draw_phase')

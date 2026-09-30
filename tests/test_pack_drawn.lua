@@ -72,5 +72,6 @@ H.test('PD8 no-fit retries the Block once in any Turn',function()
  -- A 3x2 footprint cannot fit the 2x3 area at dir 0 but fits after a quarter Turn.
  local s=run(input({b('a',3,2)},d,Grid.rect(0,0,2,3)))
  H.equal(s.ok,true); H.equal(placed(s).a.dir%8,4); H.equal(s.counters.dir_overrides,1)
+ print('PD8')
 end)
 H.done('test_pack_drawn')
