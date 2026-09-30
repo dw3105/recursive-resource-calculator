@@ -12,7 +12,7 @@ local function block()
         {id="hand",kind="inserter",name="inserter",x=0,y=1,w=1,h=1,machine_id="machine",
             pickup_position={x=1.5,y=2.5},drop_position={x=0.5,y=2.5}},
     }, ports={{port_id="p",inserter_id="hand",machine_id="m:machine",role="in",flow_id="iron",
-        attach_dx=-1,attach_dy=1,normal_dir=12,travel_dir=0}}, belt_runs={{role="in",flows={"iron"},tiles={{x=0,y=2}}}}}
+    kind="item",attach_dx=-1,attach_dy=1,normal_dir=12,travel_dir=0}}, belt_runs={{role="in",flows={"iron"},tiles={{x=0,y=2}}}}}
 end
 
 H.test("TB1 turned materialization keeps private world port tiles", function()
@@ -50,9 +50,12 @@ H.test("TB3 free_cell handles turned hand and keeps tile and attachment aligned"
 end)
 
 H.test("TB4 seat processes turned ports with hop candidates", function()
-    local b=block(); local m=Groups.materialize(b,{x=10,y=10,dir=4})
-    local p=m.ports[1]; p.hop_options={{hand_x=13,hand_y=11,port_x=14,port_y=11,turns=0}}
-    local n=Seat.run(m,Grid.new(40,40),{{flow_id="iron",producers={{step_id="$external"}}}},"left")
+    local m={entities={{id="m:machine",kind="machine",x=10,y=10,w=2,h=2},
+        {id="m:hand",kind="inserter",machine_id="m:machine",x=12,y=10,w=1,h=1}},
+        ports={{port_id="p",inserter_id="hand",role="in",kind="item",flow_id="iron",
+            attach_dx=2,attach_dy=0,travel_dir=0,normal_dir=0,_world_x=13,_world_y=10,_place_dir=4,
+            hop_options={{hand_x=13,hand_y=11,port_x=14,port_y=11,turns=0}}}}}
+    local n=Seat.run(m,Grid.new(40,40),{{flow_id="iron",producers={{step_id="$external"}}}},"right")
     H.equal(n,1)
     print("TB4")
 end)

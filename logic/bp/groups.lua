@@ -2817,6 +2817,8 @@ function Groups.materialize(block, placement)
             placed_port.normal_dir = source.normal_dir
             placed_port.dir = source.normal_dir
             placed_port.travel_dir = source.travel_dir or NORTH
+            placed_port._world_x, placed_port._world_y = geometry.x, geometry.y
+            placed_port._place_dir = dir
         end
         --The search carries placed ports into Route, but not the materialized entity list.  Keep the exact
         --rotated member rectangles on the port so routing indexes the members themselves, not a rotated-again

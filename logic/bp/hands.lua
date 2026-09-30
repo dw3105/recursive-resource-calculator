@@ -1,4 +1,16 @@
 local Hands = {}
+local Grid = require "logic.bp.grid"
+local function port_tile(port) return port.x or port._world_x, port.y or port._world_y end
+local function move_port(port, dx, dy)
+    if port._world_x ~= nil then
+        port._world_x, port._world_y = port._world_x + dx, port._world_y + dy
+        local ax, ay = Grid.rotate_vector(dx, dy, (16 - (port._place_dir or 0)) % 16)
+        port.attach_dx, port.attach_dy = port.attach_dx + ax, port.attach_dy + ay
+    else
+        port.x, port.y = port.x + dx, port.y + dy
+        port.attach_dx, port.attach_dy = port.attach_dx + dx, port.attach_dy + dy
+    end
+end
 local function finite(v, fallback) if type(v)=="number" and v==v then return v end return fallback end
 local function copy(v) if type(v)~="table" then return v end local r={} for k,x in pairs(v) do r[k]=copy(x) end return r end
 local function every_port_copy(materialized)
@@ -11,9 +23,7 @@ local function every_port_copy(materialized)
 end
 
 --The player placed v4 on 2026-09-23 and boxed two belts that bent only to reach a hand grouping had fixed
---before any belt existed.  Each hand that serves one port may move one tile along its machine face; route.lua
---improve_routes tries the move and keeps it only when the layout gets smaller.  Only unrotated placements
---carry world port tiles (Groups.materialize), so only those are offered.
+--before any belt existed. Each hand that serves one port may move one tile along its machine face.
 function Hands.offer_slides(materialized, grid)
     local by_id, taken, served = {}, {}, {}
     for _, entity in ipairs(materialized.entities or {}) do
@@ -38,9 +48,10 @@ function Hands.offer_slides(materialized, grid)
     for _, port in ipairs(materialized.ports or {}) do
         local hand = hand_of(port)
         local machine = hand and by_id[tostring(hand.machine_id)]
-        if hand and machine and served[hand] == 1 and port.x ~= nil and port.y ~= nil and port.attach_dx ~= nil
+        local port_x, port_y = port_tile(port)
+        if hand and machine and served[hand] == 1 and port_x ~= nil and port_y ~= nil and port.attach_dx ~= nil
             and hand.x ~= nil and machine.x ~= nil and finite(hand.w, 1) == 1 and finite(hand.h, 1) == 1 then
-            local nx, ny = port.x - hand.x, port.y - hand.y
+            local nx, ny = port_x - hand.x, port_y - hand.y
             if math.abs(nx) + math.abs(ny) == 1 then
                 local options = {}
                 for _, step in ipairs(nx ~= 0 and {{0, -1}, {0, 1}} or {{-1, 0}, {1, 0}}) do
@@ -65,10 +76,11 @@ function Hands.offer_slides(materialized, grid)
     for _, port in ipairs(materialized.ports or {}) do
         local hand = hand_of(port)
         local machine = hand and by_id[tostring(hand.machine_id)]
-        if hand and machine and served[hand] == 1 and not port.row_port and port.x ~= nil and port.y ~= nil
+        local port_x, port_y = port_tile(port)
+        if hand and machine and served[hand] == 1 and not port.row_port and port_x ~= nil and port_y ~= nil
             and hand.x ~= nil and hand.y ~= nil and machine.x ~= nil and port.attach_dx ~= nil
             and finite(hand.w, 1) == 1 and finite(hand.h, 1) == 1 then
-            local vx, vy = port.x - hand.x, port.y - hand.y
+            local vx, vy = port_x - hand.x, port_y - hand.y
             local current_dir
             if vx == 0 and vy == -1 then current_dir = 0 elseif vx == 1 and vy == 0 then current_dir = 4
             elseif vx == 0 and vy == 1 then current_dir = 8 elseif vx == -1 and vy == 0 then current_dir = 12 end
@@ -151,16 +163,15 @@ function Hands.place(materialized, route_result)
         if slide then
             if slide.hop then
                 local hop=slide.hop
-                local dx,dy=hop.port_x-port.x,hop.port_y-port.y
-                port.x,port.y=hop.port_x,hop.port_y
-                port.attach_dx,port.attach_dy=port.attach_dx+dx,port.attach_dy+dy
+                local old_x, old_y = port_tile(port)
+                local dx,dy=hop.port_x-old_x,hop.port_y-old_y
+                move_port(port, dx, dy)
                 local rotate=function(dir) return dir==nil and nil or (dir+4*hop.turns)%16 end
                 port.travel_dir,port.normal_dir=rotate(port.travel_dir),rotate(port.normal_dir)
                 --A hopped port leaves the block's own boundary ring; validate checks it against its hand instead.
                 port.hopped=true
             else
-                port.x, port.y = port.x + slide.dx, port.y + slide.dy
-                port.attach_dx, port.attach_dy = port.attach_dx + slide.dx, port.attach_dy + slide.dy
+                move_port(port, slide.dx, slide.dy)
             end
             port.slide_options = nil
             port.hop_options = nil
@@ -183,7 +194,8 @@ function Hands.place(materialized, route_result)
                 --The machine tile is the hand's mirror of its port tile: no guess about what normal_dir points at.
                 local outward_x,outward_y=hop.port_x-hop.hand_x,hop.port_y-hop.hand_y
                 local machine_x,machine_y=hand.x-outward_x,hand.y-outward_y
-                local port_point={x=port.x+0.5,y=port.y+0.5}
+                local port_x, port_y = port_tile(port)
+                local port_point={x=port_x+0.5,y=port_y+0.5}
                 local machine_point={x=machine_x+0.5,y=machine_y+0.5}
                 if port.role=="out" then hand.pickup_position,hand.drop_position=machine_point,port_point
                 else hand.pickup_position,hand.drop_position=port_point,machine_point end
@@ -236,7 +248,8 @@ function Hands.free_cell(materialized, x, y)
             end
             local machine = port and by_id[tostring(hand.machine_id)]
             if not port or not machine then return false end
-            local nx, ny = port.x - hand.x, port.y - hand.y
+            local port_x, port_y = port_tile(port)
+            local nx, ny = port_x - hand.x, port_y - hand.y
             if math.abs(nx) + math.abs(ny) ~= 1 then return false end
             local pickup, drop = hand.pickup_position or {}, hand.drop_position or {}
             local steps = nx ~= 0 and {{0, -1}, {0, 1}} or {{-1, 0}, {1, 0}}
@@ -257,7 +270,7 @@ function Hands.free_cell(materialized, x, y)
                     hand.position = {x = tx + 0.5, y = ty + 0.5}
                     if pickup.x then hand.pickup_position = new_pickup end
                     if drop.x then hand.drop_position = new_drop end
-                    port.x, port.y = port.x + dx, port.y + dy
+                    move_port(port, dx, dy)
                     return true
                 end
             end
