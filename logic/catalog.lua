@@ -1029,6 +1029,29 @@ local function safe_member(object, key)
     return ok and value or nil
 end
 
+local function material_leaves(prototypes_value)
+    local leaf = {}
+    local resources
+    local get = safe_member(prototypes_value, "get_entity_filtered")
+    if type(get) == "function" then
+        local ok, value = pcall(get, {{filter = "type", type = "resource"}})
+        if ok then resources = value end
+    end
+    for _, entity in pairs(resources or {}) do
+        local mineable = safe_member(entity, "mineable_properties")
+        for _, product in ipairs(safe_member(mineable, "products") or {}) do
+            local name = safe_member(product, "name")
+            if type(name) == "string" then leaf[name] = true end
+        end
+    end
+    for _, tile in pairs(safe_member(prototypes_value, "tile") or {}) do
+        local fluid = safe_member(tile, "fluid")
+        local name = type(fluid) == "string" and fluid or safe_member(fluid, "name")
+        if type(name) == "string" then leaf[name] = true end
+    end
+    return leaf
+end
+
 -- Projects raw recipe cost for the infrastructure and utility entities this generation can place.
 function Catalog.fill_material(catalog)
     local prototypes_value = rawget(_G, "prototypes")
@@ -1061,6 +1084,10 @@ function Catalog.fill_material(catalog)
         if type(item) == "string" then place[name] = item; queue[#queue+1] = item end
     end
     local all_recipes = safe_member(prototypes_value, "recipe")
+    --Round 53 integration: Space Age makes ores by recipe too (asteroid crushing: 1 chunk -> 20 ore), so "no recipe"
+    --alone priced a belt at 0.15. Player rule (grill Q3): ores, stone, coal, crude oil, water are raw. Every product a
+    --resource yields when mined, and every fluid a tile gives, is a leaf whatever recipe also makes it.
+    local leaf = material_leaves(prototypes_value)
     local recipe_names = {}
     for name in pairs(all_recipes or {}) do recipe_names[#recipe_names+1] = name end
     table.sort(recipe_names)
@@ -1086,7 +1113,7 @@ function Catalog.fill_material(catalog)
     local cursor = 1
     while cursor <= #queue do
         local item = queue[cursor]; cursor = cursor + 1
-        if not visited[item] then
+        if not visited[item] and not leaf[item] then
             visited[item] = true
             local options = candidates[item] or {}
             local chosen

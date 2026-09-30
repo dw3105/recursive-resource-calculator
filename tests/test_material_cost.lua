@@ -23,4 +23,26 @@ local world=H.new_world("2.0"); world.add_default_infrastructure()
 local Catalog=require "logic.catalog"
 local c={belt={belt="transport-belt",underground="underground-belt",splitter="splitter"},entity={}}
 Catalog.fill_material(c); H.equal(c.material["transport-belt"]>0,true,"belt material from mock prototypes"); print("MC6")
+
+--MC7 (integrator, round 53, 2026-09-30): Space Age makes ore by recipe (1 chunk -> 20 ore). A mined resource product
+--is still a leaf: belt = 1.5, never 0.15. Red before the leaf rule (belt read 0.15).
+do
+    local saved = rawget(_G, "prototypes")
+    local function r(ings, prods) return {ingredients = ings, products = prods, category = "crafting"} end
+    _G.prototypes = {
+        entity = {["b"] = {items_to_place_this = {{name = "b"}}}},
+        recipe = {
+            b = r({{name = "p", amount = 1}, {name = "g", amount = 1}}, {{name = "b", amount = 2}}),
+            g = r({{name = "p", amount = 2}}, {{name = "g", amount = 1}}),
+            p = r({{name = "o", amount = 1}}, {{name = "p", amount = 1}}),
+            crush = r({{name = "chunk", amount = 1}}, {{name = "o", amount = 20}}),
+        },
+        tile = {},
+        get_entity_filtered = function() return {ore = {mineable_properties = {products = {{name = "o"}}}}} end,
+    }
+    local c7 = {belt = {belt = "b"}, entity = {}}
+    Catalog.fill_material(c7)
+    _G.prototypes = saved
+    assert(c7.material.b == 1.5, "belt costs " .. tostring(c7.material.b)); print("MC7")
+end
 H.done("test_material_cost")

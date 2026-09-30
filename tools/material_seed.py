@@ -5,6 +5,12 @@ import argparse
 from pathlib import Path
 from draftsman.data import entities, items, recipes
 
+# Draftsman ships no resource prototypes. Raw leaves (player rule, round 53 grill Q3): what resources yield when mined
+# and what tiles give, vanilla 2.0 + Space Age. The mod reads these from the game (logic/catalog.lua material_leaves).
+RAW = {"iron-ore", "copper-ore", "stone", "coal", "uranium-ore", "crude-oil", "water", "calcite", "tungsten-ore",
+       "scrap", "sulfuric-acid", "lithium-brine", "fluorine", "lava", "ammoniacal-solution", "heavy-oil",
+       "wood", "carbon", "metallic-asteroid-chunk", "carbonic-asteroid-chunk", "oxide-asteroid-chunk"}
+
 KINDS = {"transport-belt", "underground-belt", "splitter", "pipe", "pipe-to-ground",
          "assembling-machine", "furnace", "rocket-silo", "beacon", "inserter", "electric-pole"}
 
@@ -34,7 +40,7 @@ def material_data():
         item = queue.pop(0)
         if item in graph:
             continue
-        recipe_name = choose(item)
+        recipe_name = None if item in RAW else choose(item)
         recipe = recipes.raw.get(recipe_name) if recipe_name else None
         if not recipe:
             graph[item] = (None, [], 1.0)
