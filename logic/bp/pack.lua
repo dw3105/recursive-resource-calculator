@@ -1026,7 +1026,10 @@ function Pack.begin(input)
     }
     rebuild_indexes(state)
     if state.mode == "sugiyama" then
-        local pos = {}; for i,b in ipairs(blocks) do pos[tostring(b.block_id)] = i; b.allowed_dirs = {0,4,8,12} end
+        local pos = {}; for i,b in ipairs(blocks) do
+            pos[tostring(b.block_id)] = i
+            b.allowed_dirs = input.forced_dir ~= nil and {input.forced_dir} or {0,4,8,12}
+        end
         table.sort(blocks, function(a,b)
             local la,lb=(state.drawing.layer_of or {})[a.block_id],(state.drawing.layer_of or {})[b.block_id]
             la,lb=la or math.huge,lb or math.huge

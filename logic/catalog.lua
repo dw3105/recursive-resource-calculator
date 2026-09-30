@@ -463,6 +463,7 @@ local function project_entity(catalog, diagnostics, entity, quality_name, qualit
     }
     if entity.type == "assembling-machine" then
         local _, use_mirroring = pcall(function() return entity.use_mirroring end)
+        if use_mirroring == false then projected.use_mirroring = false end
         if use_mirroring ~= false then
             local changed = false
             for _, box in ipairs(fluid_boxes or {}) do
