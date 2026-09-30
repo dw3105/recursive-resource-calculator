@@ -4,8 +4,25 @@ local Generation = require "logic.bp.generation"
 local Cases = require "tests.game.lib.turn_flip_cases"
 local Settings = require "logic.bp.settings"
 
-local function version() return (script.active_mods.base or "2.0"):match("^(%d+%.%d+)") end
-local function main_product(recipe) return (recipe.products or {})[1] end
+local function main_product(recipe)
+    local name = recipe.main_product
+    for _, product in ipairs(recipe.products or {}) do
+        if name and product.name == name then return product end
+    end
+    return (recipe.products or {})[1]
+end
+local function fill_target(sheet, product, rate)
+    if product.type == "fluid" then
+        local row = sheet.input_container.children[1]
+        row.rate_textfield.text = string.format("%.17g", rate)
+        row.time_unit_dropdown.selected_index = 2
+        row.hxrrc_desired_fluid_button.elem_value = product.name
+        event_handlers.on_gui_elem_changed[row.hxrrc_desired_fluid_button.name](
+            {element = row.hxrrc_desired_fluid_button, player_index = 1})
+    else
+        S.fill_row(sheet, 1, product.name, rate, "/s")
+    end
+end
 local function run_case(row, n, found, next_case)
     local recipe, machine = prototypes.recipe[row.recipe], prototypes.entity[row.machine]
     local product = recipe and main_product(recipe)
@@ -14,7 +31,8 @@ local function run_case(row, n, found, next_case)
         next_case()
         return
     end
-    local speed = product.amount * machine.crafting_speed / (recipe.energy or 1)
+    local amount = product.amount or ((product.amount_min or 0) + (product.amount_max or 0)) / 2
+    local speed = amount * (product.probability or 1) * machine.crafting_speed / (recipe.energy or 1)
     local sheet = S.first_sheet()
     local player_data = storage[1]
     local product_name = product.name
@@ -25,7 +43,7 @@ local function run_case(row, n, found, next_case)
     S.bind(product_type .. product_name, row.recipe)
     player_data.identifiers_of_chosen_crafting_machines_by_recipe_name[row.recipe] = {name = row.machine, quality = "normal"}
     Settings.store(1, S.sheet_id(sheet), {input_edge = "left", output_edge = "top"})
-    S.fill_row(sheet, 1, product_name, Cases.target_rate(speed, n), "/s")
+    fill_target(sheet, product, Cases.target_rate(speed, n))
     S.calculate(sheet)
     S.wait_until(function() return S.report_rows(sheet) > 0 end, 600, function()
         local job_id = assert(Generation.start{player_index = 1, sheet_id = S.sheet_id(sheet), deliver = false})
@@ -42,7 +60,7 @@ end
 describe("Turn Flip cases", function()
     it("writes prepared inputs for every available contract row", function()
         if RRC_OFFLINE then assert.are_equal(10, #Cases.CASES); return end
-        local found = {version = version(), cases = {}, absent = {}}
+        local found = {version = script.active_mods.base, cases = {}, absent = {}}
         local work = {}
         for _, row in ipairs(Cases.CASES) do
             for _, n in ipairs({1, 4}) do work[#work + 1] = {row = row, n = n} end
