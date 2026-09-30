@@ -1,0 +1,4 @@
+# bound: 5400s
+logic/bp/power.lua
+tests/test_power_relay_chain.lua
+docs/tasks/291_power_relay_chain.md
