@@ -15,9 +15,19 @@ if [ "${REUSE:-}" != 1 ] || [ ! -f "$out/$case_id.r.json" ]; then
 fi
 t1=$(date +%s)
 mode=${RRC_PACK:-layered}
+fell_back=$(python3 - "$out/$case_id.r.json" <<'PY'
+import json, sys
+try:
+    data=json.load(open(sys.argv[1]))
+    result=data.get('result', data)
+    print(1 if (result.get('search') or {}).get('fell_back') else 0)
+except Exception:
+    print(0)
+PY
+)
 if ! python3 tools/blueprint_string.py "$out/$case_id.r.json" -o "$out/$case_id.bp.txt" >/dev/null 2>&1; then
   codes=$(grep -o 'BP_[A-Z_]*' "$out/$case_id.r.json" 2>/dev/null | sort | uniq -c | tr -s ' \n' ' ')
-  echo "VERDICT case=$case_id pack=$mode sha=none codes=[$codes] wall_s=$((t1 - t0))"
+  echo "VERDICT case=$case_id pack=$mode sha=none codes=[$codes] lanes=none fell_back=$fell_back wall_s=$((t1 - t0))"
   exit 0
 fi
 sha=$(sha256sum "$out/$case_id.bp.txt" | cut -c1-64)
@@ -38,4 +48,4 @@ print('entities=%d belts=%d undergrounds=%d splitters=%d pipes=%d ptg=%d machine
     n(crafting), n(lambda e: crafting(e) and e.get('mirror')), n(lambda e: crafting(e) and e.get('direction', 0) != 0)))
 PY
 )
-echo "VERDICT case=$case_id pack=$mode sha=$sha $mix lanes=$lanes names=$names wall_s=$((t1 - t0))"
+echo "VERDICT case=$case_id pack=$mode sha=$sha $mix lanes=$lanes fell_back=$fell_back names=$names wall_s=$((t1 - t0))"

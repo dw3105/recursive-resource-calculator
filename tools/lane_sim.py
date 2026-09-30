@@ -14,7 +14,7 @@ MIXED: one lane carries two items that also appear on the other lane.
 STARVED: nothing reaches the pickup tile, or (recipe known) nothing on it is an ingredient.
 BLEED: (recipe known) an item on the pickup tile is no ingredient of the machine: another flow ran into this belt
 (player, green v2, 2026-09-24: circuits on the science belt). Smelter/external sources count as wildcards.
-Last line: `LANE-SIM mixed=M starved=S bleed=B`.
+Last line: `LANE-SIM mixed=M starved=S bleed=B dead=D`.
 
 Usage: lane_sim.py bp.txt [--input prepared_input.json]   (machine sizes and recipes from its catalog)"""
 import json, math, sys
@@ -70,6 +70,9 @@ for e in ents:
         x0, y0 = round(e['position']['x'] - w / 2), round(e['position']['y'] - h / 2)
         machines.append({'e': e, 'x0': x0, 'y0': y0, 'w': w, 'h': h})
 
+def reach(h):
+    return 2 if 'long' in h['name'] else 1
+
 def machine_at(p):
     for m in machines:
         if m['x0'] <= p[0] < m['x0'] + m['w'] and m['y0'] <= p[1] < m['y0'] + m['h']: return m
@@ -111,6 +114,12 @@ succ = {p: outs(p) for p in list(belts) + list(ugs) + list(splitter_of)}
 pred = defaultdict(list)
 for p, qs in succ.items():
     for q in qs: pred[q].append(p)
+hand_drops = set()
+for h in hands:
+    hx, hy = tile(h); vx, vy = VEC[h.get('direction', 0)]; k = reach(h)
+    hand_drops.add((hx - vx * k, hy - vy * k))
+dead_inputs = {p for p, (d, typ) in ugs.items() if typ == 'input' and not pred[p] and p not in hand_drops}
+dead = len(dead_inputs)
 
 def right_of(d): vx, vy = VEC[d]; return (-vy, vx)
 lanes = defaultdict(set)
@@ -122,9 +131,6 @@ def add(p, lane, item):
 def hand_receivers(drop):
     """Tiles directly seeded by a hand; splitter input is shared across its two halves."""
     return splitter_of[drop][1] if drop in splitter_of else [drop]
-
-def reach(h):
-    return 2 if 'long' in h['name'] else 1
 
 for h in hands:
     hx, hy = tile(h); vx, vy = VEC[h.get('direction', 0)]; k = reach(h)
@@ -146,7 +152,7 @@ def fed(p):
 for p in succ:
     # A splitter is never a map-edge input: an unfed splitter carries nothing, so it seeds no external source
     # (player-am2-chain-repaired 2026-09-28: an idle splitter at (27,15)-(27,16) read as a second item -> MIXED).
-    if not fed(p) and not (p in ugs and ugs[p][1] == 'output') and p not in splitter_of:
+    if not fed(p) and p not in dead_inputs and not (p in ugs and ugs[p][1] == 'output') and p not in splitter_of:
         if not any(lanes[(p, l)] for l in 'LR'):
             add(p, 'L', 'ext@%d,%d' % p); add(p, 'R', 'ext@%d,%d' % p)
 while queue:
@@ -187,4 +193,4 @@ for h in sorted(hands, key=lambda e: tile(e)):
         bad += mixed; starved += hungry; bleed += bool(stray)
         print('%s hand %s -> %s L=%s R=%s%s%s' % (recipe or 'smelt', (hx, hy), m['e']['name'], L, R,
               '  MIXED' if mixed else '', '  STARVED' if hungry else '') + ('  BLEED %s' % stray if stray else ''))
-print('LANE-SIM mixed=%d starved=%d bleed=%d' % (bad, starved, bleed))
+print('LANE-SIM mixed=%d starved=%d bleed=%d dead=%d' % (bad, starved, bleed, dead))
