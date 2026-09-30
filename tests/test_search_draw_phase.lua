@@ -54,4 +54,20 @@ H.test('SD3 layered mode never enters draw phase',function()
  Pack.mode=old
  H.equal(state.done,true); H.equal(state.saw,false)
 end)
+--Round 51 integration (magenta drawn ended BP_FAIL_NO_LAYOUT through the MaxRects fallback, 2026-09-30): a rejected
+--drawn candidate falls back to today's layered pack, never straight to MaxRects. Red without drawn_off in search.
+H.test('SD4 rejected drawn candidate falls back to layered, then MaxRects',function()
+ local old=Pack.mode; Pack.mode='sugiyama'
+ local seen=D.run({validate_fails=2},function()
+  local inner, modes = Pack.begin, {}
+  Pack.begin=function(input) modes[#modes+1]=(input.mode or 'plain')..':'..tostring(input.layered); return inner(input) end
+  D.finish(Search,Search.begin(D.input()))
+  Pack.begin=inner
+  return modes
+ end)
+ Pack.mode=old
+ H.equal(seen[1],'sugiyama:true','first pack is drawn')
+ H.equal(seen[2],'plain:true','after the drawn reject: layered, not MaxRects')
+ H.equal(seen[3],'plain:false','after the layered reject: MaxRects')
+end)
 H.done('test_search_draw_phase')

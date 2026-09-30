@@ -2620,6 +2620,7 @@ function Groups.reorient(groups_state, block, orient)
     local cache = work and work.reorient_cache
     if cache and cache[cache_key] ~= nil then return cache[cache_key] or nil end
     local result = Groups._reorient_build(groups_state, block, orient)
+    if result and not Groups.ports_on_edge(result) then result = nil end
     if work then
         work.reorient_cache = work.reorient_cache or {}
         work.reorient_cache[cache_key] = result or false
@@ -2701,17 +2702,21 @@ function Groups._reorient_build(groups_state, block, orient)
             end
         end
     end
-    --Pack gives a slot only to a port on the Block edge (x = -1 or w, y = -1 or h). A turned machine can put its
-    --pipe tile in a gap inside the Block: magenta light-oil-cracking got ports at (6,6) in a 10x7 Block and every
-    --grid ended BP_P_NO_FIT (round 51 integration). Such an orientation is illegal: keep the Block as built.
-    for _, port in ipairs(rebuilt.ports or {}) do
-        local ax, ay = port.attach_dx, port.attach_dy
-        if type(ax) ~= "number" or type(ay) ~= "number" then return nil end
-        local side_x = (ax == -1 or ax == rebuilt.w) and ay >= 0 and ay < rebuilt.h
-        local side_y = (ay == -1 or ay == rebuilt.h) and ax >= 0 and ax < rebuilt.w
-        if not side_x and not side_y then return nil end
-    end
     return rebuilt
+end
+
+--Pack gives a slot only to a port on the Block edge (x = -1 or w, y = -1 or h). A turned machine can put its pipe
+--tile in a gap inside the Block: magenta light-oil-cracking got ports at (6,6) in a 10x7 Block and every grid ended
+--BP_P_NO_FIT (round 51 integration). Groups.reorient refuses such a rebuild: the Block stays as built.
+function Groups.ports_on_edge(block)
+    for _, port in ipairs(block and block.ports or {}) do
+        local ax, ay = port.attach_dx, port.attach_dy
+        if type(ax) ~= "number" or type(ay) ~= "number" then return false end
+        local side_x = (ax == -1 or ax == block.w) and ay >= 0 and ay < block.h
+        local side_y = (ay == -1 or ay == block.h) and ax >= 0 and ax < block.w
+        if not side_x and not side_y then return false end
+    end
+    return true
 end
 
 function Groups.materialize(block, placement)

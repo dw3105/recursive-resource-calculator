@@ -1486,7 +1486,13 @@ end
 
 local function layered_fallback(state)
     if not pack_layered(state) or state.incumbent then return false end
-    state.work.layered_off = true
+    --Drawn pack (RRC_PACK=sugiyama) falls back to today's layered pack first, never straight to MaxRects: magenta
+    --drawn ended BP_FAIL_NO_LAYOUT through the MaxRects fallback while layered delivers it (round 51, 2026-09-30).
+    if Pack.mode == "sugiyama" and not state.work.drawn_off then
+        state.work.drawn_off = true
+    else
+        state.work.layered_off = true
+    end
     state.work.attempt, state.work.grid_trials = 0, 0
     state.work.grid_limit_hit, state.work.power_bound_hit = false, nil
     state.cursor.grid_index = 1
@@ -1561,7 +1567,7 @@ local function prepare_candidate(state)
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
     local settings = state.work.input.settings or {}
     local input_edge = settings.input_edge or state.work.input.input_edge or "left"
-    if Pack.mode == "sugiyama" and pack_layered(state) then
+    if Pack.mode == "sugiyama" and pack_layered(state) and not state.work.drawn_off then
         local nodes = {}
         for _, block in ipairs(candidate.blocks or {}) do
             local ports = {}

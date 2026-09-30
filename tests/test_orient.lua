@@ -39,5 +39,35 @@ H.test("OR4 pipe tile inside a machine refuses the reorientation", function()
     local state, original = built_block({x=0,y=0})
     H.equal(Groups.reorient(state, original, {dir=4,mirror=false}), nil, "blocked fluid pipe tile")
 end)
+--Round 51 integration (magenta light-oil-cracking, 2026-09-30): a rebuild with a port inside the Block can never get a
+--pack slot (every grid BP_P_NO_FIT). OR5 fails without Groups.ports_on_edge in Groups.reorient; OR6 without the cache.
+H.test("OR5 reorient refuses a rebuilt Block with a port inside its footprint", function()
+    local build = Groups._reorient_build
+    local inner = {id = "block:x", w = 10, h = 7, ports = {{port_id = "p", attach_dx = 6, attach_dy = 6}}}
+    local edge = {id = "block:x", w = 10, h = 7, ports = {{port_id = "p", attach_dx = 10, attach_dy = 6}}}
+    Groups._reorient_build = function() return inner end
+    local ok, got = pcall(Groups.reorient, {work = {}}, {id = "block:x"}, {dir = 4, mirror = false})
+    Groups._reorient_build = function() return edge end
+    local ok2, got2 = pcall(Groups.reorient, {work = {}}, {id = "block:x"}, {dir = 4, mirror = false})
+    Groups._reorient_build = build
+    H.equal(ok and got == nil, true, "inside port refused")
+    H.equal(ok2 and got2 == edge, true, "edge port kept")
+    print("OR5")
+end)
+
+H.test("OR6 reorient builds once per Block and orient", function()
+    local build, calls = Groups._reorient_build, 0
+    local edge = {id = "block:y", w = 3, h = 3, ports = {{port_id = "p", attach_dx = -1, attach_dy = 1}}}
+    Groups._reorient_build = function() calls = calls + 1; return edge end
+    local state = {work = {}}
+    local a = Groups.reorient(state, {id = "block:y"}, {dir = 8, mirror = false})
+    local b = Groups.reorient(state, {id = "block:y"}, {dir = 8, mirror = false})
+    Groups.reorient(state, {id = "block:y"}, {dir = 8, mirror = true})
+    Groups._reorient_build = build
+    H.equal(a == edge and b == edge, true, "same answer")
+    H.equal(calls, 2, "one build per (Block, dir, mirror)")
+    print("OR6")
+end)
+
 print("OR1 OR2 OR3 OR4")
 H.done("test_orient")
