@@ -1,4 +1,5 @@
-# seed: draftsman 2.1.17 data, replaced by headless probe at merge
+# headless probe tests/game/test_material_cost.lua, Factorio 2.0.77 base+space-age, legalcopilot-dev 2026-09-30 (round 53)
+# leaves: mined resource products + tile fluids; fluids count 1 per unit (CONTEXT.md Material cost)
 MATERIAL assembling-machine-1 26.5000
 MATERIAL assembling-machine-2 54.0000
 MATERIAL assembling-machine-3 1408.9091
@@ -21,7 +22,7 @@ MATERIAL fast-inserter 12.5000
 MATERIAL fast-splitter 68.5000
 MATERIAL fast-transport-belt 11.5000
 MATERIAL fast-underground-belt 48.7500
-MATERIAL foundry 1657.0000
+MATERIAL foundry 2707.0000
 MATERIAL inserter 5.5000
 MATERIAL long-handed-inserter 8.5000
 MATERIAL medium-electric-pole 13.0000
@@ -32,7 +33,7 @@ MATERIAL recycler 1482.5455
 MATERIAL rocket-silo 58018.1818
 MATERIAL small-electric-pole 1.0000
 MATERIAL splitter 23.5000
-MATERIAL stack-inserter 337.1364
+MATERIAL stack-inserter 379.1364
 MATERIAL steel-furnace 50.0000
 MATERIAL stone-furnace 5.0000
 MATERIAL substation 365.7273

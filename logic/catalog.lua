@@ -1068,7 +1068,8 @@ function Catalog.fill_material(catalog)
     for name, entity in pairs(catalog.entity or {}) do
         local kind = entity.etype or entity.type
         if kind == "assembling-machine" or kind == "furnace" or kind == "rocket-silo" or kind == "beacon"
-            or kind == "inserter" or kind == "electric-pole" then add(name) end
+            or kind == "inserter" or kind == "electric-pole" or kind == "transport-belt" or kind == "underground-belt"
+            or kind == "splitter" or kind == "pipe" or kind == "pipe-to-ground" then add(name) end
     end
     local descriptors = {catalog.inserter, catalog.long_inserter, catalog.pole}
     for index = 1, 3 do
