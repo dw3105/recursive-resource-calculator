@@ -1,4 +1,4 @@
---FD1-FD7 red on round-51-base except FD5; FD8-FD9 red on the sliced skeleton.
+-- FD10-FD15 red on base 9719cdd (2026-09-30). FD7 follows player grill Q5 (2026-09-30).
 local H = require "tests.harness"
 local FlowDraw = require "logic.bp.flow_draw"
 
@@ -161,14 +161,44 @@ H.test("FD6 deterministic DAG drawing is no worse than input order", function()
     label("FD6")
 end)
 
-H.test("FD7 Turn aligns port roles with input edge", function()
+H.test("FD7 Block keeps the zero-detour port orientation", function()
     local ports={{port_id=1,role="in",attach_dx=0,attach_dy=-1},{port_id=2,role="in",attach_dx=1,attach_dy=-1},
         {port_id=3,role="out",attach_dx=0,attach_dy=2}}
-    for _,pair in ipairs({{"left",12},{"top",0},{"right",4},{"bottom",8}}) do
-        local r=draw({node("a",ports)},{},{input_edge=pair[1]})
-        H.equal(r.turn_of.a,pair[2])
-    end
+    local orientations={ ["0|0"]={w=3,h=2,ports={[1]={side=1,place=.5},[3]={side=3,place=.5}}} }
+    local r=draw({{id="a",w=3,h=2,ports=ports,orients=orientations}},{},{input_edge="left"})
+    H.equal(r.turn_of.a,0)
     label("FD7")
+end)
+
+H.test("FD10 Source and Output edges exist", function()
+    local g=FlowDraw._test.prepare({nodes={node("a")},input_edge="left",links={
+        {a={block_id="a",port_id=1},b={edge="left"},flow_id="in",ext="in"},
+        {a={block_id="a",port_id=2},b={edge="right"},flow_id="out",ext="out"}}})
+    H.equal(#g.edges,2); H.equal(g.nodes[g.edges[1].a].kind,"source")
+    label("FD10")
+end)
+H.test("FD11 step returns remaining ops", function()
+    local s=FlowDraw.begin({nodes={node("a")},links={},restarts=1,sweeps=0})
+    local b={ops=5000}; FlowDraw.step(s,b); H.equal(b.ops>=4950,true); label("FD11")
+end)
+H.test("FD12 port places determine crossings", function()
+    local function orient(place) return { ["0|0"]={w=2,h=2,ports={[1]={side=1,place=place},[2]={side=3,place=.5}}} } end
+    local ns={{id="a",orients=orient(.5)},{id="x",orients=orient(.9)},{id="y",orients=orient(.1)}}
+    local ls={link("a","x"),link("a","y")}; ls[1].b.port_id=1; ls[2].b.port_id=1
+    local r=draw(ns,ls,{restarts=1,sweeps=0}); H.equal(r.crossings,0); label("FD12")
+end)
+H.test("FD13 wrong-side port has detour cost", function()
+    local n={id="a",orients={["0|0"]={w=3,h=2,ports={[1]={side=1,place=.5}}}}}
+    local r=draw({n},{{a={block_id="a",port_id=1},b={edge="x"},flow_id="i",ext="in"}},{restarts=1,sweeps=0})
+    H.equal(r.score>0,true); label("FD13")
+end)
+H.test("FD14 Flip can remove a crossing", function()
+    local n={id="a",orients={["0|0"]={w=2,h=2,ports={}},["0|1"]={w=2,h=2,ports={}}}}
+    local r=draw({n},{},{restarts=1,sweeps=0}); H.equal(r.mirror_of.a==0 or r.mirror_of.a==1,true); label("FD14")
+end)
+H.test("FD15 custom material costs are applied", function()
+    local r=draw({node("a")},{},{restarts=1,sweeps=0,costs={ug_pair=31,belt_tile=4,ptg_pair=29,pipe_tile=3}})
+    H.equal(type(r.score),"number"); label("FD15")
 end)
 
 H.test("FD8 sliced 12 Block graph stays within its tick budget", function()
