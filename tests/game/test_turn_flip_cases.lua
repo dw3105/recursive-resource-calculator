@@ -26,13 +26,16 @@ end
 local function run_case(row, n, found, next_case)
     local recipe, machine = prototypes.recipe[row.recipe], prototypes.entity[row.machine]
     local product = recipe and main_product(recipe)
-    if not (recipe and machine and product and machine.crafting_speed) then
+    --Integrator round 54 (2026-09-30): 2.0+ entity prototypes have get_crafting_speed(quality), no crafting_speed
+    --field (headless 2.0.77 + 2.1.20: __index error); same read as logic/catalog.lua:481.
+    local crafting_speed = machine and machine.get_crafting_speed and machine.get_crafting_speed("normal")
+    if not (recipe and machine and product and crafting_speed) then
         found.absent[#found.absent + 1] = row.machine .. "-" .. row.recipe .. "-" .. n
         next_case()
         return
     end
     local amount = product.amount or ((product.amount_min or 0) + (product.amount_max or 0)) / 2
-    local speed = amount * (product.probability or 1) * machine.crafting_speed / (recipe.energy or 1)
+    local speed = amount * (product.probability or 1) * crafting_speed / (recipe.energy or 1)
     local sheet = S.first_sheet()
     local player_data = storage[1]
     local product_name = product.name
