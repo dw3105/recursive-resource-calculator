@@ -694,6 +694,66 @@ local function finish_repair(state)
     start_prune(state)
 end
 
+local function start_chain(state)
+    local work = state._work
+    local smallest, source_root
+    for position = 1, #work.selected do
+        local root = uf_root(work.connect, position)
+        local count = work.connect.size[root]
+        if smallest == nil or count < smallest then smallest, source_root = count, root end
+    end
+    local sources, targets = {}, {}
+    for position = 1, #work.selected do
+        local root = uf_root(work.connect, position)
+        if root == source_root then sources[#sources + 1] = position
+        else targets[#targets + 1] = position end
+    end
+    work.chain = {mode = "enumerate", x = 0, y = 0, spec_index = 1, spots = {}, by_cell = {},
+        sources = sources, targets = targets, scan = 1, seed_source = 1,
+        queue = {}, head = 1, visited = 0, edge_y = nil, edge_x = nil, edge_spec = 1,
+        pending = nil}
+    state.cursor.phase = "chain"
+end
+
+local function chain_candidate_free(work, candidate)
+    if candidate_is_occupied(candidate, work) then return false end
+    for _, position in ipairs(work.selected) do
+        if rect_intersects(candidate.rect, work.candidates[position].rect) then return false end
+    end
+    return true
+end
+
+local function chain_enqueue(chain, spot, predecessor)
+    if spot.seen then return false end
+    spot.seen, spot.predecessor = true, predecessor
+    chain.queue[#chain.queue + 1] = spot.id
+    chain.visited = chain.visited + 1
+    return true
+end
+
+local function chain_found(state, spot)
+    local work, chain = state._work, state._work.chain
+    local ids, cursor = {}, spot.id
+    while cursor do
+        ids[#ids + 1] = cursor
+        cursor = chain.spots[cursor].predecessor
+    end
+    local additions = {}
+    for i = #ids, 1, -1 do additions[#additions + 1] = chain.spots[ids[i]].candidate end
+    local new_candidates = 0
+    for _, candidate in ipairs(additions) do
+        local key = candidate_key(candidate.spec_index, candidate.rect.x, candidate.rect.y)
+        if work.candidate_index_by_key[key] == nil then new_candidates = new_candidates + 1 end
+    end
+    if #work.selected + #additions > work.max_poles
+        or new_candidates > work.relay_candidate_limit - work.relay_candidates_used then
+        work.relay_bound_hit, work.chain = true, nil
+        finish_repair(state)
+        return
+    end
+    chain.mode, chain.additions, chain.add_index = "commit", additions, 1
+end
+
 local function select_repair_candidate(state, candidate)
     local work, repair = state._work, state._work.repair
     local key = candidate_key(candidate.spec_index, candidate.rect.x, candidate.rect.y)
@@ -908,15 +968,18 @@ function Power.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
     if type(budget) ~= "table" then return state end
     local work = state._work
+    local step_ops = state.ops_used
 
     while not state.done do
+        local spent = state.ops_used - step_ops
+        if spent >= 200 then break end
         local cost, available = operation_cost(state), integer(budget.ops, 0)
         -- Publishing is the stage boundary where Search may otherwise continue
         -- into validation in this same game tick. Reserve the remainder here
         -- so the next stage starts on the next scheduler slice.
         --Capped at one game tick (Jobs.OPS_PER_TICK): a caller with a larger slice would otherwise lose it all
         --here and trip the search allowance (test_search BP-15, 2026-09-24).
-        if state.cursor.phase == "publish_finish" then cost = math.min(available, 2000) end
+        if state.cursor.phase == "publish_finish" then cost = math.min(available, 200 - spent) end
         if not consume(budget, cost) then break end
         -- ops_used records charged work, not state-machine transitions.
         state.ops_used = state.ops_used + math.min(cost, available)
@@ -1216,7 +1279,8 @@ function Power.step(state, budget)
                 end
             elseif repair.mode == "frontier_pair" then
                 if #work.selected < 2 or #work.selected >= work.max_poles or repair.pair_left >= #work.selected then
-                    finish_repair(state)
+                    if work.connect.components > 1 and #work.selected < work.max_poles then start_chain(state)
+                    else finish_repair(state) end
                 elseif repair.pair_right > #work.selected then
                     advance_pair(repair, #work.selected)
                 elseif uf_root(work.connect, repair.pair_left) == uf_root(work.connect, repair.pair_right) then
@@ -1253,7 +1317,136 @@ function Power.step(state, budget)
                 work.repair_eval = nil
                 select_repair_candidate(state, candidate)
             else
-                finish_repair(state)
+                if repair.mode == "frontier_compare" and work.connect.components > 1
+                    and #work.selected < work.max_poles and work.relay_checks < work.relay_check_limit then start_chain(state)
+                else finish_repair(state) end
+            end
+
+        elseif phase == "chain" then
+            local chain = work.chain
+            if chain.mode == "commit" then
+                local candidate = chain.additions[chain.add_index]
+                if candidate then
+                    local key = candidate_key(candidate.spec_index, candidate.rect.x, candidate.rect.y)
+                    local index = work.candidate_index_by_key[key]
+                    if index == nil then
+                        index = append_candidate(work, candidate)
+                        work.relay_candidates_used = work.relay_candidates_used + 1
+                    end
+                    if not work.selected_set[index] then
+                        work.selected[#work.selected + 1] = index
+                        work.selected_set[index] = true
+                    end
+                    chain.add_index = chain.add_index + 1
+                else
+                    work.connect = {add_position = 1, compare_position = 1, parent = {}, size = {},
+                        components = 0, edges = {}}
+                    work.chain = nil
+                    cursor.phase = "connect"
+                end
+            elseif chain.mode == "enumerate" then
+                if chain.y > work.grid_h - 1 then
+                    chain.mode = "seed"
+                    chain.scan, chain.seed_source = 1, 1
+                else
+                    local spec_index = chain.spec_index
+                    local spec = work.specs[spec_index]
+                    if not spec then
+                        chain.spec_index, chain.x = 1, chain.x + 1
+                        if chain.x > work.grid_w - 1 then chain.x, chain.y = 0, chain.y + 1 end
+                    else
+                        chain.spec_index = spec_index + 1
+                        local candidate = repair_position_usable(state, spec_index, chain.x, chain.y, nil, nil, nil)
+                        if candidate and chain_candidate_free(work, candidate) then
+                            local id = #chain.spots + 1
+                            local spot = {id = id, candidate = candidate, x = chain.x, y = chain.y,
+                                spec_index = spec_index}
+                            chain.spots[id] = spot
+                            local row = chain.by_cell[chain.y]
+                            if not row then row = {}; chain.by_cell[chain.y] = row end
+                            local cell = row[chain.x]
+                            if not cell then cell = {}; row[chain.x] = cell end
+                            cell[#cell + 1] = id
+                        end
+                    end
+                end
+            elseif chain.mode == "seed" then
+                local spot = chain.spots[chain.scan]
+                if not spot then
+                    if #chain.queue == 0 then
+                        work.chain = nil
+                        finish_repair(state)
+                    else
+                        chain.mode, chain.head = "target", 1
+                        chain.target_index = 1
+                    end
+                elseif chain.seed_source > #chain.sources then
+                    chain.scan, chain.seed_source = chain.scan + 1, 1
+                else
+                    local source = work.candidates[work.selected[chain.sources[chain.seed_source]]]
+                    chain.seed_source = chain.seed_source + 1
+                    if wire_legal(spot.candidate, source) then
+                        if not spot.seen and chain.visited >= work.relay_check_limit then
+                            work.relay_bound_hit, work.chain = true, nil
+                            finish_repair(state)
+                        else
+                            chain_enqueue(chain, spot, false)
+                        end
+                    end
+                end
+            elseif chain.mode == "target" then
+                local spot = chain.spots[chain.queue[chain.head]]
+                if not spot then
+                    work.chain = nil
+                    finish_repair(state)
+                elseif chain.target_index > #chain.targets then
+                    local reach = 0
+                    for _, spec in ipairs(work.specs) do reach = math.max(reach, spec.wire_reach) end
+                    chain.mode = "neighbors"
+                    chain.radius = math.ceil(math.max(reach, spot.candidate.wire_reach))
+                    chain.edge_y, chain.edge_x, chain.edge_spec = math.max(0, spot.y - chain.radius),
+                        math.max(0, spot.x - chain.radius), 1
+                    chain.max_edge_y, chain.max_edge_x = math.min(work.grid_h - 1, spot.y + chain.radius),
+                        math.min(work.grid_w - 1, spot.x + chain.radius)
+                else
+                    local target_position = chain.targets[chain.target_index]
+                    chain.target_index = chain.target_index + 1
+                    local target = work.candidates[work.selected[target_position]]
+                    if wire_legal(spot.candidate, target) then chain_found(state, spot) end
+                end
+            elseif chain.mode == "neighbors" then
+                local spot = chain.spots[chain.queue[chain.head]]
+                if chain.edge_y > chain.max_edge_y then
+                    chain.head = chain.head + 1
+                    chain.mode, chain.target_index = "target", 1
+                else
+                    local spec = work.specs[chain.edge_spec]
+                    if not spec then
+                        chain.edge_spec, chain.edge_x = 1, chain.edge_x + 1
+                        if chain.edge_x > chain.max_edge_x then
+                            chain.edge_x, chain.edge_y = math.max(0, spot.x - chain.radius), chain.edge_y + 1
+                        end
+                    else
+                        chain.edge_spec = chain.edge_spec + 1
+                        local row = chain.by_cell[chain.edge_y]
+                        local cell = row and row[chain.edge_x]
+                        if cell then
+                            for _, id in ipairs(cell) do
+                                local next_spot = chain.spots[id]
+                                if next_spot.spec_index == chain.edge_spec - 1
+                                    and wire_legal(spot.candidate, next_spot.candidate) and not next_spot.seen then
+                                    if chain.visited >= work.relay_check_limit then
+                                        work.relay_bound_hit, work.chain = true, nil
+                                        finish_repair(state)
+                                        break
+                                    else
+                                        chain_enqueue(chain, next_spot, spot.id)
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
             end
 
         elseif phase == "repair_check" then
