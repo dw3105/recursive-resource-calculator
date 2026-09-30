@@ -1,0 +1,11 @@
+# bound: 5400s
+logic/bp/route.lua
+logic/bp/validate.lua
+logic/bp/search.lua
+tools/lane_sim.py
+tools/sheet_verdict.sh
+tests/test_route_dead_pair.lua
+tests/test_validate_dead_pair.lua
+tests/test_validate_witness_underground.lua
+tests/test_lane_sim.py
+docs/tasks/289_dead_pair.md

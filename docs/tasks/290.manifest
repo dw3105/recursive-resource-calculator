@@ -1,0 +1,9 @@
+# bound: 5400s
+logic/bp/box_binding.lua
+logic/catalog.lua
+logic/bp/generation.lua
+tests/test_box_binding.lua
+tests/game/test_box_binding.lua
+tests/fixtures/box_binding_2.0.txt
+tests/fixtures/box_binding_2.1.txt
+docs/tasks/290_box_binding.md

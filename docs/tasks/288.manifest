@@ -1,0 +1,7 @@
+# bound: 5400s
+logic/bp/groups.lua
+logic/bp/hands.lua
+logic/bp/seat.lua
+logic/bp/run_dir.lua
+tests/test_turned_block.lua
+docs/tasks/288_turned_blocks.md
