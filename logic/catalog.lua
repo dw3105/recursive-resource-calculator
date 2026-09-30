@@ -1052,6 +1052,42 @@ local function material_leaves(prototypes_value)
     return leaf
 end
 
+--Round 53 integration: leaves and producer lists depend only on prototypes, fixed for a session; scanning every
+--recipe cost ~23 ms per catalog build (vanilla, legalcopilot-dev). Cached by prototypes identity: same answer on every
+--peer, so no desync.
+local scan_cache = {}
+local function material_scan(prototypes_value, all_recipes)
+    if scan_cache.key == prototypes_value and scan_cache.recipes == all_recipes then return scan_cache.value end
+    --Round 53 integration: Space Age makes ores by recipe too (asteroid crushing: 1 chunk -> 20 ore), so "no recipe"
+    --alone priced a belt at 0.15. Player rule (grill Q3): ores, stone, coal, crude oil, water are raw. Every product a
+    --resource yields when mined, and every fluid a tile gives, is a leaf whatever recipe also makes it.
+    local leaf = material_leaves(prototypes_value)
+    local recipe_names = {}
+    for name in pairs(all_recipes or {}) do recipe_names[#recipe_names+1] = name end
+    table.sort(recipe_names)
+    local candidates = {}
+    for _, rname in ipairs(recipe_names) do
+        local recipe = safe_member(all_recipes, rname)
+        local hidden, category = safe_member(recipe, "hidden"), safe_member(recipe, "category")
+        local categories = safe_member(recipe, "categories")
+        local recycling = type(category) == "string" and category:find("recycling", 1, true) ~= nil
+        for _, value in pairs(categories or {}) do
+            local category_name = type(value) == "string" and value or safe_member(value, "name")
+            if type(category_name) == "string" and category_name:find("recycling", 1, true) then recycling = true end
+        end
+        if not hidden and not recycling then
+            local products = safe_member(recipe, "products") or {}
+            for _, product in ipairs(products) do
+                local item = safe_member(product, "name")
+                if type(item) == "string" then candidates[item] = candidates[item] or {}; candidates[item][#candidates[item]+1] = rname end
+            end
+        end
+    end
+    scan_cache.key, scan_cache.recipes = prototypes_value, all_recipes
+    scan_cache.value = {leaf=leaf, candidates=candidates}
+    return scan_cache.value
+end
+
 -- Projects raw recipe cost for the infrastructure and utility entities this generation can place.
 function Catalog.fill_material(catalog)
     local prototypes_value = rawget(_G, "prototypes")
@@ -1085,31 +1121,8 @@ function Catalog.fill_material(catalog)
         if type(item) == "string" then place[name] = item; queue[#queue+1] = item end
     end
     local all_recipes = safe_member(prototypes_value, "recipe")
-    --Round 53 integration: Space Age makes ores by recipe too (asteroid crushing: 1 chunk -> 20 ore), so "no recipe"
-    --alone priced a belt at 0.15. Player rule (grill Q3): ores, stone, coal, crude oil, water are raw. Every product a
-    --resource yields when mined, and every fluid a tile gives, is a leaf whatever recipe also makes it.
-    local leaf = material_leaves(prototypes_value)
-    local recipe_names = {}
-    for name in pairs(all_recipes or {}) do recipe_names[#recipe_names+1] = name end
-    table.sort(recipe_names)
-    local candidates = {}
-    for _, rname in ipairs(recipe_names) do
-        local recipe = safe_member(all_recipes, rname)
-        local hidden, category = safe_member(recipe, "hidden"), safe_member(recipe, "category")
-        local categories = safe_member(recipe, "categories")
-        local recycling = type(category) == "string" and category:find("recycling", 1, true) ~= nil
-        for _, value in pairs(categories or {}) do
-            local category_name = type(value) == "string" and value or safe_member(value, "name")
-            if type(category_name) == "string" and category_name:find("recycling", 1, true) then recycling = true end
-        end
-        if not hidden and not recycling then
-            local products = safe_member(recipe, "products") or {}
-            for _, product in ipairs(products) do
-                local item = safe_member(product, "name")
-                if type(item) == "string" then candidates[item] = candidates[item] or {}; candidates[item][#candidates[item]+1] = rname end
-            end
-        end
-    end
+    local scan = material_scan(prototypes_value, all_recipes)
+    local leaf, candidates = scan.leaf, scan.candidates
     local visited = {}
     local cursor = 1
     while cursor <= #queue do

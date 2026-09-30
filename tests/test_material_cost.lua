@@ -45,4 +45,27 @@ do
     _G.prototypes = saved
     assert(c7.material.b == 1.5, "belt costs " .. tostring(c7.material.b)); print("MC7")
 end
+--MC8 (integrator, round 53, 2026-09-30): the recipe scan runs once per prototypes object, not once per catalog build
+--(in-game catalog builds repeat every generation). A new prototypes object scans again.
+do
+    local saved = rawget(_G, "prototypes")
+    local scans = 0
+    local function protos()
+        return {
+            entity = {["b"] = {items_to_place_this = {{name = "b"}}}},
+            recipe = {b = {ingredients = {{name = "o", amount = 3}}, products = {{name = "b", amount = 2}}, category = "crafting"}},
+            tile = {},
+            get_entity_filtered = function() scans = scans + 1; return {ore = {mineable_properties = {products = {{name = "o"}}}}} end,
+        }
+    end
+    _G.prototypes = protos()
+    local a, b = {belt = {belt = "b"}, entity = {}}, {belt = {belt = "b"}, entity = {}}
+    Catalog.fill_material(a); Catalog.fill_material(b)
+    assert(scans == 1 and a.material.b == 1.5 and b.material.b == 1.5, "scans " .. scans)
+    _G.prototypes = protos()
+    local c = {belt = {belt = "b"}, entity = {}}
+    Catalog.fill_material(c)
+    _G.prototypes = saved
+    assert(scans == 2 and c.material.b == 1.5, "new prototypes scans " .. scans); print("MC8")
+end
 H.done("test_material_cost")
