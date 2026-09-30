@@ -249,11 +249,16 @@ local function rotate_connection(raw, placement_dir, endpoint_x, endpoint_y, mir
     local result = {}
     local direction = raw.direction or raw.dir or raw.connection_dir
     local position = copy_position(raw.position)
-    if fluid and not raw.global_position then
-        local x, y, d = Grid.fluid_connection(raw, placement_dir, mirror or raw.mirror)
-        position = x and {x = x, y = y} or nil
-        direction = d
+    local fx, fy, fd
+    if fluid and not raw.global_position then fx, fy, fd = Grid.fluid_connection(raw, placement_dir, mirror or raw.mirror) end
+    if fx then
+        position, direction = {x = fx, y = fy}, fd
     else
+        --A connection with a direction and no position (a port's own pipe-to-ground connection) keeps the old rule;
+        --a Flip still swaps its EAST/WEST facing (round 51 integration: RN1 lost its direction here).
+        if fluid and (mirror or raw.mirror) and not raw.global_direction then
+            if direction == Grid.EAST then direction = Grid.WEST elseif direction == Grid.WEST then direction = Grid.EAST end
+        end
         if not position and type(raw.positions) == "table" then
             position = copy_position(raw.positions[turns_for(placement_dir) + 1]) or copy_position(raw.positions[1])
         end

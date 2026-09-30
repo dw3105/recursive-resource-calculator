@@ -73,4 +73,54 @@ describe("flip fluidboxes", function()
         helpers.write_file("rrc_flip_fluidboxes.txt", table.concat(rows, "\n") .. "\n")
         assert.is_true(#rows > 10, "probe rows")
     end)
+
+    --Round 51 integration: headless twin fluid_flipped_bad (one-fluid casting-iron, pipe on box 2) came back "ok" from
+    --the fluid_system check, which only asks whether the machine HOLDS the fluid. Which box takes which fluid is the
+    --engine's filter per box: record it per recipe, Flip and box, with the box's pipe connection count.
+    it("fluid box filters per recipe and flip", function()
+        if RRC_OFFLINE then return end
+        local surface = Lab.surface()
+        Lab.prepare(surface, {{-40, -40}, {40, 40}})
+        local rows = {"# version " .. script.active_mods.base}
+        local cases = {{"foundry", "casting-iron"}, {"foundry", "casting-low-density-structure"},
+            {"chemical-plant", "heavy-oil-cracking"}, {"chemical-plant", "sulfuric-acid"},
+            {"chemical-plant", "lubricant"}, {"oil-refinery", "basic-oil-processing"},
+            {"oil-refinery", "advanced-oil-processing"}, {"oil-refinery", "coal-liquefaction"},
+            {"cryogenic-plant", "fluoroketone"}, {"cryogenic-plant", "lithium-plate"},
+            {"electromagnetic-plant", "electrolyte"}, {"biochamber", "nutrients-from-bioflux"}}
+        for _, case in ipairs(cases) do
+            local name, recipe = case[1], case[2]
+            if prototypes.entity[name] and prototypes.recipe[recipe] then
+                for _, mirror in ipairs({false, true}) do
+                    local e = surface.create_entity{name = name, position = {0, 0}, direction = 0, force = "player", recipe = recipe}
+                    pcall(function() e.mirroring = mirror end)
+                    local boxes = #(prototypes.entity[name].fluidbox_prototypes or {})
+                    for i = 1, boxes do
+                        local filter
+                        local ok20, fb = pcall(function() return e.fluidbox end)
+                        if ok20 and fb then
+                            local okf, f = pcall(fb.get_filter, i); filter = okf and f and f.name
+                        else
+                            local okf, f = pcall(e.get_fluid_filter, i); filter = okf and f and (type(f) == "table" and (f.name or (f.fluid and f.fluid.name) or serpent.line(f)) or f)
+                        end
+                        local okc, list = pcall(function()
+                            if ok20 and fb then return fb.get_pipe_connections(i) end
+                            return e.get_fluid_box_pipe_connections(i)
+                        end)
+                        local where = {}
+                        for _, conn in ipairs(okc and list or {}) do
+                            where[#where + 1] = fmt(conn.position.x - e.position.x) .. "," .. fmt(conn.position.y - e.position.y)
+                                .. ":" .. tostring(conn.flow_direction)
+                        end
+                        rows[#rows + 1] = string.format("FILTER %s recipe=%s mirror=%s box=%d filter=%s conns=%d pos=%s", name, recipe,
+                            tostring(mirror), i, tostring(filter), okc and list and #list or -1,
+                            #where > 0 and table.concat(where, ";") or "-")
+                    end
+                    e.destroy()
+                end
+            end
+        end
+        helpers.write_file("rrc_flip_filters.txt", table.concat(rows, "\n") .. "\n")
+        assert.is_true(#rows > 4, "filter rows")
+    end)
 end)

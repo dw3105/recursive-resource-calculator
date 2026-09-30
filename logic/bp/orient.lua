@@ -5,7 +5,7 @@
 --Contract (frozen round 51 STEP 0; lane 287 fills the body, never the signature):
 --  Orient.choose{block, catalog, turn = 0|4|8|12, partner_dir = {[port_id] = 0|4|8|12}} -> {dir = 0|4|8|12, mirror = bool}
 --
---STEP 0 skeleton: machines keep today's orientation.
+--Lane 287: scores each (Turn, Flip) by fluid port facing vs partner direction; no fluid port -> {dir = 0, mirror = false}.
 local Orient = {}
 local Grid = require "logic.bp.grid"
 

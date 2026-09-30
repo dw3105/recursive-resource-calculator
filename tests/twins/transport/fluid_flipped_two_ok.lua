@@ -2,9 +2,8 @@
 --foundry 5x5 at tiles x=3..7, y=3..7 (centre 5.5,5.5), dir north, mirror = true, recipe casting-low-density-structure
 --(two fluids fill both input boxes: box 1 molten-iron, box 2 molten-copper, one connection each). Unflipped: box 1
 --pos (-1,2), box 2 pos (1,2); a Flip mirrors x -> box 1 (1,2), box 2 (-1,2). Pipe columns x=6 (iron) and x=4
---(copper) SWAPPED to x=4 (iron) and x=6 (copper): iron reaches box 2 (molten-copper filter), copper reaches box 1
---(molten-iron filter): both starve, defect.
-local IRON_X, COPPER_X = 4, 6
+--(copper), y=8..19: iron on the FLIPPED box 1 spot (1,3) = tile (6,8), copper on flipped box 2 (-1,3) = tile (4,8): ok.
+local IRON_X, COPPER_X = 6, 4
 local entities = {{id = "machine", kind = "machine", name = "foundry", x = 3, y = 3, w = 5, h = 5, dir = "north",
     mirror = true, recipe = "casting-low-density-structure", step_id = "cast"}}
 for y = 8, 19 do
@@ -14,7 +13,7 @@ for y = 8, 19 do
         flows = {"fluid/molten-copper"}, flow_id = "fluid/molten-copper"}
 end
 return {
- id = "fluid_flipped_bad", rule = "BP_V_FLUID_DISCONNECTED", class = "engine", from = "round 51 Flip (engine filter rows)",
+ id = "fluid_flipped_two_ok", rule = "BP_V_FLUID_DISCONNECTED", class = "engine", from = "round 51 Flip (engine filter rows)",
  grid = {w = 20, h = 20},
  entities = entities,
  validator = {
@@ -36,6 +35,6 @@ return {
       {source_port_id = "copper-port", sink_port_id = "cast-copper", flow_id = "fluid/molten-copper", sink = "step:cast", rate_per_second = 10}},
  },
  feeds = {{tile = {IRON_X, 19}, fluid = "molten-iron"}, {tile = {COPPER_X, 19}, fluid = "molten-copper"}},
- check = "fluid_system", truth = "defect", codes = {"BP_V_FLUID_DISCONNECTED"},
+ check = "fluid_system", truth = "ok", codes = {},
  audit = {blueprint_audit = {unused_pipe_tiles = 0}},
 }

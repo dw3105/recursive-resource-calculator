@@ -2609,8 +2609,7 @@ end
 
 --Rebuild one Block with every machine at orient = {dir, mirror} (round 51 drawn pack). groups_state is the Groups
 --stage state that built the Block (search: state.work.groups). Returns the new Block with the same id and port ids,
---or nil when the orientation is illegal (a fluid pipe tile blocked). Frozen contract; lane 287 fills the body.
---STEP 0 skeleton: the Block unchanged.
+--or nil when the orientation is illegal (a fluid pipe tile blocked). Frozen contract; body by lane 287.
 function Groups.reorient(groups_state, block, orient)
     orient = orient or {dir = NORTH, mirror = false}
     if (orient.dir or NORTH) == NORTH and not orient.mirror then return block end

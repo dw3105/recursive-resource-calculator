@@ -47,7 +47,10 @@ end)
 
 H.test("FG2 flipped twins have exact fluid verdicts", function()
     H.deep_equal(Twin.verdict(Twin.load("tests/twins/transport/fluid_flipped_ok.lua")), {}, "flipped box 1 connects")
-    H.deep_equal(Twin.verdict(Twin.load("tests/twins/transport/fluid_flipped_bad.lua")), {"BP_V_FLUID_DISCONNECTED"}, "unflipped target rejected")
+    H.deep_equal(Twin.verdict(Twin.load("tests/twins/transport/fluid_flipped_bad.lua")), {"BP_V_FLUID_DISCONNECTED"}, "two fluids swapped rejected")
+    --Engine filter rows (2026-09-30): two fluids bind box k to fluid k; one fluid merges the spare connection.
+    H.deep_equal(Twin.verdict(Twin.load("tests/twins/transport/fluid_flipped_two_ok.lua")), {}, "two fluids on flipped boxes connect")
+    H.deep_equal(Twin.verdict(Twin.load("tests/twins/transport/fluid_flipped_one_other_ok.lua")), {}, "one fluid on the spare spot connects")
 end)
 
 H.test("FG3 route test helper uses the same connection geometry", function()

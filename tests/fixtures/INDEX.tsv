@@ -129,3 +129,8 @@ tests/fixtures/bytes_round49.txt	sheet	player	bytes baseline (sha per gated shee
 tests/golden/cases/player-magenta-science-10s/prepared_input.json	catalog	player	captured from player game
 tests/fixtures/bytes_round48.txt	sheet	player	bytes baseline round 48 (13 gated sheets, final int/r48 tree; gray-magenta case dropped by the player)
 tests/fixtures/r50_player_selection.lua	algo	player	player save selection (529 recipe setups) + fingerprint sha a1e31990; round 50 snapshot slices
+tests/fixtures/bytes_round51_base.txt	sheet	player	bytes baseline round 51 flag off (14 sheets == bytes_round49)
+tests/fixtures/flip_fluidboxes_2.0.txt	facts	vanilla	engine fluid box pos per Turn and Flip, headless 2.0.77 (test_flip_fluidboxes)
+tests/fixtures/flip_fluidboxes_2.1.txt	facts	vanilla	engine fluid box pos per Turn and Flip, headless 2.1.20 (test_flip_fluidboxes)
+tests/fixtures/flip_filters_2.0.txt	facts	vanilla	engine fluid box filter + connections per recipe and Flip, headless 2.0.77 (test_flip_fluidboxes)
+tests/fixtures/flip_filters_2.1.txt	facts	vanilla	engine fluid box filter + connections per recipe and Flip, headless 2.1.20 (test_flip_fluidboxes)

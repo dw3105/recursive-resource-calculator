@@ -2125,13 +2125,21 @@ local function fluid_connection_cells(machine, entry, role, work)
                     and (ingredient.flow_id or ingredient.full_name):sub(1, 6) == "fluid/") then
                 fluid_ordinal = fluid_ordinal + 1
                 local ingredient_name = ingredient.name or ingredient.full_name or ingredient.flow_id
-                if ingredient_name == (entry and (entry.name or entry.full_name or entry.flow_id))
-                    or ("fluid/" .. tostring(ingredient_name)) == (entry and (entry.name or entry.full_name or entry.flow_id)) then
-                    ordinal = fluid_ordinal; break
+                if ordinal == nil and (ingredient_name == (entry and (entry.name or entry.full_name or entry.flow_id))
+                    or ("fluid/" .. tostring(ingredient_name)) == (entry and (entry.name or entry.full_name or entry.flow_id))) then
+                    ordinal = fluid_ordinal
                 end
             end
         end
-        if ordinal then
+        --Engine truth (tests/game/test_flip_fluidboxes.lua filter rows, 2.0.77 + 2.1.20, 2026-09-30): a recipe that
+        --fills EVERY box of this production type binds fluid k to box k (a Flip swaps their sides). A recipe that
+        --fills fewer boxes is engine-specific (foundry and chemical plant merge the spare connection into the used
+        --box, a refinery keeps a fixed box), so no box is pinned there: never stricter than the engine.
+        local role_boxes = 0
+        for _, box in ipairs(boxes) do
+            if (box.production_type or box.type or box.role) == role then role_boxes = role_boxes + 1 end
+        end
+        if ordinal and fluid_ordinal == role_boxes then
             local role_ordinal = 0
             for bi, box in ipairs(boxes) do
                 local production = box.production_type or box.type or box.role

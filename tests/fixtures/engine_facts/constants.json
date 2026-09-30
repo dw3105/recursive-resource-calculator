@@ -469,7 +469,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 38,
+  "line": 39,
   "name": "INSERTER_RATE_K",
   "probe": {
    "expect": "model",
@@ -482,7 +482,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 41,
+  "line": 42,
   "name": "BELT_PICKUP_FACTOR",
   "probe": {
    "expect": "model",
@@ -495,7 +495,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 726,
+  "line": 741,
   "name": "stack_max_default",
   "probe": {
    "expect": "equal",
@@ -509,7 +509,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 733,
+  "line": 748,
   "name": "lane_capacity_half",
   "probe": {
    "expect": "model",
@@ -522,7 +522,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 797,
+  "line": 812,
   "name": "default_inserter_speed",
   "probe": {
    "expect": "model",
