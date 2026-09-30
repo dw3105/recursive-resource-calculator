@@ -2470,8 +2470,10 @@ local function check_physical_transfers(work, machine_index, final)
                     if not reached then
                         --A disconnected recipe connection is the primary fluid defect; its feed network is
                         --not separately wasteful just because the missing box binding prevents a witness.
-                        for _, info in ipairs(work.infos) do
-                            if transport_kind(info) == "pipe" and flow_detail_id(info) == flow_id then mark_used(info, flow_id) end
+                        if machine.entity.mirror then
+                            for _, info in ipairs(work.infos) do
+                                if transport_kind(info) == "pipe" and flow_detail_id(info) == flow_id then mark_used(info, flow_id) end
+                            end
                         end
                         failed_transfer(machine, flow_id, "BP_V_FLUID_DISCONNECTED", "fluid connection")
                     end
