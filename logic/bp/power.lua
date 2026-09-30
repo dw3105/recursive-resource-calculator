@@ -348,6 +348,15 @@ local function operation_cost(state)
     if phase == "make_room" then return 4 end
     if phase == "repair_check" then return 1 end
     if phase == "prune" or phase == "publish_sort" then return 2 end
+    --Relay chain (round 52): an enumerate step checks a spot against the occupancy index and every chosen pole; a
+    --BFS step tests wire reach. Charged at cost so one 2000-op slice stays inside a tick (integrator, 2026-09-30:
+    --at 1 op per step the stack1 chain ran 37 ms in one Power.step).
+    if phase == "chain" then
+        local chain = work.chain
+        if chain and chain.mode == "enumerate" then return 16 end
+        if chain and chain.mode == "commit" then return 2 end
+        return 4
+    end
     return 1
 end
 
@@ -968,18 +977,15 @@ function Power.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
     if type(budget) ~= "table" then return state end
     local work = state._work
-    local step_ops = state.ops_used
 
     while not state.done do
-        local spent = state.ops_used - step_ops
-        if spent >= 200 then break end
         local cost, available = operation_cost(state), integer(budget.ops, 0)
         -- Publishing is the stage boundary where Search may otherwise continue
         -- into validation in this same game tick. Reserve the remainder here
         -- so the next stage starts on the next scheduler slice.
         --Capped at one game tick (Jobs.OPS_PER_TICK): a caller with a larger slice would otherwise lose it all
         --here and trip the search allowance (test_search BP-15, 2026-09-24).
-        if state.cursor.phase == "publish_finish" then cost = math.min(available, 200 - spent) end
+        if state.cursor.phase == "publish_finish" then cost = math.min(available, 2000) end
         if not consume(budget, cost) then break end
         -- ops_used records charged work, not state-machine transitions.
         state.ops_used = state.ops_used + math.min(cost, available)
