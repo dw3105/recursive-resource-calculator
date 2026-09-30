@@ -1,7 +1,7 @@
 # 291_power_relay_chain: power joins pole groups by a shortest relay chain when greedy repair gives up
 
 Repo `recursive-resource-calculator`, lane worktree `/home/dev_zaigraev_gmail_com/wt-rrc-291`, branch `lane/291`,
-base tag `round-52-base` (`185231e78ca5612a0c0c16e94db1a662e25c0605`), merge target `int/r52`. Host `legalcopilot-dev`.
+base tag `round-52-wave2-base` (`185231e78ca5612a0c0c16e94db1a662e25c0605`), merge target `int/r52`. Host `legalcopilot-dev`.
 
 This task is complete in itself. It names no other lane and no other branch.
 
