@@ -111,7 +111,9 @@ H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function
   end
   local begin=Pack.begin
   Pack.begin=function(input)
-   local packed=begin(input); dirs=packed.blocks[1].allowed_dirs; block_mirror=packed.blocks[1].mirror_variant; return packed
+   local block=input.blocks[1]; block.allowed_dirs={input.drawing.turn_of[block.block_id]}
+   dirs=block.allowed_dirs; block_mirror=block.mirror_variant
+   return begin(input)
   end
   return D.finish(Search,Search.begin(D.input()))
  end)
