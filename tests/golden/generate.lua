@@ -484,6 +484,14 @@ local ok, result_or_error = xpcall(function()
     local prepared = input_path and JSON.decode(read_file(input_path)) or {}
     if type(prepared) ~= "table" then error("prepared input must be an object") end
     if type(prepared.prepared_input) == "table" then prepared = prepared.prepared_input end
+    if type(prepared.catalog) == "table" and prepared.catalog.material == nil then
+        local MaterialCost = require("logic.bp.material_cost")
+        local fixture = ROOT .. "/tests/fixtures/material_cost_2.1.txt"
+        local file = io.open(fixture, "r")
+        if not file then fixture = ROOT .. "/tests/fixtures/material_cost_2.0.txt"; file = assert(io.open(fixture, "r")) end
+        local text = file:read("*a"); file:close()
+        prepared.catalog.material = MaterialCost.parse_fixture(text)
+    end
 
     local input_digest = input_path and sha256(read_file(input_path)) or nil
     local plan, plan_error = captured_plan(prepared, input_digest)
