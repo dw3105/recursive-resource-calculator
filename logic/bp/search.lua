@@ -1487,7 +1487,12 @@ local function layered_fallback(state)
     if not pack_layered(state) or state.incumbent then return false end
     --Drawn pack (RRC_PACK=sugiyama) falls back to today's layered pack first, never straight to MaxRects: magenta
     --drawn ended BP_FAIL_NO_LAYOUT through the MaxRects fallback while layered delivers it (round 51, 2026-09-30).
-    if Pack.mode == "sugiyama" and not state.work.drawn_off then
+    --Round 53 integration: the drawing picks each Block's Turn from ports and Material cost, but knows nothing of belt
+    --lanes; a hard drawn Turn sent red-1s input items onto one lane (BP_V_LANE_MIX x4) and fell back. Retry the drawn
+    --pack once with every Turn allowed (drawn Turn preferred) before the layered Fallback.
+    if Pack.mode == "sugiyama" and not state.work.drawn_off and not state.work.drawn_soft then
+        state.work.drawn_soft = true
+    elseif Pack.mode == "sugiyama" and not state.work.drawn_off then
         state.work.drawn_off = true
         state.work.fell_back = true
     else
@@ -1495,6 +1500,9 @@ local function layered_fallback(state)
     end
     state.work.attempt, state.work.grid_trials = 0, 0
     state.work.grid_limit_hit, state.work.power_bound_hit = false, nil
+    --Round 53 integration: edge terminal splits learnt from another pack mode's route are not this mode's; red-1s-bulk
+    --layered Fallback inherited the drawn attempts' splits and failed BP_V_SOURCE_DUPLICATE x4 (layered alone passes).
+    state.work.edge_split_flows = nil
     state.cursor.grid_index = 1
     return start_grid(state)
 end
@@ -1832,7 +1840,8 @@ function Search.step(container, budget)
                     state.work.pack = Pack.begin({area=grid_area(state.work.grid,state.work.input), obstacles=obstacles,
                         zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
                         blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
-                        mode="sugiyama", drawing=drawing, input_edge=(state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"})
+                        mode="sugiyama", drawing=drawing, soft_dirs=state.work.drawn_soft == true,
+                        input_edge=(state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"})
                     set_phase(state,"pack")
                 end
             end
@@ -2063,7 +2072,8 @@ function Search.step(container, budget)
                     if state.work.draw and state.work.draw.result then
                         local drawing=state.work.draw.result
                         state.result.search.draw={crossings=drawing.crossings,score=drawing.score,ug_pred=drawing.ug_pred,
-                            dir_overrides=state.work.pack and state.work.pack.counters and state.work.pack.counters.dir_overrides or 0}
+                            dir_overrides=state.work.pack and state.work.pack.counters and state.work.pack.counters.dir_overrides or 0,
+                            soft_retry=state.work.drawn_soft == true}
                     end
                     state.result.chosen_score = copy(diagnostics.chosen_score)
                     state.result.discarded_alternatives = copy(diagnostics.discarded_alternatives)

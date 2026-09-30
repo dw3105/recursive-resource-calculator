@@ -1,4 +1,4 @@
--- TB1-TB5 red on round-52-base (2026-09-30).
+-- TB1-TB5 red on round-52-base (2026-09-30). TB6-TB7 integrator round 53 (2026-09-30), red on round-53-base.
 local H = require "tests.harness"
 local Grid = require "logic.bp.grid"
 local Groups = require "logic.bp.groups"
@@ -80,5 +80,30 @@ H.test("TB5 RunDir overlap uses a turned partner's rotated footprint", function(
     local got = choose({row, consumer, blocker}, {rowp, {x = 2, y = 11, dir = 0}, {x = 8, y = 9, dir = 4}})
     H.equal(got.ports[1].attach_dx, 5, "turned blocker covers the reversed approach")
     print("TB5")
+end)
+
+--TB6: red-1s-bulk drawn (Turn 12) hopped inserters off their ports (pickup on a pole / empty ground). Turned-Block
+--ports hop no more; slides stay (TB2).
+H.test("TB6 turned ports get no hop options", function()
+    local b=block(); local m=Groups.materialize(b,{x=10,y=10,dir=12})
+    Hands.offer_slides(m,Grid.new(40,40))
+    H.equal(m.ports[1].hop_options,nil)
+    print("TB6")
+end)
+
+--TB7: red-1s-foundry drawn parked an inserter on a fluid port tile (no entity there until route lays the pipe).
+H.test("TB7 a fluid port tile is never a slide target", function()
+    local b=block(); local m=Groups.materialize(b,{x=10,y=10,dir=0})
+    Hands.offer_slides(m,Grid.new(40,40))
+    local opts=m.ports[1].slide_options; H.equal(type(opts),"table")
+    local hx,hy=m.ports[1].hand_x,m.ports[1].hand_y
+    local tx,ty=hx+opts[1].dx,hy+opts[1].dy
+    local m2=Groups.materialize(block(),{x=10,y=10,dir=0})
+    m2.ports[#m2.ports+1]={port_id="fluid",kind="fluid",role="out",x=tx,y=ty,attach_dx=0,attach_dy=0}
+    Hands.offer_slides(m2,Grid.new(40,40))
+    for _,o in ipairs(m2.ports[1].slide_options or {}) do
+        H.equal(hx+o.dx==tx and hy+o.dy==ty,false,"slide onto the fluid port tile")
+    end
+    print("TB7")
 end)
 H.done("test_turned_block")

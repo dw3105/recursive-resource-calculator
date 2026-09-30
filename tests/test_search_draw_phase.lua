@@ -58,19 +58,22 @@ H.test('SD3 layered mode never enters draw phase',function()
 end)
 --Round 51 integration (magenta drawn ended BP_FAIL_NO_LAYOUT through the MaxRects fallback, 2026-09-30): a rejected
 --drawn candidate falls back to today's layered pack, never straight to MaxRects. Red without drawn_off in search.
-H.test('SD4 rejected drawn candidate falls back to layered, then MaxRects',function()
+--Round 53 integration (2026-09-30): a drawn candidate rejected with the drawn Turn forced (red-1s BP_V_LANE_MIX x4)
+--is packed once more with every Turn allowed (soft) before the layered Fallback. Changed on purpose.
+H.test('SD4 rejected drawn candidate retries soft, then falls back to layered, then MaxRects',function()
  local old=Pack.mode; Pack.mode='sugiyama'
- local seen=D.run({validate_fails=2},function()
+ local seen=D.run({validate_fails=3},function()
   local inner, modes = Pack.begin, {}
-  Pack.begin=function(input) modes[#modes+1]=(input.mode or 'plain')..':'..tostring(input.layered); return inner(input) end
+  Pack.begin=function(input) modes[#modes+1]=(input.mode or 'plain')..':'..tostring(input.layered)..(input.soft_dirs and ':soft' or ''); return inner(input) end
   D.finish(Search,Search.begin(D.input()))
   Pack.begin=inner
   return modes
  end)
  Pack.mode=old
- H.equal(seen[1],'sugiyama:true','first pack is drawn')
- H.equal(seen[2],'plain:true','after the drawn reject: layered, not MaxRects')
- H.equal(seen[3],'plain:false','after the layered reject: MaxRects')
+ H.equal(seen[1],'sugiyama:true','first pack is drawn, drawn Turn forced')
+ H.equal(seen[2],'sugiyama:true:soft','after the first drawn reject: drawn again, any Turn')
+ H.equal(seen[3],'plain:true','after the soft drawn reject: layered, not MaxRects')
+ H.equal(seen[4],'plain:false','after the layered reject: MaxRects')
 end)
 --SD5-SD8 red on base 2026-09-30: drawing received no real orientation feed and search chose orientations after it.
 H.test('SD5 draw nodes receive only buildable Turn and Flip port geometry',function()

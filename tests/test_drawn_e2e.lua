@@ -3,7 +3,9 @@
 --seconds (tools/slow_budget.json fast_cases). Red on round-51-base only if the skeleton path breaks delivery.
 local H = require "tests.harness"
 
-local CASES = {"player-red-science-1s", "player-red-science-1s-foundry", "player-green-science-1s"}
+--red-1s-bulk added by integrator round 53 (2026-09-30): drawn failed BP_FAIL_NO_LAYOUT (turned-Block hops, and
+--the layered Fallback inherited drawn edge splits).
+local CASES = {"player-red-science-1s", "player-red-science-1s-foundry", "player-green-science-1s", "player-red-science-1s-bulk"}
 
 local function run(cmd)
     local p = io.popen(cmd .. " 2>&1")

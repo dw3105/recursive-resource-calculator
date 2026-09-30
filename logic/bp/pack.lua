@@ -744,7 +744,8 @@ local function layered_legal(state, block, x, y, direction, tx, ty)
         for _, tile in ipairs(drawn_dummy_tiles(state)[L] or {}) do
             if x <= tile.x and tile.x < x + w and y <= tile.y and tile.y < y + h then covered = covered + 1 end
         end
-        candidate.link_cost = candidate.link_cost + P * (broken + covered)
+        local preferred = state.soft_dirs and state.drawing.turn_of[id] or nil
+        candidate.link_cost = candidate.link_cost + P * (broken + covered + (preferred ~= nil and direction ~= preferred and 1 or 0))
     end
     --A legal origin also pays for its link cost: twice a port origin keeps a tick near MaxRects' worst.
     return candidate, 2 * PORT_ORIGIN_OPS
@@ -1032,14 +1033,14 @@ function Pack.begin(input)
         buffer_zones = {},
         counters = {origins = 0, evaluated_origins = 0, dir_overrides = 0},
         origin_seen = {}, disable_link_cut = input.disable_link_cut == true,
-        mode = input.mode, drawing = input.drawing, input_edge = input.input_edge,
+        mode = input.mode, drawing = input.drawing, input_edge = input.input_edge, soft_dirs = input.soft_dirs == true,
     }
     rebuild_indexes(state)
     if state.mode == "sugiyama" then
         local pos = {}; for i,b in ipairs(blocks) do
             pos[tostring(b.block_id)] = i
             local turn=state.drawing.turn_of and state.drawing.turn_of[b.block_id]
-            b.allowed_dirs=turn~=nil and {turn} or {0,4,8,12}
+            b.allowed_dirs=(turn~=nil and not input.soft_dirs) and {turn} or {0,4,8,12}
         end
         table.sort(blocks, function(a,b)
             local la,lb=(state.drawing.layer_of or {})[a.block_id],(state.drawing.layer_of or {})[b.block_id]
