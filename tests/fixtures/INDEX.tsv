@@ -140,3 +140,4 @@ tests/fixtures/box_binding_2.1.txt	facts	vanilla	engine Box binding (fluid -> pr
 tests/fixtures/edge_input_magenta_drawn.bp.txt	sheet	player	drawn magenta bytes round 52 (sha 726dfe4b); sheet input enters through an underground at the edge (0,26): lane_sim must not call it dead (test_lane_sim)
 tests/fixtures/power_r10s_drawn_state.lua.gz	algo	player	power stage state, drawn red-10s round 52 (2 pole components, greedy repair gives up; test_power_relay_chain)
 tests/fixtures/power_s1_drawn_state.lua.gz	algo	player	power stage state, drawn inserter-10s-stack1 round 52 (2 pole components; test_power_relay_chain)
+tests/fixtures/bytes_round52.txt	sheet	player	bytes baseline round 52 layered (default): 12 == round 51; red-10s + red-10s-stack1 changed by power relay chain (faster, within Entity tie)
