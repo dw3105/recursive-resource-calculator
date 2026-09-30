@@ -34,4 +34,15 @@ end)
 H.test("DP2 preserves a fed pair",function()
  local w=work(false); prune(w); H.equal(w.segments_by_cell[key(1,0)]~=nil,true); io.write("DP2\n")
 end)
+--DP6 (integrator, 2026-09-30): a pipe-to-ground pair whose entrance no belt walk feeds must stay. Lane 289's rule
+--removed it: 32 BP_V_FLUID_DISCONNECTED and BP_FAIL_NO_LAYOUT on layered inserter-10s (base delivered 356).
+H.test("DP6 keeps a pipe-to-ground pair",function()
+ local w={segments={},segments_by_cell={},entities={},entity_by_segment={},counters={},bindings={},endpoint_by_id={},demands={}}
+ local seg={segment_id="p1",kind="pipe",flow_id="fluid/water",flow_ids={["fluid/water"]=true},underground=true,direction=Grid.EAST,
+  allocations={{flow_id="fluid/water",sink="x",rate_per_second=1}},underground_entry_key=key(1,0),underground_exit_key=key(4,0),
+  underground_entry_x=1,underground_entry_y=0,underground_exit_x=4,underground_exit_y=0}
+ w.segments[1]=seg; w.segments_by_cell[key(1,0)]=seg; w.segments_by_cell[key(4,0)]=seg
+ local e={segment_id="p1"}; w.entities[1]=e; w.entity_by_segment.p1=e
+ prune(w); H.equal(w.segments_by_cell[key(1,0)]~=nil,true,"pipe tunnel kept"); io.write("DP6\n")
+end)
 H.done("test_route_dead_pair")

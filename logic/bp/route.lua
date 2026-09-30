@@ -4230,7 +4230,9 @@ prune_dead_route_segments = function(work)
         local remove = {}
         local splitter_remove = {}
         for _, segment in ipairs(work.segments or {}) do
-            if segment.underground and segment.underground_entry_key
+            --Belt undergrounds only: a pipe-to-ground pair is fed by pressure, not by the belt walk above, and removing
+            --"unfed" pipe tunnels disconnected 32 fluid inputs on inserter-10s (integrator, 2026-09-30).
+            if segment.underground and segment.kind ~= "pipe" and segment.underground_entry_key
                 and not fed[segment.underground_entry_key] and not sources[segment.underground_entry_key] then
                 remove[segment.segment_id] = true
             end
