@@ -744,8 +744,7 @@ local function layered_legal(state, block, x, y, direction, tx, ty)
         for _, tile in ipairs(drawn_dummy_tiles(state)[L] or {}) do
             if x <= tile.x and tile.x < x + w and y <= tile.y and tile.y < y + h then covered = covered + 1 end
         end
-        local preferred = state.drawing.turn_of[id]
-        candidate.link_cost = candidate.link_cost + P * (broken + covered + (preferred ~= nil and direction ~= preferred and 1 or 0))
+        candidate.link_cost = candidate.link_cost + P * (broken + covered)
     end
     --A legal origin also pays for its link cost: twice a port origin keeps a tick near MaxRects' worst.
     return candidate, 2 * PORT_ORIGIN_OPS
@@ -815,6 +814,12 @@ end
 local function start_place(state, block)
     local candidate = state.cursor.best
     if candidate == nil then
+        if state.mode == "sugiyama" and not state.cursor.dir_override then
+            block.allowed_dirs={0,4,8,12}; state.cursor.dir_override=true
+            state.counters.dir_overrides=(state.counters.dir_overrides or 0)+1
+            state.cursor.ring=nil; state.cursor.best=nil
+            return
+        end
         fail(state, "BP_P_NO_FIT", block.block_id)
         return
     end
@@ -917,6 +922,11 @@ end
 
 local function complete_place(state)
     local block = state.pending_place.block
+    if state.cursor.dir_override then
+        state.cursor.dir_override=nil
+        local preferred=state.drawing.turn_of and state.drawing.turn_of[block.block_id]
+        block.allowed_dirs=preferred~=nil and {preferred} or {0,4,8,12}
+    end
     if #state.regions > state.stats.peak_free_regions then
         state.stats.peak_free_regions = #state.regions
     end
@@ -1020,13 +1030,17 @@ function Pack.begin(input)
         stats = {peak_free_regions = #regions, scans = 0},
         port_cells = {},
         buffer_zones = {},
-        counters = {origins = 0, evaluated_origins = 0},
+        counters = {origins = 0, evaluated_origins = 0, dir_overrides = 0},
         origin_seen = {}, disable_link_cut = input.disable_link_cut == true,
         mode = input.mode, drawing = input.drawing, input_edge = input.input_edge,
     }
     rebuild_indexes(state)
     if state.mode == "sugiyama" then
-        local pos = {}; for i,b in ipairs(blocks) do pos[tostring(b.block_id)] = i; b.allowed_dirs = {0,4,8,12} end
+        local pos = {}; for i,b in ipairs(blocks) do
+            pos[tostring(b.block_id)] = i
+            local turn=state.drawing.turn_of and state.drawing.turn_of[b.block_id]
+            b.allowed_dirs=turn~=nil and {turn} or {0,4,8,12}
+        end
         table.sort(blocks, function(a,b)
             local la,lb=(state.drawing.layer_of or {})[a.block_id],(state.drawing.layer_of or {})[b.block_id]
             la,lb=la or math.huge,lb or math.huge

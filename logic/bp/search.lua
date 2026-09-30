@@ -10,7 +10,6 @@
 --no layout exists.
 local Search = {}
 local FlowDraw = require "logic.bp.flow_draw"
-local Orient = require "logic.bp.orient"
 local Belt = require "logic.bp.belt"
 
 local Grid = require "logic.bp.grid"
@@ -1569,16 +1568,8 @@ local function prepare_candidate(state)
     local settings = state.work.input.settings or {}
     local input_edge = settings.input_edge or state.work.input.input_edge or "left"
     if Pack.mode == "sugiyama" and pack_layered(state) and not state.work.drawn_off then
-        local nodes = {}
-        for _, block in ipairs(candidate.blocks or {}) do
-            local ports = {}
-            for _, p in ipairs(block.ports or {}) do ports[#ports+1] = {port_id=p.port_id, role=p.role,
-                attach_dx=p.attach_dx, attach_dy=p.attach_dy, kind=p.kind} end
-            nodes[#nodes+1] = {id=block.id or block.block_id, w=block.w, h=block.h, ports=ports}
-        end
-        state.work.draw = FlowDraw.begin{nodes=nodes, links=state.work.pack_links, input_edge=input_edge,
-            output_edge=settings.output_edge or state.work.input.output_edge or "top", restarts=30, sweeps=8, seed=1}
-        set_phase(state, "draw")
+        state.work.draw_feed = {candidate=copy(candidate), index=1, nodes={}, variants={}}
+        set_phase(state, "draw_feed")
         return true
     end
     state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
@@ -1586,6 +1577,43 @@ local function prepare_candidate(state)
         blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state), input_edge=input_edge})
     set_phase(state, "pack")
     return true
+end
+
+local function drawing_costs(catalog)
+    catalog = catalog or {}
+    local mat = catalog.material or {}
+    local function price(name) return name and mat[name] end
+    local b, p = catalog.belt or {}, catalog.pipe or {}
+    local ub, belt, up, pipe = price(b.underground), price(b.belt), price(p.underground), price(p.pipe)
+    return {ug_pair=ub and ub*2, belt_tile=belt, ptg_pair=up and up*2, pipe_tile=pipe}
+end
+
+local function drawing_node(block, variants)
+    local node={id=block.id or block.block_id,w=block.w,h=block.h,ports={},orients={}}
+    local has_fluid=false
+    for _,port in ipairs(block.ports or {}) do
+        node.ports[#node.ports+1]={port_id=port.port_id,role=port.role,attach_dx=port.attach_dx,attach_dy=port.attach_dy,kind=port.kind}
+        if port.kind=="fluid" or port.is_fluid then has_fluid=true end
+    end
+    for _,mirror in ipairs({0,1}) do
+        local variant=variants[mirror]
+        if variant then
+            for _,turn in ipairs({0,4,8,12}) do
+                local w,h=Grid.rotate_size(variant.w,variant.h,turn)
+                local ports={}
+                for _,port in ipairs(variant.ports or {}) do
+                    local x,y=Grid.rotate_rect(port.attach_dx,port.attach_dy,1,1,variant.w,variant.h,turn)
+                    local side,place
+                    if x<0 then side,place=1,(y+0.5)/h elseif x>=w then side,place=3,(y+0.5)/h
+                    elseif y<0 then side,place=2,(x+0.5)/w else side,place=4,(x+0.5)/w end
+                    ports[port.port_id]={side=side,place=place,kind=(port.kind=="fluid" or port.is_fluid) and "fluid" or "item"}
+                end
+                node.orients[tostring(turn).."|"..tostring(mirror)]={w=w,h=h,ports=ports}
+            end
+        end
+    end
+    if not has_fluid then for key in pairs(node.orients) do if key:sub(-2)=="|1" then node.orients[key]=nil end end end
+    return node
 end
 
 --Route writes off a demand it has no room for as a shortfall. When that demand starts at a map-edge terminal,
@@ -1740,12 +1768,38 @@ function Search.step(container, budget)
                     prepare_candidate(state)
                 end
             end
+        elseif state.phase == "draw_feed" then
+            local feed=state.work.draw_feed
+            local blocks=feed.candidate.blocks or {}
+            if feed.index<=#blocks and finite(budget.ops,0)>0 then
+                local block=blocks[feed.index]; local id=block.id or block.block_id
+                local variants={[0]=block}
+                local fluid=false; for _,p in ipairs(block.ports or {}) do if p.kind=="fluid" or p.is_fluid then fluid=true end end
+                local cache=state.work.groups and state.work.groups.work and state.work.groups.work.reorient_cache
+                local cost=1
+                if fluid then
+                    local key=tostring(id).."|0|true"
+                    if cache and cache[key]~=nil then cost=1 else cost=REORIENT_OPS end
+                    variants[1]=Groups.reorient(state.work.groups,block,{dir=0,mirror=true})
+                end
+                feed.variants[tostring(id)]=variants
+                feed.nodes[#feed.nodes+1]=drawing_node(block,variants)
+                feed.index=feed.index+1; budget.ops=finite(budget.ops,0)-cost; state.ops_used=state.ops_used+cost
+            else
+                state.ops_used=state.ops_used+math.max(0,finite(budget.ops,0)); budget.ops=0
+            end
+            if feed.index>#blocks then
+                state.work.candidate=feed.candidate
+                state.work.draw_variants=feed.variants
+                state.work.draw=FlowDraw.begin{nodes=feed.nodes,links=state.work.pack_links,input_edge=(state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left",
+                    output_edge=(state.work.input.settings or {}).output_edge or state.work.input.output_edge or "top",costs=drawing_costs(state.work.input.catalog),restarts=30,sweeps=8,seed=1}
+                state.work.draw_feed=nil; set_phase(state,"draw")
+            end
         elseif state.phase == "draw" then
             if not stage_done(state.work.draw) then run_stage(state, "draw", FlowDraw, budget) end
             if stage_done(state.work.draw) then
                 local drawing = state.work.draw.result or {}
-                --Round 51 integration: one Block rebuild costs up to 580 ms (magenta); rebuilding every Block in one tick
-                --made a 1390 ms tick. Reorient one Block per step, charged REORIENT_OPS on a cache miss, and resume.
+                --Apply the chosen Flip from the variants used to build the drawing. The Block Turn is placement-only.
                 local orient_state = state.work.orient_state
                 if not orient_state then
                     orient_state = {candidate = copy(state.work.candidate), index = 1}
@@ -1755,39 +1809,14 @@ function Search.step(container, budget)
                     budget.ops = 0
                 end
                 local candidate = orient_state.candidate
-                local input_edge = (state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"
-                local flow_dir = ({left=4,right=12,top=8,bottom=0})[input_edge] or 4
-                local towards = (flow_dir + 8) % 16
-                local across = (input_edge == "left" or input_edge == "right") and 8 or 4
                 while orient_state.index <= #(candidate.blocks or {}) and finite(budget.ops, 0) > 0 do
                     local block = candidate.blocks[orient_state.index]
                     orient_state.index = orient_state.index + 1
                     local id = block.id or block.block_id
-                    local partners = {}
-                    for _, p in ipairs(block.ports or {}) do if p.kind == "fluid" then
-                        for _, link in ipairs(state.work.pack_links) do
-                            local own = link.a.block_id == id and link.a or (link.b.block_id == id and link.b)
-                            if own and own.port_id == p.port_id then
-                                local other = own == link.a and link.b or link.a
-                                local dir = towards
-                                if other.edge then dir = ({left=12,right=4,top=0,bottom=8})[other.edge] or towards
-                                elseif other.block_id then
-                                    local ml, ol = drawing.layer_of[id] or 1, drawing.layer_of[other.block_id] or 1
-                                    if ml == ol then dir = drawing.rank_of[id] < drawing.rank_of[other.block_id] and across or ((across + 8) % 16)
-                                    else dir = (ml > ol) and towards or flow_dir end
-                                end
-                                partners[p.port_id] = dir
-                            end
-                        end
-                    end end
-                    local o = Orient.choose{block=block, catalog=state.work.input.catalog,
-                        turn=drawing.turn_of and drawing.turn_of[id], partner_dir=partners}
-                    local cache = state.work.groups and state.work.groups.work and state.work.groups.work.reorient_cache
-                    local key = tostring(block.id) .. "|" .. tostring(o.dir or 0) .. "|" .. tostring(o.mirror == true)
-                    local hit = ((o.dir or 0) == 0 and not o.mirror) or (cache ~= nil and cache[key] ~= nil)
-                    local nb = Groups.reorient(state.work.groups, block, o)
-                    if nb then candidate.blocks[orient_state.index - 1] = nb end
-                    local cost = hit and 1 or REORIENT_OPS
+                    local mirror=drawing.mirror_of and drawing.mirror_of[id] or 0
+                    local nb=(state.work.draw_variants[tostring(id)] or {})[mirror]
+                    if nb then candidate.blocks[orient_state.index-1]=nb end
+                    local cost=1
                     budget.ops = finite(budget.ops, 0) - cost
                     state.ops_used = state.ops_used + cost
                 end
@@ -1801,7 +1830,7 @@ function Search.step(container, budget)
                     state.work.pack = Pack.begin({area=grid_area(state.work.grid,state.work.input), obstacles=obstacles,
                         zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
                         blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
-                        mode="sugiyama", drawing=drawing, input_edge=input_edge})
+                        mode="sugiyama", drawing=drawing, input_edge=(state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"})
                     set_phase(state,"pack")
                 end
             end
@@ -2029,6 +2058,11 @@ function Search.step(container, budget)
                     --chosen and which alternatives were rejected, outscored or left beyond a declared bound.
                     state.result.search = diagnostics
                     state.result.search.fell_back = state.work.fell_back == true
+                    if state.work.draw and state.work.draw.result then
+                        local drawing=state.work.draw.result
+                        state.result.search.draw={crossings=drawing.crossings,score=drawing.score,ug_pred=drawing.ug_pred,
+                            dir_overrides=state.work.pack and state.work.pack.counters and state.work.pack.counters.dir_overrides or 0}
+                    end
                     state.result.chosen_score = copy(diagnostics.chosen_score)
                     state.result.discarded_alternatives = copy(diagnostics.discarded_alternatives)
                     state.done, state.ok = true, true
