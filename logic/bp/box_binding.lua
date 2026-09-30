@@ -26,6 +26,17 @@ local function is_fluid_recipe(recipe)
     return false
 end
 
+--Record fluid -> prototype box; entry.box = lowest index, entry.boxes = every bound index, ascending.
+function BoxBinding._add(bindings, fluid, index, role)
+    local entry = bindings[fluid]
+    if not entry then entry = {box = index, boxes = {}, role = role}; bindings[fluid] = entry end
+    for _, known in ipairs(entry.boxes) do if known == index then return entry end end
+    entry.boxes[#entry.boxes + 1] = index
+    table.sort(entry.boxes)
+    entry.box = entry.boxes[1]
+    return entry
+end
+
 function BoxBinding.probe(surface, machine_proto, recipe_proto)
     if not surface or not machine_proto or not recipe_proto then return {} end
     local machine_name, recipe_name = name_of(machine_proto), name_of(recipe_proto)
@@ -56,10 +67,17 @@ function BoxBinding.probe(surface, machine_proto, recipe_proto)
         end
         local fluid = fluid_name(filter)
         if fluid then
-            local index = safe(function() return box_proto.index end) or safe(function() return boxes[i].index end) or i
-            local role = safe(function() return box_proto.production_type end) or safe(function() return boxes[i].production_type end)
-            if role ~= "input" and role ~= "output" then role = "input" end
-            if not result[fluid] or index < result[fluid].box then result[fluid] = {box = index, role = role} end
+            --A runtime box may merge several prototype boxes (foundry casting-iron: one fluid, conns=2, headless
+            --2.0.77 + 2.1.20, 2026-09-30); get_prototype then returns an ARRAY. Keep every prototype index.
+            local protos = box_proto
+            if type(protos) == "table" and protos.index == nil and protos[1] ~= nil then protos = protos
+            else protos = {box_proto} end
+            for _, proto in ipairs(protos) do
+                local index = safe(function() return proto.index end) or safe(function() return boxes[i].index end) or i
+                local role = safe(function() return proto.production_type end) or safe(function() return boxes[i].production_type end)
+                if role ~= "input" and role ~= "output" and role ~= "input-output" then role = "input" end
+                BoxBinding._add(result, fluid, index, role)
+            end
         end
     end
     safe(function() entity.destroy() end)
@@ -98,7 +116,15 @@ function BoxBinding.box_for(catalog, machine_name, recipe_name, fluid_name_value
     local recipe = catalog and catalog.recipe and catalog.recipe[recipe_name]
     local machine = recipe and recipe.fluid_boxes and recipe.fluid_boxes[machine_name]
     local entry = machine and machine[fluid_name_value]
-    if entry and (role == nil or entry.role == role) then return entry.box end
+    if entry and (role == nil or entry.role == role or entry.role == "input-output") then return entry.box end
+end
+
+--Every prototype box the engine binds the fluid to (a merged runtime box spans several), or nil when unknown.
+function BoxBinding.boxes_for(catalog, machine_name, recipe_name, fluid_name_value, role)
+    local recipe = catalog and catalog.recipe and catalog.recipe[recipe_name]
+    local machine = recipe and recipe.fluid_boxes and recipe.fluid_boxes[machine_name]
+    local entry = machine and machine[fluid_name_value]
+    if entry and (role == nil or entry.role == role or entry.role == "input-output") then return entry.boxes or {entry.box} end
 end
 
 function BoxBinding.parse_fixture(text)
@@ -108,11 +134,7 @@ function BoxBinding.parse_fixture(text)
         if machine then
             result.recipe[recipe] = result.recipe[recipe] or {fluid_boxes = {}}
             result.recipe[recipe].fluid_boxes[machine] = result.recipe[recipe].fluid_boxes[machine] or {}
-            local bindings = result.recipe[recipe].fluid_boxes[machine]
-            local previous = bindings[fluid]
-            if not previous or tonumber(box) < previous.box then
-                bindings[fluid] = {box = tonumber(box), role = role}
-            end
+            BoxBinding._add(result.recipe[recipe].fluid_boxes[machine], fluid, tonumber(box), role)
             count = count + 1
         end
     end

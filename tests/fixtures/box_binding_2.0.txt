@@ -1,14 +1,19 @@
 # Box binding fixture, engine measured 2026-09-30
 # version 2.0
+# Seed (integrator 2026-09-30): every connection of each filtered runtime box in flip_filters_2.0.txt mapped to
+# its prototype box via flip_fluidboxes_2.0.txt dir=0 mirror=false CONN rows; a merged runtime box yields several lines.
 BIND foundry recipe=casting-iron fluid=molten-iron role=input box=1
+BIND foundry recipe=casting-iron fluid=molten-iron role=input box=2
 BIND foundry recipe=casting-low-density-structure fluid=molten-iron role=input box=1
 BIND foundry recipe=casting-low-density-structure fluid=molten-copper role=input box=2
 BIND chemical-plant recipe=heavy-oil-cracking fluid=water role=input box=1
 BIND chemical-plant recipe=heavy-oil-cracking fluid=heavy-oil role=input box=2
 BIND chemical-plant recipe=heavy-oil-cracking fluid=light-oil role=output box=3
 BIND chemical-plant recipe=sulfuric-acid fluid=water role=input box=1
+BIND chemical-plant recipe=sulfuric-acid fluid=water role=input box=2
 BIND chemical-plant recipe=sulfuric-acid fluid=sulfuric-acid role=output box=3
 BIND chemical-plant recipe=lubricant fluid=heavy-oil role=input box=1
+BIND chemical-plant recipe=lubricant fluid=heavy-oil role=input box=2
 BIND chemical-plant recipe=lubricant fluid=lubricant role=output box=3
 BIND oil-refinery recipe=basic-oil-processing fluid=crude-oil role=input box=2
 BIND oil-refinery recipe=basic-oil-processing fluid=petroleum-gas role=output box=5
@@ -25,6 +30,6 @@ BIND oil-refinery recipe=coal-liquefaction fluid=petroleum-gas role=output box=5
 BIND cryogenic-plant recipe=fluoroketone fluid=fluorine role=input box=1
 BIND cryogenic-plant recipe=fluoroketone fluid=ammonia role=input box=2
 BIND cryogenic-plant recipe=fluoroketone fluid=fluoroketone-hot role=output box=3
-BIND electromagnetic-plant recipe=electrolyte fluid=heavy-oil role=input box=1
-BIND electromagnetic-plant recipe=electrolyte fluid=holmium-solution role=input box=2
-BIND electromagnetic-plant recipe=electrolyte fluid=electrolyte role=input box=3
+BIND electromagnetic-plant recipe=electrolyte fluid=heavy-oil role=input-output box=1
+BIND electromagnetic-plant recipe=electrolyte fluid=holmium-solution role=input-output box=2
+BIND electromagnetic-plant recipe=electrolyte fluid=electrolyte role=input-output box=3

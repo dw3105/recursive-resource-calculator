@@ -18,6 +18,7 @@
 local Groups = {}
 local Belt = require "logic.bp.belt"
 
+local BoxBinding = require "logic.bp.box_binding"
 local Grid = require "logic.bp.grid"
 local Geometry = require "logic.bp.geometry"
 local Flags = require "logic.bp.flags"
@@ -121,6 +122,14 @@ local function fluid_connection(catalog, step, entry, role)
     local wanted_box = entry.fluidbox_index or entry.box_index
     local wanted_connection = entry.connection_index or entry.pipe_connection_index
     local preferred = role == "input" and "input" or "output"
+    --Box binding (CONTEXT.md, round 52): the engine's own fluid -> box choice wins over the recipe-order guess
+    --(oil-refinery basic-oil-processing: crude binds prototype box 2 at (1,2), the guess put the pipe at (-1,2)).
+    if wanted_box == nil then
+        local fluid = entry.name or entry.full_name or entry.flow_id
+        if type(fluid) == "string" then fluid = fluid:gsub("^fluid/", "") end
+        local bound = BoxBinding.boxes_for(catalog, step.machine, step.recipe or step.recipe_name, fluid, preferred)
+        if bound and bound[1] then wanted_box = bound[1] end
+    end
     if wanted_box == nil then
         local recipe = catalog and catalog.recipe and catalog.recipe[step.recipe or step.recipe_name or ""]
         local list = recipe and (role == "input" and recipe.ingredients or (recipe.results or recipe.products)) or {}

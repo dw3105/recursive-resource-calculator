@@ -9,6 +9,7 @@
 --  state.errors = {{code = "BP_V_...", ids = {string}, detail = table}}
 local Validate = {}
 
+local BoxBinding = require "logic.bp.box_binding"
 local Grid = require "logic.bp.grid"
 --The world-box conversion is shared with the planner, so the two can never drift apart again.
 local Geometry = require "logic.bp.geometry"
@@ -2105,7 +2106,19 @@ local function fluid_connection_cells(machine, entry, role, work)
     local result = {}
     local wanted_box = entry and (entry.fluidbox_index or entry.box_index)
     local wanted_connection = entry and (entry.connection_index or entry.pipe_connection_index)
-    if wanted_box == nil and role == "input" then
+    --Box binding (CONTEXT.md, round 52): when the engine's own fluid -> box choice is known (runtime probe or test
+    --fixture), pin exactly those prototype boxes, input and output; a merged runtime box spans several.
+    local bound
+    if wanted_box == nil and machine.entity then
+        local fluid = entry and (entry.name or entry.full_name or entry.flow_id)
+        if type(fluid) == "string" then fluid = fluid:gsub("^fluid/", "") end
+        local list = BoxBinding.boxes_for(work and work.catalog, machine.entity.name, machine.entity.recipe, fluid, role)
+        if list and #list > 0 then
+            bound = {}
+            for _, index in ipairs(list) do bound[index] = true end
+        end
+    end
+    if wanted_box == nil and bound == nil and role == "input" then
         local recipe_name = machine.entity and machine.entity.recipe
         local recipe = work and work.catalog and work.catalog.recipe and work.catalog.recipe[recipe_name]
         local recipe_list = recipe and (role == "input" and recipe.ingredients or recipe.results or recipe.products) or nil
@@ -2153,7 +2166,10 @@ local function fluid_connection_cells(machine, entry, role, work)
     local dir = entity_direction(machine) or Grid.NORTH
     for box_index, box in ipairs(boxes) do
         local production = box.production_type or box.type or box.role
-        if (wanted_box == nil or wanted_box == box.index or wanted_box == box_index)
+        local box_wanted
+        if bound then box_wanted = bound[box.index or box_index] == true
+        else box_wanted = wanted_box == nil or wanted_box == box.index or wanted_box == box_index end
+        if box_wanted
             and (production == nil or production == role or (role == "input" and production == "input")
                 or (role == "output" and production == "output")) then
             local connections = box.pipe_connections or box.connections or {}
@@ -2478,7 +2494,9 @@ local function check_physical_transfers(work, machine_index, final)
                     if not reached then
                         --A disconnected recipe connection is the primary fluid defect; its feed network is
                         --not separately wasteful just because the missing box binding prevents a witness.
-                        if machine.entity.mirror then
+                        local fluid_name = type(flow_id) == "string" and flow_id:gsub("^fluid/", "") or flow_id
+                        if machine.entity.mirror or BoxBinding.boxes_for(work.catalog, machine.entity.name,
+                            machine.entity.recipe, fluid_name, "input") then
                             for _, info in ipairs(work.infos) do
                                 if transport_kind(info) == "pipe" and flow_detail_id(info) == flow_id then mark_used(info, flow_id) end
                             end
