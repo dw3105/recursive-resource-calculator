@@ -206,7 +206,8 @@ function Grid.fluid_connection(connection, dir, mirror)
     if type(connection.positions) == "table" then position = connection.positions[1] or position end
     if type(position) ~= "table" then return nil end
     local x, y = position.x, position.y
-    local facing = connection.direction or connection.dir or Grid.NORTH
+    local facing = connection.direction or connection.dir or connection.connection_dir
+        or connection.connection_direction or Grid.NORTH
     if type(x) ~= "number" or type(y) ~= "number" then return nil end
     if mirror then
         x = -x
