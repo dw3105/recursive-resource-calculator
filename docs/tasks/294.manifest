@@ -1,0 +1,14 @@
+# bound: 5400s
+logic/bp/material_cost.lua
+logic/catalog.lua
+tests/golden/generate.lua
+tools/material_score.py
+tools/material_seed.py
+tests/test_material_cost.lua
+tests/test_material_score.py
+tests/game/test_material_cost.lua
+tests/game/index.lua
+tests/fixtures/material_cost_2.0.txt
+tests/fixtures/material_cost_2.1.txt
+tests/fixtures/INDEX.tsv
+docs/tasks/294_material_cost.md

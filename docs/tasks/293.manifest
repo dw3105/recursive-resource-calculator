@@ -1,0 +1,7 @@
+# bound: 5400s
+logic/bp/search.lua
+logic/bp/pack.lua
+tools/sheet_verdict.sh
+tests/test_search_draw_phase.lua
+tests/test_pack_drawn.lua
+docs/tasks/293_draw_feed.md
