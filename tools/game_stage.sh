@@ -46,6 +46,25 @@ for c in cases:
 rows = "".join('    {case = "%s", profile = "%s"},\n' % (c, "player" if c.startswith("player-") else "vanilla") for c in cases)
 open(os.path.join(out, "sheets_index.lua"), "w").write("return {\n" + rows + "}\n")
 PY
+# Turn and Flip census sheets: files are exported under <ver>/<case>_<turn>_<flip>.
+python3 - "$ROOT/tests/fixtures/turn_flip_sheets/$FV" "$MOD/tests/game/fixtures" <<'PY'
+import os, sys
+src, out = sys.argv[1:]
+os.makedirs(out, exist_ok=True)
+names = sorted(f[:-7] for f in os.listdir(src) if f.endswith('.bp.txt')) if os.path.isdir(src) else []
+def long(text):
+    level='=='
+    while ']'+level+']' in text: level+='='
+    return '['+level+'['+text+']'+level+']'
+rows=[]
+for c in names:
+    bp=open(os.path.join(src,c+'.bp.txt')).read().strip()
+    ports=open(os.path.join(src,c+'.ports.json')).read()
+    module='turn_flip_'+c.replace('-','_').replace('.','_')
+    open(os.path.join(out,module+'.lua'),'w').write('return {bp = '+long(bp)+', ports = '+long(ports)+'}\n')
+    rows.append('    {case = "%s", data = "tests.game.fixtures.%s", turn = %s, flip = %s},\n' % (c,module,c.rsplit('_',2)[1],c.rsplit('_',2)[2]))
+open(os.path.join(out,'turn_flip_index.lua'),'w').write('return {\n'+''.join(rows)+'}\n')
+PY
 # Engine facts (round 48 I4): compact per-profile catalog facts (path, value; the fixture list stays in the repo),
 # constants and mock members, each as one module.
 python3 - "$ROOT/tests/fixtures/engine_facts" "$MOD/tests/game/fixtures" <<'PY'
