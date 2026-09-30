@@ -12,7 +12,8 @@ local function q(s) return string.format("%q",s) end
 local function read(p) local f=io.open(p,"r"); if not f then return nil end; local s=f:read("*a"); f:close(); return s end
 local function run(cmd) local p=io.popen(cmd.." 2>&1", "r"); local s=p:read("*a"); local ok,why,code=p:close(); return s,ok,(ok and 0 or code or 1) end
 local list = "python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print(d[\"version\"]); [print(k) for k in sorted(d[\"cases\"]) ]' "..q(fixture)
-local p=assert(io.popen(list,"r")); local ver=p:read("*l"); local cases={}; for c in p:lines() do cases[#cases+1]=c end; p:close()
+--Integrator round 54: version 2.0.77 -> 2.0, so rows and the export dir match game_stage.sh $FV.
+local p=assert(io.popen(list,"r")); local ver=p:read("*l"); ver=(ver or ""):match("^(%d+%.%d+)") or ver; local cases={}; for c in p:lines() do cases[#cases+1]=c end; p:close()
 local rows,valid,forbidden,fail=0,0,0,0
 for _,case in ipairs(cases) do if not opts["--case"] or opts["--case"]==case then
  for _,turn in ipairs({0,4,8,12}) do if not opts["--turn"] or tonumber(opts["--turn"])==turn then

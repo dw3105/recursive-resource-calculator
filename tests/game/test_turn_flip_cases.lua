@@ -40,30 +40,48 @@ local function run_case(row, n, found, next_case)
     local player_data = storage[1]
     local product_name = product.name
     local product_type = product.type == "fluid" and "fluid/" or "item/"
-    for key in pairs(player_data.recipes_by_product_full_name) do player_data.recipes_by_product_full_name[key] = nil end
-    for key in pairs(player_data.product_full_names_by_recipe_name) do player_data.product_full_names_by_recipe_name[key] = nil end
-    for key in pairs(player_data.module_setups_by_recipe_name) do player_data.module_setups_by_recipe_name[key] = nil end
+    --Integrator round 54: undo only the previous case's binding (clearing every module setup left the report unable
+    --to build a row: headless 2.0.77 "timed out after 600 ticks: report rows" on the first case).
+    if found.bound then
+        player_data.recipes_by_product_full_name[found.bound.product] = nil
+        player_data.product_full_names_by_recipe_name[found.bound.recipe] = nil
+    end
+    found.bound = {product = product_type .. product_name, recipe = row.recipe}
     S.bind(product_type .. product_name, row.recipe)
     player_data.identifiers_of_chosen_crafting_machines_by_recipe_name[row.recipe] = {name = row.machine, quality = "normal"}
     Settings.store(1, S.sheet_id(sheet), {input_edge = "left", output_edge = "top"})
     fill_target(sheet, product, Cases.target_rate(speed, n))
     S.calculate(sheet)
-    S.wait_until(function() return S.report_rows(sheet) > 0 end, 600, function()
+    local id = row.machine .. "-" .. row.recipe .. "-" .. n
+    --Integrator round 54: report rows left from the previous case satisfy the wait before the new calculation is
+    --current (headless 2.0.77: BP_REJ_SOLVER_NOT_OK "no finished calculation" on case 2). Retry that refusal every
+    --60 ticks, 20 times; any other failure is recorded under `failed` and the probe moves on.
+    local function attempt(left)
         local job_id = assert(Generation.start{player_index = 1, sheet_id = S.sheet_id(sheet), deliver = false})
         S.wait_until(function() return S.generation_state(job_id) ~= "pending" end, 36000, function()
             local state, status = S.generation_state(job_id)
-            assert.are_equal("success", state, "generation " .. row.recipe .. ": " .. serpent.line(status, {maxlevel = 3}))
-            local capture = assert(Generation.capture(1, job_id))
-            found.cases[row.machine .. "-" .. row.recipe .. "-" .. n] = capture
+            if state == "success" then
+                found.cases[id] = assert(Generation.capture(1, job_id))
+                next_case()
+                return
+            end
+            local codes = status and status.reason_codes or {}
+            if codes[1] == "BP_REJ_SOLVER_NOT_OK" and left > 0 then
+                local waited = 0
+                S.wait_until(function() waited = waited + 1; return waited >= 60 end, 120, function() attempt(left - 1) end, "retry wait")
+                return
+            end
+            found.failed[#found.failed + 1] = {id = id, state = state, codes = codes}
             next_case()
         end, "generation terminal")
-    end, "report rows")
+    end
+    S.wait_until(function() return S.report_rows(sheet) > 0 end, 600, function() attempt(20) end, "report rows")
 end
 
 describe("Turn Flip cases", function()
     it("writes prepared inputs for every available contract row", function()
         if RRC_OFFLINE then assert.are_equal(10, #Cases.CASES); return end
-        local found = {version = script.active_mods.base, cases = {}, absent = {}}
+        local found = {version = script.active_mods.base, cases = {}, absent = {}, failed = {}}
         local work = {}
         for _, row in ipairs(Cases.CASES) do
             for _, n in ipairs({1, 4}) do work[#work + 1] = {row = row, n = n} end
@@ -75,6 +93,7 @@ describe("Turn Flip cases", function()
             if entry then
                 run_case(entry.row, entry.n, found, next_case)
             else
+                found.bound = nil
                 helpers.write_file("rrc_turn_flip_cases.json", helpers.table_to_json(found))
             end
         end
