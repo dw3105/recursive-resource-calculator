@@ -32,15 +32,15 @@ H.test("TFC2 target rate stays just below machine capacity", function()
     H.truthy(Cases.target_rate(r, 1) < r); print("TC2")
 end)
 H.test("TFC3 fixture shape", function()
-    local prepared = H.decode_json(read("tests/golden/cases/player-red-science-1s/prepared_input.json"))
+    local prepared = helpers.json_to_table(read("tests/golden/cases/player-red-science-1s/prepared_input.json"))
     prepared.settings.input_edge, prepared.settings.output_edge = "left", "top"
     local fixture = {version = "2.0", cases = { ["machine-recipe-1"] = prepared }}
     H.truthy(Cases.check_fixture(fixture))
     H.falsy(Cases.check_fixture({cases = fixture.cases}))
-    local no_catalog = H.decode_json(read("tests/golden/cases/player-red-science-1s/prepared_input.json"))
+    local no_catalog = helpers.json_to_table(read("tests/golden/cases/player-red-science-1s/prepared_input.json"))
     no_catalog.settings.input_edge, no_catalog.settings.output_edge, no_catalog.catalog = "left", "top", nil
     H.falsy(Cases.check_fixture({version = "2.0", cases = {x = no_catalog}}))
-    local wrong_edges = H.decode_json(read("tests/golden/cases/player-red-science-1s/prepared_input.json"))
+    local wrong_edges = helpers.json_to_table(read("tests/golden/cases/player-red-science-1s/prepared_input.json"))
     wrong_edges.settings.input_edge, wrong_edges.settings.output_edge = "top", "left"
     H.falsy(Cases.check_fixture({version = "2.0", cases = {x = wrong_edges}})); print("TC3")
 end)
