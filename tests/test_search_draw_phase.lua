@@ -78,8 +78,7 @@ H.test('SD5 draw nodes receive only buildable Turn and Flip port geometry',funct
  local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step; local captured
  FlowDraw.begin=function(i) captured=i; return {done=true,ok=true,result={turn_of={fluid=0,item=0},mirror_of={}}} end
  FlowDraw.step=function(s) return s end
- local oldgroups=Groups.step
- Groups.step=function(s,b)
+ local function groupstep(s,b)
   if b.ops>0 then b.ops=b.ops-1; local function block(id,kind,x)
    return {id=id,block_id=id,w=2,h=2,ports={{port_id=id..'p',step_id=id,flow_id=id,role='in',kind=kind,attach_dx=x,attach_dy=0}}}
   end
@@ -87,8 +86,8 @@ H.test('SD5 draw nodes receive only buildable Turn and Flip port geometry',funct
  end
  local oldreorient=Groups.reorient
  Groups.reorient=function(_,b,o) if o.mirror then local c={}; for k,v in pairs(b) do c[k]=v end; c.ports={{port_id=b.ports[1].port_id,role='in',kind='fluid',attach_dx=b.w,attach_dy=0}}; return c end return b end
- local state=D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
- Groups.reorient=oldreorient; Groups.step=oldgroups; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
+ local state=D.run({},function() Groups.step=groupstep; return D.finish(Search,Search.begin(D.input())) end)
+ Groups.reorient=oldreorient; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
  local by={}; for _,n in ipairs(captured.nodes) do by[n.id]=n end
  local nf,ni=0,0; for _ in pairs(by.fluid.orients) do nf=nf+1 end; for _ in pairs(by.item.orients) do ni=ni+1 end
  H.equal(nf,8); H.equal(ni,4); H.equal(by.fluid.orients['0|0'].ports.fluidp.side,1); H.equal(by.fluid.orients['4|0'].ports.fluidp.side,2)
@@ -100,6 +99,7 @@ H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function
  Groups.reorient=function(_,b,o) if o.mirror then mirrored=true; local n={}; for k,v in pairs(b) do n[k]=v end; n.mirror_variant=true; return n end return b end
  local dirs,block_mirror
  local result,log=D.run({},function()
+  Groups.step=function(s,b) if b.ops>0 then b.ops=b.ops-1; s.result={candidates={{id='c',blocks={{id='b',block_id='b',w=2,h=2,ports={{port_id='p',step_id='one',flow_id='f',role='in',kind='fluid',attach_dx=-1,attach_dy=0}}}}}}; s.done,s.ok=true,true end; return s end
   local begin=Pack.begin
   Pack.begin=function(input) dirs=input.blocks[1].allowed_dirs; block_mirror=input.blocks[1].mirror_variant; return begin(input) end
   return D.finish(Search,Search.begin(D.input()))
