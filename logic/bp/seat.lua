@@ -1,5 +1,6 @@
 local Hands = require "logic.bp.hands"
 local Seat = {}
+local function port_tile(port) return port.x or port._world_x, port.y or port._world_y end
 
 local function finite(v, fallback)
     if type(v) == "number" and v == v then return v end
@@ -79,7 +80,8 @@ function Seat.run(materialized, grid, flows, input_edge)
             local inserter_id = tostring(hand.id):gsub("^m:", "")
             for _, port in ipairs(materialized.ports or {}) do
                 if tostring(port.inserter_id) == inserter_id then
-                    used[tostring(port.x) .. ":" .. tostring(port.y)] = true
+                    local x, y = port_tile(port)
+                    used[tostring(x) .. ":" .. tostring(y)] = true
                 end
             end
         end
@@ -87,7 +89,8 @@ function Seat.run(materialized, grid, flows, input_edge)
     for _, item in ipairs(list) do
         local port, hand, machine = item.port, item.hand, item.machine
         local shared = machine_count(port.flow_id) >= 2
-        local options = {{hand_x = hand.x, hand_y = hand.y, port_x = port.x, port_y = port.y,
+        local port_x, port_y = port_tile(port)
+        local options = {{hand_x = hand.x, hand_y = hand.y, port_x = port_x, port_y = port_y,
             turns = 0, stay = true}}
         for _, option in ipairs(port.hop_options) do options[#options + 1] = option end
         local best, best_key

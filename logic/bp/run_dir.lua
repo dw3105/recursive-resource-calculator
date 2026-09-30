@@ -96,8 +96,9 @@ function RunDir.choose(block, placement, all_blocks, all_placements, grid, flows
             else
                 local found = placed_by_id[id]
                 if found then
-                    points[#points + 1] = {x = found.placement.x + found.block.w / 2,
-                        y = found.placement.y + found.block.h / 2}
+                    local w, h = Grid.rotate_size(found.block.w, found.block.h, found.placement.dir or NORTH)
+                    points[#points + 1] = {x = found.placement.x + w / 2,
+                        y = found.placement.y + h / 2}
                 end
             end
         end
@@ -161,8 +162,9 @@ function RunDir.choose(block, placement, all_blocks, all_placements, grid, flows
                                     if role ~= "out" and in_obstacle(tile.x, tile.y) then valid = false end
                                     for _, other in ipairs(all_blocks or {}) do
                                         local op = placed_by_id[other.id or other.block_id]
+                                        local ow, oh = Grid.rotate_size(other.w, other.h, op and op.placement.dir or NORTH)
                                         if op and other ~= block and tile.x >= op.placement.x and tile.y >= op.placement.y
-                                            and tile.x < op.placement.x + other.w and tile.y < op.placement.y + other.h then valid = false end
+                                            and tile.x < op.placement.x + ow and tile.y < op.placement.y + oh then valid = false end
                                     end
                                 end
                             end
