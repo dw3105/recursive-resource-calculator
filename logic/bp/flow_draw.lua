@@ -181,17 +181,18 @@ local function evaluate(g,input)
         score=score+(fluid and costs.pipe_tile or costs.belt_tile)*(da+db)
         e.fluid=fluid
     end
-    for l=0,g.max_layer do local s=g.seg[l] or {}; for i=1,#s do for j=i+1,#s do
-        local a,b=s[i],s[j]
-        do
-            local ax=a.edge.a_port; local bx=a.edge.b_port; local cy=b.edge.a_port; local dy=b.edge.b_port
-            local x1=a.first and select(1,endpoint(a.x,ax,a.y,a.edge)) or g.nodes[a.x].rank+.5
-            local y1=a.last and select(1,endpoint(a.y,bx,a.x,a.edge)) or g.nodes[a.y].rank+.5
-            local x2=b.first and select(1,endpoint(b.x,cy,b.y,b.edge)) or g.nodes[b.x].rank+.5
-            local y2=b.last and select(1,endpoint(b.y,dy,b.x,b.edge)) or g.nodes[b.y].rank+.5
-            if x1~=x2 and y1~=y2 and (x1-x2)*(y1-y2)<0 then cross=cross+1; score=score+((a.edge.fluid or b.edge.fluid) and costs.ptg_pair or costs.ug_pair) end
+    --Round 53 integration: endpoints once per segment (was once per segment PAIR: FD8 graph 2.8 s -> see FD8).
+    local xs,ys={},{}
+    for l=0,g.max_layer do local s=g.seg[l] or {}
+        for i=1,#s do local a=s[i]
+            xs[i]=a.first and (endpoint(a.x,a.edge.a_port,a.y,a.edge)) or g.nodes[a.x].rank+.5
+            ys[i]=a.last and (endpoint(a.y,a.edge.b_port,a.x,a.edge)) or g.nodes[a.y].rank+.5
         end
-    end end end
+        for i=1,#s do local x1,y1,fa=xs[i],ys[i],s[i].edge.fluid; for j=i+1,#s do
+            local x2,y2=xs[j],ys[j]
+            if x1~=x2 and y1~=y2 and (x1-x2)*(y1-y2)<0 then cross=cross+1; score=score+((fa or s[j].edge.fluid) and costs.ptg_pair or costs.ug_pair) end
+        end end
+    end
     return score,cross
 end
 
