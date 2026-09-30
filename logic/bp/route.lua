@@ -4183,39 +4183,49 @@ prune_dead_route_segments = function(work)
             if not list then list = {}; cells_of[owner] = list end
             list[#list + 1] = key
         end
-        for _ = 1, #(work.segments or {}) + 1 do
+        --A segment is fed when one of its cells is a route endpoint or receives a fed segment's output; only a fed
+        --segment passes feed on (an underground exit carries only what reaches its entrance: Dead pair, round 52).
+        --One worklist pass: lane 289 repeated a full sweep #segments+1 times, quadratic on ~3,000-segment sheets.
+        local segment_fed, queue = {}, {}
+        local function feed_segment(segment)
+            if segment and not segment_fed[segment] then segment_fed[segment] = true; queue[#queue + 1] = segment end
+        end
+        local function feed_key(key)
+            if fed[key] then return end
+            fed[key] = true
+            feed_segment((work.segments_by_cell or {})[key])
+        end
         for _, segment in ipairs(work.segments or {}) do
-            local segment_fed = false
             for _, key in ipairs(cells_of[segment] or {}) do
-                if sources[key] or fed[key] then segment_fed = true; break end
+                if sources[key] then feed_segment(segment); break end
             end
-            if segment.underground then
-                --An underground exit only carries feed that reaches its entrance. Otherwise it
-                --incorrectly makes both itself and the belts after it look live.
-                if segment_fed and segment.underground_entry_key and segment.underground_exit_key then fed[segment.underground_exit_key] = true end
-                if segment_fed and segment.underground_exit_key then
-                    local dx,dy=Grid.dir_vector(segment.direction)
-                    if dx then fed[coordinate_key(segment.underground_exit_x+dx,segment.underground_exit_y+dy)] = true end
-                end
-            elseif segment.splitter then
+            if segment.splitter then
                 local dx,dy=Grid.dir_vector(segment.splitter_direction)
                 local sx,sy=coordinate_from_key(segment.splitter_second_key or "")
                 if dx and sx then
-                    fed[coordinate_key(segment.splitter_anchor_x+dx,segment.splitter_anchor_y+dy)] = true
-                    fed[coordinate_key(sx+dx,sy+dy)] = true
-                end
-            elseif segment.kind == "belt" then
-                local dx,dy=Grid.dir_vector(segment.direction)
-                if dx then
-                    for _, key in ipairs(cells_of[segment] or {}) do
-                        if segment_fed then
-                        local x,y=coordinate_from_key(key)
-                        fed[coordinate_key(x+dx,y+dy)] = true
-                        end
-                    end
+                    feed_key(coordinate_key(segment.splitter_anchor_x+dx,segment.splitter_anchor_y+dy))
+                    feed_key(coordinate_key(sx+dx,sy+dy))
                 end
             end
         end
+        local head = 1
+        while queue[head] do
+            local segment = queue[head]; head = head + 1
+            if segment.underground then
+                if segment.underground_entry_key and segment.underground_exit_key then feed_key(segment.underground_exit_key) end
+                if segment.underground_exit_key then
+                    local dx,dy=Grid.dir_vector(segment.direction)
+                    if dx then feed_key(coordinate_key(segment.underground_exit_x+dx,segment.underground_exit_y+dy)) end
+                end
+            elseif not segment.splitter and segment.kind == "belt" then
+                local dx,dy=Grid.dir_vector(segment.direction)
+                if dx then
+                    for _, key in ipairs(cells_of[segment] or {}) do
+                        local x,y=coordinate_from_key(key)
+                        feed_key(coordinate_key(x+dx,y+dy))
+                    end
+                end
+            end
         end
         local remove = {}
         local splitter_remove = {}
