@@ -9,7 +9,10 @@ case_id=${1:?case id}; out=${2:?outdir}
 input=tests/golden/cases/$case_id/prepared_input.json
 mkdir -p "$out"
 t0=$(date +%s)
-lua5.2 tests/golden/generate.lua --input "$input" --output "$out/$case_id.r.json" >"$out/$case_id.log" 2>&1
+# REUSE=1 scores an existing <outdir>/<case>.r.json (a long sheet generated separately under its own slot).
+if [ "${REUSE:-}" != 1 ] || [ ! -f "$out/$case_id.r.json" ]; then
+  lua5.2 tests/golden/generate.lua --input "$input" --output "$out/$case_id.r.json" >"$out/$case_id.log" 2>&1
+fi
 t1=$(date +%s)
 mode=${RRC_PACK:-layered}
 if ! python3 tools/blueprint_string.py "$out/$case_id.r.json" -o "$out/$case_id.bp.txt" >/dev/null 2>&1; then
