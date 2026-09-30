@@ -102,8 +102,9 @@ H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function
   Groups.step=function(s,b)
    if b.ops>0 then
     b.ops=b.ops-1
-    s.result={candidates={{id='c',blocks={{id='b',block_id='b',w=2,h=2,
-     ports={{port_id='p',step_id='one',flow_id='f',role='in',kind='fluid',attach_dx=-1,attach_dy=0}}}}}}
+    local port={port_id='p',step_id='one',flow_id='f',role='in',kind='fluid',attach_dx=-1,attach_dy=0}
+    local block={id='b',block_id='b',w=2,h=2,ports={port}}
+    s.result={candidates={{id='c',blocks={block}}}
     s.done,s.ok=true,true
    end
    return s
