@@ -98,9 +98,14 @@ H.test('SD6 applies the drawing Flip and passes its Turn to drawn pack',function
  FlowDraw.begin=function() return {done=true,ok=true,result={turn_of={b=8},mirror_of={b=1}}} end; FlowDraw.step=function(s) return s end
  local oldreorient=Groups.reorient; local mirrored
  Groups.reorient=function(_,b,o) if o.mirror then mirrored=true; local n={}; for k,v in pairs(b) do n[k]=v end; n.mirror_variant=true; return n end return b end
- local result,log=D.run({},function() return D.finish(Search,Search.begin(D.input())) end)
+ local dirs,block_mirror
+ local result,log=D.run({},function()
+  local begin=Pack.begin
+  Pack.begin=function(input) dirs=input.blocks[1].allowed_dirs; block_mirror=input.blocks[1].mirror_variant; return begin(input) end
+  return D.finish(Search,Search.begin(D.input()))
+ end)
  Groups.reorient=oldreorient; FlowDraw.begin=oldbegin; FlowDraw.step=oldstep; Pack.mode=old
- H.equal(mirrored,true); H.equal(log.pack[1].links~=nil,true); H.equal(result.ok,true)
+ H.equal(mirrored,true); H.equal(block_mirror,true); H.deep_equal(dirs,{8}); H.equal(log.pack[1].links~=nil,true); H.equal(result.ok,true)
 end)
 H.test('SD7 drawn diagnostics export scoring and pack override counters',function()
  local old=Pack.mode; Pack.mode='sugiyama'; local oldbegin,oldstep=FlowDraw.begin,FlowDraw.step
