@@ -1,4 +1,4 @@
--- TB1-TB5 red on round-52-base (2026-09-30). TB6-TB7 integrator round 53 (2026-09-30), red on round-53-base.
+-- TB1-TB5 red on round-52-base (2026-09-30). TB7 integrator round 53 (2026-09-30), red on round-53-base. TB6 (turned ports never hop) left with lanes 292/293: it broke drawn magenta (fell back, 661 s vs 98 s).
 local H = require "tests.harness"
 local Grid = require "logic.bp.grid"
 local Groups = require "logic.bp.groups"
@@ -80,15 +80,6 @@ H.test("TB5 RunDir overlap uses a turned partner's rotated footprint", function(
     local got = choose({row, consumer, blocker}, {rowp, {x = 2, y = 11, dir = 0}, {x = 8, y = 9, dir = 4}})
     H.equal(got.ports[1].attach_dx, 5, "turned blocker covers the reversed approach")
     print("TB5")
-end)
-
---TB6: red-1s-bulk drawn (Turn 12) hopped inserters off their ports (pickup on a pole / empty ground). Turned-Block
---ports hop no more; slides stay (TB2).
-H.test("TB6 turned ports get no hop options", function()
-    local b=block(); local m=Groups.materialize(b,{x=10,y=10,dir=12})
-    Hands.offer_slides(m,Grid.new(40,40))
-    H.equal(m.ports[1].hop_options,nil)
-    print("TB6")
 end)
 
 --TB7: red-1s-foundry drawn parked an inserter on a fluid port tile (no entity there until route lays the pipe).

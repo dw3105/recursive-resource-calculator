@@ -90,10 +90,7 @@ function Hands.offer_slides(materialized, grid)
         local hand = hand_of(port)
         local machine = hand and by_id[tostring(hand.machine_id)]
         local port_x, port_y = port_tile(port)
-        --Round 53 integration: a hop on a turned Block's port moved the port and its inserter apart (red-1s-bulk drawn,
-        --Turn 12: inserters picked up from a pole and from empty ground at x=0 while their ports sat above and below
-        --the Block). Turned-Block ports hop no more; slides stay.
-        if hand and machine and served[hand] == 1 and not port.row_port and port._place_dir == nil and port_x ~= nil and port_y ~= nil
+        if hand and machine and served[hand] == 1 and not port.row_port and port_x ~= nil and port_y ~= nil
             and hand.x ~= nil and hand.y ~= nil and machine.x ~= nil and port.attach_dx ~= nil
             and finite(hand.w, 1) == 1 and finite(hand.h, 1) == 1 then
             local vx, vy = port_x - hand.x, port_y - hand.y
