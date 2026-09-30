@@ -223,3 +223,6 @@
 | `289` | `rrc/agent` | Dead pair: router prunes unfed underground pair, validator BP_V_UNDERGROUND_DEAD, lane_sim dead= (round 52) | 2026-09-30 |
 | `290` | `rrc/agent` | Box binding: engine fluid -> box per machine x recipe, runtime probe + catalog + fixture (round 52) | 2026-09-30 |
 | `291` | `rrc/agent` | power: repair joins pole components by a shortest relay chain when greedy repair gives up (round 52) |  2026-09-30 |
+| `292` | `rrc/agent` | drawing sees real ports: Source edges, ops left, port-to-port Crossings, Turn+Flip by Material cost (round 53) | 2026-09-30 |
+| `293` | `rrc/agent` | drawn feed + apply: 8 orients per Block, apply drawn turn/mirror, pack drawn dir, export draw fields (round 53) | 2026-09-30 |
+| `294` | `rrc/agent` | Material cost: raw resources per entity from recipes, catalog.material, fixtures, material_score.py (round 53) | 2026-09-30 |
