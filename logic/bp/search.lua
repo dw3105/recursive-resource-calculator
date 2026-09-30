@@ -30,7 +30,7 @@ local Seat = require "logic.bp.seat"
 
 local STRICT_REROUTE_CODES = {
     BP_V_BELT_BLEED = true, BP_V_UNDERGROUND_SIDELOAD_BLOCKED = true, BP_V_ROUTE_DISCONTINUOUS = true,
-    BP_V_ROUTE_LOOP = true, BP_V_BELT_NO_SOURCE = true, BP_V_TRANSPORT_UNUSED = true,
+    BP_V_ROUTE_LOOP = true, BP_V_BELT_NO_SOURCE = true, BP_V_UNDERGROUND_DEAD = true, BP_V_TRANSPORT_UNUSED = true,
 }
 
 
