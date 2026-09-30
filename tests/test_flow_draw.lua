@@ -188,22 +188,39 @@ H.test("FD12 port places determine crossings", function()
     local r=draw(ns,ls,{restarts=1,sweeps=0}); H.equal(r.crossings,0); label("FD12")
 end)
 H.test("FD13 wrong-side port has detour cost", function()
-    local n={id="a",orients={["0|0"]={w=3,h=2,ports={[1]={side=1,place=.5}}}}}
+    local n={id="a",orients={
+        ["0|0"]={w=3,h=2,ports={[1]={side=3,place=.5}}},
+        ["4|0"]={w=2,h=3,ports={[1]={side=1,place=.5}}}}}
     local r=draw({n},{{a={block_id="a",port_id=1},b={edge="x"},flow_id="i",ext="in"}},{restarts=1,sweeps=0})
-    H.equal(r.score>0,true); label("FD13")
+    H.equal(r.score,0); H.equal(r.turn_of.a,4); label("FD13")
 end)
 H.test("FD14 Flip can remove a crossing", function()
-    local n={id="a",orients={["0|0"]={w=2,h=2,ports={}},["0|1"]={w=2,h=2,ports={}}}}
-    local r=draw({n},{},{restarts=1,sweeps=0}); H.equal(r.mirror_of.a==0 or r.mirror_of.a==1,true); label("FD14")
+    local a={id="a",orients={
+        ["0|0"]={w=2,h=2,ports={[1]={side=1,place=.1},[2]={side=1,place=.9}}},
+        ["0|1"]={w=2,h=2,ports={[1]={side=3,place=.9},[2]={side=3,place=.1}}}}}
+    local b={id="b",orients={["0|0"]={w=2,h=2,ports={[1]={side=1,place=.9},[2]={side=1,place=.1}}}}}
+    local r=draw({a,b},{{a={block_id="a",port_id=1},b={block_id="b",port_id=1}},
+        {a={block_id="a",port_id=2},b={block_id="b",port_id=2}}},{restarts=1,sweeps=0})
+    H.equal(r.mirror_of.a,1); H.equal(r.crossings,0); label("FD14")
 end)
 H.test("FD15 custom material costs are applied", function()
-    local r=draw({node("a")},{},{restarts=1,sweeps=0,costs={ug_pair=31,belt_tile=4,ptg_pair=29,pipe_tile=3}})
-    H.equal(type(r.score),"number"); label("FD15")
+    local ns={}
+    for _,id in ipairs({"a","b"}) do ns[#ns+1]={id=id,orients={["0|0"]={w=2,h=2,ports={[1]={side=3,place=.5,kind="fluid"}}}}} end
+    for _,id in ipairs({"x","y"}) do ns[#ns+1]={id=id,orients={["0|0"]={w=2,h=2,ports={[1]={side=1,place=.5,kind="fluid"}}}}} end
+    local ls={link("a","x"),link("a","y"),link("b","x"),link("b","y")}
+    local r=draw(ns,ls,{restarts=1,sweeps=0,costs={ug_pair=31,belt_tile=4,ptg_pair=29,pipe_tile=3}})
+    H.equal(r.crossings>0,true); H.equal(r.score,r.crossings*29); H.equal(r.ug_pred,r.crossings); label("FD15")
 end)
 
 H.test("FD8 sliced 12 Block graph stays within its tick budget", function()
     local ns,ls={},{}
-    for i=1,12 do ns[i]=node("v"..i) end
+    for i=1,12 do
+        local ports={[1]={side=1,place=.5,kind="item"}}; local orients={}
+        for _,k in ipairs({"0|0","4|0","8|0","12|0","0|1","4|1","8|1","12|1"}) do
+            orients[k]={w=3,h=2,ports=ports}
+        end
+        ns[i]={id="v"..i,w=3,h=2,orients=orients}
+    end
     local seed=12345
     for a=1,11 do for b=a+1,12 do
         seed=(seed*1103515245+12345)%2147483648
