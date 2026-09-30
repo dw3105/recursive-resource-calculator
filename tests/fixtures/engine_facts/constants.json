@@ -385,7 +385,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1078,
+  "line": 1079,
   "name": "beacon_size_fallback",
   "probe": {
    "expect": "tile_size",
@@ -397,7 +397,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1526,
+  "line": 1527,
   "name": "long_hand_offset_multiplier",
   "probe": {
    "expect": "offset_distance",
@@ -409,7 +409,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1817,
+  "line": 1847,
   "name": "underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -421,7 +421,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1817,
+  "line": 1847,
   "name": "fast_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -433,7 +433,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1817,
+  "line": 1847,
   "name": "express_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -445,7 +445,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1817,
+  "line": 1847,
   "name": "turbo_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -457,7 +457,7 @@
  },
  {
   "file": "logic/bp/groups.lua",
-  "line": 233,
+  "line": 242,
   "name": "beacon_supply_fallback",
   "probe": {
    "expect": "equal",
@@ -469,7 +469,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 39,
+  "line": 40,
   "name": "INSERTER_RATE_K",
   "probe": {
    "expect": "model",
@@ -482,7 +482,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 42,
+  "line": 43,
   "name": "BELT_PICKUP_FACTOR",
   "probe": {
    "expect": "model",
@@ -495,7 +495,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 741,
+  "line": 744,
   "name": "stack_max_default",
   "probe": {
    "expect": "equal",
@@ -509,7 +509,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 748,
+  "line": 751,
   "name": "lane_capacity_half",
   "probe": {
    "expect": "model",
@@ -522,7 +522,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 812,
+  "line": 815,
   "name": "default_inserter_speed",
   "probe": {
    "expect": "model",
