@@ -1,6 +1,5 @@
 --Prototype facts as plain data, read once, so everything downstream can be pure.
 local Grid = require "logic.bp.grid"
-local MaterialCost = require "logic.bp.material_cost"
 --
 --Owned by lane W1-catalog. Only this module and logic/bp/plan.lua touch prototypes; every geometry, routing,
 --power and serialization module takes a catalog and returns plain data, which is what lets those lanes be
@@ -41,99 +40,7 @@ local INCOMPLETE_CAPTURE = "BP_CAP_INCOMPLETE"
 local INSERTER_RATE_K = 2.31 / (60 * 0.04)
 --Belt pickup against chest pickup. 1 until an in-game measurement says otherwise; a guess here changes every hand
 --count, so it stays one named number.
-local BELT_PICKUP_FACTOR = 1
-
-local function safe_member(object, key)
-    local ok, value = pcall(function() return object and object[key] end)
-    return ok and value or nil
-end
-
--- Projects raw recipe cost for the infrastructure and utility entities this generation can place.
-function Catalog.fill_material(catalog)
-    local prototypes_value = rawget(_G, "prototypes")
-    if not prototypes_value then catalog.material = {}; return catalog.material end
-    local wanted, place, recipe_of, recipes, queue = {}, {}, {}, {}, {}
-    local function add(name)
-        if type(name) == "string" and not wanted[name] then wanted[name] = true end
-    end
-    local families = {catalog.belt, catalog.pipe}
-    for index = 1, 2 do
-        local family = families[index]
-        if family then add(family.belt or family.pipe); add(family.underground); add(family.splitter) end
-    end
-    for name, entity in pairs(catalog.entity or {}) do
-        local kind = entity.etype or entity.type
-        if kind == "assembling-machine" or kind == "furnace" or kind == "rocket-silo" or kind == "beacon"
-            or kind == "inserter" or kind == "electric-pole" then add(name) end
-    end
-    local descriptors = {catalog.inserter, catalog.long_inserter, catalog.pole}
-    for index = 1, 3 do
-        local descriptor = descriptors[index]
-        if descriptor then add(descriptor.name) end
-    end
-    local entities = safe_member(prototypes_value, "entity")
-    for _, name in ipairs((function() local t={} for n in pairs(wanted) do t[#t+1]=n end table.sort(t); return t end)()) do
-        local entity = safe_member(entities, name)
-        local place_items = safe_member(entity, "items_to_place_this")
-        local placing = type(place_items) == "table" and place_items[1] or nil
-        local item = safe_member(placing, "name")
-        if type(item) == "string" then place[name] = item; queue[#queue+1] = item end
-    end
-    local all_recipes = safe_member(prototypes_value, "recipe")
-    local recipe_names = {}
-    for name in pairs(all_recipes or {}) do recipe_names[#recipe_names+1] = name end
-    table.sort(recipe_names)
-    local candidates = {}
-    for _, rname in ipairs(recipe_names) do
-        local recipe = safe_member(all_recipes, rname)
-        local hidden, category = safe_member(recipe, "hidden"), safe_member(recipe, "category")
-        local categories = safe_member(recipe, "categories")
-        local recycling = type(category) == "string" and category:find("recycling", 1, true) ~= nil
-        for _, value in pairs(categories or {}) do
-            local category_name = type(value) == "string" and value or safe_member(value, "name")
-            if type(category_name) == "string" and category_name:find("recycling", 1, true) then recycling = true end
-        end
-        if not hidden and not recycling then
-            local products = safe_member(recipe, "products") or {}
-            for _, product in ipairs(products) do
-                local item = safe_member(product, "name")
-                if type(item) == "string" then candidates[item] = candidates[item] or {}; candidates[item][#candidates[item]+1] = rname end
-            end
-        end
-    end
-    local visited = {}
-    local cursor = 1
-    while cursor <= #queue do
-        local item = queue[cursor]; cursor = cursor + 1
-        if not visited[item] then
-            visited[item] = true
-            local options = candidates[item] or {}
-            local chosen
-            for _, candidate in ipairs(options) do if candidate == item then chosen = item; break end end
-            chosen = chosen or options[1]
-            if chosen then
-                recipe_of[item] = chosen
-                local recipe = safe_member(all_recipes, chosen)
-                local ingredients = safe_member(recipe, "ingredients") or {}
-                local normalized = {}
-                for _, ingredient in ipairs(ingredients) do
-                    local iname, amount = safe_member(ingredient, "name"), safe_member(ingredient, "amount")
-                    if type(iname) == "string" and type(amount) == "number" then
-                        normalized[#normalized+1] = {name=iname, amount=amount}; queue[#queue+1] = iname
-                    end
-                end
-                local products = {}
-                for _, product in ipairs(safe_member(recipe, "products") or {}) do
-                    local pname, amount = safe_member(product, "name"), safe_member(product, "amount")
-                    if pname and amount then products[#products+1] = {name=pname, amount=amount} end
-                end
-                recipes[chosen] = {ingredients=normalized, products=products}
-            end
-        end
-    end
-    catalog.material = MaterialCost.compute({place=place, recipe_of=recipe_of, recipes=recipes})
-    return catalog.material
-end
+local BELT_PICKUP_FACTOR = 1; local MaterialCost = require "logic.bp.material_cost"
 
 local function diagnostic(diagnostics, code, subject, detail, field)
     diagnostics[#diagnostics + 1] = {code = code, subject = subject, detail = detail, field = field}
@@ -1115,5 +1022,99 @@ function Catalog.for_export(player_index, referenced)
     if empty then return catalog_template(), {} end
     return Catalog.build(player_index, referenced or {})
 end
+
+
+local function safe_member(object, key)
+    local ok, value = pcall(function() return object and object[key] end)
+    return ok and value or nil
+end
+
+-- Projects raw recipe cost for the infrastructure and utility entities this generation can place.
+function Catalog.fill_material(catalog)
+    local prototypes_value = rawget(_G, "prototypes")
+    if not prototypes_value then catalog.material = {}; return catalog.material end
+    local wanted, place, recipe_of, recipes, queue = {}, {}, {}, {}, {}
+    local function add(name)
+        if type(name) == "string" and not wanted[name] then wanted[name] = true end
+    end
+    local families = {catalog.belt, catalog.pipe}
+    for index = 1, 2 do
+        local family = families[index]
+        if family then add(family.belt or family.pipe); add(family.underground); add(family.splitter) end
+    end
+    for name, entity in pairs(catalog.entity or {}) do
+        local kind = entity.etype or entity.type
+        if kind == "assembling-machine" or kind == "furnace" or kind == "rocket-silo" or kind == "beacon"
+            or kind == "inserter" or kind == "electric-pole" then add(name) end
+    end
+    local descriptors = {catalog.inserter, catalog.long_inserter, catalog.pole}
+    for index = 1, 3 do
+        local descriptor = descriptors[index]
+        if descriptor then add(descriptor.name) end
+    end
+    local entities = safe_member(prototypes_value, "entity")
+    for _, name in ipairs((function() local t={} for n in pairs(wanted) do t[#t+1]=n end table.sort(t); return t end)()) do
+        local entity = safe_member(entities, name)
+        local place_items = safe_member(entity, "items_to_place_this")
+        local placing = type(place_items) == "table" and place_items[1] or nil
+        local item = safe_member(placing, "name")
+        if type(item) == "string" then place[name] = item; queue[#queue+1] = item end
+    end
+    local all_recipes = safe_member(prototypes_value, "recipe")
+    local recipe_names = {}
+    for name in pairs(all_recipes or {}) do recipe_names[#recipe_names+1] = name end
+    table.sort(recipe_names)
+    local candidates = {}
+    for _, rname in ipairs(recipe_names) do
+        local recipe = safe_member(all_recipes, rname)
+        local hidden, category = safe_member(recipe, "hidden"), safe_member(recipe, "category")
+        local categories = safe_member(recipe, "categories")
+        local recycling = type(category) == "string" and category:find("recycling", 1, true) ~= nil
+        for _, value in pairs(categories or {}) do
+            local category_name = type(value) == "string" and value or safe_member(value, "name")
+            if type(category_name) == "string" and category_name:find("recycling", 1, true) then recycling = true end
+        end
+        if not hidden and not recycling then
+            local products = safe_member(recipe, "products") or {}
+            for _, product in ipairs(products) do
+                local item = safe_member(product, "name")
+                if type(item) == "string" then candidates[item] = candidates[item] or {}; candidates[item][#candidates[item]+1] = rname end
+            end
+        end
+    end
+    local visited = {}
+    local cursor = 1
+    while cursor <= #queue do
+        local item = queue[cursor]; cursor = cursor + 1
+        if not visited[item] then
+            visited[item] = true
+            local options = candidates[item] or {}
+            local chosen
+            for _, candidate in ipairs(options) do if candidate == item then chosen = item; break end end
+            chosen = chosen or options[1]
+            if chosen then
+                recipe_of[item] = chosen
+                local recipe = safe_member(all_recipes, chosen)
+                local ingredients = safe_member(recipe, "ingredients") or {}
+                local normalized = {}
+                for _, ingredient in ipairs(ingredients) do
+                    local iname, amount = safe_member(ingredient, "name"), safe_member(ingredient, "amount")
+                    if type(iname) == "string" and type(amount) == "number" then
+                        normalized[#normalized+1] = {name=iname, amount=amount}; queue[#queue+1] = iname
+                    end
+                end
+                local products = {}
+                for _, product in ipairs(safe_member(recipe, "products") or {}) do
+                    local pname, amount = safe_member(product, "name"), safe_member(product, "amount")
+                    if pname and amount then products[#products+1] = {name=pname, amount=amount} end
+                end
+                recipes[chosen] = {ingredients=normalized, products=products}
+            end
+        end
+    end
+    catalog.material = MaterialCost.compute({place=place, recipe_of=recipe_of, recipes=recipes})
+    return catalog.material
+end
+
 
 return Catalog
