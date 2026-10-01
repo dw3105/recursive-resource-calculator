@@ -14,7 +14,7 @@ local function scenario(codes, always_fail)
     local ok, state = pcall(function()
         return D.run({}, function()
             Route.begin = function(input)
-                route_inputs[#route_inputs + 1] = {strict_ends = input.strict_ends, grid = input.grid}
+                route_inputs[#route_inputs + 1] = {strict_ends = input.strict_ends, lane_cap = input.lane_cap, grid = input.grid}
                 return {done = true, ok = true, result = {entities = {}, wires = {}, segments = {}, bindings = {}}, cursor = {}, progress = {}}
             end
             Route.step = function(s) return s end
@@ -51,6 +51,24 @@ H.test("ST1 belt refusal reroutes same grid strictly and delivers", function()
     H.equal(routes[1].strict_ends, nil, "first route non-strict")
     H.equal(routes[2].strict_ends, true, "redo strict")
     H.equal(routes[1].grid.w, routes[2].grid.w, "same grid")
+end)
+
+--Round 54: plastic x4 Turn 8 in Factorio 2.0.77 gave 7.5/s of 7.992/s (two branches on one lane).
+H.test("ST6 a lane overload reroutes the same grid with lane capacity counted", function()
+    local state, routes = scenario({[1] = "BP_V_LANE_OVERLOAD"})
+    H.equal(state.ok, true, "delivered")
+    H.equal(#routes, 2, "two route inputs")
+    H.equal(routes[1].lane_cap, nil, "first route counts no lanes")
+    H.equal(routes[2].lane_cap, true, "redo counts lanes")
+    H.equal(routes[2].strict_ends, nil, "the lane redo is not the strict-ends redo")
+    H.equal(routes[1].grid.w, routes[2].grid.w, "same grid")
+end)
+
+H.test("ST7 a second lane overload drops the candidate and the next one starts without the lane rule", function()
+    local state, routes = scenario({[1] = "BP_V_LANE_OVERLOAD", [2] = "BP_V_LANE_OVERLOAD"})
+    H.equal(state.ok, true, "eventually delivered")
+    H.equal(routes[2].lane_cap, true, "redo counts lanes")
+    H.equal(routes[3].lane_cap, nil, "next candidate starts plain")
 end)
 
 H.test("ST2 non-shape refusal follows ordinary retry", function()

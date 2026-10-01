@@ -1887,6 +1887,7 @@ end
 
 local function discard_candidate(state)
     state.work.strict_ends = nil
+    state.work.lane_cap = nil
     if state.work.collector_trial == "running" then restore_collector_first(state); return end
     note_edge_shortfalls(state)
     if not state.work.attempt_recorded then
@@ -2062,6 +2063,7 @@ function Search.step(container, budget)
                     end
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input and state.work.strict_ends then route_input.strict_ends = true end
+                    if route_input and state.work.lane_cap then route_input.lane_cap = true end
                     if route_input and (state.work.edge_inset or 0) > 0 then route_input.strict_ptg = true end
                     if route_input then
                         state.work.route_args = {blocks = blocks, ports = ports}
@@ -2208,7 +2210,16 @@ function Search.step(container, budget)
                     for _, err in ipairs(state.work.validate.errors or {}) do
                         if STRICT_REROUTE_CODES[err.code] then belt_shape = true; break end
                     end
-                    if belt_shape and not state.work.strict_ends and state.work.collector_trial == nil then
+                    local lane_over = false
+                    for _, err in ipairs(state.work.validate.errors or {}) do
+                        if err.code == "BP_V_LANE_OVERLOAD" then lane_over = true; break end
+                    end
+                    if lane_over and not state.work.lane_cap and state.work.collector_trial == nil then
+                        --Round 54 (plastic x4 Turn 8 in Factorio 2.0.77: 7.5/s of 7.992/s): route the same grid again
+                        --with lane capacity counted, so a branch joins the trunk on the lane that still has room.
+                        state.work.lane_cap = true
+                        start_grid(state)
+                    elseif belt_shape and not state.work.strict_ends and state.work.collector_trial == nil then
                         -- Magenta science: strict redo at grid 6 on 2026-09-29 (tick 18351); accepted at tick 34785.
                         state.work.strict_ends = true
                         start_grid(state)

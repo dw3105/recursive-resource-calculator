@@ -552,6 +552,8 @@ local function normalize_endpoint(block, placement, port, catalog, work)
         flow_ids = port.flow_ids,
         kind = port.kind or (port.is_fluid and "fluid" or "item"),
         rate_per_second = finite(port.rate_per_second, finite(port.rate, 0)),
+        --Round 54 lane capacity: the hand's true rate and tile (see lane_account).
+        hand_rate = finite(port.hand_rate_per_second), lane_hand_x = port.hand_x, lane_hand_y = port.hand_y,
         x = x, y = y,
         travel_dir = endpoint_direction(port, placement, role),
     }
@@ -2121,6 +2123,157 @@ local function end_feed_bleeds(work, demand, path, pre_existing)
     return false
 end
 
+--Round 54 lane capacity (Factorio 2.0.77: plastic x4 Turn 8 gave 7.5/s of 7.992/s, both branches on one lane).
+--A hand drops on its far lane, a curve keeps lanes, a side entry onto a belt fed from behind lands on the near
+--lane. `work.lane_rate[cell][lane]` sums the output hands routed so far; it exists only in the retry the search
+--starts after BP_V_LANE_OVERLOAD, so first routing keeps its bytes.
+function Route._lane_right(direction)
+    local dx, dy = Grid.dir_vector(direction)
+    if not dx then return nil end
+    return -dy, dx
+end
+
+function Route._lane_fed_behind(work, x, y, segment)
+    local dx, dy = Grid.dir_vector(segment.direction)
+    if not dx then return false end
+    local behind = work.segments_by_cell[coordinate_key(x - dx, y - dy)]
+    return behind ~= nil and behind ~= segment and behind.kind ~= "pipe" and behind.direction == segment.direction
+end
+
+function Route._lane_near(segment, from_x, from_y, x, y)
+    local rx, ry = Route._lane_right(segment.direction)
+    if not rx then return "L" end
+    return ((from_x - x) * rx + (from_y - y) * ry) > 0 and "R" or "L"
+end
+
+--Calls fn(cell key, lane) for every tile the hand's items ride from its drop tile on, as laid right now.
+function Route._lane_walk(work, flow_id, source, fn)
+    local hx, hy = source.hand_x or source.lane_hand_x, source.hand_y or source.lane_hand_y
+    local x, y = source.x, source.y
+    if hx == nil or hy == nil or x == nil or y == nil then return end
+    local segment = work.segments_by_cell[coordinate_key(x, y)]
+    if not segment or segment.kind == "pipe" or not segment_has_flow(segment, flow_id) then return end
+    local rx, ry = Route._lane_right(segment.direction)
+    if not rx then return end
+    local lane = ((hx - x) * rx + (hy - y) * ry) > 0 and "L" or "R"
+    local visited = {}
+    for _ = 1, 4096 do
+        local key = coordinate_key(x, y)
+        if visited[key] then return end
+        visited[key] = true
+        fn(key, lane)
+        if segment.splitter then return end
+        local tx, ty
+        if segment.underground and segment.underground_entry_key == key and segment.underground_exit_x ~= nil then
+            tx, ty = segment.underground_exit_x, segment.underground_exit_y
+        else
+            local dx, dy = Grid.dir_vector(segment.direction)
+            if not dx then return end
+            tx, ty = x + dx, y + dy
+        end
+        local next_segment = work.segments_by_cell[coordinate_key(tx, ty)]
+        if not next_segment or next_segment.kind == "pipe" or not segment_has_flow(next_segment, flow_id) then return end
+        if next_segment ~= segment and next_segment.direction ~= segment.direction and not next_segment.underground
+            and Route._lane_fed_behind(work, tx, ty, next_segment) then
+            lane = Route._lane_near(next_segment, x, y, tx, ty)
+        end
+        x, y, segment = tx, ty, next_segment
+    end
+end
+
+--The lane loads are rebuilt from the belts as laid (the re-route pass lifts and relays paths, so a running sum would
+--count a lifted path twice). One walk per output hand; only in the lane-capacity retry.
+function Route._lane_recompute(work)
+    local rates, seen = {}, {}
+    for _, demand in ipairs(work.demands or {}) do
+        local source = demand.source
+        if source and source.role == "out" and not seen[source] then
+            seen[source] = true
+            local add = source.hand_rate or source.rate_per_second or 0
+            Route._lane_walk(work, demand.flow_id, source, function(key, lane)
+                local entry = rates[key]
+                if not entry then entry = {L = 0, R = 0}; rates[key] = entry end
+                entry[lane] = entry[lane] + add
+            end)
+        end
+    end
+    work.lane_rate = rates
+    local worst = 0
+    for _, entry in pairs(rates) do
+        if entry.L > worst then worst = entry.L end
+        if entry.R > worst then worst = entry.R end
+    end
+    return worst
+end
+
+function Route._lane_account(work, demand)
+    if not work.lane_cap or demand.kind == "pipe" then return true end
+    local source = demand.source
+    if not source or source.role ~= "out" then return true end
+    --The whole sheet is judged, not this hand's ride alone: a belt laid BEHIND a curve turns that curve into a
+    --side-load and moves every hand that came round it onto the near lane (foundry x4: the trunk's own hand laid
+    --(34,15) behind (34,14) and four hands of the next foundry changed lane, 6.66/s to 9.324/s).
+    local before = work.lane_worst or 0
+    local worst = Route._lane_recompute(work)
+    local limit = work.lane_cap + tolerance(work.lane_cap)
+    return worst <= limit or worst <= before + tolerance(before)
+end
+
+--Search-time half of the lane rule: a new belt that reaches a run of its own flow rides it to the end, so every tile
+--below the join must have room on the lane the items arrive on (a branch that joins a side-fed trunk fills the
+--trunk's near lane further down). The lane before the first join is the hand's far lane, named by the first step.
+function Route._lane_join_ok(work, search, current, nx, ny, direction, entering)
+    local demand = search.demand
+    local source = demand.source
+    local hx = source and (source.hand_x or source.lane_hand_x)
+    local hy = source and (source.hand_y or source.lane_hand_y)
+    if hx == nil or hy == nil or source.role ~= "out" then return true end
+    local add = source.hand_rate or search.amount
+    local limit = work.lane_cap + tolerance(work.lane_cap)
+    local lane
+    if entering.direction ~= direction and not entering.underground and Route._lane_fed_behind(work, nx, ny, entering) then
+        lane = Route._lane_near(entering, current.x, current.y, nx, ny)
+    else
+        local key, child = current.key, nil
+        while search.parent[key] do child = key; key = search.parent[key] end
+        local root = search.points[key]
+        local first_direction = child and search.points[child] and search.points[child].direction or direction
+        local rx, ry = Route._lane_right(first_direction)
+        if not rx or not root then return true end
+        lane = ((hx - root.x) * rx + (hy - root.y) * ry) > 0 and "L" or "R"
+    end
+    search.lane_memo = search.lane_memo or {}
+    local memo_key = coordinate_key(nx, ny) .. lane
+    if search.lane_memo[memo_key] ~= nil then return search.lane_memo[memo_key] end
+    local ok, x, y, seen = true, nx, ny, {}
+    for _ = 1, 4096 do
+        local key = coordinate_key(x, y)
+        local segment = work.segments_by_cell[key]
+        if not segment or seen[key] then break end
+        seen[key] = true
+        local entry = work.lane_rate[key]
+        if (entry and entry[lane] or 0) + add > limit then ok = false; break end
+        if segment.splitter then break end
+        local tx, ty
+        if segment.underground and segment.underground_entry_key == key and segment.underground_exit_x ~= nil then
+            tx, ty = segment.underground_exit_x, segment.underground_exit_y
+        else
+            local dx, dy = Grid.dir_vector(segment.direction)
+            if not dx then break end
+            tx, ty = x + dx, y + dy
+        end
+        local next_segment = work.segments_by_cell[coordinate_key(tx, ty)]
+        if not next_segment or next_segment.kind == "pipe" or not segment_has_flow(next_segment, demand.flow_id) then break end
+        if next_segment ~= segment and next_segment.direction ~= segment.direction and not next_segment.underground
+            and Route._lane_fed_behind(work, tx, ty, next_segment) then
+            lane = Route._lane_near(next_segment, x, y, tx, ty)
+        end
+        x, y = tx, ty
+    end
+    search.lane_memo[memo_key] = ok
+    return ok
+end
+
 local function append_normal_path(work, demand, path, amount)
     journal_open(work)
     work._turned_merge_risk, work._turned_merge_anchor = nil, nil
@@ -2345,6 +2498,7 @@ local function append_normal_path(work, demand, path, amount)
         append_collector_member_bindings(work, demand, sink, first_segment.segment_id)
     end
     --debug-disabled
+    if not Route._lane_account(work, demand) then return reject("capacity") end
     journal_commit(work)
     return true
 end
@@ -2535,6 +2689,20 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
             if not segment_has_flow(segment, demand.flow_id) and segment.kind == "pipe" and demand.kind == "pipe" then search.saw_fluid_mix = true end
             return false
         end
+        --Round 54 lane capacity (retry only): a side entry onto a belt fed from behind lands on the near lane; refuse it
+        --when that lane cannot take this hand's rate, so the search joins from the other side.
+        if work.lane_cap and demand.kind ~= "pipe" and segment.kind ~= "pipe" and move_direction ~= nil
+            and move_direction ~= segment.direction and not segment.underground and not segment.splitter
+            and segment_has_flow(segment, demand.flow_id) and Route._lane_fed_behind(work, x, y, segment) then
+            local mdx, mdy = Grid.dir_vector(move_direction)
+            local entry = work.lane_rate[key or coordinate_key(x, y)]
+            local have = entry and entry[Route._lane_near(segment, x - mdx, y - mdy, x, y)] or 0
+            local add = demand.source and demand.source.hand_rate or amount
+            if have + add > work.lane_cap + tolerance(work.lane_cap) then
+                if search then search.saw_capacity = true end
+                return false
+            end
+        end
         local terminal_refused = is_target and terminal_splitter_refused(work, x, y, segment, move_direction)
         if move_direction ~= nil and segment.direction ~= move_direction and not terminal_refused then
             if not splitter_continuation then
@@ -2664,6 +2832,7 @@ local function enqueue_state(search, x, y, arrival_direction, mode, parent_key, 
 end
 
 local function begin_search(work, demand, amount, order_index)
+    if work.lane_cap then work.lane_worst = Route._lane_recompute(work) end
     --On the frozen gray + magenta sheet (legalcopilot-dev, 2026-09-27), piercing's straight feed at (84,54)
     --was a machine, blocking sink (85,54). Enable its feed curve before the first search.
     if demand.kind ~= "pipe" and demand.sink and demand.sink.feed_curve and not demand.curve_allowed
@@ -3136,6 +3305,12 @@ local function search_step(work, search)
                 and direction ~= Grid.dir_opposite(entering.direction)
             local free = path_cell_free(work, search.demand, nx, ny,
                 body_jump and leaving.direction or direction, target, search.amount, search, next_tile_key)
+            if free and work.lane_cap and entering ~= nil and entering.kind ~= "pipe" and search.demand.kind ~= "pipe"
+                and segment_has_flow(entering, search.demand.flow_id)
+                and not (leaving ~= nil and leaving.kind ~= "pipe" and segment_has_flow(leaving, search.demand.flow_id))
+                and not Route._lane_join_ok(work, search, current, nx, ny, direction, entering) then
+                free, search.saw_capacity = false, true
+            end
             if crowded_demand(work, search.demand) then
                 if current.mode == 3 then
                     free, body_jump, merge = false, false, false
@@ -3640,6 +3815,12 @@ local function normalize_input(input)
         collectors = input.collectors ~= false, collectors_used = false,
         strict_ends = input.strict_ends == true,
         strict_ptg = input.strict_ptg == true,
+        --Round 54, retry only (search sets it after BP_V_LANE_OVERLOAD): one lane carries half a belt.
+        lane_cap = (function()
+            local belt = input.belt or (input.catalog and input.catalog.belt) or {}
+            return input.lane_cap == true and finite(belt.lane_items_per_second) or nil
+        end)(),
+        lane_rate = {},
         fluid_keepouts = input.fluid_keepouts,
         input_entities = input_entities,
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_block = {}, endpoint_by_id = {}, rear_endpoints = {}, perimeter = {},

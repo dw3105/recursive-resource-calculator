@@ -63,7 +63,8 @@ H.test("HP2 unaffected foundry block hash matches round-45-w2", function()
         for _, block in ipairs(candidate.blocks or {}) do blocks[#blocks + 1] = block end
     end
     table.sort(blocks, function(a, b) return tostring(a.id) < tostring(b.id) end)
-    H.equal(hash(canonical(blocks)), "51c1eead", "all blocks match round-45-w2")
+    --9f27b66c since round 54 (hand ports carry `hand_rate_per_second` for the lane-capacity retry); bytes unchanged
+    H.equal(hash(canonical(blocks)), "9f27b66c", "all blocks match round-45-w2 plus hand rates")
 end)
 
 print("HP1 HP2")

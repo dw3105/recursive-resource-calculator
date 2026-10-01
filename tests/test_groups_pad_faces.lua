@@ -74,9 +74,10 @@ H.test("PF3 foundry blocks match base hash", function()
     end
     table.sort(blocks, function(a, b) return tostring(a.id) < tostring(b.id) end)
     local serial = canonical(blocks)
-    --51c1eead since lane 254 (every block carries an empty `belt_runs`); blueprint bytes of this sheet unchanged
+    --51c1eead since lane 254 (every block carries an empty `belt_runs`); 9f27b66c since round 54 (hand ports carry
+    --`hand_rate_per_second` for the lane-capacity retry); blueprint bytes of this sheet unchanged
     --(ec415235..., tests/fixtures/bytes_round43.txt), measured 2026-09-27 on legalcopilot-dev.
-    H.equal(hash(serial), "51c1eead", "all blocks match round-45-w2")
+    H.equal(hash(serial), "9f27b66c", "all blocks match round-45-w2 plus hand rates")
 end)
 
 H.done("test_groups_pad_faces")

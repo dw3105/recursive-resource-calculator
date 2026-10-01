@@ -1075,7 +1075,7 @@ end
 local function port_for_hand(inserter, fallback)
     if not inserter then return fallback end
     local source = copy(fallback or {})
-    if inserter.rate_per_second ~= nil then source.rate_per_second = inserter.rate_per_second end
+    if inserter.rate_per_second ~= nil then source.rate_per_second = inserter.rate_per_second; source._hand_rate = true end
     if not (type(inserter.flow_ids) == "table" and #inserter.flow_ids > 1) then
         source.port_id = inserter.port_id or source.port_id
         return source
@@ -1284,6 +1284,10 @@ local function block_ports(block, steps, ports, flows)
                 fluid_pinned = pipe_orientation ~= nil or nil,
             }
             local machine_count = machine_count_by_step[selected_port.step_id]
+            --Round 54: a hand's own rate is already per machine; the division below shrinks it once more (plastic x4:
+            --12 hand ports sum to 1.998/s of 7.992/s). Fixing the port rate itself moves player-inserter-10s-bulk
+            --layered (88e53ce1), so the true rate rides beside it for the lane-capacity retry only.
+            if source._hand_rate then block_port.hand_rate_per_second = source.rate_per_second end
             if block_port.rate_per_second ~= nil and machine_count and machine_count > 0 then
                 block_port.rate_per_second = block_port.rate_per_second / machine_count
             end
