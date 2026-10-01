@@ -52,8 +52,11 @@ local function accepts(e, incoming_dir)
     if k == "splitter" then return d == incoming_dir end
     if k == "underground" then
         --An exit side-loads from a belt pointing in from its side (round 54: EM x1 Turn 12 Flip holmium-ore end).
+        --Belts only: a pipe-to-ground carries ug_role too, and a belt end facing one is a plain dead end
+        --(player-magenta-science-10s layered (40,27): turning it moved the round 53 bytes).
         if e.ug_role == "output" or e.type == "output" then
-            return d ~= nil and d ~= incoming_dir and d ~= (incoming_dir + 8) % 16
+            return tostring(e.name or ""):find("belt", 1, true) ~= nil
+                and d ~= nil and d ~= incoming_dir and d ~= (incoming_dir + 8) % 16
         end
         return e.ug_role == "input" or e.type == "input" or (d ~= nil and d ~= (incoming_dir + 8) % 16)
     end

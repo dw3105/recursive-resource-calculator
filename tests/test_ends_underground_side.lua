@@ -38,6 +38,9 @@ H.test("EU3 an end pointing into the side of another flow's underground exit tur
     local behind = belt(6, 12, S, "holmium")
     local exit2 = {name = "underground-belt", position = {x = 6.5, y = 13.5}, dir = S, flow_id = "stone", ug_role = "output", type = "output"}
     H.equal(Ends.turn_heads({entities = {behind, exit2}}), 0)
+    local dead = belt(40, 27, S, "plate")
+    local ptg = {name = "pipe-to-ground", position = {x = 40.5, y = 28.5}, dir = E, ug_role = "output"}
+    H.equal(Ends.turn_heads({entities = {dead, ptg}}), 0, "a pipe-to-ground exit takes no belt items")
     io.write("EU3\n")
 end)
 H.done("test_ends_underground_side")
