@@ -29,7 +29,8 @@ H.test("CT3 turn_flip temporary inputs are fast, ordinary golden stays guarded",
     io.write("CT3\n")
     local a,b=run("lua5.2 -e 'package.path=\"./?.lua;\"..package.path; require(\"tools.lib.slow_guard\").check(\"golden generate\",\"/tmp/turn_flip_x_0_0.json\")'")
     H.equal(b,0,a)
-    local c,d=run("lua5.2 -e 'package.path=\"./?.lua;\"..package.path; require(\"tools.lib.slow_guard\").check(\"golden generate\",\"tests/golden/cases/player-red-science-10s/prepared_input.json\")'")
+    --The suite runs with its own RRC_SLOW slot; the refusal case must not inherit it (round 54 suite 1: got 0).
+    local c,d=run("RRC_SLOW= lua5.2 -e 'package.path=\"./?.lua;\"..package.path; require(\"tools.lib.slow_guard\").check(\"golden generate\",\"tests/golden/cases/player-red-science-10s/prepared_input.json\")'")
     H.equal(d,7,c)
 end)
 H.test("CT4 valid row exports blueprint and ports", function()
