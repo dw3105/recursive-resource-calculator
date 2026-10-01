@@ -2875,7 +2875,10 @@ local function crossing_targets(work, demand, search, current, direction, amount
         local exit_free = false
         if blocked_middle and not work.segments_by_cell[key] and not work.underground_cells[key] and crossing_faces_ok(work, demand, x, y, direction, key)
             and not inside_same_axis_span(work, x, y, dx, dy, pipe, reach) then
-            if crowded_demand(work, demand) then search.touch_ok = true end
+            --A pipe-to-ground joins only forward on the surface and its own pair, never sideways: on the retry of a
+            --failed pipe search its exit may sit beside the pipe it crossed (round 54, EM plant x3: holmium solution
+            --could not cross the electrolyte column x=13).
+            if crowded_demand(work, demand) or (pipe and demand.pipe_free_exit) then search.touch_ok = true end
             exit_free = path_cell_free(work, demand, x, y, direction, x == demand.sink.x and y == demand.sink.y, amount, search, key)
             search.touch_ok = nil
         end
@@ -3202,9 +3205,22 @@ local function search_step(work, search)
                 --port keeps the old rule: its source tile is the tile an inserter drops onto, and that tile
                 --stays a plain belt.
                 local crossings = crossing_targets(work, search.demand, search, current, direction, search.amount, current_tile_key)
+                --A pipe dive never starts on a machine's pipe tile, except its own source diving outward: a
+                --pipe-to-ground there faces away and cuts the machine off (round 54, EM plant x3: holmium solution
+                --dived west from machine 3's port (23,26); BP_V_FLUID_DISCONNECTED).
+                local port_here = search.demand.kind == "pipe" and work.port_cells and work.port_cells[current_tile_key]
+                if port_here and port_here._fluid_dir ~= nil then
+                    local source = search.demand.source
+                    local own = source and current.x == source.x and current.y == source.y
+                    if not (own and source.fluid_travel_dir == direction) then crossings = {} end
+                end
                 for _, crossing in ipairs(crossings) do
                     local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
-                    if not reaches_sink or search.demand.sink.travel_dir == nil or search.demand.sink.travel_dir == direction then
+                    --A pipe-to-ground surfacing on its sink joins the machine only when it faces into it (round 54,
+                    --EM plant x3: holmium solution surfaced at (21,26) facing away; BP_V_FLUID_DISCONNECTED).
+                    local sink_heading = search.demand.sink.travel_dir
+                    if sink_heading == nil and search.demand.kind == "pipe" then sink_heading = search.demand.sink.fluid_travel_dir end
+                    if not reaches_sink or sink_heading == nil or sink_heading == direction then
                         local cost = current.cost + transition_cost(work, search.demand, crossing.x, crossing.y, direction,
                             current.direction, 1, crossing.distance, search.amount, crossing.key)
                         if current.direction ~= direction then cost = cost + SIDELOAD_UNDERGROUND_COST end
@@ -5188,6 +5204,9 @@ function Route.step(state, budget)
                         and demand.source.fluid_travel_dir ~= nil
                         and demand.source.fluid_travel_dir ~= (demand.source.travel_dir or 0) then
                         demand.pipe_seed_heading = true
+                        work.current = begin_search(work, demand, amount, 1)
+                    elseif demand.kind == "pipe" and not demand.pipe_free_exit then
+                        demand.pipe_free_exit = true
                         work.current = begin_search(work, demand, amount, 1)
                     elseif not demand.allow_ride and not search.saw_fluid_mix and not search.saw_capacity
                         and demand.kind ~= "pipe" and has_rideable_pair(work, demand.flow_id) then

@@ -797,6 +797,44 @@ local function machine_fluid_pipe_tiles(machine, step, catalog, flows)
     return tiles
 end
 
+--Pipe tiles of one machine with their flow (round 54): two neighbours in a strip may put pipe tiles of DIFFERENT
+--fluids side by side in their one-tile gap (EM plant x3: holmium solution (4,2) over heavy oil (4,3)); plain pipes
+--join every neighbour, so no route can feed either. `strip_fluid_clash` finds that.
+local function machine_fluid_pipe_flows(machine, step, catalog, flows)
+    local tiles = {}
+    for _, pair in ipairs({{step.inputs or {}, "input"}, {step.outputs or {}, "output"}}) do
+        for _, port in ipairs(pair[1]) do
+            if flow_is_fluid(port, flows) then
+                local facts = fluid_connection(catalog, step, port, pair[2])
+                local connection = facts and facts.connection or port.connection
+                if connection and connection.connection then connection = connection.connection end
+                if connection and not (connection.position or connection.pos) and type(connection.positions) == "table" then
+                    connection = {position = connection.positions[1], direction = connection.direction or connection.dir}
+                end
+                local x, y, _, _, outward = fluid_pipe_tile(machine, connection)
+                if x then
+                    local flow = port.flow_id or port.full_name or port.name
+                    tiles[#tiles + 1] = {x = x, y = y, flow = flow}
+                    --The front tile a pipe reaches the port from (route reserves it on crowded Blocks).
+                    local dx, dy = Grid.dir_vector(outward or NORTH)
+                    if dx then tiles[#tiles + 1] = {x = x + dx, y = y + dy, flow = flow, front = true} end
+                end
+            end
+        end
+    end
+    return tiles
+end
+
+local function strip_fluid_clash(a_tiles, b_tiles)
+    for _, a in ipairs(a_tiles) do
+        for _, b in ipairs(b_tiles) do
+            local limit = (a.front or b.front) and 1 or 2
+            if a.flow ~= b.flow and math.abs(a.x - b.x) + math.abs(a.y - b.y) <= limit then return true end
+        end
+    end
+    return false
+end
+
 local function new_face_allocator(machine, iw, ih, block, step, catalog, flows)
     local capacities = {
         top = math.floor(machine.w / math.max(1, iw)),
@@ -1495,6 +1533,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
         if face_layout and steps[1]._beacon_pad then machine_x0 = math.max(machine_x0, 1 + row.w) end
     end
     local x, y = machine_x0, machine_y
+    local strip_extra = 0
     for _, spec in ipairs(machine_specs) do
         local machine = {
             id = spec.id,
@@ -1513,6 +1552,22 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
             machine.recipe = spec.step.recipe
             machine.recipe_quality = spec.step.recipe_quality
         end
+        --Widen the strip gap only where two fluids would touch: a sheet that builds today has no such touch.
+        local previous = block.machines[#block.machines]
+        if previous and not face_layout and not row_layout and beacon_rows_h == 0 then
+            local previous_tiles = machine_fluid_pipe_flows(previous, previous._strip_step or spec.step, catalog, flows)
+            if #previous_tiles > 0 then
+                for shift = 0, 3 do
+                    machine.x = x + shift
+                    if not strip_fluid_clash(previous_tiles, machine_fluid_pipe_flows(machine, spec.step, catalog, flows)) then
+                        x, strip_extra = x + shift, strip_extra + shift
+                        break
+                    end
+                end
+                machine.x = x
+            end
+        end
+        machine._strip_step = spec.step
         if spec.step.module_inventory ~= nil then machine.module_inventory = copy(spec.step.module_inventory) end
         if spec.step.inventory ~= nil then machine.inventory = copy(spec.step.inventory) end
         block.machines[#block.machines + 1] = machine
@@ -1522,6 +1577,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
         elseif row_layout then x = x + spec.w
         else x = x + spec.layout_w + 1 end
     end
+    machine_w = machine_w + strip_extra
 
     if row_layout then
         block.row = {machines = #block.machines}
