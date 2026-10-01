@@ -15,6 +15,36 @@ local list = "python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print
 --Integrator round 54: version 2.0.77 -> 2.0, so rows and the export dir match game_stage.sh $FV.
 local p=assert(io.popen(list,"r")); local ver=p:read("*l"); ver=(ver or ""):match("^(%d+%.%d+)") or ver; local cases={}; for c in p:lines() do cases[#cases+1]=c end; p:close()
 local rows,valid,forbidden,fail=0,0,0,0
+--Integrator round 54: --jobs N runs one child per row, N at a time, each in its own TMPDIR (288 rows one after
+--another took about 3 h on legalcopilot-dev). Rows print in completion order; the summary counts them.
+if opts["--jobs"] and not opts["--case"] then
+    local list_path = os.tmpname()
+    local f = assert(io.open(list_path, "w"))
+    for _, case in ipairs(cases) do for _, turn in ipairs({0,4,8,12}) do for _, flip in ipairs({0,1}) do
+        if (not opts["--turn"] or tonumber(opts["--turn"]) == turn) and (not opts["--flip"] or tonumber(opts["--flip"]) == flip) then
+            f:write(case, " ", turn, " ", flip, "\n")
+        end
+    end end end
+    f:close()
+    local export = opts["--export"] and (" --export " .. q(opts["--export"])) or ""
+    local child_path = os.tmpname()
+    local c = assert(io.open(child_path, "w"))
+    c:write("d=$(mktemp -d)\nTMPDIR=$d lua5.2 tools/turn_flip_census.lua ", q(fixture), export,
+        " --case \"$1\" --turn \"$2\" --flip \"$3\" | grep '^CENSUS ver'\nrm -rf \"$d\"\n")
+    c:close()
+    local cmd = "xargs -P " .. tonumber(opts["--jobs"]) .. " -L 1 sh " .. q(child_path) .. " < " .. q(list_path)
+    local out = run(cmd)
+    os.remove(list_path); os.remove(child_path)
+    for line in out:gmatch("[^\n]+") do
+        local row = Row.parse(line)
+        if row then
+            print(line); rows = rows + 1
+            if row.result == "valid" then valid = valid + 1 elseif row.result == "forbidden" then forbidden = forbidden + 1 else fail = fail + 1 end
+        end
+    end
+    print(string.format("CENSUS-SUMMARY rows=%d valid=%d forbidden=%d fail=%d", rows, valid, forbidden, fail))
+    os.exit(0)
+end
 for _,case in ipairs(cases) do if not opts["--case"] or opts["--case"]==case then
  for _,turn in ipairs({0,4,8,12}) do if not opts["--turn"] or tonumber(opts["--turn"])==turn then
   for _,flip in ipairs({0,1}) do if not opts["--flip"] or tonumber(opts["--flip"])==flip then
