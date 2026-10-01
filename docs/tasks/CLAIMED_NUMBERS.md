@@ -231,3 +231,4 @@
 | `300` | `rrc/agent` | turn-flip census runner offline + game lab sample/full, CENSUS rows (round 54) | 2026-09-30 |
 | `301` | `rrc/agent` | Turn+Flip census wave 2: mirrored Block rebuild keeps ports on edge; turned Row ports off belt runs (groups.lua) (round 54) | 2026-10-01 |
 | `302` | `rrc/agent` | Turn+Flip census wave 2: fluid input reaches turned ports; fluids never mix (route.lua) (round 54) | 2026-10-01 |
+| `303` | `rrc/agent` | Turn+Flip census wave 2: fluid inputs reach turned machines (edge slots with room in search.lua, router goes around in route.lua) (round 54) | 2026-10-01 |
