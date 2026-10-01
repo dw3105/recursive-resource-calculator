@@ -1792,6 +1792,82 @@ local function check_transport_shapes(work)
             end
         end
     end
+    --Round 54 (Factorio 2.0.77, plastic x4 Turn 8: 7.5/s of 7.992/s): one lane carries half a belt. A hand drops on
+    --the far lane, a curve keeps lanes, a side entry lands on the near lane; two branches that meet on one lane above
+    --half a belt can never deliver. Rates are followed from each output hand up to the first tile a hand picks from
+    --(past it the split between lanes is not known), so the sum never overstates a lane.
+    do
+        local lane_cap = finite(Belt.capacity(work.catalog, nil, "lane"))
+        if lane_cap and lane_cap > 0 and lane_cap < INF then
+            local pick_tiles, rates = {}, {}
+            for _, hand in ipairs(work.inserters or {}) do
+                local px, py = transfer_cells(hand, work)
+                if px ~= nil and tiles[tile_key(px, py)] then pick_tiles[tile_key(px, py)] = true end
+            end
+            local function side_feeders(key)
+                local count = 0
+                for _, source_key in ipairs(sources_of[key] or {}) do
+                    local source = tiles[source_key]
+                    if source and source.ug ~= "input" and source.d ~= tiles[key].d then count = count + 1 end
+                end
+                return count
+            end
+            local worst
+            local function walk(start_key, start_lane, start_amount)
+                local stack, steps = {{start_key, start_lane, start_amount}}, 0
+                while #stack > 0 and steps < 20000 do
+                    local item = table.remove(stack); steps = steps + 1
+                    local key, lane, amount = item[1], item[2], item[3]
+                    rates[key] = rates[key] or {L = 0, R = 0}
+                    rates[key][lane] = rates[key][lane] + amount
+                    if not worst or rates[key][lane] > worst.rate then worst = {key = key, lane = lane, rate = rates[key][lane]} end
+                    local from = tiles[key]
+                    if not pick_tiles[key] then
+                        for _, next_key in ipairs(outputs(key)) do
+                            local to = next_key and tiles[next_key]
+                            if to and to.ug == "output" and from.ug ~= "input"
+                                and (from.d == to.d or from.d == Grid.dir_opposite(to.d)) then to = nil end
+                            if to then
+                                if from.ug == "input" or from.d == to.d then
+                                    if to.kind == "splitter" and to.other ~= next_key and tiles[to.other] then
+                                        stack[#stack + 1] = {next_key, lane, amount / 2}
+                                        stack[#stack + 1] = {to.other, lane, amount / 2}
+                                    else
+                                        stack[#stack + 1] = {next_key, lane, amount}
+                                    end
+                                elseif from.d ~= Grid.dir_opposite(to.d) and to.kind ~= "splitter" then
+                                    local rx, ry = right_of(to.d)
+                                    local near = ((from.x - to.x) * rx + (from.y - to.y) * ry) > 0 and "R" or "L"
+                                    if to.kind == "belt" and not fed_from_behind(next_key) and side_feeders(next_key) == 1 then
+                                        stack[#stack + 1] = {next_key, lane, amount}
+                                    else
+                                        stack[#stack + 1] = {next_key, near, amount}
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            for _, hand in ipairs(work.inserters or {}) do
+                local _, _, drop_x, drop_y = transfer_cells(hand, work)
+                local tile = drop_x and tiles[tile_key(drop_x, drop_y)]
+                local amount = finite(hand.entity.rate_per_second, finite(hand.entity.flow_rate, 0))
+                if tile and amount > 0 then
+                    local rx, ry = right_of(tile.d)
+                    local hx, hy = tile_of(hand)
+                    local dot = (hx - drop_x) * rx + (hy - drop_y) * ry
+                    walk(tile_key(drop_x, drop_y), dot > 0 and "L" or "R", amount)
+                end
+            end
+            if worst and worst.rate > lane_cap + tolerance(lane_cap) then
+                local tile = tiles[worst.key]
+                error_record(work.errors, "BP_V_LANE_OVERLOAD", {tostring(tile.info.id)},
+                    {tile = {x = tile.x, y = tile.y}, lane = worst.lane, rate = worst.rate, capacity = lane_cap,
+                        flow = flow_detail_id(tile.info)})
+            end
+        end
+    end
     --The player placed green v2 on 2026-09-24 and boxed two "belt bleeding" spots: a flow's last belt pointed
     --into another flow's belt, so its items ran on (circuits onto the science belt, gears onto the foundry's
     --iron stub).  A tile that declares its flows may carry only those: any other flow reaching it leaked in.
