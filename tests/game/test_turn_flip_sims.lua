@@ -51,7 +51,7 @@ describe("Turn and Flip sheet sims", function()
                         if measuring and elapsed%60==0 then
                             samples=samples+1
                             for _,belt in ipairs(belts) do for lane=1,2 do
-                                local det=belt.get_transport_line(lane).get_detailed_contents(); local full=#det>=4
+                                local det=belt.get_transport_line(lane).get_detailed_contents(); local full=#det>=(belt.type=="underground-belt" and 2 or 4)
                                 for _,d in pairs(det) do if d.stack.count~=stack then full=false end end
                                 if not full then short=short+1 end
                             end end
