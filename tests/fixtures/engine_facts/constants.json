@@ -409,7 +409,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1847,
+  "line": 1940,
   "name": "underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -421,7 +421,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1847,
+  "line": 1940,
   "name": "fast_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -433,7 +433,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1847,
+  "line": 1940,
   "name": "express_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -445,7 +445,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1847,
+  "line": 1940,
   "name": "turbo_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -457,7 +457,7 @@
  },
  {
   "file": "logic/bp/groups.lua",
-  "line": 242,
+  "line": 245,
   "name": "beacon_supply_fallback",
   "probe": {
    "expect": "equal",
@@ -495,7 +495,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 744,
+  "line": 745,
   "name": "stack_max_default",
   "probe": {
    "expect": "equal",
@@ -509,7 +509,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 751,
+  "line": 752,
   "name": "lane_capacity_half",
   "probe": {
    "expect": "model",
@@ -522,7 +522,7 @@
  },
  {
   "file": "logic/catalog.lua",
-  "line": 815,
+  "line": 816,
   "name": "default_inserter_speed",
   "probe": {
    "expect": "model",
