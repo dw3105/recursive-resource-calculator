@@ -906,12 +906,16 @@ local function slot_cost(slot, consumers)
 end
 
 local function perimeter_blocked_cells(blocks, obstacles)
-    local result = {}
+    --`__walls` keeps the Block and obstacle cells apart from port reservations: only a wall kills an edge slot.
+    local result = {__walls = {}}
     local function add_rect(raw)
         local rect = type(raw) == "table" and (raw.rect or raw)
         if type(rect) ~= "table" then return end
         for y = rect.y, rect.y + rect.h - 1 do
-            for x = rect.x, rect.x + rect.w - 1 do result[perimeter_cell_key(x, y)] = true end
+            for x = rect.x, rect.x + rect.w - 1 do
+                result[perimeter_cell_key(x, y)] = true
+                result.__walls[perimeter_cell_key(x, y)] = true
+            end
         end
     end
     for _, block in ipairs(blocks or {}) do
@@ -1047,8 +1051,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
                 if not fluid_near and perimeter_port_needs_route(port) then
                     local ddx, ddy = Grid.dir_vector(candidate_slot.dir)
                     local ix, iy = candidate_slot.x - (ddx or 0), candidate_slot.y - (ddy or 0)
-                    local inward = ddx and blocked[perimeter_cell_key(ix, iy)]
-                    if inward ~= nil and inward ~= port_flow_id(port) then fluid_near = true end
+                    if ddx and blocked.__walls and blocked.__walls[perimeter_cell_key(ix, iy)] then fluid_near = true end
                     --A fluid's first pipe also must not touch another fluid's reserved front tile (EM plant Flip:
                     --heavy oil slot (0,18) stepped to (1,18), beside a pipe front at (1,17), BP_R_FLUID_MIX).
                     local own = port_flow_id(port)
