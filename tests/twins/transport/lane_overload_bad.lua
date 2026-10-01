@@ -14,9 +14,10 @@ entities[#entities + 1] = {id = "hand-c", kind = "inserter", name = "inserter", 
 return {
  id = "lane_overload_bad", rule = "BP_V_LANE_OVERLOAD", class = "engine", from = "tests/test_validate_lane_overload.lua LO1",
  grid = {w = 20, h = 20}, entities = entities,
- --The trunk carries a little of its own from the west edge, so the branches side-load a moving belt.
- feeds = {{tile = {0, 10}, item = "iron-gear-wheel", rate = 1}, {tile = {5, 0}, item = "iron-gear-wheel", rate = 5}, {tile = {9, 0}, item = "iron-gear-wheel", rate = 5}},
- sinks = {{tile = {19, 10}, items = {"iron-gear-wheel"}, rate = 11}},
+ --The trunk carries a little of its own from the west edge, so the branches side-load a moving belt (1.3/s: the
+ --engine check samples every 60 ticks, and 1/s left every other trunk tile empty at each sample).
+ feeds = {{tile = {0, 10}, item = "iron-gear-wheel", rate = 1.3}, {tile = {5, 0}, item = "iron-gear-wheel", rate = 5}, {tile = {9, 0}, item = "iron-gear-wheel", rate = 5}},
+ sinks = {{tile = {19, 10}, items = {"iron-gear-wheel"}, rate = 11.3}},
  validator = {catalog = {entity = {
   inserter = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1, needs_power = false, items_per_second = 10},
   ["assembling-machine-1"] = {name = "assembling-machine-1", etype = "assembling-machine", tile_w = 3, tile_h = 3, needs_power = false},
