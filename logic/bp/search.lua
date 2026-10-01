@@ -1053,10 +1053,15 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
                 --bytes moved when outputs were held to this too).
                 --Only on the retry after an edge fluid came up short (`fluid_edge_spread`): am2 chain's copper ore and
                 --molten iron slots face a Block yet route today (an edge tile may turn).
-                if spread and not fluid_near and role == "in" and perimeter_port_needs_route(port) then
+                --In the last-resort inset phase the inward tile must be free of any other reservation too (cryo plant
+                --x4 Turn 8 needs it; on first routing it moved player-red-science-1s-foundry bytes).
+                local last_resort = (state.work.edge_inset or 0) > 0
+                if (spread or last_resort) and not fluid_near and role == "in" and perimeter_port_needs_route(port) then
                     local ddx, ddy = Grid.dir_vector(candidate_slot.dir)
                     local ix, iy = candidate_slot.x - (ddx or 0), candidate_slot.y - (ddy or 0)
                     if ddx and blocked.__walls and blocked.__walls[perimeter_cell_key(ix, iy)] then fluid_near = true end
+                    local inward = ddx and blocked[perimeter_cell_key(ix, iy)]
+                    if last_resort and inward ~= nil and inward ~= port_flow_id(port) then fluid_near = true end
                     --A fluid's first pipe also must not touch another fluid's reserved front tile (EM plant Flip:
                     --heavy oil slot (0,18) stepped to (1,18), beside a pipe front at (1,17), BP_R_FLUID_MIX).
                     local own = port_flow_id(port)
