@@ -1027,6 +1027,13 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
                     and not fluid_l_path(candidate_slot, network.consumers, blocked, port_flow_id(port), fluid_taken) then
                     fluid_near = true
                 end
+                --An edge terminal leaves straight inward; a slot whose inward tile is a Block wall is dead (chemical
+                --plant plastic Turn 4: water slot (0,18) faced the turned machine at (1,18), BP_R_NO_PATH).
+                if not fluid_near and perimeter_port_needs_route(port) then
+                    local ddx, ddy = Grid.dir_vector(candidate_slot.dir)
+                    local inward = ddx and blocked[perimeter_cell_key(candidate_slot.x - ddx, candidate_slot.y - ddy)]
+                    if inward ~= nil and inward ~= port_flow_id(port) then fluid_near = true end
+                end
                 if not fluid_near and not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
                     local cost = slot_cost(candidate_slot, network.consumers)
                     if index == nil or cost < best_cost or (cost == best_cost and candidate_index < index) then
