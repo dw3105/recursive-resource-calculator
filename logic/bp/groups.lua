@@ -2725,6 +2725,20 @@ function Groups.ports_on_edge(block)
         if type(ax) ~= "number" or type(ay) ~= "number" then return false end
         local side_x = (ax == -1 or ax == block.w) and ay >= 0 and ay < block.h
         local side_y = (ay == -1 or ay == block.h) and ax >= 0 and ax < block.w
+        if not side_x and not side_y and (port.kind == "fluid" or port.is_fluid) then
+            --A fluid port is its pipe tile. A Block may hold that tile on its own border ring (chemical plant
+            --plastic: pipe row y=0 above the machine, port (1,0)); its Flip puts it at (3,0), same ring, and
+            --was refused. Only a border tile no member covers counts; an interior gap stays refused.
+            local border = ax >= 0 and ay >= 0 and ax < block.w and ay < block.h
+                and (ax == 0 or ay == 0 or ax == block.w - 1 or ay == block.h - 1)
+            for _, member in ipairs(border and block.members or {}) do
+                if ax >= member.x and ax < member.x + member.w and ay >= member.y and ay < member.y + member.h then
+                    border = false
+                    break
+                end
+            end
+            side_x = border
+        end
         if not side_x and not side_y then return false end
     end
     return true
