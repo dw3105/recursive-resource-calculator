@@ -5,6 +5,8 @@ local SHEETS={}
 if ok_index and type(INDEX)=="table" then
     for _,row in ipairs(INDEX) do SHEETS[#SHEETS+1]={case=row.case,turn=row.turn,flip=row.flip,data=require(row.data)} end
 end
+--Factorio has no os table; tools/game_stage.sh stages RRC_TURN_FLIP_FULL=1 as INDEX.full.
+local FULL=ok_index and type(INDEX)=="table" and INDEX.full==true
 local has_flipped={}
 for _,row in ipairs(SHEETS) do if row.turn==8 and row.flip==1 then has_flipped[row.case:gsub("_[0-9]+_[01]$","")]=true end end
 local function present(sample, row)
@@ -18,7 +20,7 @@ describe("Turn and Flip sheet sims", function()
         it("lab loads; no Turn and Flip sheets staged",function() assert.is_true(type(Lab)=="table") end)
     else
         for index,sheet in ipairs(SHEETS) do
-            if os.getenv("RRC_TURN_FLIP_FULL")=="1" or present(true,sheet) then
+            if FULL or present(true,sheet) then
                 it(sheet.case,function()
                     if RRC_OFFLINE then return end
                     local ports=helpers.json_to_table(sheet.data.ports)

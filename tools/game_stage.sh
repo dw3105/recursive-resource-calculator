@@ -63,7 +63,9 @@ for c in names:
     module='turn_flip_'+c.replace('-','_').replace('.','_')
     open(os.path.join(out,module+'.lua'),'w').write('return {bp = '+long(bp)+', ports = '+long(ports)+'}\n')
     rows.append('    {case = "%s", data = "tests.game.fixtures.%s", turn = %s, flip = %s},\n' % (c,module,c.rsplit('_',2)[1],c.rsplit('_',2)[2]))
-open(os.path.join(out,'turn_flip_index.lua'),'w').write('return {\n'+''.join(rows)+'}\n')
+#Factorio's sandbox has no os table: the full-census switch is staged into the index (round 54 integrator).
+full='true' if os.environ.get('RRC_TURN_FLIP_FULL')=='1' else 'false'
+open(os.path.join(out,'turn_flip_index.lua'),'w').write('return {full = '+full+',\n'+''.join(rows)+'}\n')
 PY
 # Engine facts (round 48 I4): compact per-profile catalog facts (path, value; the fixture list stays in the repo),
 # constants and mock members, each as one module.
