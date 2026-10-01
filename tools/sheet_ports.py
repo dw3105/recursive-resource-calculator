@@ -251,6 +251,20 @@ def main(argv):
             spec = (catalog.get("entity") or {}).get(m["name"]) or {}
             boxes = sorted((b for b in spec.get("fluid_boxes") or [] if b.get("production_type") == "input"), key=lambda b: b.get("index", 0))
             d = m.get("direction", 0)
+            bound = (r.get("fluid_boxes") or {}).get(m["name"]) or {}
+            if any(w in bound for w in wants):
+                # the engine's own fluid -> box binding (catalog, round 52): spare boxes merge or stay empty
+                all_boxes = spec.get("fluid_boxes") or []
+                for w in wants:
+                    if w not in fluid_in:
+                        continue
+                    for index in (bound.get(w) or {}).get("boxes") or []:
+                        for pos, fbox in enumerate(all_boxes):
+                            if fbox.get("index", pos + 1) == index:
+                                for n in connection_tiles(m, fbox):
+                                    if n in comp:
+                                        fluid_of[comp[n]].add(w)
+                continue
             for i, fbox in enumerate(boxes):
                 if i >= len(wants) or wants[i] not in fluid_in:
                     continue
@@ -275,12 +289,15 @@ def main(argv):
             if not makes:
                 continue
             spec = (catalog.get("entity") or {}).get(m["name"]) or {}
-            for fbox in spec.get("fluid_boxes") or []:
+            bound = (r.get("fluid_boxes") or {}).get(m["name"]) or {}
+            for pos, fbox in enumerate(spec.get("fluid_boxes") or []):
                 if fbox.get("production_type") != "output":
                     continue
+                index = fbox.get("index", pos + 1)
+                here = [f for f in makes if index in ((bound.get(f) or {}).get("boxes") or [])] if any(f in bound for f in makes) else makes
                 for n in connection_tiles(m, fbox):
-                    if n in comp and comp[n] not in fluid_of:
-                        out_roots[comp[n]].update(makes)
+                    if here and n in comp and comp[n] not in fluid_of:
+                        out_roots[comp[n]].update(here)
         for root, makes in out_roots.items():
             edge_tiles = sorted(c for c, rt in comp.items() if rt == root and on_edge(c))
             if edge_tiles:

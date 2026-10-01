@@ -61,6 +61,19 @@ describe("Turn and Flip sheet sims", function()
                         if short>0 then problems[#problems+1]="FEED_SHORT "..short.." lane samples" end
                         for _,s in ipairs(sinks) do local allowed={}; for _,n in ipairs(s.items) do allowed[n]=true end; for n,count in pairs(s.got) do if not allowed[n] then problems[#problems+1]="foreign "..n end; got[n]=(got[n] or 0)+count end end
                         for name,rate in pairs(ports.targets) do local item=name:gsub("^item/",""):gsub("^fluid/",""); local actual=(got[item] or 0)/(WINDOW/60); if actual<.95*rate then problems[#problems+1]=item.." short "..actual.." < "..(.95*rate) end end
+                        if #problems>0 then
+                            --Round 54: say what the machines did, so a short product names its cause.
+                            local status_name={}; for k,v in pairs(defines.entity_status) do status_name[v]=k end
+                            local seen={}
+                            for _,ent in pairs(built.entities) do
+                                if ent.valid and (ent.type=="assembling-machine" or ent.type=="furnace") then
+                                    local key=ent.name.." "..tostring(status_name[ent.status]).." finished="..tostring(ent.products_finished)
+                                    local fl={}; local okc,c=pcall(ent.get_fluid_contents); if okc and c then for n,a in pairs(c) do fl[#fl+1]=n.."="..math.floor(a) end end
+                                    table.sort(fl); key=key.." fluids["..table.concat(fl,",").."]"
+                                    if not seen[key] then seen[key]=true; problems[#problems+1]=key end
+                                end
+                            end
+                        end
                         game.speed=1; assert(#problems==0,sheet.case..": "..table.concat(problems,"; ")); return false
                     end)
                 end)

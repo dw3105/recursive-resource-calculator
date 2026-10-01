@@ -241,7 +241,10 @@ function Lab.sink_tick(sinks, counting)
                     line.clear()
                 end
             else
-                local okf, fluids = pcall(e.get_fluid_contents)
+                --A pipe reports only its own share of its fluid segment, while clearing empties the whole segment
+                --(round 54: an 8-pipe output run read 1.25/s of 9.99/s). Count the segment, then clear it.
+                local okf, fluids = pcall(function() return e.fluidbox.get_fluid_segment_contents(1) end)
+                if not (okf and type(fluids) == "table") then okf, fluids = pcall(e.get_fluid_contents) end
                 if okf and fluids then
                     for name, amount in pairs(fluids) do
                         if counting and type(amount) == "number" and amount > 0 then s.got[name] = (s.got[name] or 0) + amount end

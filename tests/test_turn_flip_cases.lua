@@ -49,4 +49,15 @@ H.test("TFC4 game probe registers offline", function()
     local output = pipe:read("*a"); local ok, why, code = pipe:close()
     assert(ok, output .. tostring(why) .. tostring(code)); print("TC4")
 end)
+H.test("TFC5 cases carry the engine's fluid box binding (tools/turn_flip_bind.py)", function()
+    --Round 54: without it the census guessed fluid k -> box k and piped ammonia into a fluorine box of the
+    --cryogenic plant (2.0.77 lab: fluid_ingredient_shortage, 0 fluoroketone).
+    for _, version in ipairs({"2.0", "2.1"}) do
+        local data = helpers.json_to_table(read("tests/fixtures/turn_flip_cases_" .. version .. ".json"))
+        local recipe = data.cases["cryogenic-plant-fluoroketone-1"].catalog.recipe["fluoroketone"]
+        local bound = assert(recipe.fluid_boxes and recipe.fluid_boxes["cryogenic-plant"], version .. " binding missing")
+        H.equal(bound.ammonia.box, 3); H.equal(bound.fluorine.box, 1); H.equal(#bound.fluorine.boxes, 2)
+    end
+    print("TC5")
+end)
 H.done("test_turn_flip_cases")
