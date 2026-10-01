@@ -21,7 +21,21 @@
    "item": "holmium-ore",
    "tile": [
     0,
-    13
+    14
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    7
+   ]
+  },
+  {
+   "fluid": "heavy-oil",
+   "tile": [
+    0,
+    30
    ]
   }
  ],
@@ -36,12 +50,18 @@
   "item/holmium-ore": 0.21311999999999998,
   "item/stone": 1.17216
  },
- "problems": [
-  "pipe network (6, 12) gets several input fluids ['heavy-oil', 'water']",
-  "input fluid/heavy-oil has no feed tile",
-  "input fluid/water has no feed tile"
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "electrolyte"
+   ],
+   "tile": [
+    10,
+    0
+   ]
+  }
  ],
- "sinks": [],
  "targets": {
   "fluid/electrolyte": 15.984000000000002
  }

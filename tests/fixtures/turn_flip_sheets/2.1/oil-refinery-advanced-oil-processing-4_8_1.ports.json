@@ -11,14 +11,14 @@
  },
  "feeds": [
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     13
    ]
   },
   {
-   "fluid": "water",
+   "fluid": "crude-oil",
    "tile": [
     0,
     15
@@ -35,7 +35,35 @@
   "fluid/water": 39.96
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "petroleum-gas"
+   ],
+   "tile": [
+    5,
+    0
+   ]
+  },
+  {
+   "items": [
+    "heavy-oil"
+   ],
+   "tile": [
+    22,
+    0
+   ]
+  },
+  {
+   "items": [
+    "light-oil"
+   ],
+   "tile": [
+    24,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/heavy-oil": 19.98,
   "fluid/light-oil": 35.964,

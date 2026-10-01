@@ -28,7 +28,7 @@
    "fluid": "ammonia",
    "tile": [
     0,
-    19
+    17
    ]
   },
   {
@@ -51,7 +51,17 @@
   "item/solid-fuel": 0.1998
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "fluoroketone-hot"
+   ],
+   "tile": [
+    4,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/fluoroketone-hot": 9.99
  }

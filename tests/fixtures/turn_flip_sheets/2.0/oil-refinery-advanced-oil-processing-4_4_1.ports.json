@@ -11,119 +11,119 @@
  },
  "feeds": [
   {
-   "fluid": "water",
+   "fluid": "crude-oil",
    "tile": [
     0,
     15
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     17
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     19
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     20
    ]
   },
   {
-   "fluid": "water",
+   "fluid": "crude-oil",
    "tile": [
     0,
     21
    ]
   },
   {
-   "fluid": "water",
+   "fluid": "crude-oil",
    "tile": [
     0,
     22
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     23
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     24
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     25
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     26
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     30
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     31
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     32
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     33
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     34
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     37
    ]
   },
   {
-   "fluid": "crude-oil",
+   "fluid": "water",
    "tile": [
     0,
     38
@@ -140,7 +140,35 @@
   "fluid/water": 39.96
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "light-oil"
+   ],
+   "tile": [
+    5,
+    0
+   ]
+  },
+  {
+   "items": [
+    "heavy-oil"
+   ],
+   "tile": [
+    7,
+    0
+   ]
+  },
+  {
+   "items": [
+    "petroleum-gas"
+   ],
+   "tile": [
+    9,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/heavy-oil": 19.98,
   "fluid/light-oil": 35.964,

@@ -35,7 +35,35 @@
   "fluid/water": 39.96
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "petroleum-gas"
+   ],
+   "tile": [
+    4,
+    0
+   ]
+  },
+  {
+   "items": [
+    "light-oil"
+   ],
+   "tile": [
+    6,
+    0
+   ]
+  },
+  {
+   "items": [
+    "heavy-oil"
+   ],
+   "tile": [
+    8,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/heavy-oil": 19.979999999999997,
   "fluid/light-oil": 35.964,

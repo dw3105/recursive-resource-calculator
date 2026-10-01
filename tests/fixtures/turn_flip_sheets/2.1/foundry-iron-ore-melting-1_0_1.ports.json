@@ -35,7 +35,17 @@
   "item/iron-ore": 4.1625
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "molten-iron"
+   ],
+   "tile": [
+    4,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/molten-iron": 62.43749999999999
  }

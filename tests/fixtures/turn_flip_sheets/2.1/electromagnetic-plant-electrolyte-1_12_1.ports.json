@@ -18,10 +18,24 @@
    ]
   },
   {
-   "item": "stone",
+   "item": "holmium-ore",
    "tile": [
     0,
     13
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    9
+   ]
+  },
+  {
+   "fluid": "heavy-oil",
+   "tile": [
+    0,
+    20
    ]
   }
  ],
@@ -36,12 +50,18 @@
   "item/holmium-ore": 0.053279999999999994,
   "item/stone": 0.29304
  },
- "problems": [
-  "input fluid/heavy-oil has no feed tile",
-  "input fluid/water has no feed tile",
-  "input item/holmium-ore has no feed tile"
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "electrolyte"
+   ],
+   "tile": [
+    5,
+    0
+   ]
+  }
  ],
- "sinks": [],
  "targets": {
   "fluid/electrolyte": 3.9960000000000004
  }

@@ -11,6 +11,13 @@
  },
  "feeds": [
   {
+   "item": "iron-plate",
+   "tile": [
+    0,
+    16
+   ]
+  },
+  {
    "item": "copper-cable",
    "tile": [
     0,
@@ -27,17 +34,7 @@
   "item/copper-cable": 11.988,
   "item/iron-plate": 3.9960000000000004
  },
- "problems": [
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
-  "input item/iron-plate has no feed tile"
- ],
+ "problems": [],
  "sinks": [
   {
    "items": [

@@ -43,7 +43,17 @@
   "item/sulfur": 19.98
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "sulfuric-acid"
+   ],
+   "tile": [
+    6,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/sulfuric-acid": 199.8
  }

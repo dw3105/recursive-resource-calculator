@@ -23,6 +23,13 @@
     0,
     18
    ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    19
+   ]
   }
  ],
  "force": {
@@ -35,10 +42,18 @@
   "item/iron-plate": 0.9990000000000002,
   "item/sulfur": 4.995000000000001
  },
- "problems": [
-  "input fluid/water has no feed tile"
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "sulfuric-acid"
+   ],
+   "tile": [
+    4,
+    0
+   ]
+  }
  ],
- "sinks": [],
  "targets": {
   "fluid/sulfuric-acid": 49.95000000000001
  }

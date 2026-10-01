@@ -9,7 +9,15 @@
   "input_edge": "left",
   "output_edge": "top"
  },
- "feeds": [],
+ "feeds": [
+  {
+   "fluid": "molten-iron",
+   "tile": [
+    0,
+    18
+   ]
+  }
+ ],
  "force": {
   "bulk_inserter_capacity_bonus": 0,
   "inserter_stack_size_bonus": 0,
@@ -18,9 +26,7 @@
  "inputs": {
   "fluid/molten-iron": 66.6
  },
- "problems": [
-  "input fluid/molten-iron has no feed tile"
- ],
+ "problems": [],
  "sinks": [
   {
    "items": [

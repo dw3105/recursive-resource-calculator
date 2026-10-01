@@ -28,7 +28,14 @@
    "fluid": "ammonia",
    "tile": [
     0,
-    19
+    17
+   ]
+  },
+  {
+   "fluid": "fluorine",
+   "tile": [
+    0,
+    21
    ]
   }
  ],
@@ -43,10 +50,18 @@
   "item/lithium": 0.1998,
   "item/solid-fuel": 0.1998
  },
- "problems": [
-  "input fluid/fluorine has no feed tile"
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "fluoroketone-hot"
+   ],
+   "tile": [
+    10,
+    0
+   ]
+  }
  ],
- "sinks": [],
  "targets": {
   "fluid/fluoroketone-hot": 9.99
  }

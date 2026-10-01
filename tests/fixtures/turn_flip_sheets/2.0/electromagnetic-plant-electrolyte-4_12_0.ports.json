@@ -51,7 +51,17 @@
   "item/stone": 1.17216
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "electrolyte"
+   ],
+   "tile": [
+    23,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/electrolyte": 15.984000000000002
  }

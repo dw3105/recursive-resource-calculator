@@ -55,7 +55,7 @@
   {
    "fluid": "heavy-oil",
    "tile": [
-    22,
+    20,
     0
    ]
   },
@@ -63,6 +63,13 @@
    "fluid": "heavy-oil",
    "tile": [
     23,
+    0
+   ]
+  },
+  {
+   "fluid": "heavy-oil",
+   "tile": [
+    24,
     0
    ]
   }
@@ -79,7 +86,17 @@
   "item/stone": 1.17216
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "electrolyte"
+   ],
+   "tile": [
+    27,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/electrolyte": 15.984000000000002
  }

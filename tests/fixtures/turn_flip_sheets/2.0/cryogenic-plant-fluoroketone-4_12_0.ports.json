@@ -14,28 +14,70 @@
    "item": "solid-fuel",
    "tile": [
     0,
-    16
+    14
    ]
   },
   {
    "item": "lithium",
    "tile": [
     0,
-    17
+    36
    ]
   },
   {
    "fluid": "ammonia",
    "tile": [
     0,
-    15
+    11
+   ]
+  },
+  {
+   "fluid": "ammonia",
+   "tile": [
+    0,
+    12
+   ]
+  },
+  {
+   "fluid": "ammonia",
+   "tile": [
+    0,
+    13
    ]
   },
   {
    "fluid": "fluorine",
    "tile": [
     0,
-    35
+    15
+   ]
+  },
+  {
+   "fluid": "ammonia",
+   "tile": [
+    0,
+    23
+   ]
+  },
+  {
+   "fluid": "ammonia",
+   "tile": [
+    0,
+    24
+   ]
+  },
+  {
+   "fluid": "ammonia",
+   "tile": [
+    0,
+    30
+   ]
+  },
+  {
+   "fluid": "ammonia",
+   "tile": [
+    0,
+    31
    ]
   }
  ],
@@ -51,7 +93,17 @@
   "item/solid-fuel": 0.7992
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "fluoroketone-hot"
+   ],
+   "tile": [
+    5,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/fluoroketone-hot": 39.96
  }

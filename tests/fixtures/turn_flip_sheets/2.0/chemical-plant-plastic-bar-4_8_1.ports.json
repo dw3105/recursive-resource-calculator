@@ -16,6 +16,13 @@
     0,
     30
    ]
+  },
+  {
+   "fluid": "petroleum-gas",
+   "tile": [
+    0,
+    20
+   ]
   }
  ],
  "force": {
@@ -27,9 +34,7 @@
   "fluid/petroleum-gas": 79.92,
   "item/coal": 3.9960000000000004
  },
- "problems": [
-  "input fluid/petroleum-gas has no feed tile"
- ],
+ "problems": [],
  "sinks": [
   {
    "items": [

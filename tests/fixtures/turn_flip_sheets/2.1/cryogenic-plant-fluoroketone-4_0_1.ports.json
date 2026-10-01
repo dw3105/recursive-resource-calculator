@@ -11,14 +11,14 @@
  },
  "feeds": [
   {
-   "item": "solid-fuel",
+   "item": "lithium",
    "tile": [
     0,
     14
    ]
   },
   {
-   "item": "lithium",
+   "item": "solid-fuel",
    "tile": [
     0,
     24
@@ -28,7 +28,14 @@
    "fluid": "ammonia",
    "tile": [
     0,
-    27
+    21
+   ]
+  },
+  {
+   "fluid": "fluorine",
+   "tile": [
+    0,
+    23
    ]
   }
  ],
@@ -43,11 +50,19 @@
   "item/lithium": 0.7992,
   "item/solid-fuel": 0.7992
  },
- "problems": [
-  "input fluid/fluorine has no feed tile"
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "fluoroketone-hot"
+   ],
+   "tile": [
+    24,
+    0
+   ]
+  }
  ],
- "sinks": [],
  "targets": {
-  "fluid/fluoroketone-hot": 39.959999999999994
+  "fluid/fluoroketone-hot": 39.96
  }
 }

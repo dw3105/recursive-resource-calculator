@@ -35,7 +35,17 @@
   "item/iron-ore": 16.65
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "molten-iron"
+   ],
+   "tile": [
+    22,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/molten-iron": 249.75
  }

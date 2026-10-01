@@ -51,7 +51,17 @@
   "item/solid-fuel": 0.7992
  },
  "problems": [],
- "sinks": [],
+ "sinks": [
+  {
+   "items": [
+    "fluoroketone-hot"
+   ],
+   "tile": [
+    24,
+    0
+   ]
+  }
+ ],
  "targets": {
   "fluid/fluoroketone-hot": 39.96
  }
