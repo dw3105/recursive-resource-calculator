@@ -2776,6 +2776,8 @@ end
 --Pack gives a slot only to a port on the Block edge (x = -1 or w, y = -1 or h). A turned machine can put its pipe
 --tile in a gap inside the Block: magenta light-oil-cracking got ports at (6,6) in a 10x7 Block and every grid ended
 --BP_P_NO_FIT (round 51 integration). Groups.reorient refuses such a rebuild: the Block stays as built.
+Groups._strip_fluid_clash = function(a, b) return strip_fluid_clash(a, b) end
+
 function Groups._fluid_tile_open(block, ax, ay)
     local w, h = block.w, block.h
     if not (ax >= 0 and ay >= 0 and ax < w and ay < h) then return false end
