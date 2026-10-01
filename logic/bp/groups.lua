@@ -128,7 +128,10 @@ local function fluid_connection(catalog, step, entry, role)
         local fluid = entry.name or entry.full_name or entry.flow_id
         if type(fluid) == "string" then fluid = fluid:gsub("^fluid/", "") end
         local bound = BoxBinding.boxes_for(catalog, step.machine, step.recipe or step.recipe_name, fluid, preferred)
-        if bound and bound[1] then wanted_box = bound[1] end
+        --Several bound boxes = one merged runtime box: any of them takes the fluid. Keep the unbound default's side
+        --(first box for an input, last for an output): bound[1] for an output put a stacked chemical plant's
+        --holmium-solution pipe on the next plant's water tile (round 54, EM x4 census rows never packed).
+        if bound and bound[1] then wanted_box = role == "input" and bound[1] or bound[#bound] end
     end
     if wanted_box == nil then
         local recipe = catalog and catalog.recipe and catalog.recipe[step.recipe or step.recipe_name or ""]
