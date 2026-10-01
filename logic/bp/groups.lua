@@ -1537,6 +1537,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
     end
     local x, y = machine_x0, machine_y
     local strip_extra = 0
+    local strip_steps = {}  --machine -> its step, kept off the machine so Blocks stay byte-identical (HP2, PF3)
     for _, spec in ipairs(machine_specs) do
         local machine = {
             id = spec.id,
@@ -1558,7 +1559,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
         --Widen the strip gap only where two fluids would touch: a sheet that builds today has no such touch.
         local previous = block.machines[#block.machines]
         if previous and not face_layout and not row_layout and beacon_rows_h == 0 then
-            local previous_tiles = machine_fluid_pipe_flows(previous, previous._strip_step or spec.step, catalog, flows)
+            local previous_tiles = machine_fluid_pipe_flows(previous, strip_steps[previous] or spec.step, catalog, flows)
             if #previous_tiles > 0 then
                 for shift = 0, 3 do
                     machine.x = x + shift
@@ -1570,7 +1571,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
                 machine.x = x
             end
         end
-        machine._strip_step = spec.step
+        strip_steps[machine] = spec.step
         if spec.step.module_inventory ~= nil then machine.module_inventory = copy(spec.step.module_inventory) end
         if spec.step.inventory ~= nil then machine.inventory = copy(spec.step.inventory) end
         block.machines[#block.machines + 1] = machine

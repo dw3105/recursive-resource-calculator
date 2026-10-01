@@ -65,7 +65,8 @@ H.test("ST3 each belt refusal gets one strict redo then next candidate starts no
     state = bounded_finish(state, state.phase)
     H.equal(state.ok, false, "search fails")
     H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT", "no layout")
-    H.equal(#routes, 8, "four candidates each route twice")
+    --Round 54: three last-resort inset rounds (3, 6, 9) follow the four ordinary candidates, each routed twice too.
+    H.equal(#routes, 14, "four candidates and three inset rounds each route twice")
     for i = 1, #routes, 2 do
         H.equal(routes[i].strict_ends, nil, "candidate starts non-strict " .. i)
         H.equal(routes[i + 1].strict_ends, true, "strict redo " .. (i + 1))
