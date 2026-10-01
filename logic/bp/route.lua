@@ -3818,7 +3818,16 @@ local function normalize_input(input)
         --Round 54, retry only (search sets it after BP_V_LANE_OVERLOAD): one lane carries half a belt.
         lane_cap = (function()
             local belt = input.belt or (input.catalog and input.catalog.belt) or {}
-            return input.lane_cap == true and finite(belt.lane_items_per_second) or nil
+            local lane = input.lane_cap == true and finite(belt.lane_items_per_second) or nil
+            if not lane then return nil end
+            --Hand rates are items; a lane carries slots. The smallest stack of the sheet's inserters keeps it safe.
+            local stack
+            for _, key in ipairs({"inserter", "long_inserter"}) do
+                local entry = input.catalog and input.catalog[key]
+                local value = type(entry) == "table" and finite(entry.belt_stack_size) or nil
+                if value and value >= 1 and (stack == nil or value < stack) then stack = value end
+            end
+            return lane * (stack or 1)
         end)(),
         lane_rate = {},
         fluid_keepouts = input.fluid_keepouts,

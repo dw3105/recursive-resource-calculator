@@ -19,7 +19,7 @@ return {
  validator = {catalog = {entity = {
   inserter = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1, needs_power = false, items_per_second = 10},
   ["assembling-machine-1"] = {name = "assembling-machine-1", etype = "assembling-machine", tile_w = 3, tile_h = 3, needs_power = false},
-}, inserter = {items_per_second = 10, pickup_offset = {x = 0, y = 1}, drop_offset = {x = 0, y = -1}}, belt = {items_per_second = 15, lane_items_per_second = 7.5},
+}, inserter = {name = "inserter", belt_stack_size = 1, items_per_second = 10, pickup_offset = {x = 0, y = 1}, drop_offset = {x = 0, y = -1}}, belt = {items_per_second = 15, lane_items_per_second = 7.5},
   recipe = {["iron-gear-wheel"] = {ingredients = {{name = "iron-plate"}}, products = {{name = "iron-gear-wheel"}}}}}},
  check = "rate", truth = "ok", codes = {}, audit = {},
 }

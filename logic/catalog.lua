@@ -837,6 +837,18 @@ local function build_inserter(catalog, diagnostics, options, requests, geometry_
             and game.get_player(player_index).force and game.get_player(player_index).force.inserter_stack_size_bonus) or 0,
         bulk_inserter_capacity_bonus = (rawget(_G, "game") and game.get_player and game.get_player(player_index)
             and game.get_player(player_index).force and game.get_player(player_index).force.bulk_inserter_capacity_bonus) or 0,
+        --Round 54: how many items this hand puts in one belt slot. A lane carries half a belt of SLOTS, so the lane
+        --rule needs it; nil (prototype fact or force bonus not readable) keeps that rule off. The player's modded
+        --inserters stack (am2-chain runs 12 plates/s on one yellow lane in the engine), a plain inserter does not.
+        belt_stack_size = (function()
+            local max = entity.inserter_max_belt_stack_size
+            if type(max) ~= "number" or max ~= max then return nil end
+            if max <= 1 then return 1 end
+            local player = rawget(_G, "game") and game.get_player and game.get_player(player_index)
+            local bonus = player and player.force and player.force.belt_stack_size_bonus
+            if type(bonus) ~= "number" then return nil end
+            return math.max(1, math.min(max, 1 + bonus))
+        end)(),
         pickup_offset = turned(geometry.pickup),
         drop_offset = turned(geometry.drop),
         drop_position = turned(geometry.drop),

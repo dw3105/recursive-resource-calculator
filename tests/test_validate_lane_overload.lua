@@ -3,10 +3,11 @@
 --side-loads from the west (near lane = west). One lane of a belt carries half the belt, so the sheet can never reach
 --its rate; the validator counted flows per lane but never rates.
 local H = require "tests.harness"
-local function run(path)
+local function run(path, change)
     H.new_world("2.0")
     local f = assert(io.open(path))
     local root = helpers.json_to_table(f:read("*a")); f:close()
+    if change then change(root.catalog) end
     local Validate = require "logic.bp.validate"
     local state = Validate.begin(root)
     while not state.done do Validate.step(state, {ops = 100000}) end
@@ -27,5 +28,20 @@ H.test("LO2 branches on opposite lanes are no overload", function()
     --First candidate of plastic x4 Turn 0 (rejected for other reasons); its two branches meet from opposite sides.
     local found = run("tests/fixtures/validate_plastic4_lane_ok.json")
     H.equal(#found, 0, "plastic x4 Turn 0 keeps each lane under half a belt")
+end)
+--The player's modded inserters stack items on belts: player-am2-chain-repaired carries 12 plates/s on one yellow lane and
+--delivers in Factorio 2.0.77 with the player's mods. A lane carries half a belt of SLOTS.
+H.test("LO3 hands that stack four items per slot do not overload the lane", function()
+    local found = run("tests/fixtures/validate_plastic4_lane_overload.json", function(catalog)
+        catalog.inserter.belt_stack_size = 4
+        if catalog.long_inserter then catalog.long_inserter.belt_stack_size = 4 end
+    end)
+    H.equal(#found, 0, "7.992/s in stacks of four is 1.998 slots/s")
+end)
+H.test("LO4 a sheet whose catalog does not say how its hands stack is not judged", function()
+    local found = run("tests/fixtures/validate_plastic4_lane_overload.json", function(catalog)
+        catalog.inserter.belt_stack_size = nil
+    end)
+    H.equal(#found, 0, "unknown stack size keeps the rule off")
 end)
 H.done("test_validate_lane_overload")

@@ -1800,6 +1800,18 @@ local function check_transport_shapes(work)
         local lane_cap = finite(Belt.capacity(work.catalog, nil, "lane"))
         if lane_cap and lane_cap > 0 and lane_cap < INF then
             local pick_tiles, rates = {}, {}
+            --A lane carries half a belt of SLOTS; a hand that stacks N items per slot loads the lane with rate / N.
+            --The stack size is a game fact of the sheet's inserters (catalog `belt_stack_size`); a sheet captured
+            --before round 54 does not carry it and is not judged (am2-chain: modded stacking hands, 12/s on one lane,
+            --runs in the engine).
+            local stack_of, stacks_known = {}, true
+            for _, key in ipairs({"inserter", "long_inserter"}) do
+                local entry = work.catalog[key]
+                if type(entry) == "table" and entry.name ~= nil then
+                    local stack = finite(entry.belt_stack_size)
+                    if stack and stack >= 1 then stack_of[entry.name] = stack else stacks_known = false end
+                end
+            end
             for _, hand in ipairs(work.inserters or {}) do
                 local px, py = transfer_cells(hand, work)
                 if px ~= nil and tiles[tile_key(px, py)] then pick_tiles[tile_key(px, py)] = true end
@@ -1853,14 +1865,17 @@ local function check_transport_shapes(work)
                 local _, _, drop_x, drop_y = transfer_cells(hand, work)
                 local tile = drop_x and tiles[tile_key(drop_x, drop_y)]
                 local amount = finite(hand.entity.rate_per_second, finite(hand.entity.flow_rate, 0))
-                if tile and amount > 0 then
+                local stack = stack_of[name_of(hand.entity)]
+                if tile and amount > 0 and not stack then stacks_known = false end
+                if tile and amount > 0 and stack then
+                    amount = amount / stack
                     local rx, ry = right_of(tile.d)
                     local hx, hy = tile_of(hand)
                     local dot = (hx - drop_x) * rx + (hy - drop_y) * ry
                     walk(tile_key(drop_x, drop_y), dot > 0 and "L" or "R", amount)
                 end
             end
-            if worst and worst.rate > lane_cap + tolerance(lane_cap) then
+            if stacks_known and worst and worst.rate > lane_cap + tolerance(lane_cap) then
                 local tile = tiles[worst.key]
                 error_record(work.errors, "BP_V_LANE_OVERLOAD", {tostring(tile.info.id)},
                     {tile = {x = tile.x, y = tile.y}, lane = worst.lane, rate = worst.rate, capacity = lane_cap,
