@@ -2720,6 +2720,33 @@ end
 --Pack gives a slot only to a port on the Block edge (x = -1 or w, y = -1 or h). A turned machine can put its pipe
 --tile in a gap inside the Block: magenta light-oil-cracking got ports at (6,6) in a 10x7 Block and every grid ended
 --BP_P_NO_FIT (round 51 integration). Groups.reorient refuses such a rebuild: the Block stays as built.
+function Groups._fluid_tile_open(block, ax, ay)
+    local w, h = block.w, block.h
+    if not (ax >= 0 and ay >= 0 and ax < w and ay < h) then return false end
+    local taken = {}
+    for _, member in ipairs(block.members or {}) do
+        for y = member.y, member.y + member.h - 1 do
+            for x = member.x, member.x + member.w - 1 do taken[x .. ":" .. y] = true end
+        end
+    end
+    for _, run in ipairs(block.belt_runs or {}) do
+        for _, tile in ipairs(run.tiles or {}) do taken[tile.x .. ":" .. tile.y] = true end
+    end
+    if taken[ax .. ":" .. ay] then return false end
+    local queue, seen, head = {{ax, ay}}, {[ax .. ":" .. ay] = true}, 1
+    while queue[head] do
+        local x, y = queue[head][1], queue[head][2]
+        head = head + 1
+        if x == 0 or y == 0 or x == w - 1 or y == h - 1 then return true end
+        for _, d in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+            local nx, ny = x + d[1], y + d[2]
+            local key = nx .. ":" .. ny
+            if not seen[key] and not taken[key] then seen[key] = true; queue[#queue + 1] = {nx, ny} end
+        end
+    end
+    return false
+end
+
 function Groups.ports_on_edge(block, fluid_ring)
     for _, port in ipairs(block and block.ports or {}) do
         local ax, ay = port.attach_dx, port.attach_dy
@@ -2728,18 +2755,11 @@ function Groups.ports_on_edge(block, fluid_ring)
         local side_y = (ay == -1 or ay == block.h) and ax >= 0 and ax < block.w
         --Round 54: forced Turn and Flip only (`fluid_ring`); drawn keeps the round 53 rule until round 55.
         if fluid_ring and not side_x and not side_y and (port.kind == "fluid" or port.is_fluid) then
-            --A fluid port is its pipe tile. A Block may hold that tile on its own border ring (chemical plant
-            --plastic: pipe row y=0 above the machine, port (1,0)); its Flip puts it at (3,0), same ring, and
-            --was refused. Only a border tile no member covers counts; an interior gap stays refused.
-            local border = ax >= 0 and ay >= 0 and ax < block.w and ay < block.h
-                and (ax == 0 or ay == 0 or ax == block.w - 1 or ay == block.h - 1)
-            for _, member in ipairs(border and block.members or {}) do
-                if ax >= member.x and ax < member.x + member.w and ay >= member.y and ay < member.y + member.h then
-                    border = false
-                    break
-                end
-            end
-            side_x = border
+            --A fluid port is its pipe tile. A Block may hold that tile inside its envelope: on its border ring
+            --(chemical plant plastic: pipe row y=0, port (1,0); its Flip puts it at (3,0)) or in an open gap
+            --column between machines (EM plant x3: ports at x=4 and x=9). It counts when free tiles (no member,
+            --no belt) join it to the Block border; a walled-in gap stays refused.
+            side_x = Groups._fluid_tile_open(block, ax, ay)
         end
         if not side_x and not side_y then return false end
     end

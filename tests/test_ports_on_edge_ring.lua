@@ -23,6 +23,19 @@ H.test("PR2 a border tile under a member, an interior tile, or an item port insi
     print("PR2 ok")
 end)
 
+H.test("PR4 a fluid port in an open gap column between machines counts; a walled-in gap does not", function()
+    local open = {w = 9, h = 5, members = {{kind = "machine", x = 0, y = 1, w = 4, h = 4},
+        {kind = "machine", x = 5, y = 1, w = 4, h = 4}},
+        ports = {{port_id = "p", kind = "fluid", attach_dx = 4, attach_dy = 3}}}
+    assert(Groups.ports_on_edge(open, true), "gap column x=4 is open to the top")
+    local closed = {w = 9, h = 5, members = {{kind = "machine", x = 0, y = 1, w = 4, h = 4},
+        {kind = "machine", x = 5, y = 1, w = 4, h = 4}, {kind = "inserter", x = 4, y = 0, w = 1, h = 1},
+        {kind = "inserter", x = 4, y = 4, w = 1, h = 1}},
+        ports = {{port_id = "p", kind = "fluid", attach_dx = 4, attach_dy = 2}}}
+    assert(not Groups.ports_on_edge(closed, true), "gap walled at both ends")
+    print("PR4 ok")
+end)
+
 H.test("PR3 without the forced ring (drawn) a border tile inside the Block stays refused", function()
     assert(not Groups.ports_on_edge(block(3, 0)), "drawn keeps the round 53 rule")
     print("PR3 ok")
