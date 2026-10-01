@@ -2654,10 +2654,17 @@ local function make_candidates_once(input, work)
                         fragments[#fragments + 1] = {fragment}
                     end
                 end
-                --Front to back: each position is at most #buckets + 1 (back to front raised "position out of bounds" when
-                --the list was short: asm-2 concrete x4, Turn+Flip census round 54). Same final order.
-                for offset = 1, #fragments do
-                    table.insert(work.buckets, work.bucket_index + offset, fragments[offset])
+                --Back to front interleaves the fragments with the buckets that follow (f1, next, f2, ...): player sheets
+                --ship that order. It raised "position out of bounds" when fewer buckets follow than fragments
+                --(asm-2 concrete x4, Turn+Flip census round 54): only then insert front to back.
+                if work.bucket_index + #fragments <= #work.buckets + 1 then
+                    for offset = #fragments, 1, -1 do
+                        table.insert(work.buckets, work.bucket_index + offset, fragments[offset])
+                    end
+                else
+                    for offset = 1, #fragments do
+                        table.insert(work.buckets, work.bucket_index + offset, fragments[offset])
+                    end
                 end
             elseif ((block.invalid_coverage and not block.failure)
                 or (machine_total == 1 and block.failure and block.failure.name == "inserter-face" and block.has_top_beacon_row))
