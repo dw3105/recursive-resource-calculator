@@ -2445,7 +2445,8 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     if reserved ~= nil then
         local source_id = demand.source and demand.source.port_id
         local sink_id = demand.sink and demand.sink.port_id
-        if not (reserved[source_id] or reserved[sink_id] or reserved["flow:" .. tostring(demand.flow_id)]) then
+        if not (reserved[source_id] or reserved[sink_id] or reserved["flow:" .. tostring(demand.flow_id)])
+            and not (reserved._pipe_keepout and demand.kind ~= "pipe") then
             search.saw_blocked = true
             return false
         end
@@ -3598,6 +3599,15 @@ local function reserve_port_cells(work)
         end
     end
     for _, endpoint in ipairs(work.perimeter or {}) do claim_endpoint(endpoint) end
+    --Round 54: every connection tile of an engine-bound fluid box takes that fluid only (search `fluid_keepouts`).
+    --Cryo x4 ran an ammonia pipe across the plant's spare fluorine connection. A belt may still use the tile.
+    for _, keep in ipairs(work.fluid_keepouts or {}) do
+        if inside_grid(work, keep.x, keep.y) then
+            local key = coordinate_key(keep.x, keep.y)
+            if reserved[key] == nil then reserved[key] = {_pipe_keepout = true} end
+            reserved[key]["flow:" .. tostring(keep.flow_id)] = true
+        end
+    end
     return reserved
 end
 
@@ -3622,6 +3632,7 @@ local function normalize_input(input)
         collectors = input.collectors ~= false, collectors_used = false,
         strict_ends = input.strict_ends == true,
         strict_ptg = input.strict_ptg == true,
+        fluid_keepouts = input.fluid_keepouts,
         input_entities = input_entities,
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_block = {}, endpoint_by_id = {}, rear_endpoints = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},

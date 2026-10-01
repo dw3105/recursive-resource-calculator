@@ -1142,6 +1142,56 @@ local function perimeter_roboport_clearance(state, grid)
     return {}
 end
 
+--Every pipe tile of an engine-bound fluid box (catalog.recipe[r].fluid_boxes, round 52 binding) with its fluid: a
+--merged runtime box spans several connections, and the route may lay only that fluid's pipes on them. Without a
+--binding in the catalog the list is empty (offline goldens: no change).
+local function fluid_keepouts(state)
+    local catalog = state.work.input.catalog or {}
+    local step_recipe = {}
+    for _, step in ipairs(state.work.plan_result and state.work.plan_result.steps or {}) do
+        local recipe = step.recipe_name or step.recipe
+        if type(recipe) == "table" then recipe = recipe.name end
+        step_recipe[step.step_id or step.id] = recipe
+    end
+    local list = {}
+    for _, entity in ipairs(state.work.materialized and state.work.materialized.entities or {}) do
+        if entity.kind == "machine" and entity.name then
+            local recipe_name = entity.recipe or step_recipe[entity.step_id]
+            if type(recipe_name) == "table" then recipe_name = recipe_name.name end
+            local recipe = catalog.recipe and catalog.recipe[recipe_name or ""]
+            local bound = recipe and recipe.fluid_boxes and recipe.fluid_boxes[entity.name]
+            local spec = catalog_entity(catalog, entity.name)
+            local boxes = spec and (spec.fluid_boxes or spec.fluidbox_prototypes)
+            if type(bound) == "table" and type(boxes) == "table" then
+                local fluids = {}
+                for fluid in pairs(bound) do fluids[#fluids + 1] = fluid end
+                table.sort(fluids)
+                local cx, cy = entity.x + entity.w / 2, entity.y + entity.h / 2
+                for _, fluid in ipairs(fluids) do
+                    local wanted = {}
+                    for _, index in ipairs(bound[fluid].boxes or {bound[fluid].box}) do wanted[index] = true end
+                    for box_index, box in ipairs(boxes) do
+                        if wanted[box.index or box_index] then
+                            for _, connection in ipairs(box.connections or box.pipe_connections or {}) do
+                                local px, py, outward = Grid.fluid_connection(connection, entity.dir or 0, entity.mirror)
+                                if px then
+                                    local x, y = math.floor(cx + px + 1e-6), math.floor(cy + py + 1e-6)
+                                    if x >= entity.x and x < entity.x + entity.w and y >= entity.y and y < entity.y + entity.h then
+                                        local dx, dy = Grid.dir_vector(outward)
+                                        x, y = x + (dx or 0), y + (dy or 0)
+                                    end
+                                    list[#list + 1] = {x = x, y = y, flow_id = "fluid/" .. fluid}
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return list
+end
+
 local function make_route_input(state, grid, blocks, ports, obstacles)
     local external = state.work.input.perimeter_ports or state.work.input.perimeter
     local generated = false
@@ -1188,6 +1238,8 @@ local function make_route_input(state, grid, blocks, ports, obstacles)
         end)(),
     })
     input.ports = ports
+    local keepouts = fluid_keepouts(state)
+    if #keepouts > 0 then input.fluid_keepouts = keepouts end
     input.tidy = false
     return input
 end

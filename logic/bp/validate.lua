@@ -2919,6 +2919,33 @@ local function check_fluid_mix(work)
             end
         end
     end
+    --Round 54 integrator: where the engine's box binding is known, every connection of a bound box takes that fluid
+    --and no other. Cryo x4 ran an ammonia pipe across the spare fluorine connection (2.0.77 lab: one pipe network
+    --on an ammonia box and a fluorine box). Only with a known binding: never stricter than the engine.
+    for _, machine in ipairs(work.machines or {}) do
+        local step = machine.entity and work.steps and work.steps[machine.entity.step_id]
+        for _, pair in ipairs(step and {{"inputs", "input"}, {"outputs", "output"}} or {}) do
+            for _, entry in ipairs(plan_entries(step, pair[1])) do
+                local flow_id = entry_flow_id(entry)
+                local fluid_name = type(flow_id) == "string" and flow_id:gsub("^fluid/", "") or flow_id
+                if flow_is_fluid(flow_id, entry, work) and (entry.fluidbox_index or entry.box_index) == nil
+                    and BoxBinding.boxes_for(work.catalog, machine.entity.name, machine.entity.recipe, fluid_name, pair[2]) then
+                    local bare = {name = entry.name, full_name = entry.full_name, flow_id = entry.flow_id}
+                    for _, connection in ipairs(fluid_connection_cells(machine, bare, pair[2], work)) do
+                        if not pipe_to_ground_faces_away(work, connection) then
+                            for _, info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(connection.x, connection.y)] or {}) do
+                                local other = transport_kind(info) == "pipe" and transport_flow(info)
+                                if other and other ~= flow_id then
+                                    error_record(work.errors, "BP_V_FLUID_MIX", {tostring(machine.id), tostring(info.id)},
+                                        {flow_a = flow_id, flow_b = other, x = connection.x, y = connection.y, cause = "bound_box"})
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
     return true
 end
 
