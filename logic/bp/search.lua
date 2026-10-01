@@ -907,6 +907,57 @@ local function perimeter_blocked_cells(blocks, obstacles)
     return result
 end
 
+--Fluid edge spread (round 54): two fluids whose port tiles sit side by side under one machine (refinery water
+--and crude, Turn 0) both want the edge tile level with them; the farther one took it and walled the nearer one in
+--(BP_R_NO_PATH). After an edge fluid came up short (`note_edge_shortfalls`), fluid slots go nearest first and a
+--slot is kept only when a straight L path from it to its port tiles stays clear of every other fluid's path and
+--of the tiles beside that path.
+local function fluid_l_path(slot, consumers, blocked, flow_id, taken)
+    local cells, x, y = {}, slot.x, slot.y
+    local function walk(tx, ty, horizontal_first)
+        local out, cx, cy = {}, x, y
+        local function step_to(nx, ny)
+            while cx ~= nx do cx = cx + (nx > cx and 1 or -1); out[#out + 1] = {cx, cy} end
+            while cy ~= ny do cy = cy + (ny > cy and 1 or -1); out[#out + 1] = {cx, cy} end
+        end
+        if horizontal_first then step_to(tx, cy); step_to(tx, ty) else step_to(cx, ty); step_to(tx, ty) end
+        for index, cell in ipairs(out) do
+            local key = perimeter_cell_key(cell[1], cell[2])
+            local mark = blocked[key]
+            if index < #out and mark ~= nil and mark ~= flow_id then return nil end
+            local other = taken[key]
+            if other and other ~= flow_id then return nil end
+        end
+        return out
+    end
+    if taken[perimeter_cell_key(x, y)] and taken[perimeter_cell_key(x, y)] ~= flow_id then return nil end
+    cells[1] = {x, y}
+    local visited = {}
+    for _ = 1, #consumers do
+        local nearest
+        for index, point in ipairs(consumers) do
+            if not visited[index] and (nearest == nil or math.abs(point.x - x) + math.abs(point.y - y)
+                < math.abs(consumers[nearest].x - x) + math.abs(consumers[nearest].y - y)) then nearest = index end
+        end
+        visited[nearest] = true
+        local point = consumers[nearest]
+        local leg = walk(point.x, point.y, true) or walk(point.x, point.y, false)
+        if not leg then return nil end
+        for _, cell in ipairs(leg) do cells[#cells + 1] = cell end
+        x, y = point.x, point.y
+    end
+    return cells
+end
+
+local function claim_fluid_path(taken, cells, flow_id)
+    for _, cell in ipairs(cells) do
+        for _, d in ipairs({{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+            local key = perimeter_cell_key(cell[1] + d[1], cell[2] + d[2])
+            if taken[key] == nil then taken[key] = flow_id elseif taken[key] ~= flow_id then taken[key] = true end
+        end
+    end
+end
+
 local function generated_perimeter_ports(state, grid, input_edge, output_edge, pitch, blocked)
     local slots = {
         ["in"] = perimeter_slots(grid, input_edge, pitch),
@@ -930,8 +981,13 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
         end
         network.need = best or math.huge
     end
+    local spread = state.work.fluid_edge_spread
+    local fluid_taken = {}
     table.sort(networks, function(a, b)
-        if a.need ~= b.need then return a.need > b.need end
+        if a.need ~= b.need then
+            if spread then return a.need < b.need end
+            return a.need > b.need
+        end
         return a.key < b.key
     end)
     for _, network in ipairs(networks) do
@@ -957,6 +1013,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
         local base_id = port.port_id or port.id or port_flow_id(port) or role
         for copy_index = 1, requested do
             local index, best_cost
+            for _, strict in ipairs(spread and {true, false} or {false}) do if index == nil then
             for candidate_index, candidate_slot in ipairs(slots[role]) do
                 local key = perimeter_cell_key(candidate_slot.x, candidate_slot.y)
                 local fluid_near = false
@@ -966,6 +1023,10 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
                         if neighbor and neighbor ~= port_flow_id(port) then fluid_near = true end
                     end
                 end
+                if strict and not fluid_near and tostring(port_flow_id(port)):sub(1, 6) == "fluid/"
+                    and not fluid_l_path(candidate_slot, network.consumers, blocked, port_flow_id(port), fluid_taken) then
+                    fluid_near = true
+                end
                 if not fluid_near and not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
                     local cost = slot_cost(candidate_slot, network.consumers)
                     if index == nil or cost < best_cost or (cost == best_cost and candidate_index < index) then
@@ -973,6 +1034,7 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
                     end
                 end
             end
+            end end
             index = index or (#slots[role] + 1)
             while index <= #slots[role] do
                 local slot = slots[role][index]
@@ -989,6 +1051,8 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
             occupied[perimeter_cell_key(slot.x, slot.y)] = true
             if tostring(port_flow_id(port)):sub(1, 6) == "fluid/" then
                 fluid_doors[perimeter_cell_key(slot.x, slot.y)] = port_flow_id(port)
+                local cells = spread and fluid_l_path(slot, network.consumers, blocked, port_flow_id(port), fluid_taken)
+                if cells then claim_fluid_path(fluid_taken, cells, port_flow_id(port)) end
             end
             local point = copy(port) or {}
             point.port_id = copy_index == 1 and base_id or (tostring(base_id) .. ":" .. tostring(copy_index))
@@ -1500,6 +1564,7 @@ local function layered_fallback(state)
     --Round 53 integration: edge terminal splits learnt from another pack mode's route are not this mode's; red-1s-bulk
     --layered Fallback inherited the drawn attempts' splits and failed BP_V_SOURCE_DUPLICATE x4 (layered alone passes).
     state.work.edge_split_flows = nil
+    state.work.fluid_edge_spread = nil
     state.cursor.grid_index = 1
     return start_grid(state)
 end
@@ -1594,6 +1659,9 @@ local function prepare_candidate(state, budget)
                         failure(state, "BP_FAIL_FLIP_REBUILD", {subject = block.id or block.block_id})
                         return false
                     end
+                    --The flipped rebuild carries its own directions; the forced Turn holds for it too (foundry Flip
+                    --rows shipped one north-facing blueprint for all four turns).
+                    rebuilt.allowed_dirs = {forced.turn}
                     for i, old in ipairs(candidate.blocks) do
                         if old == block then candidate.blocks[i] = rebuilt; break end
                     end
@@ -1651,7 +1719,10 @@ local function note_edge_shortfalls(state)
     end
     local edge_short = false
     for _, shortfall in ipairs(shortfalls) do
-        if shortfall.flow_id and shortfall.source_port_id and edge[shortfall.source_port_id] then edge_short = true end
+        if shortfall.flow_id and shortfall.source_port_id and edge[shortfall.source_port_id] then
+            edge_short = true
+            if tostring(shortfall.flow_id):sub(1, 6) == "fluid/" then state.work.fluid_edge_spread = true end
+        end
     end
     if not edge_short then return end
     --The starved flow is often not the one to split: a flow with several sinks that shares one terminal runs its
