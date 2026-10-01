@@ -5207,7 +5207,9 @@ function Route.step(state, budget)
                         and demand.source.fluid_travel_dir ~= (demand.source.travel_dir or 0) then
                         demand.pipe_seed_heading = true
                         work.current = begin_search(work, demand, amount, 1)
-                    elseif demand.kind == "pipe" and not demand.pipe_free_exit then
+                    elseif demand.kind == "pipe" and not demand.pipe_free_exit and work.strict_ptg then
+                        --Last-resort search phase only (`strict_ptg`): on first routing it moved player-magenta-science-10s
+                        --layered off its round 53 layout (gate4, grid 6 route failed).
                         demand.pipe_free_exit = true
                         work.current = begin_search(work, demand, amount, 1)
                     elseif not demand.allow_ride and not search.saw_fluid_mix and not search.saw_capacity
