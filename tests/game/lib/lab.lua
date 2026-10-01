@@ -241,16 +241,33 @@ function Lab.sink_tick(sinks, counting)
                     line.clear()
                 end
             else
-                --A pipe reports only its own share of its fluid segment, while clearing empties the whole segment
-                --(round 54: an 8-pipe output run read 1.25/s of 9.99/s). Count the segment, then clear it.
-                local okf, fluids = pcall(function() return e.fluidbox.get_fluid_segment_contents(1) end)
-                if not (okf and type(fluids) == "table") then okf, fluids = pcall(e.get_fluid_contents) end
-                if okf and fluids then
-                    for name, amount in pairs(fluids) do
-                        if counting and type(amount) == "number" and amount > 0 then s.got[name] = (s.got[name] or 0) + amount end
-                    end
-                    pcall(e.clear_fluid_inside)
+                --A pipe reports only its own share of its fluid network, while clearing one pipe empties the whole network
+                --(round 54: an 8-pipe output run read 1.25/s of 9.99/s; Factorio 2.1.20 has neither LuaEntity.fluidbox
+                --nor a segment call, all 80 fluid-product sheets read 3.57/s of 49.95/s). So: every pipe of this sheet
+                --that holds the sink's fluid is summed first, then each one is cleared. Sheets sit 512 tiles apart.
+                if not s.fluid_pipes then
+                    local p = e.position
+                    s.fluid_pipes = e.surface.find_entities_filtered({area = {{p.x - 100, p.y - 100}, {p.x + 100, p.y + 100}},
+                        type = {"pipe", "pipe-to-ground"}})
+                    s.fluid_wanted = {}
+                    for _, name in ipairs(s.items or {}) do s.fluid_wanted[name] = true end
+                    if next(s.fluid_wanted) == nil then s.fluid_pipes = {e} end
                 end
+                local holding = {}
+                for _, pipe in ipairs(s.fluid_pipes) do
+                    local okf, fluids = pcall(function() return pipe.valid and pipe.get_fluid_contents() or nil end)
+                    if okf and fluids then
+                        local mine = pipe == e
+                        for name, amount in pairs(fluids) do
+                            if type(amount) == "number" and amount > 0 and (pipe == e or s.fluid_wanted[name]) then
+                                mine = true
+                                if counting then s.got[name] = (s.got[name] or 0) + amount end
+                            end
+                        end
+                        if mine then holding[#holding + 1] = pipe end
+                    end
+                end
+                for _, pipe in ipairs(holding) do pcall(pipe.clear_fluid_inside) end
             end
         end
     end
