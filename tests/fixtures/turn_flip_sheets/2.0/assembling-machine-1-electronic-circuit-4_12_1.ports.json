@@ -1,0 +1,55 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "copper-cable",
+   "tile": [
+    0,
+    20
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "item/copper-cable": 11.988,
+  "item/iron-plate": 3.9960000000000004
+ },
+ "problems": [
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "in:item/iron-plate: no plain edge belt upstream (heads [(0, 16)])",
+  "input item/iron-plate has no feed tile"
+ ],
+ "sinks": [
+  {
+   "items": [
+    "electronic-circuit"
+   ],
+   "tile": [
+    15,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/electronic-circuit": 3.9960000000000004
+ }
+}

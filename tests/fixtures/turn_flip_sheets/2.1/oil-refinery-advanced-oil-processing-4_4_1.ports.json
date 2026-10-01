@@ -1,0 +1,149 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    15
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    17
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    19
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    20
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    21
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    22
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    23
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    24
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    25
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    26
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    30
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    31
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    32
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    33
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    34
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    37
+   ]
+  },
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    38
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/crude-oil": 79.92,
+  "fluid/water": 39.96
+ },
+ "problems": [],
+ "sinks": [],
+ "targets": {
+  "fluid/heavy-oil": 19.98,
+  "fluid/light-oil": 35.964,
+  "fluid/petroleum-gas": 43.956
+ }
+}

@@ -1,0 +1,52 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "iron-plate",
+   "tile": [
+    0,
+    18
+   ]
+  },
+  {
+   "item": "copper-cable",
+   "tile": [
+    0,
+    21
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "item/copper-cable": 2.997,
+  "item/iron-plate": 0.999
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "electronic-circuit"
+   ],
+   "tile": [
+    4,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/electronic-circuit": 0.999
+ }
+}

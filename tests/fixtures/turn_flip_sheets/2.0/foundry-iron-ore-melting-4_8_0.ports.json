@@ -1,0 +1,40 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    31
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "item/calcite": 0.333,
+  "item/iron-ore": 16.65
+ },
+ "problems": [
+  "in:item/calcite: no plain edge belt upstream (heads [(0, 29)])",
+  "in:item/calcite: no plain edge belt upstream (heads [(0, 29)])",
+  "in:item/calcite: no plain edge belt upstream (heads [(0, 29)])",
+  "input item/calcite has no feed tile"
+ ],
+ "sinks": [],
+ "targets": {
+  "fluid/molten-iron": 249.75
+ }
+}

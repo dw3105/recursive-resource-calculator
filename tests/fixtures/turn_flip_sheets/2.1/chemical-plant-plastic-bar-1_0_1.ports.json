@@ -1,0 +1,47 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "coal",
+   "tile": [
+    0,
+    18
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/petroleum-gas": 19.98,
+  "item/coal": 0.999
+ },
+ "problems": [
+  "input fluid/petroleum-gas has no feed tile"
+ ],
+ "sinks": [
+  {
+   "items": [
+    "plastic-bar"
+   ],
+   "tile": [
+    8,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/plastic-bar": 1.9979999999999998
+ }
+}

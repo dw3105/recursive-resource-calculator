@@ -1,0 +1,53 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "lithium",
+   "tile": [
+    0,
+    17
+   ]
+  },
+  {
+   "item": "solid-fuel",
+   "tile": [
+    0,
+    18
+   ]
+  },
+  {
+   "fluid": "ammonia",
+   "tile": [
+    0,
+    21
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/ammonia": 9.99,
+  "fluid/fluorine": 9.99,
+  "item/lithium": 0.1998,
+  "item/solid-fuel": 0.1998
+ },
+ "problems": [
+  "input fluid/fluorine has no feed tile"
+ ],
+ "sinks": [],
+ "targets": {
+  "fluid/fluoroketone-hot": 9.99
+ }
+}

@@ -1,0 +1,44 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "fluid": "crude-oil",
+   "tile": [
+    0,
+    13
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    15
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/crude-oil": 79.92,
+  "fluid/water": 39.96
+ },
+ "problems": [],
+ "sinks": [],
+ "targets": {
+  "fluid/heavy-oil": 19.98,
+  "fluid/light-oil": 35.964,
+  "fluid/petroleum-gas": 43.956
+ }
+}

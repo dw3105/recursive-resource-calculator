@@ -1,0 +1,48 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "stone",
+   "tile": [
+    0,
+    9
+   ]
+  },
+  {
+   "item": "holmium-ore",
+   "tile": [
+    0,
+    13
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/heavy-oil": 10.656,
+  "fluid/water": 1.0655999999999999,
+  "item/holmium-ore": 0.21311999999999998,
+  "item/stone": 1.17216
+ },
+ "problems": [
+  "pipe network (6, 12) gets several input fluids ['heavy-oil', 'water']",
+  "input fluid/heavy-oil has no feed tile",
+  "input fluid/water has no feed tile"
+ ],
+ "sinks": [],
+ "targets": {
+  "fluid/electrolyte": 15.984000000000002
+ }
+}

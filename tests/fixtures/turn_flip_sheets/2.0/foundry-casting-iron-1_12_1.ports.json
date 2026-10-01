@@ -1,0 +1,38 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/molten-iron": 16.65
+ },
+ "problems": [
+  "input fluid/molten-iron has no feed tile"
+ ],
+ "sinks": [
+  {
+   "items": [
+    "iron-plate"
+   ],
+   "tile": [
+    5,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/iron-plate": 2.4974999999999996
+ }
+}

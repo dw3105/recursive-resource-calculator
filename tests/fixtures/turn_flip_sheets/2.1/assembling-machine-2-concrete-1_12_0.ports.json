@@ -1,0 +1,60 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "stone-brick",
+   "tile": [
+    0,
+    16
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    22
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    19
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/water": 7.492499999999999,
+  "item/iron-ore": 0.07492499999999999,
+  "item/stone-brick": 0.374625
+ },
+ "problems": [],
+ "sinks": [
+  {
+   "items": [
+    "concrete"
+   ],
+   "tile": [
+    4,
+    0
+   ]
+  }
+ ],
+ "targets": {
+  "item/concrete": 0.74925
+ }
+}

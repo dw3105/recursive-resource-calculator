@@ -1,0 +1,58 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "holmium-ore",
+   "tile": [
+    0,
+    7
+   ]
+  },
+  {
+   "item": "stone",
+   "tile": [
+    0,
+    9
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    5
+   ]
+  },
+  {
+   "fluid": "heavy-oil",
+   "tile": [
+    0,
+    18
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/heavy-oil": 2.664,
+  "fluid/water": 0.26639999999999997,
+  "item/holmium-ore": 0.053279999999999994,
+  "item/stone": 0.29304
+ },
+ "problems": [],
+ "sinks": [],
+ "targets": {
+  "fluid/electrolyte": 3.9960000000000004
+ }
+}

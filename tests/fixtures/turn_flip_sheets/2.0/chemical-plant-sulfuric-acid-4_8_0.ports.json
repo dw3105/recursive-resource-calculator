@@ -1,0 +1,50 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "iron-plate",
+   "tile": [
+    0,
+    18
+   ]
+  },
+  {
+   "item": "sulfur",
+   "tile": [
+    0,
+    35
+   ]
+  },
+  {
+   "fluid": "water",
+   "tile": [
+    0,
+    20
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "fluid/water": 399.6000000000001,
+  "item/iron-plate": 3.995999999999999,
+  "item/sulfur": 19.98
+ },
+ "problems": [],
+ "sinks": [],
+ "targets": {
+  "fluid/sulfuric-acid": 199.8
+ }
+}

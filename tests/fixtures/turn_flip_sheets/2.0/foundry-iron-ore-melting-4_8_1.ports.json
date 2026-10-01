@@ -1,0 +1,42 @@
+{
+ "bbox": [
+  0,
+  0,
+  52,
+  52
+ ],
+ "edges": {
+  "input_edge": "left",
+  "output_edge": "top"
+ },
+ "feeds": [
+  {
+   "item": "calcite",
+   "tile": [
+    0,
+    29
+   ]
+  },
+  {
+   "item": "iron-ore",
+   "tile": [
+    0,
+    31
+   ]
+  }
+ ],
+ "force": {
+  "bulk_inserter_capacity_bonus": 0,
+  "inserter_stack_size_bonus": 0,
+  "research": {}
+ },
+ "inputs": {
+  "item/calcite": 0.333,
+  "item/iron-ore": 16.65
+ },
+ "problems": [],
+ "sinks": [],
+ "targets": {
+  "fluid/molten-iron": 249.75
+ }
+}
