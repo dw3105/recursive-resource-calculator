@@ -3208,7 +3208,8 @@ local function search_step(work, search)
                 --A pipe dive never starts on a machine's pipe tile, except its own source diving outward: a
                 --pipe-to-ground there faces away and cuts the machine off (round 54, EM plant x3: holmium solution
                 --dived west from machine 3's port (23,26); BP_V_FLUID_DISCONNECTED).
-                local port_here = search.demand.kind == "pipe" and work.port_cells and work.port_cells[current_tile_key]
+                --Last-resort search phase only (`strict_ptg`): on first routing it moved player-magenta-science-10s.
+                local port_here = work.strict_ptg and search.demand.kind == "pipe" and work.port_cells and work.port_cells[current_tile_key]
                 if port_here and port_here._fluid_dir ~= nil then
                     local source = search.demand.source
                     local own = source and current.x == source.x and current.y == source.y
@@ -3219,7 +3220,7 @@ local function search_step(work, search)
                     --A pipe-to-ground surfacing on its sink joins the machine only when it faces into it (round 54,
                     --EM plant x3: holmium solution surfaced at (21,26) facing away; BP_V_FLUID_DISCONNECTED).
                     local sink_heading = search.demand.sink.travel_dir
-                    if sink_heading == nil and search.demand.kind == "pipe" then sink_heading = search.demand.sink.fluid_travel_dir end
+                    if sink_heading == nil and search.demand.kind == "pipe" and work.strict_ptg then sink_heading = search.demand.sink.fluid_travel_dir end
                     if not reaches_sink or sink_heading == nil or sink_heading == direction then
                         local cost = current.cost + transition_cost(work, search.demand, crossing.x, crossing.y, direction,
                             current.direction, 1, crossing.distance, search.amount, crossing.key)
@@ -3620,6 +3621,7 @@ local function normalize_input(input)
         belt_runs = (function() local runs = {}; for i, run in ipairs(input.belt_runs or {}) do runs[i] = run end; return runs end)(),
         collectors = input.collectors ~= false, collectors_used = false,
         strict_ends = input.strict_ends == true,
+        strict_ptg = input.strict_ptg == true,
         input_entities = input_entities,
         grid = copy_grid(input), obstacles = {}, endpoint_index = {}, endpoint_by_block = {}, endpoint_by_id = {}, rear_endpoints = {}, perimeter = {},
         entities = {}, segments = {}, bindings = {}, segments_by_cell = {}, entity_by_segment = {},

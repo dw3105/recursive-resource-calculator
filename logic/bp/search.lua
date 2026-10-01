@@ -2005,6 +2005,7 @@ function Search.step(container, budget)
                     end
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input and state.work.strict_ends then route_input.strict_ends = true end
+                    if route_input and (state.work.edge_inset or 0) > 0 then route_input.strict_ptg = true end
                     if route_input then
                         state.work.route_args = {blocks = blocks, ports = ports}
                         state.work.collector_trial, state.work.collector_first = nil, nil
