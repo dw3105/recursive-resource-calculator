@@ -2614,7 +2614,34 @@ local function check_physical_transfers(work, machine_index, final)
                 local flow_id = entry_flow_id(entry)
                 if flow_is_fluid(flow_id, entry, work) then
                     local reached = false
-                    for _, connection in ipairs(fluid_connection_cells(machine, entry, "output", work)) do
+                    --Integrator round 54: a machine with spare output boxes (cryogenic plant: three on one face) let the
+                    --witness start at whichever box a pipe touched first, and the pipes on the declared port tile read
+                    --as waste (cryo x4 Turn 4). Start from the declared output port tile of this flow when one is here.
+                    local connections = fluid_connection_cells(machine, entry, "output", work)
+                    if #connections > 1 then
+                        work._fluid_out_tiles = work._fluid_out_tiles or {}
+                        local tiles = work._fluid_out_tiles[flow_id]
+                        if not tiles then
+                            tiles = {}
+                            for _, port in ipairs(work.ports or {}) do
+                                if port.role == "out" and (port.kind == "fluid" or port.is_fluid)
+                                    and (port.flow_id or port.full_name) == flow_id then
+                                    local px, py = port_position(work, port)
+                                    if px then tiles[px .. ":" .. py] = true end
+                                end
+                            end
+                            work._fluid_out_tiles[flow_id] = tiles
+                        end
+                        local front, rest = {}, {}
+                        for _, c in ipairs(connections) do
+                            if tiles[tostring(c.x) .. ":" .. tostring(c.y)] then front[#front + 1] = c else rest[#rest + 1] = c end
+                        end
+                        if #front > 0 then
+                            for _, c in ipairs(rest) do front[#front + 1] = c end
+                            connections = front
+                        end
+                    end
+                    for _, connection in ipairs(connections) do
                         if pipe_to_ground_faces_away(work, connection) then goto continue_ptg_output end
                         local port, path, target_machine = connection_path(work, flow_id, "output", connection.x, connection.y, "pipe")
                         if port then

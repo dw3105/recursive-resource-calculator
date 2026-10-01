@@ -2001,7 +2001,10 @@ function Search.step(container, budget)
                     state.work.materialized = {blocks = blocks, entities = entities, ports = ports}
                     Hands.offer_slides(state.work.materialized, state.work.grid)
                     local settings = state.work.input.settings or {}
-                    if Seat.run(state.work.materialized, state.work.grid, state.work.plan_result.flows,
+                    --Integrator round 54: Seat moves every edge-fed hand to the face nearest the input edge. On a Block
+                    --turned sideways that face already carries both fluids, and the extra item boxed the other one in
+                    --(cryo x4 Turn 4). The last-resort inset phase keeps the Block's own hand sides.
+                    if (state.work.edge_inset or 0) == 0 and Seat.run(state.work.materialized, state.work.grid, state.work.plan_result.flows,
                         settings.input_edge or state.work.input.input_edge or "left") > 0 then
                         Hands.offer_slides(state.work.materialized, state.work.grid)
                     end
