@@ -14,8 +14,9 @@ entities[#entities + 1] = {id = "hand-c", kind = "inserter", name = "inserter", 
 return {
  id = "lane_overload_ok", rule = "BP_V_LANE_OVERLOAD", class = "engine", from = "tests/test_validate_lane_overload.lua LO1",
  grid = {w = 20, h = 20}, entities = entities,
- feeds = {{tile = {5, 0}, item = "iron-gear-wheel", rate = 5}, {tile = {9, 19}, item = "iron-gear-wheel", rate = 5}},
- sinks = {{tile = {19, 10}, items = {"iron-gear-wheel"}, rate = 10}},
+ --The trunk carries a little of its own from the west edge, so the branches side-load a moving belt.
+ feeds = {{tile = {0, 10}, item = "iron-gear-wheel", rate = 1}, {tile = {5, 0}, item = "iron-gear-wheel", rate = 5}, {tile = {9, 19}, item = "iron-gear-wheel", rate = 5}},
+ sinks = {{tile = {19, 10}, items = {"iron-gear-wheel"}, rate = 11}},
  validator = {catalog = {entity = {
   inserter = {name = "inserter", etype = "inserter", tile_w = 1, tile_h = 1, needs_power = false, items_per_second = 10},
   ["assembling-machine-1"] = {name = "assembling-machine-1", etype = "assembling-machine", tile_w = 3, tile_h = 3, needs_power = false},
