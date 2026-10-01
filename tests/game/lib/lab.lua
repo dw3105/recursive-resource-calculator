@@ -181,7 +181,10 @@ function Lab.power(surface, force, built)
     local copper = defines.wire_connector_id.pole_copper
     for _, pole in ipairs({link, sub}) do pole.get_wire_connector(copper, true).disconnect_all(defines.wire_origin.player) end
     local a = sub.get_wire_connector(copper, true).connect_to(link.get_wire_connector(copper, true), true, defines.wire_origin.player)
-    local b = link.get_wire_connector(copper, true).connect_to(best.get_wire_connector(copper, true), true, defines.wire_origin.player)
+    --No reach check on the lab's own wire (round 54): a small sheet's nearest pole is a medium pole (reach 9) up to
+    --12.5 tiles from the link pole, and 15 Turn and Flip sheets read "power failed". The wire carries power only;
+    --the link pole's supply area still ends outside the grid.
+    local b = link.get_wire_connector(copper, true).connect_to(best.get_wire_connector(copper, true), false, defines.wire_origin.player)
     return a and b
 end
 
@@ -220,7 +223,8 @@ end
 function Lab.feed_shape_ok(entity, fluid)
     if not entity then return false end
     if fluid then return entity.type == "pipe" or entity.type == "pipe-to-ground" or entity.type == "storage-tank" end
-    return entity.type == "transport-belt"
+    --An underground entrance on the map edge is fed like a belt (round 54).
+    return entity.type == "transport-belt" or entity.type == "underground-belt"
 end
 
 --Sinks: drain both lines (or the fluid) every tick, counting what arrived by name.

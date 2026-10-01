@@ -60,7 +60,7 @@ describe("Turn and Flip sheet sims", function()
                         local got,problems={},{}
                         if short>0 then problems[#problems+1]="FEED_SHORT "..short.." lane samples" end
                         for _,s in ipairs(sinks) do local allowed={}; for _,n in ipairs(s.items) do allowed[n]=true end; for n,count in pairs(s.got) do if not allowed[n] then problems[#problems+1]="foreign "..n end; got[n]=(got[n] or 0)+count end end
-                        for name,rate in pairs(ports.targets) do local item=name:gsub("^item/",""); local actual=(got[item] or 0)/(WINDOW/60); if actual<.95*rate then problems[#problems+1]=item.." short "..actual.." < "..(.95*rate) end end
+                        for name,rate in pairs(ports.targets) do local item=name:gsub("^item/",""):gsub("^fluid/",""); local actual=(got[item] or 0)/(WINDOW/60); if actual<.95*rate then problems[#problems+1]=item.." short "..actual.." < "..(.95*rate) end end
                         game.speed=1; assert(#problems==0,sheet.case..": "..table.concat(problems,"; ")); return false
                     end)
                 end)
