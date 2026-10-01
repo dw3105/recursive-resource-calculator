@@ -287,8 +287,8 @@ local function grid_area(grid, input)
 end
 
 --Edge inset (round 54): a Block packed one tile from the input edge leaves no corridor for the edge feeds (EM plant
---Flip: five feeds and two fluid fronts in columns 0-1, every way refused). After a second edge shortfall in a row
---(`note_edge_shortfalls`), pack keeps `edge_inset` tiles free along the input edge. Only failing sheets get it.
+--Flip: five feeds and two fluid fronts in columns 0-1, every way refused). When every attempt failed, pack keeps
+--`edge_inset` tiles free along the input edge (`discard_candidate`). Only failing sheets get it.
 local function pack_area(state, input_edge)
     local input = state.work.input
     local area = grid_area(state.work.grid, input)
@@ -1597,7 +1597,7 @@ local function layered_fallback(state)
     --layered Fallback inherited the drawn attempts' splits and failed BP_V_SOURCE_DUPLICATE x4 (layered alone passes).
     state.work.edge_split_flows = nil
     state.work.fluid_edge_spread = nil
-    state.work.edge_inset, state.work.edge_inset_fresh = nil, nil
+    state.work.edge_inset = nil
     state.cursor.grid_index = 1
     return start_grid(state)
 end
@@ -1758,15 +1758,6 @@ local function note_edge_shortfalls(state)
         end
     end
     if not edge_short then return end
-    if state.work.edge_split_flows then
-        --The split did not help; the inset replaces it (a split item flow has two edge sources, which validate
-        --refuses as BP_V_SOURCE_DUPLICATE: one source per item).
-        local before = state.work.edge_inset or 0
-        state.work.edge_inset = math.min(before + 3, 9)
-        state.work.edge_inset_fresh = state.work.edge_inset > before
-        state.work.edge_split_flows = {}
-        return
-    end
     --The starved flow is often not the one to split: a flow with several sinks that shares one terminal runs its
     --trunk across the edge rows and walls a neighbour in (red science 10/s: a two-sink flow crossed the row of a
     --one-sink flow). Every edge flow that feeds more than one sink gets one terminal per sink on the next try.
@@ -1843,10 +1834,12 @@ local function discard_candidate(state)
         start_grid(state)
         return
     end
-    --A just-grown edge inset is new room the last attempt never saw: one more pass at the same attempt (same
-    --ring_bump), bounded by the inset cap.
-    if state.work.edge_inset_fresh then
-        state.work.edge_inset_fresh = false
+    --Edge inset retry: every attempt failed, so before BP_FAIL_NO_LAYOUT keep 3 more tiles free along the input
+    --edge (cap 9) and search again at the same attempt. The edge split is dropped: the inset replaces it, and a
+    --split item has two edge sources (BP_V_SOURCE_DUPLICATE). Only sheets that fail today reach this.
+    if (state.work.edge_inset or 0) < 9 then
+        state.work.edge_inset = (state.work.edge_inset or 0) + 3
+        state.work.edge_split_flows = nil
         state.cursor.grid_index = 1
         start_grid(state)
         return

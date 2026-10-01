@@ -2682,6 +2682,10 @@ local function begin_search(work, demand, amount, order_index)
         --the ride searched the whole grid before failing: player-inserter-10s first-verdict tidy 18 s -> 77 s.
         allow_ride = demand.allow_ride == true or work.allow_bury == true}
     local seed_heading = demand.source.travel_dir or 0
+    --A fluid port carries its outward heading as fluid_travel_dir only; the default north seed banned south as a
+    --reversal (EM plant Turn 4: holmium solution leaves a turned chemical plant west, the only free way was south).
+    --Used on the retry below, so a pipe that routes today keeps its path.
+    if demand.pipe_seed_heading and demand.source.fluid_travel_dir ~= nil then seed_heading = demand.source.fluid_travel_dir end
     if demand.strict_branch and demand.kind ~= "pipe" then
         local source_segment = work.segments_by_cell[coordinate_key(demand.source.x, demand.source.y)]
         if source_segment and source_segment.kind == "belt" and not source_segment.underground
@@ -5180,6 +5184,11 @@ function Route.step(state, budget)
                     abandon_search(work, reason)
                     if next_endpoint_candidate(demand) then
                         work.current = nil
+                    elseif demand.kind == "pipe" and not demand.pipe_seed_heading and demand.source
+                        and demand.source.fluid_travel_dir ~= nil
+                        and demand.source.fluid_travel_dir ~= (demand.source.travel_dir or 0) then
+                        demand.pipe_seed_heading = true
+                        work.current = begin_search(work, demand, amount, 1)
                     elseif not demand.allow_ride and not search.saw_fluid_mix and not search.saw_capacity
                         and demand.kind ~= "pipe" and has_rideable_pair(work, demand.flow_id) then
                         --Last resort before the demand fails: search once more, now allowed to ride a same-flow
