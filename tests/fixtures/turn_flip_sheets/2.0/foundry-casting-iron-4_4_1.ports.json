@@ -33,12 +33,12 @@
     "iron-plate"
    ],
    "tile": [
-    34,
+    5,
     0
    ]
   }
  ],
  "targets": {
-  "item/iron-plate": 9.989999999999998
+  "item/iron-plate": 9.99
  }
 }
