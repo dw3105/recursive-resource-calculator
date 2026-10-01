@@ -906,20 +906,21 @@ local function slot_cost(slot, consumers)
 end
 
 local function perimeter_blocked_cells(blocks, obstacles)
-    --`__walls` keeps the Block and obstacle cells apart from port reservations: only a wall kills an edge slot.
+    --`__walls` keeps the Block cells apart from port reservations: only a Block wall kills an edge slot.
     local result = {__walls = {}}
-    local function add_rect(raw)
+    local function add_rect(raw, wall)
         local rect = type(raw) == "table" and (raw.rect or raw)
         if type(rect) ~= "table" then return end
         for y = rect.y, rect.y + rect.h - 1 do
             for x = rect.x, rect.x + rect.w - 1 do
                 result[perimeter_cell_key(x, y)] = true
-                result.__walls[perimeter_cell_key(x, y)] = true
+                if wall then result.__walls[perimeter_cell_key(x, y)] = true end
             end
         end
     end
     for _, block in ipairs(blocks or {}) do
-        add_rect(block)
+        --Blocks only: roboport clearance obstacles bind pack, a route crosses them (am2 chain copper ore (0,21)).
+        add_rect(block, true)
         mark_perimeter_port_cells(result, block)
     end
     for _, obstacle in ipairs(obstacles or {}) do add_rect(obstacle) end
