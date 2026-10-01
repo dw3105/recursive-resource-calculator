@@ -2052,7 +2052,10 @@ local function feeds_foreign(work, x, y, dir, flow_id)
     local seg = work.segments_by_cell[key]
     if not seg or seg.kind ~= "belt" or segment_has_flow(seg, flow_id) then return false end
     if seg.splitter then return seg.direction == dir end
-    if seg.underground and key == seg.underground_exit_key then return false end
+    --An exit takes nothing from behind (its buried side) but side-loads from a belt pointing in from its side.
+    if seg.underground and key == seg.underground_exit_key then
+        return seg.direction ~= dir and seg.direction ~= Grid.dir_opposite(dir)
+    end
     return seg.direction ~= Grid.dir_opposite(dir)
 end
 

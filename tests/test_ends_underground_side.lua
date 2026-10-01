@@ -26,4 +26,18 @@ H.test("EU2 an underground entrance straight ahead of the turned heading is fine
     H.equal(head.dir, W)
     io.write("EU2\n")
 end)
+H.test("EU3 an end pointing into the side of another flow's underground exit turns away; from behind it stays", function()
+    --Round 54 integrator: EM x1 Turn 12 Flip, holmium-ore end (5,13) faced east into the stone exit (6,13) heading
+    --south; the engine side-loads onto the exit's open half (holmium onto the stone line).
+    local S = Grid.SOUTH
+    local head = belt(5, 13, E, "holmium")
+    local exit = {name = "underground-belt", position = {x = 6.5, y = 13.5}, dir = S, flow_id = "stone", ug_role = "output", type = "output"}
+    local r = {entities = {head, exit, {name = "inserter", position = {x = 5.5, y = 12.5}, dir = S}}}
+    H.equal(Ends.turn_heads(r), 1)
+    H.equal(head.dir, S)
+    local behind = belt(6, 12, S, "holmium")
+    local exit2 = {name = "underground-belt", position = {x = 6.5, y = 13.5}, dir = S, flow_id = "stone", ug_role = "output", type = "output"}
+    H.equal(Ends.turn_heads({entities = {behind, exit2}}), 0)
+    io.write("EU3\n")
+end)
 H.done("test_ends_underground_side")

@@ -51,7 +51,10 @@ local function accepts(e, incoming_dir)
     if k == "belt" then return d ~= nil and d ~= (incoming_dir + 8) % 16 end
     if k == "splitter" then return d == incoming_dir end
     if k == "underground" then
-        if e.ug_role == "output" or e.type == "output" then return false end
+        --An exit side-loads from a belt pointing in from its side (round 54: EM x1 Turn 12 Flip holmium-ore end).
+        if e.ug_role == "output" or e.type == "output" then
+            return d ~= nil and d ~= incoming_dir and d ~= (incoming_dir + 8) % 16
+        end
         return e.ug_role == "input" or e.type == "input" or (d ~= nil and d ~= (incoming_dir + 8) % 16)
     end
     return false
