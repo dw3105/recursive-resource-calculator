@@ -828,6 +828,36 @@ local function machine_fluid_pipe_flows(machine, step, catalog, flows)
     return tiles
 end
 
+--Every pipe tile of an engine-bound fluid box of this machine, with its flow (empty without a binding). A merged
+--runtime box spans several connections; a pipe on any of them joins that box (round 54).
+local function machine_bound_pipe_flows(machine, step, catalog)
+    local tiles = {}
+    local entity = lookup_entity(catalog, step.machine, "machine")
+    local boxes = entity and (entity.fluid_boxes or entity.fluidbox_prototypes)
+    if type(boxes) ~= "table" then return tiles end
+    for _, pair in ipairs({{step.inputs or {}, "input"}, {step.outputs or {}, "output"}}) do
+        for _, port in ipairs(pair[1]) do
+            local fluid = port.name or port.full_name or port.flow_id
+            if type(fluid) == "string" then fluid = fluid:gsub("^fluid/", "") end
+            local bound = BoxBinding.boxes_for(catalog, step.machine, step.recipe or step.recipe_name, fluid, pair[2])
+            for _, index in ipairs(bound or {}) do
+                for box_index, box in ipairs(boxes) do
+                    if (box.index or box_index) == index then
+                        for _, connection in ipairs(box.connections or box.pipe_connections or {}) do
+                            if not (connection.position or connection.pos) and type(connection.positions) == "table" then
+                                connection = {position = connection.positions[1], direction = connection.direction or connection.dir}
+                            end
+                            local x, y = fluid_pipe_tile(machine, connection)
+                            if x then tiles[#tiles + 1] = {x = x, y = y, flow = port.flow_id or port.full_name or port.name} end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return tiles
+end
+
 local function strip_fluid_clash(a_tiles, b_tiles)
     for _, a in ipairs(a_tiles) do
         for _, b in ipairs(b_tiles) do
@@ -1538,6 +1568,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
     local x, y = machine_x0, machine_y
     local strip_extra = 0
     local strip_steps = {}  --machine -> its step, kept off the machine so Blocks stay byte-identical (HP2, PF3)
+    local face_extra = 0
     for _, spec in ipairs(machine_specs) do
         local machine = {
             id = spec.id,
@@ -1571,6 +1602,28 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
                 machine.x = x
             end
         end
+        --Face layout stacks machines one tile apart. With the engine's binding known, widen that gap while a bound
+        --connection tile of the machine above is also one of this machine's for another fluid, or their used
+        --pipe tiles touch (round 54: two chemical plants, the upper one's holmium-solution outlets on the lower
+        --one's water inlets; any pipe there joins both boxes). No binding: no change.
+        if previous and face_layout and beacon_rows_h == 0 then
+            local previous_step = strip_steps[previous] or spec.step
+            local previous_bound = machine_bound_pipe_flows(previous, previous_step, catalog)
+            if #previous_bound > 0 then
+                local previous_used = machine_fluid_pipe_flows(previous, previous_step, catalog, flows)
+                for shift = 0, 3 do
+                    machine.y = y + shift
+                    local clash = strip_fluid_clash(previous_used, machine_fluid_pipe_flows(machine, spec.step, catalog, flows))
+                    for _, a in ipairs(previous_bound) do
+                        for _, b in ipairs(machine_bound_pipe_flows(machine, spec.step, catalog)) do
+                            if a.flow ~= b.flow and a.x == b.x and a.y == b.y then clash = true end
+                        end
+                    end
+                    if not clash then y, face_extra = y + shift, face_extra + shift; break end
+                end
+                machine.y = y
+            end
+        end
         strip_steps[machine] = spec.step
         if spec.step.module_inventory ~= nil then machine.module_inventory = copy(spec.step.module_inventory) end
         if spec.step.inventory ~= nil then machine.inventory = copy(spec.step.inventory) end
@@ -1582,6 +1635,7 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
         else x = x + spec.layout_w + 1 end
     end
     machine_w = machine_w + strip_extra
+    machine_h = machine_h + face_extra
 
     if row_layout then
         block.row = {machines = #block.machines}

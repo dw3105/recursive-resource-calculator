@@ -2442,6 +2442,10 @@ local function path_cell_free(work, demand, x, y, move_direction, is_target, amo
     local owner = static_owner(work, x, y, key)
     if owner ~= nil and not is_allowed_owner(owner) then search.saw_blocked = true; return false end
     local reserved = work.port_cells and work.port_cells[key]
+    if reserved ~= nil and reserved._keep_flow ~= nil and demand.kind == "pipe" and reserved._keep_flow ~= demand.flow_id then
+        search.saw_blocked = true
+        return false
+    end
     if reserved ~= nil then
         local source_id = demand.source and demand.source.port_id
         local sink_id = demand.sink and demand.sink.port_id
@@ -3606,6 +3610,10 @@ local function reserve_port_cells(work)
             local key = coordinate_key(keep.x, keep.y)
             if reserved[key] == nil then reserved[key] = {_pipe_keepout = true} end
             reserved[key]["flow:" .. tostring(keep.flow_id)] = true
+            --Exclusive for pipes, also on a tile a port already claimed (its approach or front): two different
+            --keep flows on one tile leave it to no pipe at all.
+            if reserved[key]._keep_flow == nil then reserved[key]._keep_flow = keep.flow_id
+            elseif reserved[key]._keep_flow ~= keep.flow_id then reserved[key]._keep_flow = false end
         end
     end
     return reserved
@@ -4301,6 +4309,29 @@ prune_dead_route_segments = function(work)
         for key,segment in pairs(work.segments_by_cell or {}) do
             if segment.kind == "belt" and not segment.underground and not segment.splitter
                 and not fed[key] and not sources[key] and not segment.fixed then remove[segment.segment_id] = true end
+        end
+        --Round 54, last-resort phase only (`strict_ptg`): a pipe-to-ground pair with an end that opens onto nothing
+        --(no pipe, no fluid port, no route endpoint) is a dead spur; the validator calls both ends waste (EM x4:
+        --holmium pair (21,27)-(27,27) left beside the run that feeds the plant). First routing keeps today's rule.
+        if work.strict_ptg then
+            for _, segment in ipairs(work.segments or {}) do
+                if segment.kind == "pipe" and segment.underground and segment.underground_entry_x ~= nil
+                    and segment.underground_exit_x ~= nil and not segment.fixed then
+                    local dx, dy = Grid.dir_vector(segment.direction)
+                    local function open_end(x, y, sx, sy)
+                        local key = coordinate_key(x, y)
+                        if sources[key] then return true end
+                        local cell = work.port_cells and work.port_cells[key]
+                        if cell and cell._fluid_dir ~= nil then return true end
+                        local beside = work.segments_by_cell[coordinate_key(x + sx, y + sy)]
+                        return beside ~= nil and beside ~= segment and beside.kind == "pipe"
+                    end
+                    if dx and not (open_end(segment.underground_entry_x, segment.underground_entry_y, -dx, -dy)
+                        and open_end(segment.underground_exit_x, segment.underground_exit_y, dx, dy)) then
+                        remove[segment.segment_id] = true
+                    end
+                end
+            end
         end
         if next(remove) or next(splitter_remove) then
             changed = true
