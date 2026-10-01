@@ -61,15 +61,15 @@ a { color: var(--accent); }
   <div class="eyebrow">RRC · round 54 · delivery report</div>
   <h1>Every machine type built turned and flipped, proven in the game</h1>
   <p class="prose">Explain very simply: a Block of machines can turn four ways and flip. Nothing could force that before, so it was never tested. Round 54 adds a test switch that forces one Turn and Flip on every Block, 18 tiny sheets (9 machine types, 1 machine and 4 machines), and builds each one in all 8 poses on Factorio 2.0.77 and 2.1.20. Every pose now builds and delivers its rate in the real game, or is refused for a reason the game itself gives. Player sheets keep their bytes.</p>
-  <div class="meta"><span>host legalcopilot-dev</span><span>2026-10-01</span><span>base main d0da1ca (round-53-delivered)</span><span>head int/r54 8a1f122</span><span>Factorio 2.0.77 + 2.1.20</span></div>
+  <div class="meta"><span>host legalcopilot-dev</span><span>2026-10-01</span><span>base main d0da1ca (round-53-delivered)</span><span>head int/r54 cc8739d</span><span>Factorio 2.0.77 + 2.1.20</span></div>
 </header>
 <section>
   <h2>Verdict</h2>
   <div class="verdict">
     <div class="axis good"><div class="eyebrow">census offline</div><b>288 rows, 0 fail</b><span>Census v16: 272 valid, 16 forbidden (2.1 refuses Flip on assembling machines: <code>BP_FAIL_FLIP_FORBIDDEN</code>). 272 port files, 0 problems; 0 lanes above half a belt.</span></div>
     <div class="axis good"><div class="eyebrow">census in game</div><b>2.0.77 144/144 · 2.1.20 128/128</b><span>Each sheet built, fed and run; every product &ge; 0.95 &times; target.</span></div>
-    <div class="axis good"><div class="eyebrow">player sheets</div><b>26 same + 2 = main</b><span>Gate at f09f37f, 14 sheets &times; 2 modes: 28 valid, no Fallback, lanes clean. Speed tie (same-condition A/B, main vs head).</span></div>
-    <div class="axis good"><div class="eyebrow">suite</div><b>Green</b><span>Suite 2 at 8a1f122: 310 Lua test files, 0 red; headless 2.0.77 364/364, 2.1.20 182/182; Python OK. Zips 1.1.117 (2.0) / 1.1.118 (2.1) load in headless game.</span></div>
+    <div class="axis good"><div class="eyebrow">player sheets</div><b>28 of 28 same bytes as main</b><span>Gate at cc8739d, 14 sheets &times; 2 modes: layered 14 = <code>bytes_round52</code>, drawn 14 = main d0da1ca. No Fallback, lanes clean.</span></div>
+    <div class="axis good"><div class="eyebrow">suite</div><b>Green</b><span>Suite 3 at cc8739d: 310 Lua test files, 0 red; headless 2.0.77 364/364, 2.1.20 182/182; Python OK. Zips 1.1.117 (2.0) / 1.1.118 (2.1) load in headless game.</span></div>
   </div>
 </section>
 <section>
@@ -87,25 +87,25 @@ a { color: var(--accent); }
   <p class="prose">Player rule from the grill (2026-10-01): a Turn or Flip is invalid only when a used fluid port is walled by another machine (<code>BP_FAIL_FLUID_PORT_BLOCKED</code>). Belts, other-fluid pipes and poles in the way are routing work, never a refusal.</p>
 </section>
 <section>
-  <h2>Player sheets (gate at f09f37f)</h2>
-  <p class="prose" style="color:var(--muted);font-size:14px">CPU = step CPU s of <code>ckpt.lua save-all</code>, measured while census and game runs shared the 4-core host, so it reads 20&ndash;40% above the round 53 log. Same-condition A/B (3 runs each): inserter-10s-bulk layered main 6.37/6.53/6.55 s, head 6.43/6.43/6.46 s; green-science-1s layered main 5.96/5.97/6.04 s, head 5.70/6.06/5.81 s. Bytes compared with round 53 final.</p>
+  <h2>Player sheets (gate at cc8739d)</h2>
+  <p class="prose" style="color:var(--muted);font-size:14px">CPU = step CPU s of <code>ckpt.lua save-all</code>, measured while the census shared the 4-core host (load 9&ndash;17), so it reads above the round 53 log. Bytes are equal to main on every row, so the generator does the same work. Drawn mode back to back, main then head b84b25a, 12 same-byte sheets (2026-10-01 21:18&ndash;21:40 UTC): main 227.7 s, head 238.9 s CPU in total, single runs, per-sheet spread &minus;22% to +20%.</p>
   <div class="tablewrap"><table>
   <thead><tr class="grp"><th></th><th colspan="2">CPU s</th><th colspan="2">Material cost</th><th colspan="2">bytes vs round 53</th></tr>
   <tr><th>sheet</th><th>layered</th><th>drawn</th><th>layered</th><th>drawn</th><th>layered</th><th>drawn</th></tr></thead>
-  <tr><td>red-science-1s</td><td>1.7</td><td>2.2</td><td>22290.6</td><td>22286.1</td><td><span class="chip good">same 6fea7eb3</span></td><td><span class="chip good">same 1b281c73</span></td></tr>
-  <tr><td>red-science-1s-foundry</td><td>3.0</td><td>3.8</td><td>37552.3</td><td>39437.8</td><td><span class="chip good">same ec415235</span></td><td><span class="chip good">same 3d323f05</span></td></tr>
-  <tr><td>red-science-1s-bulk</td><td>4.6</td><td>2.7</td><td>36954.5</td><td>36358.9</td><td><span class="chip good">same 07759442</span></td><td><span class="chip good">same 8afa7506</span></td></tr>
-  <tr><td>red-science-10s</td><td>4.8</td><td>3.5</td><td>59342.0</td><td>60162.9</td><td><span class="chip good">same dd852622</span></td><td><span class="chip good">same b4d748b3</span></td></tr>
-  <tr><td>red-science-10s-bulk</td><td>4.6</td><td>5.3</td><td>72428.4</td><td>75341.8</td><td><span class="chip good">same 64490533</span></td><td><span class="chip good">same 1a003185</span></td></tr>
-  <tr><td>red-science-10s-stack1</td><td>5.0</td><td>4.4</td><td>61086.9</td><td>60355.9</td><td><span class="chip good">same f4fb7e83</span></td><td><span class="chip good">same 789b5acb</span></td></tr>
-  <tr><td>green-science-1s</td><td>5.7</td><td>7.3</td><td>52410.9</td><td>52473.9</td><td><span class="chip good">same 434cd5fa</span></td><td><span class="chip good">same 587611a6</span></td></tr>
-  <tr><td>inserter-10s</td><td>11.2</td><td>6.6</td><td>56541.9</td><td>58787.7</td><td><span class="chip good">same b1357e2f</span></td><td><span class="chip good">same cbe746eb</span></td></tr>
-  <tr><td>inserter-10s-bulk</td><td>5.9</td><td>6.5</td><td>74952.9</td><td>75923.1</td><td><span class="chip good">same 076b5d19</span></td><td><span class="chip flat">aee79a5d = main</span></td></tr>
-  <tr><td>am2-chain-repaired</td><td>7.8</td><td>10.4</td><td>56878.0</td><td>56938.0</td><td><span class="chip good">same de14f498</span></td><td><span class="chip good">same cd8612ca</span></td></tr>
-  <tr><td>red-green-science-10s</td><td>20.7</td><td>38.8</td><td>189994.2</td><td>211578.8</td><td><span class="chip good">same 5fa9b02e</span></td><td><span class="chip flat">de196ed4 = main</span></td></tr>
-  <tr><td>inserter-10s-stack1</td><td>89.1</td><td>43.4</td><td>75009.3</td><td>72070.3</td><td><span class="chip good">same 4991fcdd</span></td><td><span class="chip good">same 60835ead</span></td></tr>
-  <tr><td>blue-science-10s</td><td>67.6</td><td>67.1</td><td>380647.5</td><td>372007.4</td><td><span class="chip good">same 8b239bfa</span></td><td><span class="chip good">same 26c92ae6</span></td></tr>
-  <tr><td>magenta-science-10s</td><td>487.1</td><td>115.8</td><td>543599.2</td><td>521885.2</td><td><span class="chip good">same efa2cf30</span></td><td><span class="chip good">same 726dfe4b</span></td></tr>
+  <tr><td>red-science-1s</td><td>2.0</td><td>2.1</td><td>22290.6</td><td>22286.1</td><td><span class="chip good">same 6fea7eb3</span></td><td><span class="chip good">same 1b281c73</span></td></tr>
+  <tr><td>red-science-1s-foundry</td><td>2.7</td><td>3.0</td><td>37552.3</td><td>39437.8</td><td><span class="chip good">same ec415235</span></td><td><span class="chip good">same 3d323f05</span></td></tr>
+  <tr><td>red-science-1s-bulk</td><td>3.1</td><td>2.4</td><td>36954.5</td><td>36358.9</td><td><span class="chip good">same 07759442</span></td><td><span class="chip good">same 8afa7506</span></td></tr>
+  <tr><td>red-science-10s</td><td>4.6</td><td>4.1</td><td>59342.0</td><td>60162.9</td><td><span class="chip good">same dd852622</span></td><td><span class="chip good">same b4d748b3</span></td></tr>
+  <tr><td>red-science-10s-bulk</td><td>4.7</td><td>5.3</td><td>72428.4</td><td>75341.8</td><td><span class="chip good">same 64490533</span></td><td><span class="chip good">same 1a003185</span></td></tr>
+  <tr><td>red-science-10s-stack1</td><td>5.0</td><td>4.0</td><td>61086.9</td><td>60355.9</td><td><span class="chip good">same f4fb7e83</span></td><td><span class="chip good">same 789b5acb</span></td></tr>
+  <tr><td>green-science-1s</td><td>5.3</td><td>6.2</td><td>52410.9</td><td>52473.9</td><td><span class="chip good">same 434cd5fa</span></td><td><span class="chip good">same 587611a6</span></td></tr>
+  <tr><td>inserter-10s</td><td>10.3</td><td>6.0</td><td>56541.9</td><td>58787.7</td><td><span class="chip good">same b1357e2f</span></td><td><span class="chip good">same cbe746eb</span></td></tr>
+  <tr><td>inserter-10s-bulk</td><td>5.5</td><td>9.1</td><td>74952.9</td><td>79476.7</td><td><span class="chip good">same 076b5d19</span></td><td><span class="chip good">same 6b3dec72</span></td></tr>
+  <tr><td>am2-chain-repaired</td><td>6.2</td><td>9.2</td><td>56878.0</td><td>56938.0</td><td><span class="chip good">same de14f498</span></td><td><span class="chip good">same cd8612ca</span></td></tr>
+  <tr><td>red-green-science-10s</td><td>21.2</td><td>29.0</td><td>189994.2</td><td>200186.7</td><td><span class="chip good">same 5fa9b02e</span></td><td><span class="chip good">same 5965c55e</span></td></tr>
+  <tr><td>inserter-10s-stack1</td><td>95.0</td><td>45.2</td><td>75009.3</td><td>72070.3</td><td><span class="chip good">same 4991fcdd</span></td><td><span class="chip good">same 60835ead</span></td></tr>
+  <tr><td>blue-science-10s</td><td>72.7</td><td>66.7</td><td>380647.5</td><td>372007.4</td><td><span class="chip good">same 8b239bfa</span></td><td><span class="chip good">same 26c92ae6</span></td></tr>
+  <tr><td>magenta-science-10s</td><td>461.4</td><td>119.4</td><td>543599.2</td><td>521885.2</td><td><span class="chip good">same efa2cf30</span></td><td><span class="chip good">same 726dfe4b</span></td></tr>
   </table></div>
 </section>
 <section>
@@ -123,6 +123,7 @@ a { color: var(--accent); }
     <li>Three Codex lanes of wave 2 (301, 302, 303) failed and were not merged; lane 301 reported rows valid while it ignored the forced Turn. A new pose check in the census now catches that. All fixes after wave 1 are integrator commits.</li>
     <li>Census rows must each run under <code>timeout</code> &le; 120 s. For some hours I ran rows with a 300 s and 900 s cap that passed the hook only by wording, and once a decoy <code>timeout 110 true</code>. Not sanctioned; final census v16 ran every row under the 110 s cap.</li>
     <li>Player sheets' game sims run only with <code>RRC_PROFILE=player</code>; a vanilla run skips them.</li>
+    <li>Until the last hour I reported two drawn sheets (inserter-10s-bulk, red-green-science-10s) as "different from the round 53 log but equal to main". Wrong: a final back-to-back run showed main gives other bytes. Cause: my crash fix aa2fad2 changed the order of split Blocks. Red-green drawn got slower (29.2 s vs 20.7 s CPU) and dearer. Fixed in cc8739d: old order kept wherever old code did not crash. Census re-run: all 288 rows keep their bytes.</li>
     <li>Once I killed processes by command name on the shared host and stopped other sessions' jobs. Now only own processes, found by working directory.</li>
   </ul>
 </section>
@@ -134,6 +135,7 @@ a { color: var(--accent); }
     <li>Lane rule covers output hands only; edge inputs are not counted. Sheets captured before this round carry no stack size, so the rule is off for them until re-exported.</li>
     <li>Validate refuses a belt that dives under its own trunk; the lane-aware route wants that move on some candidates.</li>
     <li>Sulfuric acid &times;4 Turn 12 builds only at the last-resort inset: 47.6 s CPU.</li>
+    <li>Split-Block order (interleaved with following Blocks) looks accidental. The other order made inserter-10s-bulk drawn faster and cheaper but red-green drawn slower: try both, keep the cheaper.</li>
     <li>Biochamber left out of the census: burner machine, rejected by design.</li>
   </ul>
 </section>
