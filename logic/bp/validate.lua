@@ -2830,6 +2830,7 @@ local function check_port_approaches(work, port_index)
             elseif port.role == "out" then
                 -- 2026-09-28 stack1: the (22,19) tile is ahead only if the belt on port (21,19) runs east.
                 local approach_x, approach_y = dx, dy
+                local dives = false
                 for _, info in ipairs(work.infos) do
                     if transport_kind(info) == "belt" then
                         local tx, ty = tile_of(info)
@@ -2838,11 +2839,15 @@ local function check_port_approaches(work, port_index)
                         if tx == math.floor(x) and ty == math.floor(y) and flow_id == (port.flow_id or port.full_name)
                             and belt_dir ~= nil then
                             approach_x, approach_y = Grid.dir_vector(belt_dir)
+                            --Round 54 (asm-1 x4 Turn 4): an underground entry on the port tile dives; its items never
+                            --reach the tile ahead, where another flow's belt may run legally.
+                            dives = info.entity.ug_role == "input"
+                                or ((info.entity.type == "input") and (info.entity.ug_pair_id or info.entity.underground_pair_id) ~= nil)
                             break
                         end
                     end
                 end
-                occupant_at(port, x + approach_x, y + approach_y)
+                if not dives then occupant_at(port, x + approach_x, y + approach_y) end
             end
         end
     end
