@@ -105,6 +105,10 @@ _Avoid_: rotate-and-mirror, orient (covers both Turn and Flip)
 Mirroring a machine so its fluid boxes move to the opposite side without a Turn.
 _Avoid_: mirror (the blueprint field name), reverse (used for a Row's belt run)
 
+**Blocked fluid port**:
+A fluid box the recipe uses whose pipe tile no pipe can reach because machines wall it in. A Turn or Flip that leaves one is invalid. A port hemmed in only by belts, pipes of another fluid or electric poles is not blocked: rerouting or moving them frees it.
+_Avoid_: inaccessible port (also used for a merely crowded face)
+
 **Drawn pack**:
 Packing that first draws the whole Flow graph with fewest Crossings, then aims each Block at its drawn spot and Turns and Flips it. An experiment, off by default, until every golden delivers a drawn layout (no Fallback) and at most one golden loses to the Layered pack; the release that meets that bar makes it the default, with the Layered pack kept as its Fallback.
 _Avoid_: sugiyama mode, graph pack

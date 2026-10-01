@@ -77,6 +77,29 @@ H.test('TF3 forbidden Flip is a registered failure contract', function()
     H.equal(state.ok,false); H.equal(state.errors[1].code,'BP_FAIL_FLIP_FORBIDDEN')
     H.equal(state.errors[1].subject,'assembler'); print('TF3')
 end)
+H.test('TF7 refused Flip names a machine wall BP_FAIL_FLUID_PORT_BLOCKED, any other refusal BP_FAIL_FLIP_REBUILD', function()
+    for _, case in ipairs({{'machine','BP_FAIL_FLUID_PORT_BLOCKED'},{'other','BP_FAIL_FLIP_REBUILD'}}) do
+        local state = D.run({},function()
+            local old_step,old_reorient=Groups.step,Groups.reorient
+            Groups.step=function(s,budget)
+                if budget.ops>0 then
+                    budget.ops=budget.ops-1
+                    s.result={candidates={{id='c',blocks={{id='b',block_id='b',w=1,h=1,
+                        machines={{id='m',name='assembler'}},ports={}}}}}}
+                    s.done,s.ok=true,true
+                end
+                return s
+            end
+            Groups.reorient=function() return nil, case[1] end
+            local r=D.finish(Search,Search.begin(D.input({settings={force_turn_flip={turn=0,flip=true}},
+                catalog={entity={assembler={can_flip=true}}}})))
+            Groups.step,Groups.reorient=old_step,old_reorient; return r
+        end)
+        H.equal(state.ok,false); H.equal(state.errors[1].code,case[2])
+    end
+    H.equal(ReasonCodes.all().BP_FAIL_FLUID_PORT_BLOCKED,true)
+    print('TF7')
+end)
 H.test('TF4 Flip on a Block without can_flip leaves member data untouched', function()
     local reoriented=false
     local state, log=D.run({},function()

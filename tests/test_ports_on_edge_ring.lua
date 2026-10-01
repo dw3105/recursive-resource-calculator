@@ -41,4 +41,23 @@ H.test("PR3 without the forced ring (drawn) a border tile inside the Block stays
     print("PR3 ok")
 end)
 
+H.test("PR5 a fluid port walled in by machines is a Blocked fluid port; belts or inserters around it are not", function()
+    local walled = {w = 9, h = 5, members = {{kind = "machine", x = 0, y = 0, w = 4, h = 5},
+        {kind = "machine", x = 5, y = 0, w = 4, h = 5}, {kind = "machine", x = 4, y = 0, w = 1, h = 2},
+        {kind = "machine", x = 4, y = 3, w = 1, h = 2}},
+        ports = {{port_id = "p", kind = "fluid", attach_dx = 4, attach_dy = 2}}}
+    assert(Groups.fluid_port_walled(walled), "machines on all four sides")
+    local soft = {w = 9, h = 5, members = {{kind = "machine", x = 0, y = 0, w = 4, h = 5},
+        {kind = "machine", x = 5, y = 0, w = 4, h = 5}, {kind = "inserter", x = 4, y = 0, w = 1, h = 1},
+        {kind = "inserter", x = 4, y = 4, w = 1, h = 1}},
+        belt_runs = {{tiles = {{x = 4, y = 1}}}},
+        ports = {{port_id = "p", kind = "fluid", attach_dx = 4, attach_dy = 2}}}
+    assert(not Groups.ports_on_edge(soft, true), "inserters and a belt still refuse the rebuild")
+    assert(not Groups.fluid_port_walled(soft), "but they can move: not a Blocked fluid port")
+    local item = {w = 9, h = 5, members = walled.members,
+        ports = {{port_id = "p", kind = "item", attach_dx = 4, attach_dy = 2}}}
+    assert(not Groups.fluid_port_walled(item), "item ports never count")
+    print("PR5 ok")
+end)
+
 H.done("test_ports_on_edge_ring")

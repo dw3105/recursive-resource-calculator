@@ -1,6 +1,7 @@
 local M = {}
 function M.classify(ok, code, mixed, starved, bleed, dead, flip)
     if not ok and code == "BP_FAIL_FLIP_FORBIDDEN" and flip == 1 then return "forbidden" end
+    if not ok and code == "BP_FAIL_FLUID_PORT_BLOCKED" then return "forbidden" end
     if not ok or code ~= "-" or mixed ~= 0 or starved ~= 0 or bleed ~= 0 or dead ~= 0 then return "FAIL" end
     return "valid"
 end

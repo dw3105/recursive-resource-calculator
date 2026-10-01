@@ -1699,10 +1699,12 @@ local function prepare_candidate(state, budget)
                     local cache = state.work.groups and state.work.groups.work and state.work.groups.work.reorient_cache
                     local key = tostring(block.id or block.block_id) .. "|0|true|ring"
                     local hit = cache and cache[key] ~= nil
-                    local rebuilt = Groups.reorient(state.work.groups, block, {dir=0, mirror=true, fluid_ring=true})
+                    local rebuilt, why = Groups.reorient(state.work.groups, block, {dir=0, mirror=true, fluid_ring=true})
                     cost = hit and 1 or REORIENT_OPS
                     if not rebuilt then
-                        failure(state, "BP_FAIL_FLIP_REBUILD", {subject = block.id or block.block_id})
+                        --Player rule 2026-10-01: a machine wall makes the Flip invalid; any other refusal is a bug.
+                        failure(state, why == "machine" and "BP_FAIL_FLUID_PORT_BLOCKED" or "BP_FAIL_FLIP_REBUILD",
+                            {subject = block.id or block.block_id})
                         return false
                     end
                     --The flipped rebuild carries its own directions; the forced Turn holds for it too (foundry Flip

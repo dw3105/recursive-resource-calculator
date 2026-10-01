@@ -2686,14 +2686,19 @@ function Groups.reorient(groups_state, block, orient)
     local cache_key = tostring(block and block.id) .. "|" .. tostring(orient.dir or NORTH) .. "|" .. tostring(orient.mirror == true)
         .. (orient.fluid_ring and "|ring" or "")
     local cache = work and work.reorient_cache
-    if cache and cache[cache_key] ~= nil then return cache[cache_key] or nil end
-    local result = Groups._reorient_build(groups_state, block, orient)
-    if result and not Groups.ports_on_edge(result, orient.fluid_ring == true) then result = nil end
+    if cache and cache[cache_key] ~= nil then return cache[cache_key] or nil, (work.reorient_why or {})[cache_key] end
+    local result, why = Groups._reorient_build(groups_state, block, orient)
+    if result and not Groups.ports_on_edge(result, orient.fluid_ring == true) then
+        why = Groups.fluid_port_walled(result) and "machine" or "other"
+        result = nil
+    end
     if work then
         work.reorient_cache = work.reorient_cache or {}
         work.reorient_cache[cache_key] = result or false
+        work.reorient_why = work.reorient_why or {}
+        work.reorient_why[cache_key] = (not result) and (why or "other") or nil
     end
-    return result
+    return result, (not result) and (why or "other") or nil
 end
 
 function Groups._reorient_build(groups_state, block, orient)
@@ -2761,7 +2766,9 @@ function Groups._reorient_build(groups_state, block, orient)
                 if (member.kind == "machine" or member.kind == "beacon"
                     or member.kind == "inserter" or member.kind == "belt")
                     and tx >= member.x and tx < member.x + member.w
-                    and ty >= member.y and ty < member.y + member.h then return nil end
+                    and ty >= member.y and ty < member.y + member.h then
+                    return nil, member.kind == "machine" and "machine" or "other"
+                end
             end
             for _, run in ipairs(rebuilt.belt_runs or {}) do
                 for _, tile in ipairs(run.tiles or {}) do
@@ -2778,16 +2785,20 @@ end
 --BP_P_NO_FIT (round 51 integration). Groups.reorient refuses such a rebuild: the Block stays as built.
 Groups._strip_fluid_clash = function(a, b) return strip_fluid_clash(a, b) end
 
-function Groups._fluid_tile_open(block, ax, ay)
+--machines_only: only machines wall the tile (player rule 2026-10-01: a belt, a pipe of another fluid or a pole can
+--move, a machine cannot).
+function Groups._fluid_tile_open(block, ax, ay, machines_only)
     local w, h = block.w, block.h
     if not (ax >= 0 and ay >= 0 and ax < w and ay < h) then return false end
     local taken = {}
     for _, member in ipairs(block.members or {}) do
-        for y = member.y, member.y + member.h - 1 do
-            for x = member.x, member.x + member.w - 1 do taken[x .. ":" .. y] = true end
+        if not machines_only or member.kind == "machine" then
+            for y = member.y, member.y + member.h - 1 do
+                for x = member.x, member.x + member.w - 1 do taken[x .. ":" .. y] = true end
+            end
         end
     end
-    for _, run in ipairs(block.belt_runs or {}) do
+    for _, run in ipairs(machines_only and {} or block.belt_runs or {}) do
         for _, tile in ipairs(run.tiles or {}) do taken[tile.x .. ":" .. tile.y] = true end
     end
     if taken[ax .. ":" .. ay] then return false end
@@ -2822,6 +2833,19 @@ function Groups.ports_on_edge(block, fluid_ring)
         if not side_x and not side_y then return false end
     end
     return true
+end
+
+--Blocked fluid port (CONTEXT.md): a fluid port of the Block that machines alone wall in. A refused forced Flip with
+--one is invalid; any other refusal is a rebuild the code still owes.
+function Groups.fluid_port_walled(block)
+    for _, port in ipairs(block and block.ports or {}) do
+        local ax, ay = port.attach_dx, port.attach_dy
+        if (port.kind == "fluid" or port.is_fluid) and type(ax) == "number" and type(ay) == "number" then
+            local outside = ax < 0 or ay < 0 or ax >= block.w or ay >= block.h
+            if not outside and not Groups._fluid_tile_open(block, ax, ay, true) then return true end
+        end
+    end
+    return false
 end
 
 function Groups.materialize(block, placement)
