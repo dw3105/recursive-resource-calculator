@@ -244,7 +244,7 @@ function Lab.sink_tick(sinks, counting)
                 --Count what is REMOVED, never what one pipe reports: a pipe reports its own share of its fluid network
                 --(round 54: an 8-pipe run read 1.25/s of 9.99/s), Factorio 2.1.20 has no LuaEntity.fluidbox to ask for
                 --the whole network, and summing the pipes misses the machines' own boxes (EM plant x4: 13.5/s of
-                --15.98/s). remove_fluid returns the amount it took, whichever way the engine shares a network.
+                --15.98/s). remove_fluid returns what it took, whichever way the engine shares a network.
                 local names = {}
                 for _, name in ipairs(s.items or {}) do names[#names + 1] = name end
                 if #names == 0 then
@@ -252,7 +252,13 @@ function Lab.sink_tick(sinks, counting)
                     for name in pairs(okf and fluids or {}) do names[#names + 1] = name end
                 end
                 for _, name in ipairs(names) do
+                    --2.0.77: remove_fluid{name, amount} returns the amount. 2.1.20 (probed 2026-10-01): remove_fluid(fluid
+                    --box index, amount) returns the removed fluid {name, amount}.
                     local okr, removed = pcall(e.remove_fluid, {name = name, amount = 1000000})
+                    if not okr then
+                        okr, removed = pcall(e.remove_fluid, 1, 1000000)
+                        if okr and type(removed) == "table" then name, removed = removed.name or name, removed.amount end
+                    end
                     if okr and type(removed) == "number" and removed > 0 and counting then
                         s.got[name] = (s.got[name] or 0) + removed
                     end
