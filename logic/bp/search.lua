@@ -1048,7 +1048,9 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
                 end
                 --An edge terminal leaves straight inward; a slot whose inward tile is a Block wall is dead (chemical
                 --plant plastic Turn 4: water slot (0,18) faced the turned machine at (1,18), BP_R_NO_PATH).
-                if not fluid_near and perimeter_port_needs_route(port) then
+                --Inputs only: an output's last belt may reach its slot sideways and turn out (am2 chain layered
+                --bytes moved when outputs were held to this too).
+                if not fluid_near and role == "in" and perimeter_port_needs_route(port) then
                     local ddx, ddy = Grid.dir_vector(candidate_slot.dir)
                     local ix, iy = candidate_slot.x - (ddx or 0), candidate_slot.y - (ddy or 0)
                     if ddx and blocked.__walls and blocked.__walls[perimeter_cell_key(ix, iy)] then fluid_near = true end
