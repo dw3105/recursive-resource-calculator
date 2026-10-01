@@ -1687,9 +1687,9 @@ local function prepare_candidate(state, budget)
                 end
                 if can_flip then
                     local cache = state.work.groups and state.work.groups.work and state.work.groups.work.reorient_cache
-                    local key = tostring(block.id or block.block_id) .. "|0|true"
+                    local key = tostring(block.id or block.block_id) .. "|0|true|ring"
                     local hit = cache and cache[key] ~= nil
-                    local rebuilt = Groups.reorient(state.work.groups, block, {dir=0, mirror=true})
+                    local rebuilt = Groups.reorient(state.work.groups, block, {dir=0, mirror=true, fluid_ring=true})
                     cost = hit and 1 or REORIENT_OPS
                     if not rebuilt then
                         failure(state, "BP_FAIL_FLIP_REBUILD", {subject = block.id or block.block_id})

@@ -10,17 +10,22 @@ local function block(ax, ay, kind)
 end
 
 H.test("PR1 fluid port on a free border tile of the Block counts as on the edge", function()
-    assert(Groups.ports_on_edge(block(1, 0)), "original pipe tile (1,0)")
-    assert(Groups.ports_on_edge(block(3, 0)), "flipped pipe tile (3,0)")
-    assert(Groups.ports_on_edge(block(1, -1)), "outside edge still fine")
+    assert(Groups.ports_on_edge(block(1, 0), true), "original pipe tile (1,0)")
+    assert(Groups.ports_on_edge(block(3, 0), true), "flipped pipe tile (3,0)")
+    assert(Groups.ports_on_edge(block(1, -1), true), "outside edge still fine")
     print("PR1 ok")
 end)
 
 H.test("PR2 a border tile under a member, an interior tile, or an item port inside stays refused", function()
-    assert(not Groups.ports_on_edge(block(0, 1)), "inserter covers (0,1)")
-    assert(not Groups.ports_on_edge(block(2, 2)), "interior tile")
-    assert(not Groups.ports_on_edge(block(3, 0, "item")), "item port inside envelope")
+    assert(not Groups.ports_on_edge(block(0, 1), true), "inserter covers (0,1)")
+    assert(not Groups.ports_on_edge(block(2, 2), true), "interior tile")
+    assert(not Groups.ports_on_edge(block(3, 0, "item"), true), "item port inside envelope")
     print("PR2 ok")
+end)
+
+H.test("PR3 without the forced ring (drawn) a border tile inside the Block stays refused", function()
+    assert(not Groups.ports_on_edge(block(3, 0)), "drawn keeps the round 53 rule")
+    print("PR3 ok")
 end)
 
 H.done("test_ports_on_edge_ring")
