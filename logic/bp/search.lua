@@ -286,6 +286,21 @@ local function grid_area(grid, input)
     return {x = 0, y = 0, w = finite(grid.w, 0), h = finite(grid.h, 0)}
 end
 
+--Edge inset (round 54): a Block packed one tile from the input edge leaves no corridor for the edge feeds (EM plant
+--Flip: five feeds and two fluid fronts in columns 0-1, every way refused). After a second edge shortfall in a row
+--(`note_edge_shortfalls`), pack keeps `edge_inset` tiles free along the input edge. Only failing sheets get it.
+local function pack_area(state, input_edge)
+    local input = state.work.input
+    local area = grid_area(state.work.grid, input)
+    local inset = state.work.edge_inset or 0
+    if inset <= 0 or input.area or input.pack_area then return area end
+    if input_edge == "left" then area.x, area.w = area.x + inset, area.w - inset
+    elseif input_edge == "right" then area.w = area.w - inset
+    elseif input_edge == "top" then area.y, area.h = area.y + inset, area.h - inset
+    elseif input_edge == "bottom" then area.h = area.h - inset end
+    return area
+end
+
 local function roboport_obstacles(grid, input)
     if input.include_roboports == false then return {}, {} end
     local obstacles, entities = {}, {}
@@ -1031,8 +1046,18 @@ local function generated_perimeter_ports(state, grid, input_edge, output_edge, p
                 --plant plastic Turn 4: water slot (0,18) faced the turned machine at (1,18), BP_R_NO_PATH).
                 if not fluid_near and perimeter_port_needs_route(port) then
                     local ddx, ddy = Grid.dir_vector(candidate_slot.dir)
-                    local inward = ddx and blocked[perimeter_cell_key(candidate_slot.x - ddx, candidate_slot.y - ddy)]
+                    local ix, iy = candidate_slot.x - (ddx or 0), candidate_slot.y - (ddy or 0)
+                    local inward = ddx and blocked[perimeter_cell_key(ix, iy)]
                     if inward ~= nil and inward ~= port_flow_id(port) then fluid_near = true end
+                    --A fluid's first pipe also must not touch another fluid's reserved front tile (EM plant Flip:
+                    --heavy oil slot (0,18) stepped to (1,18), beside a pipe front at (1,17), BP_R_FLUID_MIX).
+                    local own = port_flow_id(port)
+                    if ddx and tostring(own):sub(1, 6) == "fluid/" then
+                        for _, d in ipairs({{1, 0}, {-1, 0}, {0, 1}, {0, -1}}) do
+                            local mark = blocked[perimeter_cell_key(ix + d[1], iy + d[2])]
+                            if type(mark) == "string" and mark:sub(1, 6) == "fluid/" and mark ~= own then fluid_near = true end
+                        end
+                    end
                 end
                 if not fluid_near and not occupied[key] and (not perimeter_port_needs_route(port) or perimeter_cell_free(state, blocked, key, port)) then
                     local cost = slot_cost(candidate_slot, network.consumers)
@@ -1572,6 +1597,7 @@ local function layered_fallback(state)
     --layered Fallback inherited the drawn attempts' splits and failed BP_V_SOURCE_DUPLICATE x4 (layered alone passes).
     state.work.edge_split_flows = nil
     state.work.fluid_edge_spread = nil
+    state.work.edge_inset, state.work.edge_inset_fresh = nil, nil
     state.cursor.grid_index = 1
     return start_grid(state)
 end
@@ -1704,7 +1730,7 @@ local function prepare_candidate(state, budget)
         set_phase(state, "draw")
         return true
     end
-    state.work.pack = Pack.begin({area = grid_area(state.work.grid, state.work.input), obstacles = obstacles,
+    state.work.pack = Pack.begin({area = pack_area(state, input_edge), obstacles = obstacles,
         zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links,
         blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state), input_edge=input_edge,
         forced_dir = forced and forced.turn or nil})
@@ -1732,6 +1758,15 @@ local function note_edge_shortfalls(state)
         end
     end
     if not edge_short then return end
+    if state.work.edge_split_flows then
+        --The split did not help; the inset replaces it (a split item flow has two edge sources, which validate
+        --refuses as BP_V_SOURCE_DUPLICATE: one source per item).
+        local before = state.work.edge_inset or 0
+        state.work.edge_inset = math.min(before + 3, 9)
+        state.work.edge_inset_fresh = state.work.edge_inset > before
+        state.work.edge_split_flows = {}
+        return
+    end
     --The starved flow is often not the one to split: a flow with several sinks that shares one terminal runs its
     --trunk across the edge rows and walls a neighbour in (red science 10/s: a two-sink flow crossed the row of a
     --one-sink flow). Every edge flow that feeds more than one sink gets one terminal per sink on the next try.
@@ -1804,6 +1839,14 @@ local function discard_candidate(state)
     if layered_fallback(state) then return end
     if (state.work.attempt or 0) < 2 then
         state.work.attempt = (state.work.attempt or 0) + 1
+        state.cursor.grid_index = 1
+        start_grid(state)
+        return
+    end
+    --A just-grown edge inset is new room the last attempt never saw: one more pass at the same attempt (same
+    --ring_bump), bounded by the inset cap.
+    if state.work.edge_inset_fresh then
+        state.work.edge_inset_fresh = false
         state.cursor.grid_index = 1
         start_grid(state)
         return
@@ -1927,7 +1970,7 @@ function Search.step(container, budget)
                     local obstacles = bare_rects(state.work.robo_obstacles)
                     append_all(obstacles, bare_rects(state.work.input.obstacles)); append_all(obstacles, bare_rects(state.work.input.occupied))
                     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
-                    state.work.pack = Pack.begin({area=grid_area(state.work.grid,state.work.input), obstacles=obstacles,
+                    state.work.pack = Pack.begin({area=pack_area(state,input_edge), obstacles=obstacles,
                         zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
                         blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
                         mode="sugiyama", drawing=drawing, input_edge=input_edge,
