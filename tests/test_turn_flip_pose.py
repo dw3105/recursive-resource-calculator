@@ -33,6 +33,13 @@ class PoseTest(unittest.TestCase):
         self.assertEqual(turn_flip_pose.check(bp((0, False)), 0, False), [])
         print("TFP3 missing or unasked mirror fails")
 
+    def test_flip_that_moves_no_pipe(self):
+        self.assertEqual(turn_flip_pose.check(bp((4, False)), 4, True, can_flip={"chemical-plant"}), [])
+        self.assertTrue(turn_flip_pose.check(bp((4, True)), 4, True, can_flip={"chemical-plant"}))
+        self.assertEqual(turn_flip_pose.flippable({"catalog": {"entities": [{"name": "foundry", "can_flip": True},
+                                                                            {"name": "assembling-machine-2"}]}}), {"foundry"})
+        print("TFP5 a Flip on a machine that cannot flip is the same build, no mirror")
+
     def test_no_machine(self):
         self.assertTrue(turn_flip_pose.check(bp(), 0, False))
         print("TFP4 a blueprint with no recipe machine fails")

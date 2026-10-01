@@ -36,7 +36,7 @@ for _,case in ipairs(cases) do if not opts["--case"] or opts["--case"]==case the
      local hash=run("sha256sum "..q(bp)); sha=hash:match("^(%x+)") or "-"; sha=sha:sub(1,8)
      --Integrator round 54: a blueprint that dropped the forced Turn or Flip is not a valid row (foundry flip rows
      --shipped one sha for all four turns).
-     if not run("python3 tools/turn_flip_pose.py "..q(bp).." "..turn.." "..flip):match("^POSE ok") then code="TF_POSE_WRONG" end
+     if not run("python3 tools/turn_flip_pose.py "..q(bp).." "..turn.." "..flip.." "..q(input)):match("^POSE ok") then code="TF_POSE_WRONG" end
      if opts["--export"] and mixed==0 and starved==0 and bleed==0 and dead==0 then
       local dir=opts["--export"].."/"..ver; os.execute("mkdir -p "..q(dir))
       os.execute("cp "..q(bp).." "..q(dir.."/"..case.."_"..turn.."_"..flip..".bp.txt"))
