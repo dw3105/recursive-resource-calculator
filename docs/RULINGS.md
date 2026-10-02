@@ -11,3 +11,9 @@ Standing instructions from operator. One row each, dated. Agents read this file 
 | 2026-09-29 | SIM-MINUTES | Player sheet starts delivering in minutes in game. Sim or search running longer than minutes = defect to find (research, fuel, power), never a longer window. Every background run > 5 min gets log-staleness watch. |
 | 2026-09-30 | LUA52 | Lua 5.2 only, everywhere: Factorio runs Lua 5.2. No lua5.4 in suite, tools, lane checks or reports (player 2026-09-23, again 2026-09-29: "DROP Lua 5.4 TESTS - FACTORIO NOT USING IT"). tests/run.sh and tools are 5.2-only since round 50. |
 | 2026-10-01 | BLOCKED-PORT | Turn or Flip is invalid only when a fluid input/output used by the recipe is blocked by another machine ("blocked by machine == unfixable"): refuse with `BP_FAIL_FLUID_PORT_BLOCKED`. Blocked by belt, pipe with different liquid, electric pole = fixable by rerouting or moving poles: generator owes the fix, never a refusal. |
+| 2026-10-02 | GATE-MAIN | Gate row not SAME is never "known" until that sheet ran at `main` and at head back to back, same hour, same tool. Logic commit claiming "no behavior change" gets fast-case bytes in both pack modes before commit (rrc-code RC-11). |
+| 2026-10-02 | CAP-120 | Per-check cap 120 s however spelled: no `TMO=` above 120, no `timeout N true`; timed-out row reruns alone under same cap (RC-12, hook refuses). |
+| 2026-10-02 | LAB-SHAPE | Before full game run, one sheet per new shape (machine type, Turn/Flip pose, fluid ingredient or product, edge feed kind, far power, Factorio version) passes in lab (RC-13). |
+| 2026-10-02 | REPORT-REVIEW | Delivery report figures checked by fresh agent against logs before push box (RC-14). |
+| 2026-10-02 | KILL-OWN | Kill only own processes, found by `/proc/PID/cwd` == own worktree; never by command name (RC-15). |
+| 2026-10-02 | BOX-VM | Push box says how to run it on VM: `!` prefix in Claude Code prompt on legalcopilot-dev (RC-16). |

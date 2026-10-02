@@ -23,6 +23,11 @@ CASES = [
     (0, "cd ~/wt-rrc-int && timeout 90 lua5.2 tools/ckpt.lua save-all player-red-science-1s /tmp/x"),
     (2, "cd ~/wt-rrc-int && lua5.2 tools/ckpt.lua save-all player-red-science-1s /tmp/x"),
     (2, "cd ~/wt-rrc-int && timeout 90 lua5.2 tools/ckpt.lua save-all player-gray-magenta-science-10s /tmp/x"),
+    (2, "cd ~/wt-rrc-census && TMO=300 nohup ~/.claude/plans/rrc-round-54-probes/census_export_t.sh out.log 2"),
+    (0, "cd ~/wt-rrc-census && TMO=110 nohup ~/.claude/plans/rrc-round-54-probes/census_export_t.sh out.log 2"),
+    (2, "cd ~/wt-rrc-int && export TMO=900; nohup sh probes/census_all.sh out.log"),
+    (2, "cd ~/wt-rrc-int && timeout 110 true; lua5.2 tests/test_seat.lua"),
+    (0, "cd ~/wt-rrc-int && timeout 110 lua5.2 tests/test_seat.lua; true"),
 ]
 
 def main():

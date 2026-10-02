@@ -61,6 +61,21 @@ Round 47 probe patches (`p_valdetail`, `p_trunk`, `p_bindwatch`, `p_parts`, `p_v
 - **RC-10** Gentle rule changes: a new ban fires only where build fails today (after restart refused), so passing
   sheets keep bytes; bytes of gated sheets checked vs `tests/fixtures/bytes_round*.txt`.
 
+## Gates and delivery (round 54, player "adopt all" 2026-10-02)
+
+- **RC-11** Gate row not SAME: run that sheet at `main` and at head back to back, same hour, same tool, before calling
+  it "known". A commit on `logic/` that claims "no behavior change" gets bytes of fast cases in both pack modes before
+  commit. Drawn bytes of `main` kept as baseline file beside layered `tests/fixtures/bytes_round*.txt`.
+- **RC-12** Per-check cap is 120 s however spelled: no `TMO=` above 120, no `timeout N true`. Row that times out
+  under host load: rerun alone under same cap. Hook `tools/claude_slow_hook.py` refuses both spellings.
+- **RC-13** Before any full game run: one sheet per new shape passes in lab first. New shape = any of these not yet
+  in a passing lab test: machine type, Turn or Flip pose, fluid ingredient, fluid product, edge feed kind (belt,
+  underground, pipe), power reach beyond one pole, Factorio version.
+- **RC-14** Delivery report: fresh agent checks every figure against logs (read-only) before push box; its wrong
+  and cannot-verify rows fixed or named in report.
+- **RC-15** Kill only own processes: PIDs whose `/proc/PID/cwd` is own worktree. Never by command name.
+- **RC-16** Push box for player says how to run it on VM: `!` prefix in Claude Code prompt on legalcopilot-dev.
+
 | Reference | Read when |
 |---|---|
 | `references/ledger.md` | changing this skill |

@@ -32,7 +32,16 @@ def main():
     cwd = data.get("cwd") or ""
     rrc = re.search(r"wt-rrc|recursive-resource-calculator|rrc-round-\d+-probes|scratchpad/r4\d", cmd + " " + cwd)
     heavy = re.search(r"\blua5\.2\b|(^|[\s/])(tools|tests)/", cmd)
-    if not rrc or not heavy:
+    if not rrc:
+        return
+    # Round 54: a per-row cap passed through the environment (TMO=300) and a decoy `timeout 110 true` both slipped
+    # past rule 1 by wording. The cap is per check, however it is spelled.
+    tmo = [int(n) for n in re.findall(r"\bTMO=[\"']?(\d+)", cmd)]
+    if tmo and max(tmo) > MAX_TIMEOUT:
+        deny("TMO=%d is a per-check timeout above %d s; rerun timed-out rows alone at low load" % (max(tmo), MAX_TIMEOUT))
+    if re.search(r"\btimeout\s+(?:-\S+\s+)*\d+s?\s+(?:true|:)(?:\s|;|&|$)", cmd):
+        deny("`timeout N true` caps nothing; put the timeout on the command that runs code")
+    if not heavy:
         return
     # read-only inspection commands (cat/grep/sed/ls/diff/git) never run code: skip when no interpreter is invoked
     # An interpreter must START a command segment (after ; && || | ( and env/timeout prefixes). File names inside a
