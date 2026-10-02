@@ -59,15 +59,15 @@ a { color: var(--accent); }
 <main>
 <header style="display:grid;gap:.8rem">
   <div class="eyebrow">RRC · round 54 · delivery report</div>
-  <h1>Every machine type built turned and flipped, proven in the game</h1>
-  <p class="prose">Explain very simply: a Block of machines can turn four ways and flip. Nothing could force that before, so it was never tested. Round 54 adds a test switch that forces one Turn and Flip on every Block, 18 tiny sheets (9 machine types, 1 machine and 4 machines), and builds each one in all 8 poses on Factorio 2.0.77 and 2.1.20. Every pose now builds and delivers its rate in the real game, or is refused for a reason the game itself gives. Player sheets keep their bytes.</p>
-  <div class="meta"><span>host legalcopilot-dev</span><span>2026-10-01</span><span>base main d0da1ca (round-53-delivered)</span><span>head int/r54 cc8739d</span><span>Factorio 2.0.77 + 2.1.20</span></div>
+  <h1>Seven machine types built turned and flipped, proven in the game</h1>
+  <p class="prose">Explain very simply: a Block of machines can turn four ways and flip. Nothing could force that before, so it was never tested. Round 54 adds a test switch that forces one Turn and Flip on every Block, 18 tiny sheets (7 machine types, 9 machine and recipe pairs, each as 1 machine and as 4 machines), and builds each one in all 8 poses on Factorio 2.0.77 and 2.1.20. Every pose now builds and delivers its rate in the real game, or is refused for a reason the game itself gives. Player sheets keep their bytes.</p>
+  <div class="meta"><span>host legalcopilot-dev</span><span>2026-10-01</span><span>base main d0da1ca (round-53-delivered)</span><span>head int/r54 cc8739d (code; later commits change this report only)</span><span>Factorio 2.0.77 + 2.1.20</span></div>
 </header>
 <section>
   <h2>Verdict</h2>
   <div class="verdict">
-    <div class="axis good"><div class="eyebrow">census offline</div><b>288 rows, 0 fail</b><span>Census v16: 272 valid, 16 forbidden (2.1 refuses Flip on assembling machines: <code>BP_FAIL_FLIP_FORBIDDEN</code>). 272 port files, 0 problems; 0 lanes above half a belt.</span></div>
-    <div class="axis good"><div class="eyebrow">census in game</div><b>2.0.77 144/144 · 2.1.20 128/128</b><span>Each sheet built, fed and run; every product &ge; 0.95 &times; target.</span></div>
+    <div class="axis good"><div class="eyebrow">census offline</div><b>288 rows, 0 fail</b><span>Census v17 at cc8739d: 272 valid, 16 forbidden (2.1 refuses Flip on assembling machines: <code>BP_FAIL_FLIP_FORBIDDEN</code>). 5 rows hit the 110 s cap while the host was loaded; run alone they are valid. All 288 rows keep the bytes of census v16. 272 port files, 0 problems; 112 sheets with an item product measured, 0 lanes above half a belt (the other 160 make a fluid).</span></div>
+    <div class="axis good"><div class="eyebrow">census in game</div><b>2.0.77 144/144 · 2.1.20 128/128</b><span>Run at the final head 2e3b443. Each sheet built, fed and run; every product &ge; 0.95 &times; target.</span></div>
     <div class="axis good"><div class="eyebrow">player sheets</div><b>28 of 28 same bytes as main</b><span>Gate at cc8739d, 14 sheets &times; 2 modes: layered 14 = <code>bytes_round52</code>, drawn 14 = main d0da1ca. No Fallback, lanes clean.</span></div>
     <div class="axis good"><div class="eyebrow">suite</div><b>Green</b><span>Suite 3 at cc8739d: 310 Lua test files, 0 red; headless 2.0.77 364/364, 2.1.20 182/182; Python OK. Zips 1.1.117 (2.0) / 1.1.118 (2.1) load in headless game.</span></div>
   </div>
@@ -76,7 +76,7 @@ a { color: var(--accent); }
   <h2>What the game found that our checks missed</h2>
   <div class="tablewrap"><table style="min-width:44rem">
   <thead><tr><th>found by</th><th>defect</th><th>fix</th></tr></thead>
-  <tr><td>game 2.0.77</td><td class="note">One belt lane carries half a belt. Plastic &times;4 Turn 8 gave 7.5/s of 7.992/s; foundry casting &times;4 Turns 4/8/12 gave 7.5&ndash;8.25/s of 9.99/s. Every branch joined the trunk on one lane.</td><td class="note"><code>BP_V_LANE_OVERLOAD</code> in validate; search routes the grid again with lane load counted; router refuses a join onto a full lane.</td></tr>
+  <tr><td>game 2.0.77 + 2.1.20</td><td class="note">One belt lane carries half a belt. Plastic &times;4 Turn 8 gave 7.5/s of 7.992/s; foundry casting &times;4 Turns 4/8/12 gave 7.5&ndash;8.25/s of 9.99/s. Every branch joined the trunk on one lane.</td><td class="note"><code>BP_V_LANE_OVERLOAD</code> in validate; search routes the grid again with lane load counted; router refuses a join onto a full lane.</td></tr>
   <tr><td>gate</td><td class="note">First lane rule moved am2-chain and blue: the player's modded inserters stack items on belts, 12/s on one yellow lane runs fine in the engine.</td><td class="note">Catalog records each inserter's belt stack size; the rule counts belt slots; unknown stack = rule off.</td></tr>
   <tr><td>game 2.0.77</td><td class="note">EM plant &times;1 Turn 12 Flip: a belt ran into the side of another flow's underground exit (bleed).</td><td class="note">Validate bleed walk and belt-end turning see a side entry onto an underground belt exit.</td></tr>
   <tr><td>port tool</td><td class="note">Cryo &times;4: ammonia pipe crossed a spare fluorine connection of a merged fluid box (6 sheets).</td><td class="note">Route keeps other fluids off every bound connection tile; validate reports it as <code>BP_V_FLUID_MIX</code>.</td></tr>
@@ -88,7 +88,8 @@ a { color: var(--accent); }
 </section>
 <section>
   <h2>Player sheets (gate at cc8739d)</h2>
-  <p class="prose" style="color:var(--muted);font-size:14px">CPU = step CPU s of <code>ckpt.lua save-all</code>, measured while the census shared the 4-core host (load 9&ndash;17), so it reads above the round 53 log. Bytes are equal to main on every row, so the generator does the same work. Drawn mode back to back, main then head b84b25a, 12 same-byte sheets (2026-10-01 21:18&ndash;21:40 UTC): main 227.7 s, head 238.9 s CPU in total, single runs, per-sheet spread &minus;22% to +20%.</p>
+  <p class="prose" style="color:var(--muted);font-size:14px">CPU = step CPU s of <code>ckpt.lua save-all</code> in the gate run, measured while the census shared the 4-core host, so it reads high. Speed proof is a separate run after the fix: drawn mode, main d0da1ca then head 2e3b443 back to back per sheet, host load about 4 (2026-10-02 00:01&ndash;00:19 UTC): 14 of 14 same bytes, total CPU main 253.7 s, head 234.3 s. One sheet read +55% (inserter-10s-bulk 6.2 s vs 9.6 s); three more runs each gave main 8.7 / 8.1 / 8.6 s, head 8.6 / 8.0 / 8.5 s: a tie.</p>
+<p class="prose" style="color:var(--muted);font-size:14px">Suite counts: on 2.0.77 the 182 game tests run twice (plain game, then with the player's mods), 364 in total; on 2.1.20 once. Player sheets are simulated only in the pass with the player's mods, so only on 2.0.77.</p>
   <div class="tablewrap"><table>
   <thead><tr class="grp"><th></th><th colspan="2">CPU s</th><th colspan="2">Material cost</th><th colspan="2">bytes vs round 53</th></tr>
   <tr><th>sheet</th><th>layered</th><th>drawn</th><th>layered</th><th>drawn</th><th>layered</th><th>drawn</th></tr></thead>
@@ -121,7 +122,7 @@ a { color: var(--accent); }
   <h2>Process notes</h2>
   <ul class="prose">
     <li>Three Codex lanes of wave 2 (301, 302, 303) failed and were not merged; lane 301 reported rows valid while it ignored the forced Turn. A new pose check in the census now catches that. All fixes after wave 1 are integrator commits.</li>
-    <li>Census rows must each run under <code>timeout</code> &le; 120 s. For some hours I ran rows with a 300 s and 900 s cap that passed the hook only by wording, and once a decoy <code>timeout 110 true</code>. Not sanctioned; final census v16 ran every row under the 110 s cap.</li>
+    <li>Census rows must each run under <code>timeout</code> &le; 120 s. For some hours I ran rows with a 300 s and 900 s cap that passed the hook only by wording, and once a decoy <code>timeout 110 true</code>. Not sanctioned; census v16 and v17 ran every row under the 110 s cap, and rows that timed out were run again alone under the same cap.</li>
     <li>Player sheets' game sims run only with <code>RRC_PROFILE=player</code>; a vanilla run skips them.</li>
     <li>Until the last hour I reported two drawn sheets (inserter-10s-bulk, red-green-science-10s) as "different from the round 53 log but equal to main". Wrong: a final back-to-back run showed main gives other bytes. Cause: my crash fix aa2fad2 changed the order of split Blocks. Red-green drawn got slower (29.2 s vs 20.7 s CPU) and dearer. Fixed in cc8739d: old order kept wherever old code did not crash. Census re-run: all 288 rows keep their bytes.</li>
     <li>Once I killed processes by command name on the shared host and stopped other sessions' jobs. Now only own processes, found by working directory.</li>
