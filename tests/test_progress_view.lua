@@ -2,6 +2,16 @@
 local H = require "tests.harness"
 
 for _, shape in ipairs(H.shapes()) do
+    H.test(shape .. " PV-TRIAL trial stage follows validate", function()
+        local ProgressView=require "logic.progress_view"
+        local job={kind="blueprint",sheet_id="trial",progress={stage="validate",stage_done=0,stage_total=1,attempt=1}}
+        storage={[1]={blueprint_job=job}}; game={tick=1}
+        local before=ProgressView.of(1,"trial").fraction
+        job.progress={stage="trial",stage_done=1,stage_total=1,attempt=1}
+        local after=ProgressView.of(1,"trial")
+        H.equal(after.stage_key,"trial","trial stage key")
+        H.equal(after.fraction>before,true,"trial stage advances the weighted progress")
+    end)
     --Player, 2026-09-24: the bar must move forward only and say what it does. A real red science job on a real
     --sheet (a job for a missing sheet is cancelled on its first tick and proves nothing).
     H.test(shape .. " PV-00 red science blueprint job progress is forward only until its record is done", function()

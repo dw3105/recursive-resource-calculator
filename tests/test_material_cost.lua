@@ -68,4 +68,27 @@ do
     _G.prototypes = saved
     assert(scans == 2 and c.material.b == 1.5, "new prototypes scans " .. scans); print("MC8")
 end
+
+--MC-BP1..BP5 red on round-55-base (2026-10-03): whole-blueprint costs and version fixture selection are absent.
+H.test("MC-BP1 through MC-BP5 whole blueprint material", function()
+    local entities = {}
+    local counts = {['assembling-machine-3']=17, beacon=68, ['bulk-inserter']=101, ['chemical-plant']=5,
+        ['electric-furnace']=8, ['electromagnetic-plant']=14, foundry=13, ['long-handed-inserter']=26,
+        ['medium-electric-pole']=31, ['oil-refinery']=1, pipe=116, ['pipe-to-ground']=112, roboport=9,
+        ['turbo-splitter']=12, ['turbo-transport-belt']=1303, ['turbo-underground-belt']=86}
+    local prices=Cost.parse_fixture(read("tests/fixtures/material_cost_2.0.txt"))
+    for name,n in pairs(counts) do for i=1,n do entities[#entities+1]={name=name,flow_id="f"..(i%3)} end end
+    local catalog={material=prices}
+    local total, unknown=Cost.blueprint(catalog,entities)
+    H.equal(math.abs(total-521885.2)<0.1,true,"MC-BP1 blueprint score"); H.equal(unknown,0,"MC-BP1 known names")
+    local second={}; for name,n in pairs({['assembling-machine-3']=4,beacon=7,['electromagnetic-plant']=1,['fast-inserter']=33,['fast-splitter']=2,['fast-transport-belt']=234,['fast-underground-belt']=10,foundry=6,['long-handed-inserter']=4,['medium-electric-pole']=21,pipe=12,['pipe-to-ground']=12,roboport=4}) do for i=1,n do second[#second+1]={name=name} end end
+    H.equal(math.abs(Cost.blueprint(catalog,second)-59323.7)<0.1,true,"MC-BP1 second score")
+    local mix={{name="pipe",flow_id="a"},{name="beacon",flow_id="b"},{name="pipe"}}
+    local by=Cost.by_flow(catalog,mix); H.equal(by.a+by.b+prices.pipe,prices.pipe+prices.beacon+prices.pipe,"MC-BP3 by flow shape")
+    local with_unknown={{name="unknown"},{name="pipe"}}; local v,u=Cost.blueprint(catalog,with_unknown); H.equal(v,prices.pipe,"MC-BP2 total"); H.equal(u,1,"MC-BP2 unknown")
+    local empty_total,empty_unknown=Cost.blueprint({material={}},mix); H.equal(empty_total,nil,"MC-BP4 empty material"); H.equal(empty_unknown,#mix,"MC-BP4 unknown count"); H.equal(Cost.by_flow({material={}},mix),nil,"MC-BP4 by flow")
+    local x,y=Cost.blueprint({},mix); H.equal(x,nil,"MC-BP4 missing material"); H.equal(y,#mix,"MC-BP4 missing material unknown count"); H.equal(Cost.by_flow({},mix),nil,"MC-BP4 missing material by flow")
+    local source=read("tests/golden/generate.lua"); H.equal(source:find("prepared.version",1,true)~=nil,true,"MC-BP5 uses prepared version"); H.equal(source:find('"/tests/fixtures/material_cost_" .. version .. ".txt"',1,true)~=nil,true,"MC-BP5 selects matching fixture")
+    for _,m in ipairs({"MC-BP1","MC-BP2","MC-BP3","MC-BP4","MC-BP5"}) do print(m) end
+end)
 H.done("test_material_cost")
