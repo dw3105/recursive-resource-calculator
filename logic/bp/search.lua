@@ -27,11 +27,13 @@ local Ends = require "logic.bp.ends"
 local BeaconPrune = require "logic.bp.beacon_prune"
 local RunDir = require "logic.bp.run_dir"
 local Seat = require "logic.bp.seat"
+local MaterialCost = require "logic.bp.material_cost"
 
 local STRICT_REROUTE_CODES = {
     BP_V_BELT_BLEED = true, BP_V_UNDERGROUND_SIDELOAD_BLOCKED = true, BP_V_ROUTE_DISCONTINUOUS = true,
     BP_V_ROUTE_LOOP = true, BP_V_BELT_NO_SOURCE = true, BP_V_UNDERGROUND_DEAD = true, BP_V_TRANSPORT_UNUSED = true,
 }
+local candidate_links
 
 
 --Round 51: ops charged for one Block rebuild (Groups.reorient cache miss), so one rebuild ends a 2000-op step.
@@ -1603,6 +1605,112 @@ local function finish_search_bound(state, code)
     else failure(state, code, {reason_details = rejection_details(state)}) end
 end
 
+local function trial_set_phase(state, phase)
+    set_phase(state, phase)
+    state.progress.stage = "trial"
+end
+
+local function trial_next(state)
+    local t = state.work.trial
+    if t.current_result then
+        local pose = t.poses[t.index-1]
+        local entry = {block=pose.block_id, rule=pose.rule, pose=tostring(pose.dir).."/"..(pose.mirror and "1" or "0"),
+            result=t.current_result.result, code=t.current_result.code, material=t.current_result.material, area=t.current_result.area}
+        t.rows[#t.rows+1] = entry
+        if entry.result == "won" then t.won=t.won+1 end
+        if entry.result == "fail" or entry.result == "pin" then t.fails=t.fails+1 end
+        t.tried=t.tried+1
+        t.current_result=nil
+    end
+    while t.index <= #t.poses and (t.poses[t.index].forbidden or t.poses[t.index].rebuild_fail) do
+        local pose=t.poses[t.index]
+        t.rows[#t.rows+1]={block=pose.block_id,rule=pose.rule,pose=tostring(pose.dir).."/"..(pose.mirror and "1" or "0"),
+            result=pose.forbidden and "forbidden" or "fail",code=pose.rebuild_fail and "BP_FAIL_FLIP_REBUILD" or nil}
+        t.tried=t.tried+1
+        if pose.rebuild_fail then t.fails=t.fails+1 end
+        t.index=t.index+1
+    end
+    t.running=false
+    local limit = t.ticks_before
+    if t.index > #t.poses or state.step_count-t.ticks_before >= limit then
+        t.ticks = state.step_count-t.ticks_before
+        t.running=false
+        state.result = state.result or {}
+        state.work.serialize_next=true
+        state.phase="validate"
+        return false
+    end
+    local pose=t.poses[t.index]
+    t.index=t.index+1
+    local base=state.incumbent.source_candidate
+    local candidate=copy(base)
+    if pose.block then
+        local id=pose.block_id
+        for i,b in ipairs(candidate.blocks or {}) do if (b.id or b.block_id)==id then candidate.blocks[i]=copy(pose.block); break end end
+    end
+    state.work.candidate=candidate
+    local pins={}
+    for _,p in ipairs(state.incumbent.candidate.placements or {}) do
+        if p.block_id ~= pose.block_id then pins[p.block_id]={x=p.x,y=p.y,dir=p.dir} end
+    end
+    local input_edge=(state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"
+    local obstacles=bare_rects(state.work.robo_obstacles)
+    append_all(obstacles,bare_rects(state.work.input.obstacles)); append_all(obstacles,bare_rects(state.work.input.occupied))
+    append_all(obstacles,perimeter_roboport_clearance(state,state.work.grid))
+    state.work.pack=Pack.begin({area=pack_area(state,input_edge), obstacles=obstacles,
+        zone_blockers=bare_rects(state.work.robo_obstacles), links=candidate_links(state,candidate),
+        blocks=greedy_block_order(state,candidate),limits=state.work.input.limits or {},layered=true,mode="sugiyama",
+        drawing=state.work.draw.result,pins=pins,trial={block_id=pose.block_id,dir=pose.dir}})
+    trial_set_phase(state,"pack")
+    t.running=true
+    return true
+end
+
+local function begin_turn_trials(state)
+    local settings=state.work.input.settings or {}
+    if Pack.mode~="sugiyama" or state.work.drawn_off or settings.force_turn_flip or state.work.trial_done
+        or type(MaterialCost.blueprint)~="function" then return false end
+    local old=MaterialCost.blueprint(state.work.input.catalog,state.incumbent.candidate.entities or {})
+    if type(old)~="number" then return false end
+    local flows=MaterialCost.by_flow(state.work.input.catalog,state.incumbent.candidate.entities or {}) or {}
+    local placements={}
+    for _,p in ipairs(state.incumbent.candidate.placements or {}) do placements[p.block_id]=p end
+    local ordered={}
+    for _,b in ipairs(state.incumbent.source_candidate.blocks or {}) do
+        local id=b.id or b.block_id; local score=0
+        for _,p in ipairs(b.ports or {}) do score=score+(flows[p.flow_id] or 0) end
+        ordered[#ordered+1]={b=b,id=id,score=score}
+    end
+    table.sort(ordered,function(a,b) if a.score~=b.score then return a.score>b.score end return tostring(a.id)<tostring(b.id) end)
+    local poses={}
+    for _,item in ipairs(ordered) do
+        local p=placements[item.id]; local d=p and p.dir or 0
+        local machine=(item.b.machines or {})[1] or {}
+        local orient_dir=machine.dir or item.b.orient_dir or item.b.turn or item.b.dir or d
+        local mirror=machine.mirror==true or item.b.mirror==true
+        local rule=tostring(orient_dir).."/"..(mirror and "1" or "0")
+        for _,dir in ipairs({0,4,8,12}) do if dir~=d then poses[#poses+1]={block_id=item.id,dir=dir,mirror=mirror,rule=rule} end end
+        local fluid=false; for _,port in ipairs(item.b.ports or {}) do if port.kind=="fluid" or port.is_fluid then fluid=true end end
+        local can=fluid
+        for _,m in ipairs(item.b.machines or item.b.members or {}) do
+            local spec=state.work.input.catalog and state.work.input.catalog.entity and state.work.input.catalog.entity[m.name or m.entity]
+            if not (m.can_flip or spec and spec.can_flip) then can=false end
+        end
+        if can then
+            local rebuilt=Groups.reorient(state.work.groups,item.b,{dir=orient_dir,mirror=not mirror})
+            if rebuilt then for _,dir in ipairs({0,4,8,12}) do poses[#poses+1]={block_id=item.id,dir=dir,mirror=not mirror,rule=rule,block=rebuilt} end
+            else for _,dir in ipairs({0,4,8,12}) do poses[#poses+1]={block_id=item.id,dir=dir,mirror=not mirror,rule=rule,
+                forbidden=Groups.fluid_port_walled(item.b),rebuild_fail=not Groups.fluid_port_walled(item.b)} end end
+        end
+    end
+    state.work.trial_done=true
+    state.work.trial={ticks_before=state.step_count,ticks=0,tried=0,won=0,fails=0,rows={},poses=poses,index=1,
+        material=old,running=false}
+    state.work.trial_route_options={collectors=state.work.current_collectors,
+        lane_cap=state.work.lane_cap==true,strict_ends=state.work.strict_ends==true}
+    return trial_next(state)
+end
+
 --The electrical demand projection is public so a test can measure it without rebuilding a whole search.
 Search.power_consumers = power_consumers
 
@@ -1679,7 +1787,7 @@ end
 --anyway costs a full pack plus a full route before it says so. The area check is exact about what it counts and
 --cheap: the five-step fixture spends its whole budget on such grids without it.
 
-local function candidate_links(state, candidate)
+candidate_links = function(state, candidate)
     local links, port_by_step_flow = {}, {}
     local blocks_for_step = {}
     for _, block in ipairs(candidate.blocks or {}) do
@@ -1921,6 +2029,7 @@ end
 function Search.step(container, budget)
     local state = state_of(container)
     if type(state) ~= "table" then return container end
+    state.step_count = (state.step_count or 0) + 1
     if state.done then sync_job(container, state); return container end
     budget = type(budget) == "table" and budget or {ops = 1}
     budget.ops = math.max(0, integer(budget.ops, 1) or 0)
@@ -1937,6 +2046,10 @@ function Search.step(container, budget)
 
     while not state.done and budget.ops > 0 do
         if state.phase ~= "serialize" and budget_limit_reached(state) then finish_search_budget(state); break end
+        if state.work.trial_finish then
+            state.work.trial.current_result=state.work.trial_finish; state.work.trial_finish=nil
+            if trial_next(state) then else state.work.serialize_next=true end
+        end
         if state.phase == "plan" then
             run_stage(state, "plan_state", Plan, budget)
             if stage_done(state.work.plan_state) then
@@ -2042,12 +2155,17 @@ function Search.step(container, budget)
         elseif state.phase == "pack" then
             run_stage(state, "pack", Pack, budget)
             if stage_done(state.work.pack) then
-                if not state.work.pack.ok then
-                    record_rejection(state, state.work.pack.errors, "pack")
+                    if not state.work.pack.ok then
+                        if state.work.trial and state.work.trial.running then
+                            local err=state.work.pack.errors and state.work.pack.errors[1]
+                            state.work.trial_finish={result=err and err.code=="BP_P_TRIAL_PIN" and "pin" or "fail",code=err and err.code}
+                        else
+                        record_rejection(state, state.work.pack.errors, "pack")
                     local no_fit = false
                     for _, e in ipairs(state.work.pack.errors or {}) do if e.code == "BP_P_NO_FIT" then no_fit = true end end
                     if no_fit and next_grid(state) then -- a no-fit pack rejection grows this attempt's grid
                     else discard_candidate(state) end
+                    end
                 else
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
                         state.work.pack.result and state.work.pack.result.placements)
@@ -2062,31 +2180,49 @@ function Search.step(container, budget)
                         Hands.offer_slides(state.work.materialized, state.work.grid)
                     end
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
+                    if route_input and state.work.trial and state.work.trial.running then
+                        local options=state.work.trial_route_options or {}
+                        if options.collectors ~= nil then route_input.collectors=options.collectors end
+                        if options.lane_cap then route_input.lane_cap=true end
+                        if options.strict_ends then route_input.strict_ends=true end
+                    end
                     if route_input and state.work.strict_ends then route_input.strict_ends = true end
                     if route_input and state.work.lane_cap then route_input.lane_cap = true end
                     if route_input and (state.work.edge_inset or 0) > 0 then route_input.strict_ptg = true end
                     if route_input then
                         state.work.route_args = {blocks = blocks, ports = ports}
+                        if not (state.work.trial and state.work.trial.running) then
+                            state.work.current_collectors=route_input.collectors
+                        end
                         state.work.collector_trial, state.work.collector_first = nil, nil
                         state.work.route = Route.begin(route_input)
-                        set_phase(state, "route")
+                        trial_set_phase(state, "route")
                     else
+                        if state.work.trial and state.work.trial.running then
+                            state.work.trial_finish={result="fail",code=state.work.route_input_error and state.work.route_input_error.code or "BP_R_INPUT"}
+                        else
                         record_rejection(state, {state.work.route_input_error}, "route_input")
                         discard_candidate(state)
+                        end
                     end
                 end
             end
         elseif state.phase == "route" then
             run_stage(state, "route", Route, budget)
             if stage_done(state.work.route) then
-                if not state.work.route.ok then
-                    record_rejection(state, state.work.route.errors, "route")
-                    discard_candidate(state)
+                    if not state.work.route.ok then
+                        if state.work.trial and state.work.trial.running then
+                            local err=state.work.route.errors and state.work.route.errors[1]
+                            state.work.trial_finish={result="fail",code=err and err.code or "BP_V_UNSPECIFIED"}
+                        else
+                        record_rejection(state, state.work.route.errors, "route")
+                        discard_candidate(state)
+                        end
                 else
                     local power_entities = list_copy(state.work.materialized.entities)
                     append_all(power_entities, state.work.route.result and state.work.route.result.entities)
                     state.work.hand_entities = power_entities
-                    set_phase(state, "hands")
+                    trial_set_phase(state, "hands")
                 end
             end
         elseif state.phase == "power" then
@@ -2095,14 +2231,16 @@ function Search.step(container, budget)
             power_room(state, false)
             if stage_done(state.work.power) then
                 if not state.work.power.ok then
-                    record_rejection(state, state.work.power.errors, "power")
-                    for _, power_error in ipairs(state.work.power.errors or {}) do
-                        if power_error.code == "BP_PW_SEARCH_BOUND" then state.work.power_bound_hit = true; break end
-                    end
-                    if state.work.power_bound_hit then
-                        finish_search_bound(state, "BP_FAIL_POWER_BOUND")
+                    if state.work.trial and state.work.trial.running then
+                        local err=state.work.power.errors and state.work.power.errors[1]
+                        state.work.trial_finish={result="fail",code=err and err.code or "BP_V_UNSPECIFIED"}
                     else
-                        discard_candidate(state)
+                        record_rejection(state, state.work.power.errors, "power")
+                        for _, power_error in ipairs(state.work.power.errors or {}) do
+                            if power_error.code == "BP_PW_SEARCH_BOUND" then state.work.power_bound_hit = true; break end
+                        end
+                        if state.work.power_bound_hit then finish_search_bound(state, "BP_FAIL_POWER_BOUND")
+                        else discard_candidate(state) end
                     end
                 else
                     if state.work.post_tidy_power then
@@ -2113,7 +2251,7 @@ function Search.step(container, budget)
                             state.work.power.result, state.work.roboports)
                         state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
                             plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
-                        set_phase(state, "validate")
+                        trial_set_phase(state, "validate")
                     else
                     local poles = {}
                     for _, e in ipairs(state.work.power.result and state.work.power.result.entities or {}) do
@@ -2140,7 +2278,7 @@ function Search.step(container, budget)
                     for _, port in ipairs(state.work.materialized.ports or {}) do filter_port(port) end
                     for _, block in ipairs(state.work.materialized.blocks or {}) do for _, port in ipairs(block.ports or {}) do filter_port(port) end end
                     state.work.route_state = Route.tidy_begin(state.work.route, {obstacles = poles})
-                    set_phase(state, "tidy")
+                    trial_set_phase(state, "tidy")
                     end
                 end
             end
@@ -2152,7 +2290,7 @@ function Search.step(container, budget)
             state.work.hand_entities = all
             state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
                 state.work.roboports, state.work.robo_obstacles))
-            set_phase(state, "power")
+            trial_set_phase(state, "power")
         elseif state.phase == "tidy" then
             local before = budget.ops
             Route.tidy_step(state.work.route_state, budget)
@@ -2177,7 +2315,7 @@ function Search.step(container, budget)
                     append_all(all, state.work.route_state.result.entities)
                     state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
                         state.work.roboports, state.work.robo_obstacles))
-                    set_phase(state, "power")
+                    trial_set_phase(state, "power")
                 else
                     state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
                         state.work.materialized.entities, state.work.materialized.ports,
@@ -2185,7 +2323,7 @@ function Search.step(container, budget)
                         state.work.power.result, state.work.roboports)
                     state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
                         plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
-                    set_phase(state, "validate")
+                    trial_set_phase(state, "validate")
                 end
             end
         elseif state.phase == "validate" and state.work.serialize_next then
@@ -2205,7 +2343,6 @@ function Search.step(container, budget)
                     --A candidate discarded without a record makes every validator rejection look like a routing
                     --failure from outside.  Counting the codes costs nothing and is what the failure message and
                     --the debug export need.
-                    record_rejection(state, state.work.validate.errors, "validate")
                     local belt_shape = false
                     for _, err in ipairs(state.work.validate.errors or {}) do
                         if STRICT_REROUTE_CODES[err.code] then belt_shape = true; break end
@@ -2214,6 +2351,11 @@ function Search.step(container, budget)
                     for _, err in ipairs(state.work.validate.errors or {}) do
                         if err.code == "BP_V_LANE_OVERLOAD" then lane_over = true; break end
                     end
+                    if state.work.trial and state.work.trial.running then
+                        local code = state.work.validate.errors and state.work.validate.errors[1]
+                        state.work.trial_finish = {result="fail", code=code and code.code or "BP_V_UNSPECIFIED"}
+                    else
+                    record_rejection(state, state.work.validate.errors, "validate")
                     if lane_over and not state.work.lane_cap and state.work.collector_trial == nil then
                         --Round 54 (plastic x4 Turn 8 in Factorio 2.0.77: 7.5/s of 7.992/s): route the same grid again
                         --with lane capacity counted, so a branch joins the trunk on the lane that still has room.
@@ -2226,8 +2368,27 @@ function Search.step(container, budget)
                     else
                         discard_candidate(state)
                     end
+                    end
                 else
                     local score = state.work.validate.result and state.work.validate.result.score or {}
+                    if state.work.trial and state.work.trial.running then
+                        local t = state.work.trial
+                        local material = MaterialCost.blueprint(state.work.input.catalog,
+                            state.work.validate_candidate.entities or {})
+                        local old_material = t.material
+                        local old_area = state.incumbent.score and state.incumbent.score.production_area or math.huge
+                        local area = score.production_area or math.huge
+                        local tie = math.abs(material - old_material) <= .10 * math.max(material, old_material)
+                        local win = (material < old_material and old_material - material > .10 * old_material)
+                            or (tie and area < old_area)
+                        t.current_result = {result=win and "won" or "lost", material=material, area=area}
+                        if win then
+                            state.incumbent = {score=copy(score), candidate=copy(state.work.validate_candidate),
+                                source_candidate=copy(state.work.candidate), validation=copy(state.work.validate.result)}
+                            t.material = material
+                        end
+                        state.work.trial_finish = t.current_result
+                    else
                     local record = record_valid_attempt(state, score)
                     local incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
                         source_candidate = copy(state.work.candidate), validation = copy(state.work.validate.result)}
@@ -2239,19 +2400,21 @@ function Search.step(container, budget)
                             state.incumbent, state.work.incumbent_record = first.incumbent, first.record
                             first.record.chosen = true
                             state.work.attempt_recorded = true
-                            state.work.serialize_next = true; budget.ops = 0
+                            if not begin_turn_trials(state) then state.work.serialize_next = true end
+                            budget.ops = 0
                             incumbent = nil
                         end
-                    elseif state.work.collector_trial == nil and routed and routed.collectors_used and state.work.route_args then
+                    elseif not (state.work.trial and state.work.trial.running) and state.work.collector_trial == nil and routed and routed.collectors_used and state.work.route_args then
                         local retry_input = make_route_input(state, state.work.grid, state.work.route_args.blocks,
                             state.work.route_args.ports, state.work.robo_obstacles)
                         if retry_input then
                             retry_input.collectors = false
+                            state.work.current_collectors=false
                             state.work.collector_first = {incumbent = incumbent, record = record}
                             state.work.collector_trial = "running"
                             state.work.power, state.work.validate, state.work.tidy, state.work.route_state = nil, nil, nil, nil
                             state.work.route = Route.begin(retry_input)
-                            set_phase(state, "route")
+                            trial_set_phase(state, "route")
                             incumbent = nil
                         end
                     end
@@ -2260,7 +2423,9 @@ function Search.step(container, budget)
                         state.work.incumbent_record = record
                         state.incumbent = incumbent
                         state.work.attempt_recorded = true
-                        state.work.serialize_next = true; budget.ops = 0
+                        if not begin_turn_trials(state) then state.work.serialize_next = true end
+                        budget.ops = 0
+                    end
                     end
                 end
             end
@@ -2276,6 +2441,11 @@ function Search.step(container, budget)
                     --plain diagnostic field, while offline callers and the job record can see exactly what was
                     --chosen and which alternatives were rejected, outscored or left beyond a declared bound.
                     state.result.search = diagnostics
+                    if state.work.trial then
+                        state.work.trial.ticks=state.work.trial.ticks or (state.step_count-state.work.trial.ticks_before)
+                        state.result.search.trial={ticks_before=state.work.trial.ticks_before,ticks=state.work.trial.ticks,
+                            tried=state.work.trial.tried,won=state.work.trial.won,fails=state.work.trial.fails,rows=copy(state.work.trial.rows)}
+                    end
                     state.result.search.fell_back = state.work.fell_back == true
                     state.result.chosen_score = copy(diagnostics.chosen_score)
                     state.result.discarded_alternatives = copy(diagnostics.discarded_alternatives)
