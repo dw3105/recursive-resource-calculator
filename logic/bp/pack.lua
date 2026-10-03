@@ -169,8 +169,14 @@ local function fail(state, code, block_id)
     state.errors[#state.errors + 1] = error_record
     state.done = true
     state.ok = false
+    state.failed = true
     state.progress.phase = "packing"
     set_result(state)
+end
+
+local function drawn_turn(state, block)
+    if state.trial and tostring(state.trial.block_id) == tostring(block.block_id) then return state.trial.dir end
+    return state.drawing and state.drawing.turn_of and state.drawing.turn_of[block.block_id]
 end
 
 local function finish(state)
@@ -591,7 +597,7 @@ local function layered_target(state, block)
         for _, b in ipairs(state.blocks) do
             local bl = drawing.layer_of and drawing.layer_of[b.block_id]
             if bl then
-                local d = drawing.turn_of and drawing.turn_of[b.block_id] or 0
+                local d = drawn_turn(state, b) or 0
                 local w, h = Grid.rotate_size(b.w, b.h, d)
                 maxdepth[bl] = math.max(maxdepth[bl] or 0, horizontal and w or h)
                 if bl == L and (drawing.rank_of[b.block_id] or 0) < rank then
@@ -610,7 +616,7 @@ local function layered_target(state, block)
         for layer = 1, L - 1 do total = total + (maxdepth[layer] or 0) + Pack.DRAWN_GAP end
         local start = positive and (horizontal and state.area.x or state.area.y) or
             (horizontal and state.area.x + state.area.w or state.area.y + state.area.h)
-        local prefw, prefh = Grid.rotate_size(block.w, block.h, drawing.turn_of and drawing.turn_of[block.block_id] or 0)
+        local prefw, prefh = Grid.rotate_size(block.w, block.h, drawn_turn(state, block) or 0)
         local dim = horizontal and prefw or prefh
         local ax = state.area.x + across
         local ay = horizontal and (state.area.y + across) or (start + (positive and total or -total - dim))
@@ -673,7 +679,7 @@ local function drawn_dummy_tiles(state)
     for _, b in ipairs(state.blocks) do
         local bl = drawing.layer_of and drawing.layer_of[b.block_id]
         if bl then
-            local bw, bh = Grid.rotate_size(b.w, b.h, drawing.turn_of and drawing.turn_of[b.block_id] or 0)
+            local bw, bh = Grid.rotate_size(b.w, b.h, drawn_turn(state, b) or 0)
             layer_depth[bl] = math.max(layer_depth[bl] or 0, horizontal and bw or bh)
             local list = by_layer[bl] or {}
             by_layer[bl] = list
@@ -744,7 +750,7 @@ local function layered_legal(state, block, x, y, direction, tx, ty)
         for _, tile in ipairs(drawn_dummy_tiles(state)[L] or {}) do
             if x <= tile.x and tile.x < x + w and y <= tile.y and tile.y < y + h then covered = covered + 1 end
         end
-        local preferred = state.drawing.turn_of[id]
+        local preferred = drawn_turn(state, block)
         candidate.link_cost = candidate.link_cost + P * (broken + covered + (preferred ~= nil and direction ~= preferred and 1 or 0))
     end
     --A legal origin also pays for its link cost: twice a port origin keeps a tick near MaxRects' worst.
@@ -815,7 +821,8 @@ end
 local function start_place(state, block)
     local candidate = state.cursor.best
     if candidate == nil then
-        fail(state, "BP_P_NO_FIT", block.block_id)
+        local trial = state.trial and tostring(state.trial.block_id) == tostring(block.block_id)
+        fail(state, trial and "BP_P_TRIAL_PIN" or "BP_P_NO_FIT", block.block_id)
         return
     end
 
@@ -1023,14 +1030,28 @@ function Pack.begin(input)
         counters = {origins = 0, evaluated_origins = 0},
         origin_seen = {}, disable_link_cut = input.disable_link_cut == true,
         mode = input.mode, drawing = input.drawing, input_edge = input.input_edge,
+        pins = {}, trial = input.mode == "sugiyama" and input.trial or nil,
     }
+    if input.mode == "sugiyama" then
+        for id, pin in pairs(input.pins or {}) do state.pins[tostring(id)] = pin end
+    end
     rebuild_indexes(state)
     if state.mode == "sugiyama" then
         local pos = {}; for i,b in ipairs(blocks) do
             pos[tostring(b.block_id)] = i
-            b.allowed_dirs = input.forced_dir ~= nil and {input.forced_dir} or {0,4,8,12}
+            if state.trial and tostring(state.trial.block_id) == tostring(b.block_id) then
+                b.allowed_dirs = {state.trial.dir}
+            else
+                b.allowed_dirs = input.forced_dir ~= nil and {input.forced_dir} or {0,4,8,12}
+            end
         end
         table.sort(blocks, function(a,b)
+            local ap = state.pins[tostring(a.block_id)] ~= nil
+            local bp = state.pins[tostring(b.block_id)] ~= nil
+            if ap ~= bp then return ap end
+            local at = state.trial and tostring(state.trial.block_id) == tostring(a.block_id)
+            local bt = state.trial and tostring(state.trial.block_id) == tostring(b.block_id)
+            if at ~= bt then return not at end
             local la,lb=(state.drawing.layer_of or {})[a.block_id],(state.drawing.layer_of or {})[b.block_id]
             la,lb=la or math.huge,lb or math.huge
             if la~=lb then return la<lb end
@@ -1066,7 +1087,16 @@ function Pack.step(state, budget)
             break
         end
 
-        if state.mode == "sugiyama" or (state.layered and state.has_links) then
+        local pin = state.pins[tostring(block.block_id)]
+        if pin ~= nil then
+            local candidate = layered_legal(state, block, pin.x, pin.y, pin.dir, pin.x, pin.y)
+            if candidate == nil then
+                fail(state, "BP_P_TRIAL_PIN", block.block_id)
+            else
+                state.cursor.best = candidate
+                start_place(state, block)
+            end
+        elseif state.mode == "sugiyama" or (state.layered and state.has_links) then
             if budget.ops == nil or budget.ops <= 0 then break end
             if layered_scan(state, block, budget) then
                 state.cursor.ring = nil
