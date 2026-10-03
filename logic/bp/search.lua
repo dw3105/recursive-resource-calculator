@@ -1611,6 +1611,11 @@ local function trial_set_phase(state, phase)
     if state.work.trial and state.work.trial.running then state.progress.stage = "trial" end
 end
 
+--Turn trials ship OFF (round 55, player 2026-10-03): at game rate they found no win on red-1s and foundry and one
+---2.8% area win on green-1s past 5x the search time, while every drawn sheet paid the time. RRC_TURN_TRIALS=1
+--(offline study) or settings.turn_trials = true switches them on; in game os.getenv is absent, so they stay off.
+Search.turn_trials = (os and os.getenv and os.getenv("RRC_TURN_TRIALS")) == "1"
+
 --One Turn try: every other Block pinned at its incumbent place, the tried Block at the pose's pack dir.
 local function start_try(state, pose)
     local t = state.work.trial
@@ -1701,6 +1706,7 @@ end
 
 local function begin_turn_trials(state)
     local settings=state.work.input.settings or {}
+    if not (Search.turn_trials or settings.turn_trials == true) then return false end
     if Pack.mode~="sugiyama" or state.work.drawn_off or settings.force_turn_flip or state.work.trial_done
         or type(MaterialCost.blueprint)~="function" then return false end
     local old=MaterialCost.blueprint(state.work.input.catalog,state.incumbent.candidate.entities or {})

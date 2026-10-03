@@ -9,7 +9,8 @@ local Route=require 'logic.bp.route'
 local Validate=require 'logic.bp.validate'
 
 local function run_case(opts,configure,mode)
- local old_mode,old_cost,old_flow=Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow
+ local old_mode,old_cost,old_flow,old_on=Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow,Search.turn_trials
+ Search.turn_trials=not (opts and opts.trials_off)
  Pack.mode=mode or 'sugiyama'; MaterialCost.blueprint=function(_,entities) return entities[1] and (entities[1].x==0 and 100 or 80) or 100,0 end
  MaterialCost.by_flow=function() return {f=1} end
  local state,log=D.run(opts or {},function(log)
@@ -24,7 +25,7 @@ local function run_case(opts,configure,mode)
   H.equal(s.done,true,'stuck phase '..tostring(s.phase))
   return s
  end)
- Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow=old_mode,old_cost,old_flow
+ Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow,Search.turn_trials=old_mode,old_cost,old_flow,old_on
  return state,log
 end
 
@@ -220,6 +221,13 @@ H.test('TS7 first qualifying screen goes to its final before the next screen',fu
  local state=run_case()
  local rows=state.result.search.trial.rows
  H.equal(rows[1].result,'screened'); H.equal(rows[2].pose,rows[1].pose); H.equal(rows[2].result~='screened',true); print('TS7')
+end)
+
+--TT16 (integrator, 2026-10-03, player Q11 a): Turn trials ship off. Measured at game rate: no win on red-1s and
+--foundry, one -2.8% area win on green-1s past 5x time. Red on 3b7b901, where the pass always ran.
+H.test('TT16 Turn trials are off unless switched on',function()
+ local state=run_case({trials_off=true})
+ H.equal(state.ok,true); H.equal(state.result.search.trial,nil); H.equal(state.incumbent.candidate.placements[1].dir,0); print('TT16')
 end)
 
 H.done('test_turn_trial')
