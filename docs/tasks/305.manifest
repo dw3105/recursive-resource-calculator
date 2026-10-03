@@ -1,0 +1,12 @@
+# bound: 5400s
+logic/bp/material_cost.lua
+tests/golden/generate.lua
+tools/turn_trial_rows.lua
+tools/golden_profile.lua
+logic/progress_view.lua
+locale/en/locale.cfg
+locale/cs/locale.cfg
+locale/ro/locale.cfg
+tests/test_material_cost.lua
+tests/test_turn_trial_rows.lua
+tests/test_progress_view.lua

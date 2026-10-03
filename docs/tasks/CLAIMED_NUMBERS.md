@@ -232,3 +232,6 @@
 | `301` | `rrc/agent` | Turn+Flip census wave 2: mirrored Block rebuild keeps ports on edge; turned Row ports off belt runs (groups.lua) (round 54) | 2026-10-01 |
 | `302` | `rrc/agent` | Turn+Flip census wave 2: fluid input reaches turned ports; fluids never mix (route.lua) (round 54) | 2026-10-01 |
 | `303` | `rrc/agent` | Turn+Flip census wave 2: fluid inputs reach turned machines (edge slots with room in search.lua, router goes around in route.lua) (round 54) | 2026-10-01 |
+| `304` | `rrc/agent` | Drawn pack pins Blocks in place + one trial Block at one Turn (pack.lua) (round 55) | 2026-10-03 |
+| `305` | `rrc/agent` | whole-blueprint Material in Lua, TRIAL row lines, trial stage on progress bar (round 55) | 2026-10-03 |
+| `306` | `rrc/agent` | Turn trial step: after drawn sheet valid, try other Turns per Block, keep cheaper (search.lua) (round 55) | 2026-10-03 |
