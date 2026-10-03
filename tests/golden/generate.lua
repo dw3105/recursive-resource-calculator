@@ -486,9 +486,11 @@ local ok, result_or_error = xpcall(function()
     if type(prepared.prepared_input) == "table" then prepared = prepared.prepared_input end
     if type(prepared.catalog) == "table" and prepared.catalog.material == nil then
         local MaterialCost = require("logic.bp.material_cost")
-        local fixture = ROOT .. "/tests/fixtures/material_cost_2.1.txt"
+        local version = tostring(prepared.version or "2.1"):match("^(%d+%.%d+)") or "2.1"
+        local other = version == "2.0" and "2.1" or "2.0"
+        local fixture = ROOT .. "/tests/fixtures/material_cost_" .. version .. ".txt"
         local file = io.open(fixture, "r")
-        if not file then fixture = ROOT .. "/tests/fixtures/material_cost_2.0.txt"; file = assert(io.open(fixture, "r")) end
+        if not file then fixture = ROOT .. "/tests/fixtures/material_cost_" .. other .. ".txt"; file = assert(io.open(fixture, "r")) end
         local text = file:read("*a"); file:close()
         prepared.catalog.material = MaterialCost.parse_fixture(text)
     end

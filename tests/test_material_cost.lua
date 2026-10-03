@@ -70,7 +70,7 @@ do
 end
 
 --MC-BP1..BP5 red on round-55-base (2026-10-03): whole-blueprint costs and version fixture selection are absent.
-do
+H.test("MC-BP1 through MC-BP5 whole blueprint material", function()
     local entities = {}
     local counts = {['assembling-machine-3']=17, beacon=68, ['bulk-inserter']=101, ['chemical-plant']=5,
         ['electric-furnace']=8, ['electromagnetic-plant']=14, foundry=13, ['long-handed-inserter']=26,
@@ -86,8 +86,9 @@ do
     local mix={{name="pipe",flow_id="a"},{name="beacon",flow_id="b"},{name="pipe"}}
     local by=Cost.by_flow(catalog,mix); H.equal(by.a+by.b+prices.pipe,prices.pipe+prices.beacon+prices.pipe,"MC-BP3 by flow shape")
     local with_unknown={{name="unknown"},{name="pipe"}}; local v,u=Cost.blueprint(catalog,with_unknown); H.equal(v,prices.pipe,"MC-BP2 total"); H.equal(u,1,"MC-BP2 unknown")
-    for _,mat in ipairs({{},nil}) do local x,y=Cost.blueprint({material=mat},mix); H.equal(x,nil,"MC-BP4 empty material"); H.equal(y,#mix,"MC-BP4 unknown count"); H.equal(Cost.by_flow({material=mat},mix),nil,"MC-BP4 by flow") end
-    local source=read("tests/golden/generate.lua"); H.equal(source:find("prepared.version",1,true)~=nil,true,"MC-BP5 chooses version fixture")
+    local empty_total,empty_unknown=Cost.blueprint({material={}},mix); H.equal(empty_total,nil,"MC-BP4 empty material"); H.equal(empty_unknown,#mix,"MC-BP4 unknown count"); H.equal(Cost.by_flow({material={}},mix),nil,"MC-BP4 by flow")
+    local x,y=Cost.blueprint({},mix); H.equal(x,nil,"MC-BP4 missing material"); H.equal(y,#mix,"MC-BP4 missing material unknown count"); H.equal(Cost.by_flow({},mix),nil,"MC-BP4 missing material by flow")
+    local source=read("tests/golden/generate.lua"); H.equal(source:find("prepared.version",1,true)~=nil,true,"MC-BP5 uses prepared version"); H.equal(source:find('"/tests/fixtures/material_cost_" .. version .. ".txt"',1,true)~=nil,true,"MC-BP5 selects matching fixture")
     for _,m in ipairs({"MC-BP1","MC-BP2","MC-BP3","MC-BP4","MC-BP5"}) do print(m) end
-end
+end)
 H.done("test_material_cost")

@@ -4,15 +4,15 @@
 local ProgressView = {}
 
 --Blueprint CPU share per attempt, measured on green science (tools/profile.lua, legalcopilot-dev 2026-09-24).
-local BLUEPRINT_ORDER = {"groups", "pack", "route", "hands", "power", "tidy", "validate"}
-local BLUEPRINT_WEIGHTS = {groups = 2, pack = 10, route = 13, hands = 1, power = 4, tidy = 65, validate = 5}
+local BLUEPRINT_ORDER = {"groups", "pack", "route", "hands", "power", "tidy", "validate", "trial"}
+local BLUEPRINT_WEIGHTS = {groups = 2, pack = 10, route = 13, hands = 1, power = 4, tidy = 65, validate = 5, trial = 20}
 local CALC_ORDER = {"snapshot", "solve", "power", "report"}
 local CALC_WEIGHTS = {snapshot = 10, solve = 50, power = 10, report = 30}
 --The search publishes its phase names (logic/bp/search.lua PHASES); the bar and locale use the stage names.
 local STAGE_OF = {
     queued = "queued", prepare = "prepare", planning = "prepare", preflight = "prepare", plan = "prepare",
     grouping = "groups", groups = "groups", packing = "pack", pack = "pack", routing = "route", route = "route",
-    hands = "hands", power = "power", tidying = "tidy", tidy = "tidy", validating = "validate", validate = "validate",
+    hands = "hands", power = "power", tidying = "tidy", tidy = "tidy", validating = "validate", validate = "validate", trial = "trial",
     serializing = "serialize", serialize = "serialize", improving = "tidy", done = "done", failed = "failed",
 }
 local PREPARE_SHARE = 0.02      --blueprint: snapshot and catalog before the first attempt

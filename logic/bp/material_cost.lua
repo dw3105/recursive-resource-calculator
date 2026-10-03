@@ -85,4 +85,29 @@ function MaterialCost.of_entity(catalog, name)
     return catalog and catalog.material and catalog.material[name] or nil
 end
 
+function MaterialCost.blueprint(catalog, entities)
+    entities = entities or {}
+    local material = catalog and catalog.material
+    if type(material) ~= "table" or next(material) == nil then return nil, #entities end
+    local total, unknown = 0, 0
+    for _, entity in ipairs(entities) do
+        local price = material[entity.name]
+        if type(price) == "number" then total = total + price else unknown = unknown + 1 end
+    end
+    return total, unknown
+end
+
+function MaterialCost.by_flow(catalog, entities)
+    local material = catalog and catalog.material
+    if type(material) ~= "table" or next(material) == nil then return nil end
+    local totals = {}
+    for _, entity in ipairs(entities or {}) do
+        if entity.flow_id ~= nil then
+            local price = material[entity.name]
+            if type(price) == "number" then totals[entity.flow_id] = (totals[entity.flow_id] or 0) + price end
+        end
+    end
+    return totals
+end
+
 return MaterialCost

@@ -70,3 +70,12 @@ result._rejection_seen=nil
 if generated then result.ok=generated:match('"ok":true')~=nil; for code in generated:gmatch('"code":"([^"]+)"') do result.error_codes[#result.error_codes+1]=code end; result.canonical_sha256=generated:match('"canonical_sha256":"([^"]+)"') end
 if result.error then result.error_codes[1]=result.error end
 local f=assert(io.open(out,'wb')); f:write(enc(result),'\n');f:close()
+if generated and generated:find('"trial"', 1, true) then
+  local H = require('tests.harness'); H.new_world('2.0')
+  local decoded = helpers and helpers.json_to_table and helpers.json_to_table(generated)
+  local trial = decoded and decoded.result and decoded.result.search and decoded.result.search.trial
+  if trial then
+    local rows = require('tools.turn_trial_rows')
+    for _, line in ipairs(rows.format(case, trial)) do print(line) end
+  end
+end
