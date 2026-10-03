@@ -235,3 +235,4 @@
 | `304` | `rrc/agent` | Drawn pack pins Blocks in place + one trial Block at one Turn (pack.lua) (round 55) | 2026-10-03 |
 | `305` | `rrc/agent` | whole-blueprint Material in Lua, TRIAL row lines, trial stage on progress bar (round 55) | 2026-10-03 |
 | `306` | `rrc/agent` | Turn trial step: after drawn sheet valid, try other Turns per Block, keep cheaper (search.lua) (round 55) | 2026-10-03 |
+| `307` | `rrc/agent` | Turn trial screen: every try scored by Material before tidy, only cheapest gets tidy + validate (search.lua) (round 55) | 2026-10-03 |
