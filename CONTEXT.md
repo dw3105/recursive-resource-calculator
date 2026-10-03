@@ -141,6 +141,18 @@ _Avoid_: port direction (a belt's facing), attach offset (the code's unturned nu
 What a stretch of transport costs to craft: the raw resources inside its belts, splitters, underground belts, pipes and underground pipes, worked out from the recipes in the game: follow each recipe down to raw items (whatever a mined resource yields or a tile gives: ores, stone, coal, crude oil, water, even where some recipe also makes them) and add every unit, fluids included, one each.
 _Avoid_: entity count (treats a pipe and an underground belt as equal), price
 
+**Footprint**:
+The bounding-box area of a delivered blueprint, width × height in tiles, empty corners included. Decides between two runs only inside a Material tie; the smaller wins.
+_Avoid_: size, area, entity tiles (counts occupied tiles only)
+
+**Turn trial**:
+One other Turn, or Turn plus Flip, tried for one Block of a finished Drawn pack layout: the sheet is packed and routed again with it and kept only when valid and better (lower Material cost of the whole blueprint, then smaller Footprint inside a Material tie).
+_Avoid_: reorient, retry, orient trial
+
+**Trial fail**:
+A Turn trial that leaves the sheet invalid for any reason other than a Blocked fluid port. Always a defect the code owes a fix for; the layout before the trial is kept.
+_Avoid_: forbidden (that is the Blocked fluid port case), rejected trial
+
 ## Relationships
 
 - A **Flow graph** has one node per **Block**; the node sits at the Block's midpoint.
@@ -150,6 +162,7 @@ _Avoid_: entity count (treats a pipe and an underground belt as equal), price
 - A **Block** Turns as a whole; the machines inside a Block all share one Turn and one Flip.
 
 - A **Dead pair** makes a layout invalid whichever pack placed it (Drawn pack or Layered pack).
+- A **Turn trial** tries Flip only on a **Block** that uses a fluid; a Flip moves nothing else.
 - A **Drawn pack** run beats a **Layered pack** run when it is valid and faster; on a **Speed tie** it loses only when it is not in a **Material tie** and costs more.
 
 ## Flagged ambiguities
