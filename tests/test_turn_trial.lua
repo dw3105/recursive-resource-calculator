@@ -170,4 +170,38 @@ H.test('TT15 a try running past the cap is cut at the cap',function()
  H.equal(t.rows[#t.rows].result,'cut'); print('TT15')
 end)
 
+--TS1-TS6 red on round-55-wave2-base: trials tidy every pose and do not screen by pre-tidy material. 2026-10-03.
+H.test('TS1 screen poses skip tidy and only finalist tidies',function()
+ local state,log=run_case()
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(#log.tidy,2); H.equal(screened,3); print('TS1')
+end)
+H.test('TS2 lowest screened pose is final',function()
+ local state=run_case({},function() MaterialCost.blueprint=function(_,entities) local d=entities[1] and entities[1].x or 0; return d==4 and 70 or d==8 and 90 or d==12 and 95 or 100,0 end end)
+ H.equal(state.result.search.trial.finalist,'b 4/0'); print('TS2')
+end)
+H.test('TS3 screen worse than incumbent skips final',function()
+ local state=run_case({},function() MaterialCost.blueprint=function(_,entities) local d=entities[1] and entities[1].x or 0; return d==0 and 10 or 20,0 end end)
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(screened,3); H.equal(state.result.search.trial.finalist,nil); H.equal(state.ok,true); print('TS3')
+end)
+H.test('TS4 route failure is recorded while screen advances',function()
+ local state=run_case({},function()
+  local begin,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=begin(input); if input.trial then n=n+1; if n==3 then s.force_error=true end end; return s end
+  local step=Route.step; Route.step=function(s,b) if s.force_error then s.done,s.ok,s.errors=true,false,{{code='BP_R_TEST_SCREEN'}}; return s end; return step(s,b) end
+ end)
+ local found=false; for _,row in ipairs(state.result.search.trial.rows) do if row.code=='BP_R_TEST_SCREEN' and row.result=='fail' then found=true end end
+ H.equal(found,true); print('TS4')
+end)
+H.test('TS5 cap during screen cuts and delivers incumbent',function()
+ local state=run_case({},function()
+  local rb,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=rb(input); if input.trial and n>=3 then s.done=false; s.endless=true end; return s end
+  local rs=Route.step; Route.step=function(s,b) if s.endless then b.ops=0; return s end; return rs(s,b) end
+ end)
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(state.ok,true); H.equal(screened>0,true); H.equal(state.result.search.trial.finalist,nil); H.equal(state.result.search.trial.rows[#state.result.search.trial.rows].result,'cut'); print('TS5')
+end)
+H.test('TS6 accepted incumbent retains pre-tidy material',function()
+ local state=run_case(); H.equal(type(state.incumbent.pre_tidy_material),'number'); print('TS6')
+end)
 H.done('test_turn_trial')
