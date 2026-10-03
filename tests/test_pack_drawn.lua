@@ -65,4 +65,42 @@ H.test('PD7 top input places later layer below earlier layer',function()
  local s=run(input({b('a'),b('b')},d,Grid.rect(0,0,12,30),'top'))
  local p=placed(s); H.equal(s.ok,true); H.equal(p.b.y>p.a.y,true)
 end)
+-- PD-PIN1-PD-PIN5 fail on round-55-base: drawn packing ignores pins and trials.
+H.test('PD-PIN1 pins are placed exactly before the remaining Block',function()
+ local d=drawn('left',{a=1,b=1,c=1},{a=1,b=2,c=3})
+ local i=input({b('a'),b('b'),b('c')},d,Grid.rect(0,0,20,12))
+ i.pins={a={x=1,y=1,dir=4},b={x=9,y=1,dir=8}}
+ local s=run(i); local p=placed(s)
+ H.equal(s.ok,true); H.equal(p.a.x,1); H.equal(p.a.y,1); H.equal(p.a.dir,4)
+ H.equal(p.b.x,9); H.equal(p.b.y,1); H.equal(p.b.dir,8)
+ H.equal(p.c.x<p.a.x+p.a.w and p.c.x+p.c.w>p.a.x and p.c.y<p.a.y+p.a.h and p.c.y+p.c.h>p.a.y,false)
+ H.equal(p.c.x<p.b.x+p.b.w and p.c.x+p.c.w>p.b.x and p.c.y<p.b.y+p.b.h and p.c.y+p.c.h>p.b.y,false)
+ print('PD-PIN1')
+end)
+H.test('PD-PIN2 trial reports a pin failure when its room is occupied',function()
+ local i=input({b('pin',4,4),b('trial',2,4)},drawn('left',{pin=1,trial=1},{pin=1,trial=2}),Grid.rect(0,0,4,4))
+ i.pins={pin={x=0,y=0,dir=0}}; i.trial={block_id='trial',dir=4}
+ local s=run(i); H.equal(s.failed,true); H.equal(s.errors[1].code,'BP_P_TRIAL_PIN'); print('PD-PIN2')
+end)
+H.test('PD-PIN3 pinned Block contributes geometry and indexes',function()
+ local block=b('pin',2,3); block.buffer_zones={{x=-1,y=-1,w=4,h=5,ring=1,key='z'}}
+ block.ports={{port_id='p',role='out',attach_dx=2,attach_dy=1}}
+ local i=input({block},drawn('left',{pin=1},{pin=1}),Grid.rect(0,0,12,12)); i.pins={pin={x=4,y=3,dir=4}}
+ local s=run(i,1); local p=placed(s).pin
+ H.equal(s.ok,true); H.deep_equal(s.placed_bbox,{x=4,y=3,w=3,h=2})
+ H.deep_equal(s.buffer_zones[1].rect,{x=3,y=2,w=5,h=4})
+ H.equal(#s.port_cells>0,true); H.equal(p.x,4); H.equal(p.y,3); print('PD-PIN3')
+end)
+H.test('PD-PIN4 trial Turn overrides its drawn Turn and size',function()
+ local d=drawn('left',{t=1},{t=1},{t=8}); local block=b('t',2,4)
+ local i=input({block},d,Grid.rect(0,0,12,12)); i.trial={block_id='t',dir=4}
+ local s=run(i); local p=placed(s).t; local w,h=Grid.rotate_size(2,4,4)
+ H.equal(s.ok,true); H.equal(p.dir,4); H.equal(p.w,w); H.equal(p.h,h); print('PD-PIN4')
+end)
+H.test('PD-PIN5 drawn baseline inputs without pin fields are repeatable',function()
+ local d=drawn('left',{a=1,b=1,c=2},{a=1,b=2,c=1},{a=4})
+ local i=input({b('a'),b('b'),b('c')},d,Grid.rect(0,0,30,15))
+ local a=run(i); local copy=input({b('a'),b('b'),b('c')},drawn('left',{a=1,b=1,c=2},{a=1,b=2,c=1},{a=4}),Grid.rect(0,0,30,15))
+ H.deep_equal(a.result.placements,run(copy).result.placements); print('PD-PIN5')
+end)
 H.done('test_pack_drawn')
