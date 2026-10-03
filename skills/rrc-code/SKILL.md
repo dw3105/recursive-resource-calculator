@@ -76,6 +76,17 @@ Round 47 probe patches (`p_valdetail`, `p_trunk`, `p_bindwatch`, `p_parts`, `p_v
 - **RC-15** Kill only own processes: PIDs whose `/proc/PID/cwd` is own worktree. Never by command name.
 - **RC-16** Push box for player says how to run it on VM: `!` prefix in Claude Code prompt on legalcopilot-dev.
 
+## Passes, budgets, headless (round 55, player "ok" 2026-10-03)
+
+- **RC-17** Before grill fixes time cap for new search pass: probe one try on 2 fast goldens at 2000 ops/step
+  (in-memory patch). Round 55 cap set unmeasured; one try 466 vs 186 ticks whole search -> 2 more asks, 1 more lane.
+- **RC-18** Every search budget or cap counted in `state.ops_used`, never `Search.step` calls: generate.lua steps
+  100000 ops, game 2000.
+- **RC-19** Headless hang: diff hung `factorio-current.log` against good one line by line before any theory. No
+  `__factorio-test__` line = runner not loaded (round 55: 1-byte stand-in zip, ~2 h lost on load theory).
+- **RC-20** Grill reads origin/main `CONTEXT.md` and `docs/adr/` before writing any term; session cwd may be stale branch.
+- **RC-21** One `RRC_SLOW` reason per question loop (case name in reason = new run each); wave file exists before use.
+
 | Reference | Read when |
 |---|---|
 | `references/ledger.md` | changing this skill |

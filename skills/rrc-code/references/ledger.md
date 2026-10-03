@@ -10,3 +10,6 @@
   claimed 8 gates without a main run (regression from own crash fix), `TMO=300/900` + decoy timeout past the hook,
   kill by command name, lab never saw new shapes (35/144, 40/128 first runs), report with 5 wrong claims, push box
   run on wrong machine. Player approved 2026-10-02 "adopt all".
+- 2026-10-03 (round 55 close): RC-17..RC-21 from `docs/incidents/2026-10-03-round-55-close.md` reflection: time cap
+  fixed before one try was measured, step-count budgets, headless hang from stand-in runner zip (~2 h), CONTEXT.md
+  written in stale checkout, slow-guard reasons per case. Player approved 2026-10-03 "ok".
