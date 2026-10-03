@@ -88,7 +88,7 @@ H.test("MC-BP1 through MC-BP5 whole blueprint material", function()
     local with_unknown={{name="unknown"},{name="pipe"}}; local v,u=Cost.blueprint(catalog,with_unknown); H.equal(v,prices.pipe,"MC-BP2 total"); H.equal(u,1,"MC-BP2 unknown")
     local empty_total,empty_unknown=Cost.blueprint({material={}},mix); H.equal(empty_total,nil,"MC-BP4 empty material"); H.equal(empty_unknown,#mix,"MC-BP4 unknown count"); H.equal(Cost.by_flow({material={}},mix),nil,"MC-BP4 by flow")
     local x,y=Cost.blueprint({},mix); H.equal(x,nil,"MC-BP4 missing material"); H.equal(y,#mix,"MC-BP4 missing material unknown count"); H.equal(Cost.by_flow({},mix),nil,"MC-BP4 missing material by flow")
-    local source=read("tests/golden/generate.lua"); H.equal(source:find("prepared.version",1,true)~=nil,true,"MC-BP5 uses prepared version"); H.equal(source:find('"/tests/fixtures/material_cost_" .. version .. ".txt"',1,true)~=nil,true,"MC-BP5 selects matching fixture")
+    local source=read("tests/golden/generate.lua"); H.equal(source:find("prepared.provenance.base_game_version",1,true)~=nil,true,"MC-BP5 reads the recorded game version (prepared inputs carry provenance.base_game_version, never version; red on lane 305 head 024d6bb)"); H.equal(source:find('"/tests/fixtures/material_cost_" .. version .. ".txt"',1,true)~=nil,true,"MC-BP5 selects matching fixture")
     for _,m in ipairs({"MC-BP1","MC-BP2","MC-BP3","MC-BP4","MC-BP5"}) do print(m) end
 end)
 H.done("test_material_cost")

@@ -486,7 +486,7 @@ local ok, result_or_error = xpcall(function()
     if type(prepared.prepared_input) == "table" then prepared = prepared.prepared_input end
     if type(prepared.catalog) == "table" and prepared.catalog.material == nil then
         local MaterialCost = require("logic.bp.material_cost")
-        local version = tostring(prepared.version or "2.1"):match("^(%d+%.%d+)") or "2.1"
+        local version = tostring(prepared.provenance and prepared.provenance.base_game_version or prepared.version or "2.1"):match("^(%d+%.%d+)") or "2.1"
         local other = version == "2.0" and "2.1" or "2.0"
         local fixture = ROOT .. "/tests/fixtures/material_cost_" .. version .. ".txt"
         local file = io.open(fixture, "r")
