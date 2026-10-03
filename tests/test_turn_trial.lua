@@ -39,7 +39,7 @@ H.test('TT2 invalid trial preserves incumbent',function()
   local step,n=Validate.step,0
   Validate.step=function(s,b) n=n+1; if n==2 then s.done,s.ok,s.errors=true,false,{{code='BP_V_TEST_TRIAL'}}; return s end; return step(s,b) end
  end)
- H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0); H.equal(state.result.search.trial.rows[1].result,'fail'); H.equal(state.result.search.trial.rows[1].code,'BP_V_TEST_TRIAL'); print('TT2')
+ H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0); H.equal(state.result.search.trial.rows[#state.result.search.trial.rows].result,'fail'); H.equal(state.result.search.trial.rows[#state.result.search.trial.rows].code,'BP_V_TEST_TRIAL'); print('TT2')
 end)
 
 H.test('TT3 lane overload does not restart grid during trial',function()
@@ -48,7 +48,7 @@ H.test('TT3 lane overload does not restart grid during trial',function()
   local step,n=Validate.step,0
   Validate.step=function(s,b) n=n+1; if n==2 then s.done,s.ok,s.errors=true,false,{{code='BP_V_LANE_OVERLOAD'}}; return s end; return step(s,b) end
  end)
- H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0); H.equal(#log.route,4); print('TT3')
+ H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0); H.equal(#log.route,5); print('TT3')
 end)
 
 H.test('TT4 collector route does not nest collector trial',function()
@@ -56,7 +56,7 @@ H.test('TT4 collector route does not nest collector trial',function()
   local begin,n=Route.begin,0
   Route.begin=function(input) n=n+1; local s=begin(input); s.work={collectors_used=n==1}; return s end
  end)
- H.equal(state.ok,true); H.equal(#log.route,5); print('TT4')
+ H.equal(state.ok,true); H.equal(#log.route,6); print('TT4')
 end)
 
 H.test('TT5 budget at trial publishes incumbent',function()
@@ -87,7 +87,7 @@ H.test('TT7 fluid machine can flip and non-fluid block has three poses',function
   Search.step=oldstep; Groups.reorient=oldreorient; return state,tried
  end
  local plain,nplain=collect(false); local fluid,nfluid=collect(true)
- H.equal(plain.ok,true); H.equal(nplain,3); H.equal(fluid.ok,true); H.equal(nfluid,7); print('TT7')
+ H.equal(plain.ok,true); H.equal(nplain,4); H.equal(fluid.ok,true); H.equal(nfluid,8); print('TT7')
 end)
 
 H.test('TT8 bounded trial records ticks',function()
@@ -187,15 +187,15 @@ H.test('TS3 screen worse than incumbent skips final',function()
 end)
 H.test('TS4 route failure is recorded while screen advances',function()
  local state=run_case({},function()
-  local begin,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=begin(input); if input.trial then n=n+1; if n==3 then s.force_error=true end end; return s end
-  local step=Route.step; Route.step=function(s,b) if s.force_error then s.done,s.ok,s.errors=true,false,{{code='BP_R_TEST_SCREEN'}}; return s end; return step(s,b) end
+  local begin,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=begin(input); if n==3 then s.done,s.ok,s.errors=true,false,{{code='BP_R_TEST_SCREEN'}} end; return s end
  end)
  local found=false; for _,row in ipairs(state.result.search.trial.rows) do if row.code=='BP_R_TEST_SCREEN' and row.result=='fail' then found=true end end
- H.equal(found,true); print('TS4')
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(found,true); H.equal(screened>0,true); print('TS4')
 end)
 H.test('TS5 cap during screen cuts and delivers incumbent',function()
  local state=run_case({},function()
-  local rb,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=rb(input); if input.trial and n>=3 then s.done=false; s.endless=true end; return s end
+  local rb,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=rb(input); if n>=3 then s.done=false; s.endless=true end; return s end
   local rs=Route.step; Route.step=function(s,b) if s.endless then b.ops=0; return s end; return rs(s,b) end
  end)
  local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end

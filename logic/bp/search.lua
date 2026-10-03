@@ -1614,16 +1614,26 @@ end
 local function trial_next(state)
     local t = state.work.trial
     if t.current_result then
-        local pose = t.poses[t.index-1]
-        local entry = {block=pose.block_id, rule=pose.rule, pose=tostring(pose.dir).."/"..(pose.mirror and "1" or "0"),
-            result=t.current_result.result, code=t.current_result.code, material=t.current_result.material, area=t.current_result.area}
-        t.rows[#t.rows+1] = entry
-        if entry.result == "won" then t.won=t.won+1 end
-        if entry.result == "fail" or entry.result == "pin" then t.fails=t.fails+1 end
-        t.tried=t.tried+1
+        local pose = t.active_pose
+        local entry
+        if t.mode == "final" then
+            entry = {block=pose.block_id, rule=pose.rule, pose=tostring(pose.dir).."/"..(pose.mirror and "1" or "0"),
+                result=t.current_result.result, code=t.current_result.code, material=t.current_result.material, area=t.current_result.area}
+            t.rows[#t.rows+1]=entry
+            if entry.result == "won" then t.won=t.won+1 end
+            if entry.result == "fail" or entry.result == "pin" then t.fails=t.fails+1 end
+        else
+            entry = {block=pose.block_id, rule=pose.rule, pose=tostring(pose.dir).."/"..(pose.mirror and "1" or "0"),
+                result=t.current_result.result, code=t.current_result.code, material=t.current_result.material, area=t.current_result.area}
+            t.rows[#t.rows+1] = entry
+            if entry.result == "screened" then t.screened=t.screened+1; t.screened_poses[#t.screened_poses+1]={pose=pose,row=#t.rows} end
+            if entry.result == "won" then t.won=t.won+1 end
+            if entry.result == "fail" or entry.result == "pin" then t.fails=t.fails+1 end
+            t.tried=t.tried+1
+        end
         t.current_result=nil
     end
-    while t.index <= #t.poses and (t.poses[t.index].forbidden or t.poses[t.index].rebuild_fail) do
+    while t.mode == "screen" and t.index <= #t.poses and (t.poses[t.index].forbidden or t.poses[t.index].rebuild_fail) do
         local pose=t.poses[t.index]
         t.rows[#t.rows+1]={block=pose.block_id,rule=pose.rule,pose=tostring(pose.dir).."/"..(pose.mirror and "1" or "0"),
             result=pose.forbidden and "forbidden" or "fail",code=pose.rebuild_fail and "BP_FAIL_FLIP_REBUILD" or nil}
@@ -1633,7 +1643,36 @@ local function trial_next(state)
     end
     t.running=false
     local limit = t.ticks_before
-    if t.index > #t.poses or state.step_count-t.ticks_before >= limit then
+    if t.mode == "screen" and (t.index > #t.poses or state.step_count-t.ticks_before >= limit) then
+        if state.step_count-t.ticks_before < limit then
+            local best
+            for _, screened in ipairs(t.screened_poses) do
+                local material=t.rows[screened.row].material
+                if type(material)=="number" and (not best or material < best.material) then
+                    best={pose=screened.pose,row=screened.row,material=material}
+                end
+            end
+            if best and (type(state.incumbent.pre_tidy_material)~="number" or best.material <= state.incumbent.pre_tidy_material) then
+                t.mode="final"; t.finalist=tostring(best.pose.block_id).." "..tostring(best.pose.dir).."/"..(best.pose.mirror and "1" or "0")
+                t.index=nil; t.active_pose=best.pose
+                local pose=best.pose
+                local base=state.incumbent.source_candidate
+                local candidate=copy(base)
+                if pose.block then for i,b in ipairs(candidate.blocks or {}) do if (b.id or b.block_id)==pose.block_id then candidate.blocks[i]=copy(pose.block); break end end end
+                state.work.candidate=candidate
+                local pins={}; for _,p in ipairs(state.incumbent.candidate.placements or {}) do if p.block_id~=pose.block_id then pins[p.block_id]={x=p.x,y=p.y,dir=p.dir} end end
+                local input_edge=(state.work.input.settings or {}).input_edge or state.work.input.input_edge or "left"
+                local obstacles=bare_rects(state.work.robo_obstacles); append_all(obstacles,bare_rects(state.work.input.obstacles)); append_all(obstacles,bare_rects(state.work.input.occupied)); append_all(obstacles,perimeter_roboport_clearance(state,state.work.grid))
+                state.work.pack=Pack.begin({area=pack_area(state,input_edge),obstacles=obstacles,zone_blockers=bare_rects(state.work.robo_obstacles),
+                    links=candidate_links(state,candidate),blocks=greedy_block_order(state,candidate),limits=state.work.input.limits or {},layered=true,
+                    mode="sugiyama",drawing=state.work.draw.result,pins=pins,trial={block_id=pose.block_id,dir=pose.dir}})
+                t.running=true; trial_set_phase(state,"pack"); return true
+            end
+        end
+        t.ticks = state.step_count-t.ticks_before
+        t.running=false; state.result=state.result or {}; state.work.serialize_next=true; state.phase="validate"
+        return false
+    elseif t.mode == "final" then
         t.ticks = state.step_count-t.ticks_before
         t.running=false
         state.result = state.result or {}
@@ -1643,6 +1682,7 @@ local function trial_next(state)
     end
     local pose=t.poses[t.index]
     t.index=t.index+1
+    t.active_pose=pose
     local base=state.incumbent.source_candidate
     local candidate=copy(base)
     if pose.block then
@@ -1706,8 +1746,8 @@ local function begin_turn_trials(state)
         end
     end
     state.work.trial_done=true
-    state.work.trial={ticks_before=state.step_count,ticks=0,tried=0,won=0,fails=0,rows={},poses=poses,index=1,
-        material=old,running=false}
+    state.work.trial={ticks_before=state.step_count,ticks=0,tried=0,won=0,fails=0,screened=0,screened_poses={},rows={},poses=poses,index=1,
+        material=old,running=false,mode="screen"}
     state.work.trial_route_options={collectors=state.work.current_collectors,
         lane_cap=state.work.lane_cap==true,strict_ends=state.work.strict_ends==true}
     return trial_next(state)
@@ -2262,6 +2302,13 @@ function Search.step(container, budget)
                             plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
                         trial_set_phase(state, "validate")
                     else
+                    local pre_tidy_entities=list_copy(state.work.hand_entities)
+                    append_all(pre_tidy_entities,state.work.power.result and state.work.power.result.entities)
+                    state.work.pre_tidy_material=MaterialCost.blueprint(state.work.input.catalog,pre_tidy_entities)
+                    if state.work.trial and state.work.trial.running and state.work.trial.mode=="screen" then
+                        state.work.trial.current_result={result="screened",material=state.work.pre_tidy_material}
+                        if not trial_next(state) then state.work.serialize_next=true end
+                    else
                     local poles = {}
                     for _, e in ipairs(state.work.power.result and state.work.power.result.entities or {}) do
                         if e.kind == "pole" or e.type == "pole" then poles[#poles + 1] = {x=e.x,y=e.y,w=e.w or 1,h=e.h or 1} end
@@ -2288,6 +2335,7 @@ function Search.step(container, budget)
                     for _, block in ipairs(state.work.materialized.blocks or {}) do for _, port in ipairs(block.ports or {}) do filter_port(port) end end
                     state.work.route_state = Route.tidy_begin(state.work.route, {obstacles = poles})
                     trial_set_phase(state, "tidy")
+                    end
                     end
                 end
             end
@@ -2393,14 +2441,16 @@ function Search.step(container, budget)
                         t.current_result = {result=win and "won" or "lost", material=material, area=area}
                         if win then
                             state.incumbent = {score=copy(score), candidate=copy(state.work.validate_candidate),
-                                source_candidate=copy(state.work.candidate), validation=copy(state.work.validate.result)}
+                                source_candidate=copy(state.work.candidate), validation=copy(state.work.validate.result),
+                                pre_tidy_material=state.work.pre_tidy_material}
                             t.material = material
                         end
                         state.work.trial_finish = t.current_result
                     else
                     local record = record_valid_attempt(state, score)
                     local incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
-                        source_candidate = copy(state.work.candidate), validation = copy(state.work.validate.result)}
+                        source_candidate = copy(state.work.candidate), validation = copy(state.work.validate.result),
+                        pre_tidy_material=state.work.pre_tidy_material}
                     local routed = state.work.route and state.work.route.work
                     local first = state.work.collector_first
                     if state.work.collector_trial == "running" and first then
@@ -2453,7 +2503,8 @@ function Search.step(container, budget)
                     if state.work.trial then
                         state.work.trial.ticks=state.work.trial.ticks or (state.step_count-state.work.trial.ticks_before)
                         state.result.search.trial={ticks_before=state.work.trial.ticks_before,ticks=state.work.trial.ticks,
-                            tried=state.work.trial.tried,won=state.work.trial.won,fails=state.work.trial.fails,rows=copy(state.work.trial.rows)}
+                            tried=state.work.trial.tried,won=state.work.trial.won,fails=state.work.trial.fails,
+                            screened=state.work.trial.screened,finalist=state.work.trial.finalist,rows=copy(state.work.trial.rows)}
                     end
                     state.result.search.fell_back = state.work.fell_back == true
                     state.result.chosen_score = copy(diagnostics.chosen_score)
