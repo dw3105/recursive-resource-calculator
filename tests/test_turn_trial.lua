@@ -157,4 +157,17 @@ H.test('TT14 rule pose is the incumbent pack dir',function()
  H.equal(#rows>0,true); H.equal(rows[1].rule,'0/0'); H.equal(rows[1].pose~=rows[1].rule,true); print('TT14')
 end)
 
+--TT15 (integrator, 2026-10-03): red on 2b3fd83. red-1s drawn: ticks_before=186, one try ran to 466 because the
+--stop rule ran only between tries. A try still running when the cap is reached is cut; the incumbent is delivered.
+H.test('TT15 a try running past the cap is cut at the cap',function()
+ local state=run_case({},function()
+  local rb,n=Route.begin,0
+  Route.begin=function(input) n=n+1; local s=rb(input); if n>=2 then s.done=false; s.endless=true end; return s end
+  local rs=Route.step; Route.step=function(s,b) if s.endless then b.ops=0; return s end; return rs(s,b) end
+ end)
+ local t=state.result.search.trial
+ H.equal(state.ok,true); H.equal(t.ticks<=t.ticks_before+1,true,'ticks '..tostring(t.ticks)..' cap '..tostring(t.ticks_before))
+ H.equal(t.rows[#t.rows].result,'cut'); print('TT15')
+end)
+
 H.done('test_turn_trial')

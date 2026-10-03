@@ -2048,6 +2048,13 @@ function Search.step(container, budget)
 
     while not state.done and budget.ops > 0 do
         if state.phase ~= "serialize" and budget_limit_reached(state) then finish_search_budget(state); break end
+        --ADR 0002: Turn trials may spend at most the ticks the search took before them. A try still running at the
+        --cap is cut (red-1s drawn: one try ran 466 ticks against a cap of 186); the incumbent is delivered.
+        local cap_trial = state.work.trial
+        if cap_trial and cap_trial.running and not state.work.trial_finish
+            and state.step_count - cap_trial.ticks_before >= cap_trial.ticks_before then
+            state.work.trial_finish = {result = "cut"}
+        end
         if state.work.trial_finish then
             state.work.trial.current_result=state.work.trial_finish; state.work.trial_finish=nil
             if trial_next(state) then else state.work.serialize_next=true end
