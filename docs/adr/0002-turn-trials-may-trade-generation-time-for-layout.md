@@ -19,3 +19,12 @@ Material cost, then smaller Footprint inside a Material tie.
 
 - Speed comparisons against an older drawn run are judged only on sheets whose bytes stayed the same.
 - An unbounded trial count is never allowed: EM x4 already showed a long in-game pack loop reads as a freeze.
+
+## Status (round 55 close, player 2026-10-03)
+
+Shipped OFF by default (`RRC_TURN_TRIALS=1` or `settings.turn_trials = true` switches it on). Measured at game rate
+(2000 ops per tick, legalcopilot-dev): every try costs about one full pack+route+power, tidy most of all; the 100%
+cap held at most 2-3 screens and no final. With the cap raised in memory: red-1s no cheaper Turn than the rule's
+pick; red-1s-foundry one screen cheaper, final lost; green-1s one win (Material tie, area 1836 -> 1785) as the 17th
+screen, past 5x the search time. A no-win sheet still paid the time, against the Speed tie this ADR keeps for
+unchanged bytes. Round 56 decides from a 14-sheet study with the pass on.

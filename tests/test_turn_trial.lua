@@ -9,7 +9,8 @@ local Route=require 'logic.bp.route'
 local Validate=require 'logic.bp.validate'
 
 local function run_case(opts,configure,mode)
- local old_mode,old_cost,old_flow=Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow
+ local old_mode,old_cost,old_flow,old_on=Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow,Search.turn_trials
+ Search.turn_trials=not (opts and opts.trials_off)
  Pack.mode=mode or 'sugiyama'; MaterialCost.blueprint=function(_,entities) return entities[1] and (entities[1].x==0 and 100 or 80) or 100,0 end
  MaterialCost.by_flow=function() return {f=1} end
  local state,log=D.run(opts or {},function(log)
@@ -24,7 +25,7 @@ local function run_case(opts,configure,mode)
   H.equal(s.done,true,'stuck phase '..tostring(s.phase))
   return s
  end)
- Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow=old_mode,old_cost,old_flow
+ Pack.mode,MaterialCost.blueprint,MaterialCost.by_flow,Search.turn_trials=old_mode,old_cost,old_flow,old_on
  return state,log
 end
 
@@ -39,7 +40,8 @@ H.test('TT2 invalid trial preserves incumbent',function()
   local step,n=Validate.step,0
   Validate.step=function(s,b) n=n+1; if n==2 then s.done,s.ok,s.errors=true,false,{{code='BP_V_TEST_TRIAL'}}; return s end; return step(s,b) end
  end)
- H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0); H.equal(state.result.search.trial.rows[1].result,'fail'); H.equal(state.result.search.trial.rows[1].code,'BP_V_TEST_TRIAL'); print('TT2')
+ H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0); local failrow; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='fail' then failrow=row end end
+ H.equal(failrow~=nil,true,'a fail row'); H.equal(failrow.code,'BP_V_TEST_TRIAL'); print('TT2')
 end)
 
 H.test('TT3 lane overload does not restart grid during trial',function()
@@ -48,7 +50,9 @@ H.test('TT3 lane overload does not restart grid during trial',function()
   local step,n=Validate.step,0
   Validate.step=function(s,b) n=n+1; if n==2 then s.done,s.ok,s.errors=true,false,{{code='BP_V_LANE_OVERLOAD'}}; return s end; return step(s,b) end
  end)
- H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0); H.equal(#log.route,4); print('TT3')
+ H.equal(state.ok,true); H.equal(state.incumbent.candidate.placements[1].dir,0)
+ --one route for the incumbent, one per screen, one per final; a restarted grid would add more
+ local t=state.result.search.trial; H.equal(#log.route,1+t.tried+t.finals); print('TT3')
 end)
 
 H.test('TT4 collector route does not nest collector trial',function()
@@ -56,7 +60,9 @@ H.test('TT4 collector route does not nest collector trial',function()
   local begin,n=Route.begin,0
   Route.begin=function(input) n=n+1; local s=begin(input); s.work={collectors_used=n==1}; return s end
  end)
- H.equal(state.ok,true); H.equal(#log.route,5); print('TT4')
+ local t=state.result.search.trial
+ --incumbent route + its collector retry, then one route per screen and per final; a nested collector trial adds more
+ H.equal(state.ok,true); H.equal(#log.route,2+t.tried+t.finals); print('TT4')
 end)
 
 H.test('TT5 budget at trial publishes incumbent',function()
@@ -87,13 +93,16 @@ H.test('TT7 fluid machine can flip and non-fluid block has three poses',function
   Search.step=oldstep; Groups.reorient=oldreorient; return state,tried
  end
  local plain,nplain=collect(false); local fluid,nfluid=collect(true)
- H.equal(plain.ok,true); H.equal(nplain,3); H.equal(fluid.ok,true); H.equal(nfluid,7); print('TT7')
+ local pt,ft=plain.result.search.trial,fluid.result.search.trial
+ H.equal(plain.ok,true); H.equal(pt.tried,3); H.equal(nplain,pt.tried+pt.finals)
+ H.equal(fluid.ok,true); H.equal(ft.tried,7); H.equal(nfluid,ft.tried+ft.finals); print('TT7')
 end)
 
 H.test('TT8 bounded trial records ticks',function()
  local state=run_case()
  local t=state.result.search.trial
- H.equal(t.ticks<=t.ticks_before,true); H.equal(type(t.ticks),'number'); print('TT8')
+ --cap counted in ops (2026-10-03): one step of 1000 ops may overshoot by at most that step
+ H.equal(type(t.ops),'number'); H.equal(t.ops<=t.ops_before+1000,true,'ops '..tostring(t.ops)..' cap '..tostring(t.ops_before)); H.equal(type(t.ticks),'number'); print('TT8')
 end)
 
 H.test('TT9 material tie uses production area',function()
@@ -168,6 +177,57 @@ H.test('TT15 a try running past the cap is cut at the cap',function()
  local t=state.result.search.trial
  H.equal(state.ok,true); H.equal(t.ticks<=t.ticks_before+1,true,'ticks '..tostring(t.ticks)..' cap '..tostring(t.ticks_before))
  H.equal(t.rows[#t.rows].result,'cut'); print('TT15')
+end)
+
+--TS1-TS6 red on round-55-wave2-base: trials tidy every pose and do not screen by pre-tidy material. 2026-10-03.
+H.test('TS1 screen poses skip tidy and only finalist tidies',function()
+ local state,log=run_case()
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(screened,3); H.equal(#log.tidy,1+state.result.search.trial.finals); H.equal(state.result.search.trial.finals>=1,true); print('TS1')
+end)
+H.test('TS2 lowest screened pose is final',function()
+ local state=run_case({},function() MaterialCost.blueprint=function(_,entities) local d=entities[1] and entities[1].x or 0; return d==4 and 70 or d==8 and 90 or d==12 and 95 or 100,0 end end)
+ H.equal(state.result.search.trial.finalist,'b 4/0'); print('TS2')
+end)
+H.test('TS3 screen worse than incumbent skips final',function()
+ local state=run_case({},function() MaterialCost.blueprint=function(_,entities) local d=entities[1] and entities[1].x or 0; return d==0 and 10 or 20,0 end end)
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(screened,3); H.equal(state.result.search.trial.finalist,nil); H.equal(state.ok,true); print('TS3')
+end)
+H.test('TS4 route failure is recorded while screen advances',function()
+ local state=run_case({},function()
+  local begin,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=begin(input); if n==3 then s.done,s.ok,s.errors=true,false,{{code='BP_R_TEST_SCREEN'}} end; return s end
+ end)
+ local found=false; for _,row in ipairs(state.result.search.trial.rows) do if row.code=='BP_R_TEST_SCREEN' and row.result=='fail' then found=true end end
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(found,true); H.equal(screened>0,true); print('TS4')
+end)
+H.test('TS5 cap during screen cuts and delivers incumbent',function()
+ local state=run_case({},function()
+  --every screen dearer than the incumbent: no final, so the endless third route is a screen
+  MaterialCost.blueprint=function(_,entities) return entities[1] and (entities[1].x==0 and 100 or 120) or 100,0 end
+  local rb,n=Route.begin,0; Route.begin=function(input) n=n+1; local s=rb(input); if n>=3 then s.done=false; s.endless=true end; return s end
+  local rs=Route.step; Route.step=function(s,b) if s.endless then b.ops=0; return s end; return rs(s,b) end
+ end)
+ local screened=0; for _,row in ipairs(state.result.search.trial.rows) do if row.result=='screened' then screened=screened+1 end end
+ H.equal(state.ok,true); H.equal(screened>0,true); H.equal(state.result.search.trial.finalist,nil); H.equal(state.result.search.trial.rows[#state.result.search.trial.rows].result,'cut'); print('TS5')
+end)
+H.test('TS6 accepted incumbent retains pre-tidy material',function()
+ local state=run_case(); H.equal(type(state.incumbent.pre_tidy_material),'number'); print('TS6')
+end)
+--TS7 (integrator, 2026-10-03): red on lane 307 head cc6febd, which screened every pose before any final, so the
+--cap ran out before the final (red-1s, foundry at 2000 ops/tick). First screen at or under the bar runs in full now.
+H.test('TS7 first qualifying screen goes to its final before the next screen',function()
+ local state=run_case()
+ local rows=state.result.search.trial.rows
+ H.equal(rows[1].result,'screened'); H.equal(rows[2].pose,rows[1].pose); H.equal(rows[2].result~='screened',true); print('TS7')
+end)
+
+--TT16 (integrator, 2026-10-03, player Q11 a): Turn trials ship off. Measured at game rate: no win on red-1s and
+--foundry, one -2.8% area win on green-1s past 5x time. Red on 3b7b901, where the pass always ran.
+H.test('TT16 Turn trials are off unless switched on',function()
+ local state=run_case({trials_off=true})
+ H.equal(state.ok,true); H.equal(state.result.search.trial,nil); H.equal(state.incumbent.candidate.placements[1].dir,0); print('TT16')
 end)
 
 H.done('test_turn_trial')
