@@ -1605,9 +1605,10 @@ local function finish_search_bound(state, code)
     else failure(state, code, {reason_details = rejection_details(state)}) end
 end
 
+--Only a running Turn trial shows the "trial" stage; a normal run keeps its own stage names.
 local function trial_set_phase(state, phase)
     set_phase(state, phase)
-    state.progress.stage = "trial"
+    if state.work.trial and state.work.trial.running then state.progress.stage = "trial" end
 end
 
 local function trial_next(state)
@@ -1661,8 +1662,8 @@ local function trial_next(state)
         zone_blockers=bare_rects(state.work.robo_obstacles), links=candidate_links(state,candidate),
         blocks=greedy_block_order(state,candidate),limits=state.work.input.limits or {},layered=true,mode="sugiyama",
         drawing=state.work.draw.result,pins=pins,trial={block_id=pose.block_id,dir=pose.dir}})
-    trial_set_phase(state,"pack")
     t.running=true
+    trial_set_phase(state,"pack")
     return true
 end
 
@@ -1688,7 +1689,8 @@ local function begin_turn_trials(state)
         local machine=(item.b.machines or {})[1] or {}
         local orient_dir=machine.dir or item.b.orient_dir or item.b.turn or item.b.dir or d
         local mirror=machine.mirror==true or item.b.mirror==true
-        local rule=tostring(orient_dir).."/"..(mirror and "1" or "0")
+        --Rule and pose both name pack dir / mirror, so a row shows whether the try moved off the rule's pick.
+        local rule=tostring(d).."/"..(mirror and "1" or "0")
         for _,dir in ipairs({0,4,8,12}) do if dir~=d then poses[#poses+1]={block_id=item.id,dir=dir,mirror=mirror,rule=rule} end end
         local fluid=false; for _,port in ipairs(item.b.ports or {}) do if port.kind=="fluid" or port.is_fluid then fluid=true end end
         local can=fluid

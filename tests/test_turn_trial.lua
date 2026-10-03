@@ -19,7 +19,7 @@ local function run_case(opts,configure,mode)
   Groups.materialize=function(block,placement) local value=mat(block,placement); value.entities[1].x=placement.dir or 0; return value end
   if configure then configure(log) end
   local s=Search.begin(D.input()); local ticks=0
-  while not s.done and ticks<3000 do ticks=ticks+1; Search.step(s,{ops=1000}) end
+  while not s.done and ticks<3000 do ticks=ticks+1; Search.step(s,{ops=1000}); if opts and opts.observe then opts.observe(s) end end
   Pack.begin,Pack.step,Groups.materialize=pb,ps,mat
   H.equal(s.done,true,'stuck phase '..tostring(s.phase))
   return s
@@ -132,6 +132,29 @@ H.test('TT12 trial pin failure advances',function()
   Pack.step=function(s,b) if s.pin and b.ops>0 then b.ops=b.ops-1; s.done,s.ok,s.errors=true,false,{{code='BP_P_TRIAL_PIN'}}; return s end; return step(s,b) end
  end)
  H.equal(state.ok,true); H.equal(state.result.search.trial.rows[1].result,'pin'); H.equal(state.result.search.trial.tried>1,true); print('TT12')
+end)
+
+--TT13 (integrator, 2026-10-03): red on lane 306 head 5e9045a, which set stage "trial" on every route/validate of a
+--normal run, so the bar jumped past validate before any trial existed.
+H.test('TT13 stage trial only while a trial runs',function()
+ local bad,seen_trial={},false
+ local state=run_case({observe=function(s)
+  local running=s.work and s.work.trial and s.work.trial.running
+  if s.progress and s.progress.stage=='trial' then if running then seen_trial=true else bad[#bad+1]=tostring(s.phase) end end
+ end})
+ H.equal(state.ok,true); H.deep_equal(bad,{},'stage trial outside a trial'); H.equal(seen_trial,true,'stage trial during a trial'); print('TT13')
+end)
+
+--TT14 (integrator, 2026-10-03): rule and pose name the same thing (pack dir / mirror); red on 5e9045a, whose rule
+--read the machine dir.
+H.test('TT14 rule pose is the incumbent pack dir',function()
+ local state=run_case({observe=function(s)
+  if s.work and not s.work.trial and s.work.candidate then
+   for _,b in ipairs(s.work.candidate.blocks or {}) do b.turn=8; b.machines=b.machines or {{}}; for _,m in ipairs(b.machines) do m.dir=8 end end
+  end
+ end})
+ local rows=state.result.search.trial.rows
+ H.equal(#rows>0,true); H.equal(rows[1].rule,'0/0'); H.equal(rows[1].pose~=rows[1].rule,true); print('TT14')
 end)
 
 H.done('test_turn_trial')
