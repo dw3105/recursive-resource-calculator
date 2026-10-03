@@ -10,7 +10,7 @@ case "$FV" in 2.0|2.1) ;; *) echo "FV must be 2.0 or 2.1" >&2; exit 2 ;; esac
 test -f "$ZIP" || { echo "game_load_check: no zip $ZIP" >&2; exit 2; }
 FACTORIO=${FACTORIO_ROOT:-$HOME/factorio-$FV/factorio}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
-OUT=$ROOT/build/load-$FV
+OUT=${RRC_BUILD_ROOT:-$ROOT/build}/load-$FV
 rm -rf "${OUT:?}"
 mkdir -p "$OUT/mods" "$OUT/write"
 # Factorio loads a zip only under <name>_<version>.zip; delivered test zips carry a -test suffix.

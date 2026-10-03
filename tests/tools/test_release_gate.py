@@ -575,7 +575,8 @@ class HandoverReceiptTests(unittest.TestCase):
         patch=ft/'node_modules/factorio-test-cli/factorio-process.js'; patch.parent.mkdir(parents=True); patch.write_text('}, 120_000);')
         ftz=self.root/'ftzips'; ftz.mkdir(); (ftz/'factorio-test_3.0.1.zip').write_bytes(b'a'); (ftz/'factorio-test_3.1.0.zip').write_bytes(b'b')
         lua=self.root/'lua'; lua.write_text('#!/usr/bin/env python3\nimport os,sys,time\ntime.sleep(float(os.getenv("FAKE_LUA_SLEEP","0"))); p=sys.argv[sys.argv.index("--output")+1]; open(p,"w").write("{\\\"ok\\\": "+os.getenv("FAKE_LUA_OK","true")+"}")\n'); lua.chmod(0o755)
-        self.env={'FACTORIO_ROOT':str(factorio),'RRC_FT_DIR':str(ft),'FT_ZIP_DIR':str(ftz),'RRC_LUA':str(lua),'FAKE_GAME_LOG':str(self.root/'game.log')}
+        self.env={'FACTORIO_ROOT':str(factorio),'RRC_FT_DIR':str(ft),'FT_ZIP_DIR':str(ftz),'RRC_LUA':str(lua),'FAKE_GAME_LOG':str(self.root/'game.log'),
+                  'RRC_BUILD_ROOT':str(self.root/'build')}
         for key in ('FACTORIO_ROOT','RRC_FT_DIR','FT_ZIP_DIR','RRC_LUA'): self.assertTrue(Path(self.env[key]).is_relative_to(self.root))
     def call(self,args,extra=None,keep_lane=False):
         import os
@@ -592,6 +593,13 @@ class HandoverReceiptTests(unittest.TestCase):
         rc,p,out,_=self.make_receipt(); d=json.loads(p.read_text()); self.assertEqual(rc,0); self.assertEqual(set(d),{'schema','candidate_sha','written_utc','tested_in_game','not_tested_reason','zips','load','gui','calc_budget'}); self.assertEqual(d['tested_in_game'],'yes'); self.assertTrue(all(d[k][f]['result']=='ok' for k in ('load','gui') for f in ('2.0','2.1'))); self.assertEqual(d['calc_budget']['result'],'ok'); self.assertEqual(out,[f"receipt {p}: tested-in-game=yes load-2.0=ok load-2.1=ok gui-2.0=ok gui-2.1=ok calc=ok"])
         import hashlib
         for fv in ('2.0','2.1'): self.assertEqual(d['zips'][fv]['sha256'],hashlib.sha256(Path(d['zips'][fv]['path']).read_bytes()).hexdigest())
+    def test_fake_game_writes_only_its_own_build(self):
+        #Round 55 (2026-10-03): this fixture's 1-byte factorio-test zips landed in the repo's build/<ver>/mods and
+        #ftdata/mods; game_test.sh copies the runner zip only when absent, so every later real headless run in a fresh
+        #worktree loaded no test runner and spun 1e9 benchmark ticks (suite shard 1 "no test run started").
+        rc,_,_,_=self.make_receipt(); self.assertEqual(rc,0)
+        self.assertEqual((self.root/'build'/'2.0'/'mods'/'factorio-test_3.0.1.zip').read_bytes(),b'a')
+
     def test_receipt_load_fail_recorded_and_handover_refuses(self):
         rc,p,_,_=self.make_receipt({'FAKE_FACTORIO_FAIL':'1'}); self.assertEqual(rc,1); d=json.loads(p.read_text()); self.assertEqual([d['load'][f]['result'] for f in ('2.0','2.1')],['FAIL','FAIL']); self.assertEqual(self.call(['handover','--receipt',str(p),'--archive-dir',str(self.archives)])[2],['handover refused: load-2.0 FAIL'])
     def test_receipt_gui_fail_recorded_and_handover_refuses(self):

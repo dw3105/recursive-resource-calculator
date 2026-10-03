@@ -27,10 +27,13 @@ MAIN=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 FT=${RRC_FT_DIR:-$MAIN/tools/ft}
 CLI=$FT/node_modules/.bin/factorio-test
 PROFILE=${RRC_PROFILE:-vanilla}
+#RRC_BUILD_ROOT keeps a fixture's fake game out of the repo build (round 55: a 1-byte factorio-test zip left there by
+#tests/tools/test_release_gate.py made every later real run in a fresh worktree load no test runner).
+BUILD_ROOT=${RRC_BUILD_ROOT:-$ROOT/build}
 case "$PROFILE" in
-  vanilla) BUILD=$ROOT/build/$FV ;;
+  vanilla) BUILD=$BUILD_ROOT/$FV ;;
   player) [ "$FV" = 2.0 ] || { echo "game_test: player profile is 2.0 only (mods captured on 2.0.77)" >&2; exit 2; }
-          BUILD=$ROOT/build/$FV-player ;;
+          BUILD=$BUILD_ROOT/$FV-player ;;
   *) echo "game_test: RRC_PROFILE must be vanilla or player" >&2; exit 2 ;;
 esac
 SHARD=
@@ -40,8 +43,9 @@ game() {  # game <pattern|""> -> runs FactorioTest, writes build/<FV>/results.js
   pattern=$1
   data="$BUILD/ftdata"
   mkdir -p "$data/mods" "$BUILD/mods"
-  test -f "$BUILD/mods/factorio-test_$FT_VER.zip" || cp "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$BUILD/mods/"
-  test -f "$data/mods/factorio-test_$FT_VER.zip" || cp "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$data/mods/"
+  #Copy the runner whenever it differs from the source, not only when absent: a stale or fake zip loads no runner.
+  cmp -s "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$BUILD/mods/factorio-test_$FT_VER.zip" || cp "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$BUILD/mods/"
+  cmp -s "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$data/mods/factorio-test_$FT_VER.zip" || cp "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$data/mods/"
   mod=$(STAGE_DIR="$BUILD" RRC_SHARD="$SHARD" "$ROOT/tools/game_stage.sh" "$FV")
   test -x "$CLI" || { echo "game_test: FactorioTest CLI missing: mkdir -p $FT; cp tools/ft/package*.json tools/ft/patch-cli.sh $FT; (cd $FT && npm ci)" >&2; exit 2; }
   FT_DIR="$FT" sh "$ROOT/tools/ft/patch-cli.sh" >/dev/null  # 10 s startup watchdog -> 120 s
