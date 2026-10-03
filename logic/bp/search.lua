@@ -1668,7 +1668,8 @@ end
 
 local function begin_turn_trials(state)
     local settings=state.work.input.settings or {}
-    if Pack.mode~="sugiyama" or state.work.drawn_off or settings.force_turn_flip or state.work.trial_done then return false end
+    if Pack.mode~="sugiyama" or state.work.drawn_off or settings.force_turn_flip or state.work.trial_done
+        or type(MaterialCost.blueprint)~="function" then return false end
     local old=MaterialCost.blueprint(state.work.input.catalog,state.incumbent.candidate.entities or {})
     if type(old)~="number" then return false end
     local flows=MaterialCost.by_flow(state.work.input.catalog,state.incumbent.candidate.entities or {}) or {}
