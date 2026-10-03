@@ -17,3 +17,5 @@ Standing instructions from operator. One row each, dated. Agents read this file 
 | 2026-10-02 | REPORT-REVIEW | Delivery report figures checked by fresh agent against logs before push box (RC-14). |
 | 2026-10-02 | KILL-OWN | Kill only own processes, found by `/proc/PID/cwd` == own worktree; never by command name (RC-15). |
 | 2026-10-02 | BOX-VM | Push box says how to run it on VM: `!` prefix in Claude Code prompt on legalcopilot-dev (RC-16). |
+| 2026-10-03 | TURN-TRIALS-OFF | Turn trials ship off by default (player Q11 a): on only with `RRC_TURN_TRIALS=1` (offline) or `settings.turn_trials = true`. A pass that spends generation time must not run by default unless it wins on most sheets (valid > fast > frugal). |
+| 2026-10-03 | SUITE-FLOW | Lanes run single tests only. Integrator: all lanes merged -> full suite -> fix each red test singly -> full suite again -> repeat until green -> main + zips + push box. Plans: caveman full, very simple opening on why it works first try, Definition of done right after, maximum lane parallelism without needless lanes. |
