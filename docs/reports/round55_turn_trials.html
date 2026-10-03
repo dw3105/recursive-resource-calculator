@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RRC Round 55 Turn Trials</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;700&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; verdict table breaks out wider and scrolls on its own. Steel ground, amber signal. */
+:root {
+  --bg: #f3f2ee; --panel: #e8e6df; --fg: #1f2226; --muted: #5d6166; --rule: #c9c5ba;
+  --accent: #b86a12; --good: #2f7d4f; --warn: #a3700c; --bad: #b3352b;
+  --display: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #17191c; --panel: #202328; --fg: #e6e4de; --muted: #9ba0a6; --rule: #353a41;
+  --accent: #e39a3b; --good: #5cb883; --warn: #d9a441; --bad: #e0685d; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #17191c; --panel: #202328; --fg: #e6e4de; --muted: #9ba0a6; --rule: #353a41;
+  --accent: #e39a3b; --good: #5cb883; --warn: #d9a441; --bad: #e0685d; color-scheme: dark }
+body { background: var(--bg); color: var(--fg); font: 16px/1.55 var(--body); padding-inline: 16px; padding-block: 32px 64px; }
+main { max-width: 68rem; margin: 0 auto; display: grid; gap: 2.5rem; }
+.prose { max-width: 42rem; }
+h1, h2 { font-family: var(--display); font-weight: 700; letter-spacing: .01em; text-wrap: balance; margin: 0; line-height: 1.05; }
+h1 { font-size: clamp(2.2rem, 6vw, 3.4rem); }
+h2 { font-size: 1.7rem; border-bottom: 2px solid var(--accent); padding-bottom: .3rem; display: inline-block; }
+section { display: grid; gap: 1rem; min-width: 0; }
+p { margin: 0; }
+.meta { font: 13px/1.5 var(--mono); color: var(--muted); display: flex; flex-wrap: wrap; gap: .4rem 1.4rem; }
+.eyebrow { font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--accent); }
+.verdict { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 1rem; }
+.axis { background: var(--panel); padding: 1rem 1.1rem; display: grid; gap: .35rem; border-left: 4px solid var(--rule); min-width: 0; }
+.axis.good { border-color: var(--good); } .axis.warn { border-color: var(--warn); } .axis.bad { border-color: var(--bad); }
+.axis b { font-family: var(--display); font-size: 1.35rem; font-weight: 700; }
+.axis span { color: var(--muted); font-size: 14px; }
+.tablewrap { overflow-x: auto; border: 1px solid var(--rule); }
+table { border-collapse: collapse; width: 100%; min-width: 56rem; font-size: 14px; }
+th, td { padding: .5rem .6rem; text-align: right; border-bottom: 1px solid var(--rule); white-space: nowrap; font-variant-numeric: tabular-nums; }
+th { font: 600 11px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); background: var(--panel); position: sticky; top: 0; }
+td:first-child, th:first-child { text-align: left; font-family: var(--mono); }
+td.note { text-align: left; white-space: normal; min-width: 14rem; color: var(--muted); }
+.grp th { text-align: center; color: var(--fg); }
+.chip { display: inline-block; font: 600 11px/1 var(--mono); padding: .3rem .45rem; border: 1px solid currentColor; }
+.chip.good { color: var(--good); } .chip.warn { color: var(--warn); } .chip.bad { color: var(--bad); } .chip.flat { color: var(--muted); }
+.up { color: var(--bad); } .down { color: var(--good); } .same { color: var(--muted); }
+.pipeline { display: flex; flex-wrap: wrap; gap: .5rem; align-items: stretch; }
+.step { flex: 1 1 11rem; background: var(--panel); padding: .8rem .9rem; display: grid; gap: .25rem; min-width: 0; }
+.step b { font-family: var(--display); font-size: 1.15rem; }
+.step small { color: var(--muted); font-size: 13px; }
+ul { margin: 0; padding-left: 1.2rem; display: grid; gap: .45rem; }
+code { font: 13px var(--mono); background: var(--panel); padding: .05rem .3rem; }
+.facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr)); gap: 1rem; }
+.fact { border-top: 2px solid var(--rule); padding-top: .6rem; display: grid; gap: .4rem; min-width: 0; }
+.fact h3 { margin: 0; font: 700 1.1rem/1.2 var(--display); }
+.decision { background: var(--panel); padding: 1.2rem; display: grid; gap: .6rem; border-left: 4px solid var(--accent); }
+a { color: var(--accent); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+</style>
+<main>
+<header style="display:grid;gap:.8rem">
+  <div class="eyebrow">RRC &middot; round 55 &middot; delivery report</div>
+  <h1>Turn trials built, measured, and shipped off: no blueprint changes</h1>
+  <p class="prose">Explain very simply: drawn pack turns each Block by a rule and never checks another Turn. Round 55 built a step that tries other Turns one Block at a time and keeps a try only if the blueprint gets cheaper. Measured at the game's tick rate, a try costs about as much as the whole search before it, the rule's Turn is already cheapest or tied on most sheets, and the few wins are 2&ndash;6% less area at about 6&times; the generation time. The player's order is valid, then fast, then frugal, so the step ships <b>off</b> (player Q11 a). Every player blueprint is byte-identical to round 54.</p>
+  <div class="meta"><span>host legalcopilot-dev</span><span>2026-10-03</span><span>base main 4720673</span><span>head int/r55 b14786e = tag round-55-delivered</span><span>Factorio 2.0.77 &middot; 2.1.20</span></div>
+</header>
+<section>
+  <h2>Verdict</h2>
+  <div class="verdict">
+    <div class="axis good"><div class="eyebrow">player sheets</div><b>42 of 42 rows same bytes</b><span>Gate at b14786e (12:56&ndash;13:18 UTC): layered 14 = <code>bytes_round52</code>; drawn 14 = <code>bytes_round54_drawn</code> at head and at main d0da1ca; every drawn sheet a Speed tie or better against main, run back to back.</span></div>
+    <div class="axis good"><div class="eyebrow">suite</div><b>Green twice at b14786e</b><span>Suites 4 and 5 exit 0: 317 Lua test files all exit 0 (312 print a case summary, 0 failed cases); Python 7 OK; headless 2.0.77 364/364 (plain + player mods), 2.1.20 182/182.</span></div>
+    <div class="axis good"><div class="eyebrow">zips</div><b>1.1.119 (2.0) &middot; 1.1.120 (2.1)</b><span>Built from tag round-55-delivered; both load in headless Factorio 2.0.77 / 2.1.20 with 0 errors (<code>build/load-2.0/load.log</code>, <code>build/load-2.1/load.log</code>; zip sha256 equal to <code>~/share</code>).</span></div>
+    <div class="axis warn"><div class="eyebrow">Turn trials</div><b>Shipped off</b><span>On only with <code>RRC_TURN_TRIALS=1</code> (offline) or <code>settings.turn_trials = true</code>. Round 56 decides from the study below.</span></div>
+  </div>
+</section>
+<section>
+  <h2>Player sheets (gate at b14786e)</h2>
+  <p class="prose" style="color:var(--muted);font-size:14px">Each sheet run in <code>ckpt.lua</code> chunks of 2000 ticks, every command capped by <code>timeout 115</code>. Speed: head / main drawn, step CPU for one-chunk sheets, wall time for multi-chunk sheets (a saved chunk prints no CPU total). Speed tie = within max(1 s, 10%).</p>
+  <div class="tablewrap"><table>
+  <thead><tr><th>sheet</th><th>layered vs round 52</th><th>drawn vs round 54</th><th>drawn head / main</th><th>speed</th></tr></thead>
+  <tr><td>red-science-1s</td><td><span class="chip good">same 6fea7eb3</span></td><td><span class="chip good">same 1b281c73</span></td><td>1.3 / 1.2 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>red-science-1s-foundry</td><td><span class="chip good">same ec415235</span></td><td><span class="chip good">same 3d323f05</span></td><td>2.4 / 2.9 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>red-science-1s-bulk</td><td><span class="chip good">same 07759442</span></td><td><span class="chip good">same 8afa7506</span></td><td>1.7 / 2 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>red-science-10s</td><td><span class="chip good">same dd852622</span></td><td><span class="chip good">same b4d748b3</span></td><td>2.4 / 2.8 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>red-science-10s-bulk</td><td><span class="chip good">same 64490533</span></td><td><span class="chip good">same 1a003185</span></td><td>3.2 / 3.1 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>red-science-10s-stack1</td><td><span class="chip good">same f4fb7e83</span></td><td><span class="chip good">same 789b5acb</span></td><td>2.2 / 2 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>green-science-1s</td><td><span class="chip good">same 434cd5fa</span></td><td><span class="chip good">same 587611a6</span></td><td>4.2 / 4.2 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>inserter-10s</td><td><span class="chip good">same b1357e2f</span></td><td><span class="chip good">same cbe746eb</span></td><td>5.3 / 5.1 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>inserter-10s-bulk</td><td><span class="chip good">same 076b5d19</span></td><td><span class="chip good">same 6b3dec72</span></td><td>5.6 / 5.5 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>am2-chain-repaired</td><td><span class="chip good">same de14f498</span></td><td><span class="chip good">same cd8612ca</span></td><td>6.3 / 6.3 s CPU</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>red-green-science-10s</td><td><span class="chip good">same 5fa9b02e</span></td><td><span class="chip good">same 5965c55e</span></td><td>27 / 26 s wall</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>inserter-10s-stack1</td><td><span class="chip good">same 4991fcdd</span></td><td><span class="chip good">same 60835ead</span></td><td>31 / 32 s wall</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>blue-science-10s</td><td><span class="chip good">same 8b239bfa</span></td><td><span class="chip good">same 26c92ae6</span></td><td>57 / 56 s wall</td><td><span class="chip good">tie or better</span></td></tr>
+  <tr><td>magenta-science-10s</td><td><span class="chip good">same efa2cf30</span></td><td><span class="chip good">same 726dfe4b</span></td><td>116 / 240 s wall</td><td><span class="chip good">tie or better</span></td></tr>
+  </table></div>
+</section>
+<section>
+  <h2>Round 56 study: Turn trials switched on</h2>
+  <p class="prose" style="color:var(--muted);font-size:14px">Trials on, cap 6&times; the search ops before trials, 2000 ops per tick (game rate), drawn. Win = Material &gt;10% lower, or a Material tie with smaller area. Four big sheets (red-green, inserter-stack1, blue, magenta) not measured: 6&times; runs exceed the 120 s per-check cap.</p>
+  <div class="tablewrap"><table style="min-width:44rem">
+  <thead><tr><th>sheet</th><th>poses tried</th><th>won</th><th>area off &rarr; on</th><th>Material off &rarr; on</th><th>TRIAL FAIL</th><th>ops &times;</th></tr></thead>
+  <tr><td>red-1s</td><td>12</td><td>0</td><td>682</td><td>&ndash;</td><td>0</td><td>5.25</td></tr><tr><td>red-1s-foundry</td><td>12</td><td>0</td><td>884</td><td>&ndash;</td><td>1 <code>BP_V_ROUTE_MISSING</code></td><td>6 (cut)</td></tr><tr><td>red-1s-bulk</td><td>3</td><td>1 (automation 12&rarr;4)</td><td>672 &rarr; 630 (&minus;6.3%)</td><td>36358.9 &rarr; 37422.5 (+2.9%)</td><td>1 <code>BP_V_LANE_MIX</code></td><td>6 (cut)</td></tr><tr><td>red-10s</td><td>5</td><td>0</td><td>1404</td><td>&ndash;</td><td>0</td><td>6 (cut)</td></tr><tr><td>red-10s-bulk</td><td>8</td><td>0</td><td>1365</td><td>&ndash;</td><td>0</td><td>6 (cut)</td></tr><tr><td>red-10s-stack1</td><td>5</td><td>0</td><td>1482</td><td>&ndash;</td><td>0</td><td>6 (cut)</td></tr><tr><td>green-1s</td><td>19</td><td>1 (logistic 12&rarr;4)</td><td>1836 &rarr; 1785 (&minus;2.8%)</td><td>52473.9 &rarr; 52461.9 (0%)</td><td>0</td><td>6 (cut)</td></tr><tr><td>inserter-10s</td><td>13</td><td>0</td><td>1638</td><td>&ndash;</td><td>0</td><td>6 (cut)</td></tr><tr><td>inserter-10s-bulk</td><td>8</td><td>1 (inserter 4&rarr;0)</td><td>2024 &rarr; 1978 (&minus;2.3%)</td><td>79476.7 &rarr; 79338.1 (&minus;0.2%)</td><td>0</td><td>6 (cut)</td></tr><tr><td>am2-chain-repaired</td><td>7</td><td>0</td><td>1672</td><td>&ndash;</td><td>0</td><td>6 (cut)</td></tr>
+  </table></div>
+  <p class="prose">Three wins in ten sheets, all area only (&minus;2.3% to &minus;6.3%) inside a Material tie, each at the 6&times; cap. Two trials broke the router on a turned Block: <code>BP_V_LANE_MIX</code> (red-1s-bulk) and <code>BP_V_ROUTE_MISSING</code> (red-1s-foundry), round 56 list.</p>
+</section>
+<section>
+  <h2>What else this round fixed</h2>
+  <div class="tablewrap"><table style="min-width:44rem">
+  <thead><tr><th>found by</th><th>defect</th><th>fix</th></tr></thead>
+  <tr><td>suite headless</td><td class="note">In a fresh worktree every headless shard hung: Factorio loaded no test runner and ran 1e9 benchmark ticks. <code>tests/tools/test_release_gate.py</code> left a 1-byte stand-in <code>factorio-test</code> zip in the repo build; <code>game_test.sh</code> copied the real one only when absent.</td><td class="note">Runner zip copied whenever it differs; the fixture's fake game writes its own build root (<code>RRC_BUILD_ROOT</code>). b14786e.</td></tr>
+  <tr><td>wire check</td><td class="note">A running trial overran its time cap (466 against 186 ticks); the cap counted search steps, which mean different budgets at 100000 and 2000 ops per step.</td><td class="note">Cap counted in ops; a try still running at the cap is cut; the first screen at or under the incumbent runs in full.</td></tr>
+  <tr><td>review</td><td class="note">The trial stage showed on every normal run; rule pose compared machine dir to pack dir; price fixture read a version field no input has.</td><td class="note">Stage only during a trial; both poses by pack dir; fixture by <code>provenance.base_game_version</code>.</td></tr>
+  </table></div>
+</section>
+<section>
+  <h2>What ships, what does not</h2>
+  <p class="prose">Ships (no effect while trials are off): drawn pack pins Blocks and places one trial Block at a given Turn; whole-blueprint Material in Lua (<code>MaterialCost.blueprint</code>, <code>by_flow</code>); the trial step with screening, greedy final, ops cap and cut; TRIAL row tool (<code>tools/turn_trial_rows.lua</code>); progress stage "trial" in 3 languages. Not measured this round: Sheet sim of drawn sheets (bytes equal round 54, which passed the game lab 28/28) and the game census (no new pose ships).</p>
+</section>
+</main>
+</body>
+</html>
