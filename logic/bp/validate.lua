@@ -113,7 +113,7 @@ end
 
 local function map_by_id(list)
     local result = {}
-    for index, value in ipairs(list or {}) do result[id_of(value, tostring(index))] = value end
+    for index, value in ipairs(list or {}) do result[(id_of(value) or tostring(index))] = value end
     return result
 end
 
@@ -124,11 +124,11 @@ end
 local function port_index(ports)
     local result = {}
     for index, port in ipairs(ports or {}) do
-        local primary = port.port_id or id_of(port, tostring(index))
+        local primary = port.port_id or (id_of(port) or tostring(index))
         if primary ~= nil then result[primary] = result[primary] or {}; result[primary][#result[primary] + 1] = port end
     end
     for index, port in ipairs(ports or {}) do
-        local alias = id_of(port, tostring(index))
+        local alias = (id_of(port) or tostring(index))
         if alias ~= nil then
             local found = false
             for _, existing in ipairs(result[alias] or {}) do if existing == port then found = true; break end end
@@ -251,7 +251,7 @@ local function physical_info(entity, catalog, ordinal)
         box = Geometry.tile_box(finite(entity.w, spec.tile_w or 1), finite(entity.h, spec.tile_h or 1))
     end
     return {
-        entity = entity, id = id_of(entity, tostring(ordinal)), name = name_of(entity), spec = spec,
+        entity = entity, id = (id_of(entity) or tostring(ordinal)), name = name_of(entity), spec = spec,
         kind = kind_of(entity, spec), quality = entity.quality or spec.quality or "normal",
         cx = cx, cy = cy, box = box, mask = spec.collision_mask or entity.collision_mask,
     }
@@ -376,7 +376,7 @@ end
 
 local function add_unique_entity(result, seen, entity)
     if type(entity) ~= "table" then return end
-    local id = id_of(entity, tostring(#result + 1))
+    local id = (id_of(entity) or tostring(#result + 1))
     if seen[id] then return end
     seen[id] = true; result[#result + 1] = entity
 end
