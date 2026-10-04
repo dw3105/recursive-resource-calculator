@@ -12,6 +12,8 @@
 --
 --Yielding happens inside the scan over free regions, not between blocks: one block against many regions is
 --already enough work to hold a tick.
+--Ids are strings already almost everywhere: hand them back without a tostring call (Tick cost, ADR 0003).
+local function id_text(value) if type(value) == "string" then return value end return tostring(value) end
 local Pack = {}
 local Grid = require "logic.bp.grid"
 local Buffer = require "logic.bp.buffer"
@@ -54,7 +56,7 @@ end
 
 local function copy_port(port, index)
     return {
-        port_id = port.port_id or port.id or tostring(index),
+        port_id = port.port_id or port.id or id_text(index),
         role = port.role,
         inserter_id = port.inserter_id,
         --A row port is fixed at its belt run's head or end (docs/contracts/row_block.md), like a hand's port.
@@ -185,7 +187,7 @@ local function fail(state, code, block_id)
 end
 
 local function drawn_turn(state, block)
-    if state.trial and tostring(state.trial.block_id) == tostring(block.block_id) then return state.trial.dir end
+    if state.trial and id_text(state.trial.block_id) == id_text(block.block_id) then return state.trial.dir end
     return state.drawing and state.drawing.turn_of and state.drawing.turn_of[block.block_id]
 end
 
@@ -217,7 +219,10 @@ local function slot_key(dx, dy)
     return tostring(dx) .. ":" .. tostring(dy)
 end
 
-local function cell_key(x, y) return tostring(x) .. ":" .. tostring(y) end
+--Integer cell key (round 56): the free and port cell indexes are only looked up, never walked with pairs, so a
+--number key keeps placements byte-identical and drops 30-37 k tostring calls per 4000-op tick (red-1s).
+--Exact in a double for |x|, |y| < 2^20.
+local function cell_key(x, y) return (x + 1048576) * 2097152 + (y + 1048576) end
 
 local function rebuild_indexes(state)
     local free = {}
@@ -329,7 +334,7 @@ end
 local function port_tile(block, placement, endpoint)
     if endpoint.port_id ~= nil then
         for i, port in ipairs(block.ports or {}) do
-            if tostring(port.port_id) == tostring(endpoint.port_id) then
+            if id_text(port.port_id) == id_text(endpoint.port_id) then
                 local slot = placement.port_slots and placement.port_slots[i]
                 if slot then return world_slot(block, placement.x, placement.y, placement.dir, slot) end
                 break
@@ -341,8 +346,8 @@ end
 
 local function linked_cost(state, block, candidate)
     local cost = 0
-    for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
-        local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
+    for _, link in ipairs(state.links_by_block[id_text(block.block_id)] or {}) do
+        local mine = link.a.block_id ~= nil and id_text(link.a.block_id) == id_text(block.block_id) and link.a or link.b
         local other = mine == link.a and link.b or link.a
         local x, y = port_tile(block, candidate, mine)
         if other.edge then
@@ -351,9 +356,9 @@ local function linked_cost(state, block, candidate)
             elseif other.edge == "top" then cost = cost + (y - state.area.y)
             elseif other.edge == "bottom" then cost = cost + (state.area.y + state.area.h - 1 - y) end
         else
-            local partner = state.placement_by_id[tostring(other.block_id)]
+            local partner = state.placement_by_id[id_text(other.block_id)]
             if partner then
-                local pb = state.block_by_id[tostring(other.block_id)]
+                local pb = state.block_by_id[id_text(other.block_id)]
                 local px, py
                 if pb then px, py = port_tile(pb, partner, other)
                 else px, py = partner.x + math.floor(partner.w / 2), partner.y + math.floor(partner.h / 2) end
@@ -405,8 +410,8 @@ local function choose_port_slots(state, block, x, y, direction)
     end
     table.sort(entries, function(a, b)
         if #a.options ~= #b.options then return #a.options < #b.options end
-        local aid = tostring(a.port.port_id or a.index)
-        local bid = tostring(b.port.port_id or b.index)
+        local aid = id_text(a.port.port_id or a.index)
+        local bid = id_text(b.port.port_id or b.index)
         if aid ~= bid then return aid < bid end
         return a.index < b.index
     end)
@@ -442,7 +447,7 @@ end
 local link_bound
 local function scan_origin(state, block, region, direction, x, y)
             local w, h = Grid.rotate_size(block.w, block.h, direction)
-            local key = tostring(block.block_id) .. ":" .. direction .. ":" .. x .. ":" .. y
+            local key = id_text(block.block_id) .. ":" .. direction .. ":" .. x .. ":" .. y
             local score_short, score_long = Pack.bssf_score(region, w, h)
             local old = state.origin_seen[key]
             if old then
@@ -490,8 +495,8 @@ end
 -- Lower bound on every linked endpoint's distance to any port tile on the candidate rectangle.
 link_bound = function(state, block, x, y, w, h)
     local total = 0
-    for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
-        local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
+    for _, link in ipairs(state.links_by_block[id_text(block.block_id)] or {}) do
+        local mine = link.a.block_id ~= nil and id_text(link.a.block_id) == id_text(block.block_id) and link.a or link.b
         local other = mine == link.a and link.b or link.a
         local px, py
         if other.edge then
@@ -500,9 +505,9 @@ link_bound = function(state, block, x, y, w, h)
             elseif other.edge == "top" then total = total + math.max(0, y - 1 - state.area.y)
             elseif other.edge == "bottom" then total = total + math.max(0, state.area.y + state.area.h - 1 - (y + h)) end
         else
-            local partner = other.block_id and state.placement_by_id[tostring(other.block_id)]
+            local partner = other.block_id and state.placement_by_id[id_text(other.block_id)]
             if partner then
-                local pb = state.block_by_id[tostring(other.block_id)]
+                local pb = state.block_by_id[id_text(other.block_id)]
                 if pb then px, py = port_tile(pb, partner, other)
                 else px, py = partner.x + math.floor(partner.w / 2), partner.y + math.floor(partner.h / 2) end
             end
@@ -565,11 +570,11 @@ local EXTRA = tonumber(os and os.getenv and os.getenv("RRC_PACK_EXTRA") or "") o
 
 local function layered_order(state)
     local ids, pos = {}, {}
-    for i, b in ipairs(state.blocks) do ids[i] = tostring(b.block_id); pos[ids[i]] = i end
+    for i, b in ipairs(state.blocks) do ids[i] = id_text(b.block_id); pos[ids[i]] = i end
     local preds = {}
     for _, link in ipairs(state.links) do
         if link.a.block_id ~= nil and link.b.block_id ~= nil then
-            local from, to = tostring(link.a.block_id), tostring(link.b.block_id)
+            local from, to = id_text(link.a.block_id), id_text(link.b.block_id)
             preds[to] = preds[to] or {}; preds[to][from] = true
         end
     end
@@ -587,16 +592,16 @@ local function layered_order(state)
     local order = {}
     for i, b in ipairs(state.blocks) do order[i] = b end
     table.sort(order, function(a, b)
-        local la, lb = layer[tostring(a.block_id)], layer[tostring(b.block_id)]
+        local la, lb = layer[id_text(a.block_id)], layer[id_text(b.block_id)]
         if la ~= lb then return la < lb end
-        return pos[tostring(a.block_id)] < pos[tostring(b.block_id)]
+        return pos[id_text(a.block_id)] < pos[id_text(b.block_id)]
     end)
     state.blocks, state.layer_of, state.max_layer = order, layer, maxl
 end
 
 local function layered_target(state, block)
     if state.mode == "sugiyama" then
-        local id, drawing = tostring(block.block_id), state.drawing or {}
+        local id, drawing = id_text(block.block_id), state.drawing or {}
         local L, rank = drawing.layer_of and drawing.layer_of[block.block_id], drawing.rank_of and drawing.rank_of[block.block_id]
         L, rank = L or 1, rank or 1
         local edge = state.input_edge or "left"
@@ -637,29 +642,29 @@ local function layered_target(state, block)
         ay = math.max(state.area.y, math.min(ay, state.area.y + state.area.h - prefh))
         return ax, ay
     end
-    local L = state.layer_of[tostring(block.block_id)]
+    local L = state.layer_of[id_text(block.block_id)]
     local area = state.area
     local far, peer_right, n = nil, nil, 0
     local sum, future_sum, future_n = 0, 0, 0
     for _, pl in ipairs(state.placements) do
-        local pl_layer = state.layer_of[tostring(pl.block_id)]
+        local pl_layer = state.layer_of[id_text(pl.block_id)]
         if pl_layer < L then far = math.max(far or 0, pl.x + pl.w) end
         if pl_layer == L then peer_right = math.max(peer_right or 0, pl.x + pl.w) end
     end
-    for _, link in ipairs(state.links_by_block[tostring(block.block_id)] or {}) do
-        local mine = link.a.block_id ~= nil and tostring(link.a.block_id) == tostring(block.block_id) and link.a or link.b
+    for _, link in ipairs(state.links_by_block[id_text(block.block_id)] or {}) do
+        local mine = link.a.block_id ~= nil and id_text(link.a.block_id) == id_text(block.block_id) and link.a or link.b
         local other = mine == link.a and link.b or link.a
-        local partner = other.block_id and state.placement_by_id[tostring(other.block_id)]
+        local partner = other.block_id and state.placement_by_id[id_text(other.block_id)]
         if partner then
-            local pb = state.block_by_id[tostring(other.block_id)]
+            local pb = state.block_by_id[id_text(other.block_id)]
             local px, py = port_tile(pb, partner, other)
             sum = sum + py; n = n + 1
         elseif other.block_id ~= nil then
-            local pb = state.block_by_id[tostring(other.block_id)]
+            local pb = state.block_by_id[id_text(other.block_id)]
             if pb then
                 local py = math.floor(pb.h / 2)
                 for _, port in ipairs(pb.ports or {}) do
-                    if tostring(port.port_id) == tostring(other.port_id) then
+                    if id_text(port.port_id) == id_text(other.port_id) then
                         py = port.attach_dy or py
                         future_sum = future_sum + py
                         future_n = future_n + 1
@@ -851,7 +856,7 @@ end
 local function start_place(state, block)
     local candidate = state.cursor.best
     if candidate == nil then
-        local trial = state.trial and tostring(state.trial.block_id) == tostring(block.block_id)
+        local trial = state.trial and id_text(state.trial.block_id) == id_text(block.block_id)
         fail(state, trial and "BP_P_TRIAL_PIN" or "BP_P_NO_FIT", block.block_id)
         return
     end
@@ -863,7 +868,7 @@ local function start_place(state, block)
         port_slots = candidate.port_slots,
     }
     state.placements[#state.placements + 1] = placement
-    state.placement_by_id[tostring(block.block_id)] = placement
+    state.placement_by_id[id_text(block.block_id)] = placement
     local box = state.placed_bbox
     if box then
         local x, y = math.min(box.x, placement.x), math.min(box.y, placement.y)
@@ -886,7 +891,7 @@ local function start_place(state, block)
     --corridor; using the raw port count would reserve a ring wider than the grid can hold.
     local attached_flows = {}
     for _, port in ipairs(block.ports or {}) do
-        attached_flows[tostring(port.flow_id or port.full_name or port.port_id or "")] = true
+        attached_flows[id_text(port.flow_id or port.full_name or port.port_id or "")] = true
     end
     local margin = 0
     for _ in pairs(attached_flows) do margin = margin + 1 end
@@ -1025,13 +1030,13 @@ function Pack.begin(input)
     local regions = Grid.free_regions(area, obstacles)
     local limits = {max_free_regions = input.limits and input.limits.max_free_regions or nil}
     local links, links_by_block, block_by_id = {}, {}, {}
-    for _, b in ipairs(blocks) do block_by_id[tostring(b.block_id)] = b end
+    for _, b in ipairs(blocks) do block_by_id[id_text(b.block_id)] = b end
     for _, source in ipairs(input.links or {}) do
         local link = {a = source.a or {}, b = source.b or {}}
         links[#links + 1] = link
         for _, endpoint in ipairs({link.a, link.b}) do
             if endpoint.block_id ~= nil then
-                local key = tostring(endpoint.block_id)
+                local key = id_text(endpoint.block_id)
                 links_by_block[key] = links_by_block[key] or {}
                 links_by_block[key][#links_by_block[key] + 1] = link
             end
@@ -1063,24 +1068,24 @@ function Pack.begin(input)
         pins = {}, trial = input.mode == "sugiyama" and input.trial or nil,
     }
     if input.mode == "sugiyama" then
-        for id, pin in pairs(input.pins or {}) do state.pins[tostring(id)] = pin end
+        for id, pin in pairs(input.pins or {}) do state.pins[id_text(id)] = pin end
     end
     rebuild_indexes(state)
     if state.mode == "sugiyama" then
         local pos = {}; for i,b in ipairs(blocks) do
-            pos[tostring(b.block_id)] = i
-            if state.trial and tostring(state.trial.block_id) == tostring(b.block_id) then
+            pos[id_text(b.block_id)] = i
+            if state.trial and id_text(state.trial.block_id) == id_text(b.block_id) then
                 b.allowed_dirs = {state.trial.dir}
             else
                 b.allowed_dirs = input.forced_dir ~= nil and {input.forced_dir} or {0,4,8,12}
             end
         end
         table.sort(blocks, function(a,b)
-            local ap = state.pins[tostring(a.block_id)] ~= nil
-            local bp = state.pins[tostring(b.block_id)] ~= nil
+            local ap = state.pins[id_text(a.block_id)] ~= nil
+            local bp = state.pins[id_text(b.block_id)] ~= nil
             if ap ~= bp then return ap end
-            local at = state.trial and tostring(state.trial.block_id) == tostring(a.block_id)
-            local bt = state.trial and tostring(state.trial.block_id) == tostring(b.block_id)
+            local at = state.trial and id_text(state.trial.block_id) == id_text(a.block_id)
+            local bt = state.trial and id_text(state.trial.block_id) == id_text(b.block_id)
             if at ~= bt then return not at end
             local la,lb=(state.drawing.layer_of or {})[a.block_id],(state.drawing.layer_of or {})[b.block_id]
             la,lb=la or math.huge,lb or math.huge
@@ -1088,7 +1093,7 @@ function Pack.begin(input)
             local ra,rb=(state.drawing.rank_of or {})[a.block_id],(state.drawing.rank_of or {})[b.block_id]
             if ra and rb and ra~=rb then return ra<rb end
             if (ra~=nil)~=(rb~=nil) then return ra~=nil end
-            return pos[tostring(a.block_id)]<pos[tostring(b.block_id)]
+            return pos[id_text(a.block_id)]<pos[id_text(b.block_id)]
         end)
         state.layered=true
     elseif state.layered and state.has_links then layered_order(state) end
@@ -1117,7 +1122,7 @@ function Pack.step(state, budget)
             break
         end
 
-        local pin = state.pins[tostring(block.block_id)]
+        local pin = state.pins[id_text(block.block_id)]
         if pin ~= nil then
             local candidate = layered_legal(state, block, pin.x, pin.y, pin.dir, pin.x, pin.y)
             if candidate == nil then
