@@ -4035,7 +4035,9 @@ local function shortfall_allowed(work, demand, code)
 end
 
 local function fail_demand(state, work, demand, code, detail)
-    if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then return false end
+    --A restart rebuilds the route (up to 1.15 M instructions, magenta drawn tick 3060): the next search starts on a
+    --fresh tick (round 56 gate). Route.step stops its loop on yield_tick; ops are not spent.
+    if code ~= "BP_R_EXPANSIONS" and restart_with_priority(state, work, demand) then state.yield_tick = true; return false end
     --A row side feed is entered straight from behind (often an underground under the machines) in first routing;
     --the curve in from the side waits for the improve pass. When the straight way has no room -- red science
     --10/s (2026-09-25): the output-side beacon row sits where the gear underground had to start -- the demand gets
