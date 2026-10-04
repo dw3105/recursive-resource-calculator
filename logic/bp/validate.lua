@@ -588,6 +588,7 @@ end
 --the physical walk looked up 25 string keys per visited belt (round 56 gate, blue drawn physical 2.5 M per machine).
 --Any key that is not a plain integer pair (or is -0) keeps the string path for the whole table.
 local cells_num_memo = setmetatable({}, {__mode = "k"})
+local belts_around_memo = setmetatable({}, {__mode = "k"})
 local NO_CELLS = {}
 local function cells_index(work)
     local by_cell = work.transport_by_cell
@@ -2453,7 +2454,7 @@ local function fluid_connection_cells(machine, entry, role, work)
     return result
 end
 
-local function check_physical_transfers(work, machine_index, final)
+local function check_physical_transfers(work, machine_index, final, entry_only)
     local used = work._physical_used or {}; work._physical_used = used
     local multi_flow = multi_flow_hands_enabled(work)
     local endpoint_checked = work._physical_endpoint_checked or {}; work._physical_endpoint_checked = endpoint_checked
@@ -2614,14 +2615,29 @@ local function check_physical_transfers(work, machine_index, final)
             local index = cells_index(work)
             local fx, fy = math.floor(x), math.floor(y)
             if index and not ((fx == 0 and 1 / fx < 0) or (fy == 0 and 1 / fy < 0)) then
-                --Same tiles, same order as the loop below: floor(x + ox) = floor(x) + ox for whole ox.
-                for oy = -2, 2 do
-                    local row = fy + oy + 1048576
-                    for ox = -2, 2 do
-                        local cell_list = index[(fx + ox + 1048576) * 2097152 + row]
-                        if cell_list then for i = 1, #cell_list do candidates[#candidates + 1] = cell_list[i] end end
+                --Same tiles, same order as the loop below: floor(x + ox) = floor(x) + ox for whole ox. Only belts can
+                --pass the filter after the gather, and a tile's 5x5 belt list never changes during validate: built
+                --once per tile (stack1: every hand walks the same belts, round 56 gate).
+                local memo = belts_around_memo[work]
+                if not memo then memo = {}; belts_around_memo[work] = memo end
+                local tile = (fx + 1048576) * 2097152 + (fy + 1048576)
+                local around = memo[tile]
+                if not around then
+                    around = {}
+                    for oy = -2, 2 do
+                        local row = fy + oy + 1048576
+                        for ox = -2, 2 do
+                            local cell_list = index[(fx + ox + 1048576) * 2097152 + row]
+                            if cell_list then
+                                for i = 1, #cell_list do
+                                    if transport_kind(cell_list[i]) == "belt" then around[#around + 1] = cell_list[i] end
+                                end
+                            end
+                        end
                     end
+                    memo[tile] = around
                 end
+                for i = 1, #around do candidates[#candidates + 1] = around[i] end
             else
                 for oy = -2, 2 do
                     for ox = -2, 2 do
@@ -2751,7 +2767,12 @@ local function check_physical_transfers(work, machine_index, final)
     for _, machine in ipairs(machine and {machine} or {}) do
         local step = work.steps[machine.entity.step_id]
         if step then
+            --Round 56 gate: one entry per call when entry_only is set (inserter-10s-stack1: one machine 3.6 M
+            --instructions); inputs then outputs, the same order as one call.
+            local entry_k = 0
             for _, entry in ipairs(plan_entries(step, "inputs")) do
+                entry_k = entry_k + 1
+                if entry_only == nil or entry_k == entry_only then
                 local flow_id = entry_flow_id(entry)
                 if flow_is_fluid(flow_id, entry, work) then
                     local reached = false
@@ -2853,8 +2874,11 @@ local function check_physical_transfers(work, machine_index, final)
                             failure_detail, missing_port_machine)
                     end
                 end
+                end
             end
             for _, entry in ipairs(plan_entries(step, "outputs")) do
+                entry_k = entry_k + 1
+                if entry_only == nil or entry_k == entry_only then
                 local flow_id = entry_flow_id(entry)
                 if flow_is_fluid(flow_id, entry, work) then
                     local reached = false
@@ -2960,6 +2984,7 @@ local function check_physical_transfers(work, machine_index, final)
                         failed_transfer(machine, flow_id, code, first_illegal or candidate_id or "output transfer", nil,
                             failure_detail, missing_port_machine)
                     end
+                end
                 end
             end
         end
@@ -3485,10 +3510,21 @@ function Validate.step(state, budget)
         elseif phase == "ports" then check_ports(work); state.cursor.phase = "physical"
         elseif phase == "physical" then
             local index = state.cursor.physical_index or 1
-            if index == 1 then check_physical_transfers(work, index, false)
-            elseif index <= #work.machines then check_physical_transfers(work, index, false)
-            else check_physical_transfers(work, nil, true); state.cursor.phase = "machines" end
-            state.cursor.physical_index = index + 1
+            local machine = index <= #work.machines and work.machines[index] or nil
+            local step = machine and work.steps[machine.entity.step_id]
+            local total = step and (#plan_entries(step, "inputs") + #plan_entries(step, "outputs")) or 0
+            if machine and total > 1 then
+                --One plan entry per call on a machine with several (same order; round 56 gate stack1).
+                local k = (state.cursor.physical_entry or 0) + 1
+                check_physical_transfers(work, index, false, k)
+                if k >= total then state.cursor.physical_entry = nil; state.cursor.physical_index = index + 1
+                else state.cursor.physical_entry = k end
+            else
+                if index == 1 then check_physical_transfers(work, index, false)
+                elseif index <= #work.machines then check_physical_transfers(work, index, false)
+                else check_physical_transfers(work, nil, true); state.cursor.phase = "machines" end
+                state.cursor.physical_index = index + 1
+            end
             op_cost = 500
         elseif phase == "machines" then check_machines(work); state.cursor.phase = "finish"
         elseif phase == "finish" then finish(work, state)
