@@ -3149,7 +3149,8 @@ end
 
 --Underground segments of work.segments for one A* search, rebuilt when the segment list changes (same table and
 --length, same route attempt). A search runs while its route stands still; a new trial gets a new search.
-local function search_undergrounds(work, search)
+--A Route field, not a main-chunk local: route.lua sits at the 200-local limit (tools/route_prof.lua adds three).
+function Route._search_undergrounds(work, search)
     local segments = work.segments or {}
     local cache = search._undergrounds
     if not cache or cache.segments ~= segments or cache.count ~= #segments or cache.generation ~= work.attempt_generation then
@@ -3400,7 +3401,7 @@ local function search_step(work, search)
                 --sheet 248 -> 263 entities, measured 2026-09-23 on legalcopilot-dev.
                 local bury = work.allow_bury == true
                     and not (search.demand.bury_blocked and search.demand.bury_blocked[bury_key])
-                    and bury_candidate(work, nx, ny, direction, false, next_tile_key, search_undergrounds(work, search)) or nil
+                    and bury_candidate(work, nx, ny, direction, false, next_tile_key, Route._search_undergrounds(work, search)) or nil
                 if bury then
                     local inserted = enqueue_state(search, nx, ny, direction, 0, current.key,
                         current.cost + BURY_COST + (current.direction ~= direction and 1 or 0))
