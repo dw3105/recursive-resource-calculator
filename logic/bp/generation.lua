@@ -1198,31 +1198,7 @@ local function step(job, budget)
         local plan = search_work and search_work.plan_result
         local bind = state.box_binding
         if not (bind and bind.done) and plan and type(plan.steps) == "table" and rawget(_G, "game") then
-            bind = bind or {cursor = 1, seen = {}}
-            state.box_binding = bind
-            while budget.ops > 0 and not bind.done do
-                local current = plan.steps[bind.cursor]
-                if current then
-                    local machine = type(current.machine) == "table" and current.machine.name or current.machine
-                    local recipe = current.recipe_name or current.recipe
-                    if type(recipe) == "table" then recipe = recipe.name end
-                    local key = tostring(machine) .. "\0" .. tostring(recipe)
-                    if not bind.seen[key] then
-                        bind.seen[key] = true
-                        local provider = function()
-                            bind.surface = bind.surface or BoxBinding.scratch_surface(rawget(_G, "game"))
-                            return bind.surface
-                        end
-                        BoxBinding.fill(search_work.input.catalog, {current}, provider)
-                    end
-                    bind.cursor = bind.cursor + 1
-                    budget.ops = budget.ops - 1
-                else
-                    if bind.surface then pcall(function() game.delete_surface(bind.surface) end) end
-                    bind.surface, bind.done = nil, true
-                end
-            end
-            if not bind.done then return job end
+            if not Generation._bind_step(state, search_work, budget) or budget.ops <= 0 then return job end
         end
         Search.step(state.search, budget)
         job.phase = state.search.phase
@@ -1623,5 +1599,43 @@ end
 
 Registry.generation = Generation
 Generation.register()
+
+--Box binding probe, game path only (round 56 engine sample: surface create + 4 probes + plan + groups in one tick =
+--245 ms on red-1s at 4000 ops). Each engine call (scratch surface create, one machine probe, surface delete) ends
+--its tick: budget.ops = 0. A plan step already probed costs 1 op. Returns true once done, with the tick spent, so
+--the search starts on a fresh tick.
+function Generation._bind_step(state, search_work, budget)
+    local plan = search_work.plan_result
+    local bind = state.box_binding or {cursor = 1, seen = {}}
+    state.box_binding = bind
+    local g = rawget(_G, "game")
+    while budget.ops > 0 and not bind.done do
+        local current = plan.steps[bind.cursor]
+        if current then
+            local machine = type(current.machine) == "table" and current.machine.name or current.machine
+            local recipe = current.recipe_name or current.recipe
+            if type(recipe) == "table" then recipe = recipe.name end
+            local key = tostring(machine) .. "\0" .. tostring(recipe)
+            if bind.seen[key] then
+                bind.cursor = bind.cursor + 1
+                budget.ops = budget.ops - 1
+            elseif bind.surface == nil then
+                bind.surface = BoxBinding.scratch_surface(g) or false
+                budget.ops = 0
+            else
+                bind.seen[key] = true
+                local surface = bind.surface or nil
+                BoxBinding.fill(search_work.input.catalog, {current}, function() return surface end)
+                bind.cursor = bind.cursor + 1
+                budget.ops = 0
+            end
+        else
+            if bind.surface then pcall(function() g.delete_surface(bind.surface) end) end
+            bind.surface, bind.done = nil, true
+            budget.ops = 0
+        end
+    end
+    return bind.done == true
+end
 
 return Generation
