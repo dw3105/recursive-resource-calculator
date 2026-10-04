@@ -142,6 +142,8 @@ tests/fixtures/power_r10s_drawn_state.lua.gz	algo	player	power stage state, draw
 tests/fixtures/power_s1_drawn_state.lua.gz	algo	player	power stage state, drawn inserter-10s-stack1 round 52 (2 pole components; test_power_relay_chain)
 tests/fixtures/bytes_round52.txt	sheet	player	bytes baseline round 52 layered (default): 12 == round 51; red-10s + red-10s-stack1 changed by power relay chain (faster, within Entity tie)
 tests/fixtures/bytes_round54_drawn.txt	sheet	player	bytes baseline round 54 drawn pack (RRC_PACK=sugiyama), 14 sheets: gate13 at cc8739d == main d0da1ca == head 2e3b443 (A/B 2026-10-02); rrc-code RC-11
+tests/fixtures/bytes_round56.txt	sheet	player	bytes baseline round 56 layered at game rate (4000 ops/tick), 13 sheets == bound main df9ca6e (gate 2026-10-04); blue moved by engine box binding; magenta line kept from round 52 (tests skipped)
+tests/fixtures/bytes_round56_drawn.txt	sheet	player	bytes baseline round 56 drawn pack (RRC_PACK=sugiyama) at 4000 ops/tick, 13 sheets == bound main df9ca6e; inserter-10s-stack1 moved by binding; magenta line kept from round 54
 tests/fixtures/material_cost_2.0.txt	facts	vanilla	seed material costs from Draftsman data for 2.0, replaced by headless probe at merge
 tests/fixtures/material_cost_2.1.txt	facts	vanilla	seed material costs from Draftsman data for 2.1, replaced by headless probe at merge
 tests/fixtures/groups_em4_bound.json	algo	-	stage input captured from a Turn and Flip census case (round 54); its sheet is built and run by the census sims
