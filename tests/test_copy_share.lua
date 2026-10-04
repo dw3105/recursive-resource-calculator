@@ -52,4 +52,16 @@ H.test("CS3 copy slicers resume byte-identically", function()
     H.deep_equal(sliced.segments, one.segments, "sliced segment copy preserves result order and values")
 end)
 print("CS1 CS2 CS3")
+--CS4 (round 56 copy on trial, 2026-10-04): a plain accept shares; a trial start freezes a deep copy that later
+--in-place edits of the work candidate cannot reach (CT1 failed when the collector trial started without it).
+H.test("CS4 trial start freezes the incumbent", function()
+    local work_candidate = {entities = {{name = "belt", x = 1}}}
+    local kept = Search._test.keep_incumbent({score = {}, candidate = work_candidate, source_candidate = {}, validation = {}})
+    H.equal(kept.candidate == work_candidate, true, "plain accept shares the candidate")
+    local frozen = Search._test.freeze_incumbent(kept)
+    work_candidate.entities[1].x = 99
+    H.equal(frozen.candidate.entities[1].x, 1, "frozen incumbent unchanged by later edits")
+    H.equal(Search._test.freeze_incumbent(frozen) == frozen, true, "freezing twice copies once")
+    print("CS4")
+end)
 H.done("test_copy_share")

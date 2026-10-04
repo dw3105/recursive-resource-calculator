@@ -353,12 +353,18 @@ local function stage_input(state, extra, shared)
     return result
 end
 
+--Copy on trial (round 56, player "copy-on-trial" 2026-10-04): an accepted candidate is kept by reference, and
+--deep-copied only when a trial starts that keeps working on the same tables (the collector trial re-routes and edits
+--the work candidate in place: player-inserter-10s BP_V_PORT_EDGE_WRONG when the copy was skipped, CT1; Turn trials
+--re-pack and re-route from it). Plain accepts go straight to Serialize, which copies its own input.
 local function keep_incumbent(score, candidate, source_candidate, validation, pre_tidy_material)
-    --Deep copies (round 56 integrator): lane 309 kept these by reference, but the collector trial re-routes after
-    --an accept and edits the work candidate in place, so the kept incumbent changed under it (player-inserter-10s:
-    --BP_V_PORT_EDGE_WRONG + BP_V_ROUTE_DISCONTINUOUS, test_collector_trial CT1 red).
-    return {score = copy(score), candidate = copy(candidate), source_candidate = copy(source_candidate),
-        validation = copy(validation), pre_tidy_material = pre_tidy_material}
+    return {score = copy(score), candidate = candidate, source_candidate = source_candidate,
+        validation = validation, pre_tidy_material = pre_tidy_material}
+end
+local function freeze_incumbent(incumbent)
+    if not incumbent or incumbent.frozen then return incumbent end
+    return {score = incumbent.score, candidate = copy(incumbent.candidate), source_candidate = copy(incumbent.source_candidate),
+        validation = copy(incumbent.validation), pre_tidy_material = incumbent.pre_tidy_material, frozen = true}
 end
 
 --`port_flow_id` is defined below, next to the other port helpers, but greedy_block_order reads it. A Lua local
@@ -1728,6 +1734,7 @@ local function begin_turn_trials(state)
     if not (Search.turn_trials or settings.turn_trials == true) then return false end
     if Pack.mode~="sugiyama" or state.work.drawn_off or settings.force_turn_flip or state.work.trial_done
         or type(MaterialCost.blueprint)~="function" then return false end
+    state.incumbent=freeze_incumbent(state.incumbent)
     local old=MaterialCost.blueprint(state.work.input.catalog,state.incumbent.candidate.entities or {})
     if type(old)~="number" then return false end
     local flows=MaterialCost.by_flow(state.work.input.catalog,state.incumbent.candidate.entities or {}) or {}
@@ -2457,8 +2464,8 @@ function Search.step(container, budget)
                             or (tie and area < old_area)
                         t.current_result = {result=win and "won" or "lost", material=material, area=area}
                         if win then
-                            state.incumbent = keep_incumbent(score, state.work.validate_candidate,
-                                state.work.candidate, state.work.validate.result, state.work.pre_tidy_material)
+                            state.incumbent = freeze_incumbent(keep_incumbent(score, state.work.validate_candidate,
+                                state.work.candidate, state.work.validate.result, state.work.pre_tidy_material))
                             t.material = material
                         end
                         state.work.trial_finish = t.current_result
@@ -2484,7 +2491,7 @@ function Search.step(container, budget)
                         if retry_input then
                             retry_input.collectors = false
                             state.work.current_collectors=false
-                            state.work.collector_first = {incumbent = incumbent, record = record}
+                            state.work.collector_first = {incumbent = freeze_incumbent(incumbent), record = record}
                             state.work.collector_trial = "running"
                             state.work.power, state.work.validate, state.work.tidy, state.work.route_state = nil, nil, nil, nil
                             state.work.route = Route.begin(retry_input)
@@ -2577,6 +2584,7 @@ Search._test = {
     keep_incumbent = function(source)
         return keep_incumbent(source.score, source.candidate, source.source_candidate, source.validation)
     end,
+    freeze_incumbent = function(incumbent) return freeze_incumbent(incumbent) end,
     stage_catalog_shared = true,
 }
 
