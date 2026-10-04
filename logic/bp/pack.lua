@@ -98,12 +98,22 @@ local function rotate_buffer_zones(block, x, y, direction)
     return zones
 end
 
-local function buffer_zones_fit(state, zones)
-    for _, candidate in ipairs(zones) do
-        for _, placed in ipairs(state.buffer_zones) do
+local function buffer_zones_fit(state, zones, budget, cursor)
+    cursor = cursor or {zone = 1, placed = 1}
+    while cursor.zone <= #zones do
+        while cursor.placed <= #state.buffer_zones do
+            local candidate, placed = zones[cursor.zone], state.buffer_zones[cursor.placed]
+            if budget then
+                if budget.ops <= 0 then return nil end
+                budget.ops = budget.ops - 1
+                state.counters.buffer_zone_checks = (state.counters.buffer_zone_checks or 0) + 1
+            end
+            cursor.placed = cursor.placed + 1
             if Buffer.conflict(candidate, placed) then return false end
         end
+        cursor.zone, cursor.placed = cursor.zone + 1, 1
     end
+    if budget and budget.ops <= 0 then return nil end
     return true
 end
 
@@ -715,7 +725,7 @@ end
 
 --One origin test. Returns the candidate (or nil) and the ops it cost: a cheap reject costs 1, an origin that
 --reaches port slot choice costs PORT_ORIGIN_OPS like a MaxRects origin, a legal one twice that.
-local function layered_legal(state, block, x, y, direction, tx, ty)
+local function layered_legal(state, block, x, y, direction, tx, ty, budget, zone_cursor, cached_zones)
     local w, h = Grid.rotate_size(block.w, block.h, direction)
     local area = state.area
     if x < area.x or y < area.y or x + w > area.x + area.w or y + h > area.y + area.h then return nil, 1 end
@@ -723,8 +733,10 @@ local function layered_legal(state, block, x, y, direction, tx, ty)
         if not state.free_cell_index[cell_key(cx, cy)] then return nil, 1 end
     end end
     if not placement_avoids_port_cells(state, x, y, w, h) then return nil, 1 end
-    local zones = rotate_buffer_zones(block, x, y, direction)
-    if not buffer_zones_fit(state, zones) or not zones_avoid_blockers(state, zones) then return nil, 1 end
+    local zones = cached_zones or rotate_buffer_zones(block, x, y, direction)
+    local fits = buffer_zones_fit(state, zones, budget, zone_cursor)
+    if fits == nil then return false, 0, zones end
+    if not fits or not zones_avoid_blockers(state, zones) then return nil, 1 end
     local candidate = {x = x, y = y, dir = direction, w = w, h = h,
         short_side = math.abs(x - tx) + math.abs(y - ty), long_side = 0}
     if #block.ports > 0 then
@@ -772,9 +784,27 @@ local function layered_scan(state, block, budget)
         if ring.r > ring.rmax or (ring.found_r and ring.r > ring.found_r + EXTRA) then return true end
         local rest = ring.r - math.abs(ring.dx)
         local dy = (rest == 0 or ring.side == 1) and -rest or rest
-        state.counters.evaluated_origins = state.counters.evaluated_origins + 1
-        local c, cost = layered_legal(state, block, ring.tx + ring.dx, ring.ty + dy, dirs[ring.di], ring.tx, ring.ty)
-        budget.ops = budget.ops - math.min(budget.ops, cost)
+        local c, cost
+        if ring.pending then
+            local pending = ring.pending
+            local extra
+            c, cost, extra = layered_legal(state, block, pending.x, pending.y, pending.direction,
+                ring.tx, ring.ty, budget, pending.zone_cursor, pending.zones)
+            if c == false then break end
+            ring.pending = nil
+        else
+            state.counters.evaluated_origins = state.counters.evaluated_origins + 1
+            local x, y, direction = ring.tx + ring.dx, ring.ty + dy, dirs[ring.di]
+            local zone_cursor = {zone = 1, placed = 1}
+            local extra
+            c, cost, extra = layered_legal(state, block, x, y, direction, ring.tx, ring.ty,
+                budget, zone_cursor)
+            if c == false then
+                ring.pending = {x=x, y=y, direction=direction, zone_cursor=zone_cursor, zones=extra}
+                break
+            end
+        end
+        budget.ops = budget.ops - math.min(budget.ops, cost or 0)
         if c then
             ring.found_r = ring.found_r or ring.r
             if better(c, state.cursor.best) then state.cursor.best = c end

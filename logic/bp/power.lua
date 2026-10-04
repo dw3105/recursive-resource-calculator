@@ -18,13 +18,12 @@ local Power = {}
 local EPSILON = 1e-9
 
 local function finite(value, fallback)
-    if type(value) == "number" and value == value and value ~= math.huge and value ~= -math.huge then
-        return value
-    end
+    if type(value) == "number" and value - value == 0 then return value end
     return fallback
 end
 
 local function integer(value, fallback)
+    if type(value) == "number" and value - value == 0 then return math.floor(value) end
     value = finite(value, fallback)
     if value == nil then return nil end
     return math.floor(value)
@@ -55,9 +54,11 @@ local function rect_valid(rect)
 end
 
 local function rect_intersects(a, b)
-    return rect_valid(a) and rect_valid(b)
-        and a.x < b.x + b.w and b.x < a.x + a.w
-        and a.y < b.y + b.h and b.y < a.y + a.h
+    if a == nil or b == nil then return false end
+    local aw, ah, bw, bh = a.w, a.h, b.w, b.h
+    if not (aw > 0 and ah > 0 and bw > 0 and bh > 0) then return false end
+    local ax, ay, bx, by = a.x, a.y, b.x, b.y
+    return ax < bx + bw and bx < ax + aw and ay < by + bh and by < ay + ah
 end
 
 local function sorted_keys(map)
@@ -338,7 +339,8 @@ end
 local function operation_cost(state)
     local phase, work = state.cursor.phase, state._work
     if phase == "candidate_position" then return 4 end
-    if phase == "candidate_coverage" or phase == "candidate_commit" then return 2 end
+    if phase == "candidate_coverage" then return 1 end
+    if phase == "candidate_commit" then return 2 end
     if phase == "candidate_index" then
         local builder = work.index_builder
         if builder and (builder.mode == "consumer_position" or builder.mode == "finalize"
@@ -365,12 +367,13 @@ local function candidate_rect(spec, x, y)
 end
 
 local function consumer_covered(candidate, consumer)
-    if not rect_valid(consumer.rect) then return false end
-    local centre_x = candidate.rect.x + candidate.rect.w / 2
-    local centre_y = candidate.rect.y + candidate.rect.h / 2
-    local supply = {x = centre_x - candidate.supply_w, y = centre_y - candidate.supply_h,
-        w = candidate.supply_w * 2, h = candidate.supply_h * 2}
-    return rect_intersects(supply, consumer.rect)
+    local r = consumer.rect
+    if r == nil or not (r.w > 0 and r.h > 0) then return false end
+    local cr, sw, sh = candidate.rect, candidate.supply_w, candidate.supply_h
+    local sx, sy = cr.x + cr.w / 2 - sw, cr.y + cr.h / 2 - sh
+    local w, h = sw * 2, sh * 2
+    if not (w > 0 and h > 0) then return false end
+    return sx < r.x + r.w and r.x < sx + w and sy < r.y + r.h and r.y < sy + h
 end
 
 local function candidate_less(a, b, candidates)
@@ -483,6 +486,7 @@ local function next_candidate_position(state)
     return {spec_index = spec_index, x = x, y = y}
 end
 
+local INDEX_CANDIDATE = {rect = {}}
 local function advance_candidate_index(state)
     local work, builder = state._work, state._work.index_builder
     local spec = work.specs[builder.spec_index]
@@ -517,9 +521,10 @@ local function advance_candidate_index(state)
             builder.consumer_index, builder.mode = builder.consumer_index + 1, "consumer_start"
         else
             local consumer_index = builder.consumer_index
-            local candidate = {spec_index = builder.spec_index, name = spec.name, quality = spec.quality,
-                rect = candidate_rect(spec, builder.x, builder.y), supply_w = spec.supply_w,
-                supply_h = spec.supply_h, wire_reach = spec.wire_reach, covers = {}}
+            local candidate = INDEX_CANDIDATE
+            candidate.rect.x, candidate.rect.y = builder.x, builder.y
+            candidate.rect.w, candidate.rect.h = spec.tile_w, spec.tile_h
+            candidate.supply_w, candidate.supply_h = spec.supply_w, spec.supply_h
             if consumer_covered(candidate, work.consumers[consumer_index]) then
                 local key = builder.y * (work.grid_w + 1) + builder.x
                 local item = builder.by_key[key]
@@ -980,12 +985,6 @@ function Power.step(state, budget)
 
     while not state.done do
         local cost, available = operation_cost(state), integer(budget.ops, 0)
-        -- Publishing is the stage boundary where Search may otherwise continue
-        -- into validation in this same game tick. Reserve the remainder here
-        -- so the next stage starts on the next scheduler slice.
-        --Capped at one game tick (Jobs.OPS_PER_TICK): a caller with a larger slice would otherwise lose it all
-        --here and trip the search allowance (test_search BP-15, 2026-09-24).
-        if state.cursor.phase == "publish_finish" then cost = math.min(available, 2000) end
         if not consume(budget, cost) then break end
         -- ops_used records charged work, not state-machine transitions.
         state.ops_used = state.ops_used + math.min(cost, available)
@@ -1629,13 +1628,34 @@ function Power.step(state, budget)
 
         elseif phase == "publish_finish" then
             local publish = work.publish
-            state.result = {entities = publish.entities, wires = publish.wires, pole_count = #publish.entities,
-                components = work.connect.components, uncovered = publish.uncovered,
-                connection_point = publish.connection_point, errors = publish.errors}
-            state.errors, state.ok, state.done = publish.errors, #publish.errors == 0, true
-            cursor.phase = "done"
-            state.progress.phase = "power"
-            state.progress.done_units = state.progress.total_units
+            local finish = publish.finish
+            if not finish then
+                finish = {result = {entities = {}, wires = {}, uncovered = {}, errors = {}},
+                    array = "entities", index = 1}
+                publish.finish = finish
+            end
+            local source = publish[finish.array]
+            if source and finish.index <= #source then
+                finish.result[finish.array][finish.index] = source[finish.index]
+                finish.index = finish.index + 1
+            elseif finish.array == "entities" then
+                finish.array, finish.index = "wires", 1
+            elseif finish.array == "wires" then
+                finish.array, finish.index = "uncovered", 1
+            elseif finish.array == "uncovered" then
+                finish.array, finish.index = "errors", 1
+            elseif finish.array == "errors" then
+                finish.result.pole_count = #publish.entities
+                finish.result.components = work.connect.components
+                finish.result.connection_point = publish.connection_point
+                finish.array = "complete"
+            else
+                state.result = finish.result
+                state.errors, state.ok, state.done = publish.errors, #publish.errors == 0, true
+                cursor.phase = "done"
+                state.progress.phase = "power"
+                state.progress.done_units = state.progress.total_units
+            end
         else
             if phase == "done" then state.done = true end
         end
