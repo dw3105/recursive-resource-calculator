@@ -2,6 +2,7 @@
 local H = require "tests.harness"
 local Route = require "logic.bp.route"
 local Search = require "logic.bp.search"
+local D = require "tests.fixtures.search_doubles"
 
 H.test("RF1 splitter branch refuses wrong-heading row sink", function()
     H.equal(Route._test.body_jump_row_heading_allowed({row_port=true, travel_dir=4}, 0), false)
@@ -17,9 +18,26 @@ H.test("RF3 cleanup trims disconnected plain belt tail", function()
     H.equal(#work.segments, 0)
 end)
 H.test("RF4 first route is strict", function()
-    local input = {grid={w=2,h=2},catalog={belt={belt="belt"}},flows={},blocks={},strict_ends=true}
-    local route = Route.begin(input)
-    H.equal(route.work.strict_ends, true)
+    local original_begin, original_step = Route.begin, Route.step
+    local strict
+    local ok, err = pcall(function()
+        D.run({}, function()
+            Route.begin = function(input)
+                strict = input.strict_ends
+                return {done=true,ok=true,result={entities={},wires={},segments={},bindings={}},cursor={},progress={}}
+            end
+            Route.step = function(state) return state end
+            local state = Search.begin(D.input())
+            local ticks = 0
+            while not state.done and strict == nil and ticks < 600 do
+                ticks = ticks + 1
+                Search.step(state, {ops=100})
+            end
+        end)
+    end)
+    Route.begin, Route.step = original_begin, original_step
+    if not ok then error(err, 0) end
+    H.equal(strict, true, "search's first route sets strict ends")
 end)
 print("RF1 RF2 RF3 RF4")
 H.done("test_route_fix_bundle")

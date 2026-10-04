@@ -340,10 +340,24 @@ local function bare_rects(entries)
     return result
 end
 
-local function stage_input(state, extra)
-    local result = copy(state.work.input) or {}
-    for key, value in pairs(extra or {}) do result[key] = copy(value) end
+local function stage_input(state, extra, shared)
+    local result = {}
+    for key, value in pairs(state.work.input or {}) do
+        if key == "catalog" or key == "snapshot" or shared and shared[key] then result[key] = value
+        else result[key] = copy(value) end
+    end
+    for key, value in pairs(extra or {}) do
+        if key == "catalog" or key == "snapshot" or shared and shared[key] then result[key] = value
+        else result[key] = copy(value) end
+    end
     return result
+end
+
+local function keep_incumbent(score, candidate, source_candidate, validation, pre_tidy_material)
+    --These search-owned values are frozen after validation. Keep their tables by reference; the work state may
+    --advance to another candidate, but it replaces these roots instead of editing them in place.
+    return {score = copy(score), candidate = candidate, source_candidate = source_candidate,
+        validation = validation, pre_tidy_material = pre_tidy_material}
 end
 
 --`port_flow_id` is defined below, next to the other port helpers, but greedy_block_order reads it. A Lua local
@@ -601,7 +615,7 @@ local function make_power_input(state, grid, entities, roboports, obstacles)
         grid_w = grid.w, grid_h = grid.h,
         consumers = power_consumers(entities, state.work.plan_result, state.work.input.catalog),
         occupied = occupied_rects(entities, roboports, obstacles),
-    })
+    }, {blocks=true, perimeter_ports=true, flows=true, obstacles=true, belt_runs=true})
     input.grid = {w = grid.w, h = grid.h}
     if input.pole == nil then
         input.pole = (state.work.input.catalog and state.work.input.catalog.pole)
@@ -1417,6 +1431,7 @@ local function start_grid(state)
     local raw = state.work.grid_specs[state.cursor.grid_index]
     if not raw then return false end
     state.work.grid_trials = state.work.grid_trials + 1
+    state.work.strict_ends = true
     local grid = grid_model(state.work.input, raw)
     local robo_obstacles, roboports = roboport_obstacles(grid, state.work.input)
     state.work.grid = grid
@@ -2438,17 +2453,15 @@ function Search.step(container, budget)
                             or (tie and area < old_area)
                         t.current_result = {result=win and "won" or "lost", material=material, area=area}
                         if win then
-                            state.incumbent = {score=copy(score), candidate=copy(state.work.validate_candidate),
-                                source_candidate=copy(state.work.candidate), validation=copy(state.work.validate.result),
-                                pre_tidy_material=state.work.pre_tidy_material}
+                            state.incumbent = keep_incumbent(score, state.work.validate_candidate,
+                                state.work.candidate, state.work.validate.result, state.work.pre_tidy_material)
                             t.material = material
                         end
                         state.work.trial_finish = t.current_result
                     else
                     local record = record_valid_attempt(state, score)
-                    local incumbent = {score = copy(score), candidate = copy(state.work.validate_candidate),
-                        source_candidate = copy(state.work.candidate), validation = copy(state.work.validate.result),
-                        pre_tidy_material=state.work.pre_tidy_material}
+                    local incumbent = keep_incumbent(score, state.work.validate_candidate,
+                        state.work.candidate, state.work.validate.result, state.work.pre_tidy_material)
                     local routed = state.work.route and state.work.route.work
                     local first = state.work.collector_first
                     if state.work.collector_trial == "running" and first then
@@ -2555,5 +2568,12 @@ end
 
 Search._slot_cost = slot_cost
 Search._port_first_belt = port_first_belt
+Search._test = {
+    stage_input = stage_input,
+    keep_incumbent = function(source)
+        return keep_incumbent(source.score, source.candidate, source.source_candidate, source.validation)
+    end,
+    stage_catalog_shared = true,
+}
 
 return Search

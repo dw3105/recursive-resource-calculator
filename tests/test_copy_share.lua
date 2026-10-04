@@ -2,19 +2,46 @@
 local H = require "tests.harness"
 local Search = require "logic.bp.search"
 local Route = require "logic.bp.route"
+local Grid = require "logic.bp.grid"
+local function route_input()
+    local function block(id,x,role,dx,dir)
+        return {block_id=id,machines={{step_id=id}},x=x,y=2,w=1,h=1,ports={{port_id=id.."-port",role=role,
+            kind="item",flow_id="item/f",rate_per_second=1,attach_dx=dx,attach_dy=0,
+            normal_dir=Grid.dir_opposite(dir),travel_dir=dir}}}
+    end
+    return {grid=Grid.new(8,5),catalog={belt={belt="basic-belt",underground="basic-underground",
+        items_per_second=10,lane_items_per_second=5,underground_max_distance=3}},
+        blocks={block("source",0,"out",1,Grid.EAST),block("sink",7,"in",-1,Grid.EAST)},
+        flows={{flow_id="item/f",producers={{step_id="source",share_per_second=1}},
+            consumers={{step_id="sink",share_per_second=1}}}}}
+end
+local function run(ops)
+    local state, ticks = Route.begin(route_input()), 0
+    while not state.done and ticks < 10000 do ticks=ticks+1; Route.step(state,{ops=ops}) end
+    H.equal(state.done,true,"route completes")
+    H.equal(state.ok,true,"route succeeds")
+    return state.result,ticks
+end
 H.test("CS1 stage input shares read-only catalog", function()
-    H.equal(Search._test.stage_catalog_shared, true)
+    local catalog = {entity={x={marker=1}}}
+    local staged = Search._test.stage_input({work={input={catalog=catalog,snapshot={a=1},settings={nested={a=1}}}}}, {})
+    H.equal(staged.catalog, catalog)
+    staged.settings.nested.a = 2
+    H.equal(catalog.entity.x.marker, 1)
 end)
 H.test("CS2 incumbent snapshot survives later work mutation", function()
-    local source = {candidate={entities={{id="e"}}}}
+    local source = {score={cost=7},candidate={entities={{id="e"}}}}
     local saved = Search._test.keep_incumbent(source)
-    source.candidate.entities[1].id = "changed"
+    source.score.cost = 99
+    source.candidate = {entities={{id="replacement"}}}
+    H.equal(saved.score.cost, 7)
     H.equal(saved.candidate.entities[1].id, "e")
 end)
 H.test("CS3 copy slicers resume byte-identically", function()
-    local one = Route._test.result_for_sliced({entities={},segments={},bindings={},shortfalls={},port_slides={}}, 2000)
-    local resumed = Route._test.result_for_sliced({entities={},segments={},bindings={},shortfalls={},port_slides={}}, 2000)
-    H.equal(resumed, one)
+    local one = run(2000)
+    local resumed, ticks = run(1)
+    H.deep_equal(resumed, one, "resumed publication equals the one-shot publication")
+    H.equal(ticks > 1,true,"small operation budgets resume across calls")
 end)
 print("CS1 CS2 CS3")
 H.done("test_copy_share")

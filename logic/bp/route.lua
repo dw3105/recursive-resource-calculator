@@ -197,6 +197,14 @@ local function coordinate_from_key(key)
     return tonumber(x), tonumber(y)
 end
 
+Route._body_jump_row_heading_allowed = function(target, heading)
+    return not (target and target.row_port and target.travel_dir ~= nil and target.travel_dir ~= heading)
+end
+
+Route._pipe_dive_port_allowed = function(port_here, own_source_outward)
+    return not (port_here and not own_source_outward)
+end
+
 local function direction_from_step(x1, y1, x2, y2)
     local dx, dy = x2 - x1, y2 - y1
     --An underground crossing steps over the tiles it dives under, so the step is longer than one tile while the
@@ -3289,6 +3297,7 @@ local function search_step(work, search)
                 and direction ~= current.direction and work.belt and work.belt.splitter
                 and not (search.demand.crossing_blocked
                     and search.demand.crossing_blocked[current_tile_key])
+                and Route._body_jump_row_heading_allowed(target and not search.merge_target and search.demand.sink, leaving.direction)
                 and segment_allows(work, leaving, search.demand, search.amount)
                 and splitter_can_absorb(leaving)
                 and splitter_straight_fed(work, current.x, current.y, leaving, search.demand.flow_id, search.demand.source)
@@ -3389,11 +3398,11 @@ local function search_step(work, search)
                 --pipe-to-ground there faces away and cuts the machine off (round 54, EM plant x3: holmium solution
                 --dived west from machine 3's port (23,26); BP_V_FLUID_DISCONNECTED).
                 --Last-resort search phase only (`strict_ptg`): on first routing it moved player-magenta-science-10s.
-                local port_here = work.strict_ptg and search.demand.kind == "pipe" and work.port_cells and work.port_cells[current_tile_key]
+                local port_here = search.demand.kind == "pipe" and work.port_cells and work.port_cells[current_tile_key]
                 if port_here and port_here._fluid_dir ~= nil then
                     local source = search.demand.source
                     local own = source and current.x == source.x and current.y == source.y
-                    if not (own and source.fluid_travel_dir == direction) then crossings = {} end
+                    if not Route._pipe_dive_port_allowed(true, own and source.fluid_travel_dir == direction) then crossings = {} end
                 end
                 for _, crossing in ipairs(crossings) do
                     local reaches_sink = crossing.x == search.demand.sink.x and crossing.y == search.demand.sink.y
@@ -3468,7 +3477,40 @@ end
 
 --`publish` is set only by tidy's final result: the twin-edge fold rewrites segments, so doing it at the end of
 --first routing left tidy working on a half-folded state that dropped the splitter (round 37, red-10s route call 3).
-local function result_for(work, publish)
+Route._continue_result_copy = function(work, cursor, budget)
+    local ops = budget and math.max(0, finite(budget.ops, 0)) or math.huge
+    while cursor.index <= #cursor.segments and ops > 0 do
+        local segment = cursor.segments[cursor.index]
+        if not cursor.current then
+            cursor.current = {segment_id = segment.segment_id, kind = segment.kind,
+                capacity_per_second = segment.capacity_per_second, allocations = {}, length = segment.length}
+            cursor.allocation_index = 1
+            ops = ops - 1
+        end
+        while cursor.allocation_index <= #(segment.allocations or {}) and ops > 0 do
+            local allocation = segment.allocations[cursor.allocation_index]
+            cursor.current.allocations[#cursor.current.allocations + 1] = {flow_id = allocation.flow_id,
+                sink = allocation.sink, rate_per_second = allocation.rate_per_second}
+            cursor.allocation_index = cursor.allocation_index + 1
+            ops = ops - 1
+        end
+        if cursor.allocation_index > #(segment.allocations or {}) then
+            cursor.result.segments[#cursor.result.segments + 1] = cursor.current
+            cursor.current, cursor.allocation_index = nil, nil
+            cursor.index = cursor.index + 1
+        end
+    end
+    if budget then budget.ops = math.max(0, ops) end
+    if cursor.index <= #cursor.segments then return nil end
+    return cursor.result
+end
+
+local function result_for(work, publish, budget, resume)
+    if resume and resume._result_copy then
+        local result = Route._continue_result_copy(work, resume._result_copy, budget)
+        if result then resume._result_copy = nil end
+        return result
+    end
     --Fold two neighbouring, straight edge feeds of the same flow into the physical splitter the player
     --would place by hand.  This is deliberately a final publication tidy: path search and its retries
     --remain unchanged, and an incomplete/blocked footprint is left for validation to reject.
@@ -3608,16 +3650,10 @@ local function result_for(work, publish)
     for _, entity in ipairs(work.entities) do
         if not entity._route_removed then result.entities[#result.entities + 1] = entity end
     end
-    for _, segment in ipairs(work.segments) do
-        local copy = {segment_id = segment.segment_id, kind = segment.kind,
-            capacity_per_second = segment.capacity_per_second, allocations = {}, length = segment.length}
-        for _, allocation in ipairs(segment.allocations) do
-            copy.allocations[#copy.allocations + 1] = {flow_id = allocation.flow_id, sink = allocation.sink,
-                rate_per_second = allocation.rate_per_second}
-        end
-        result.segments[#result.segments + 1] = copy
-    end
-    return result
+    local cursor = {result = result, segments = work.segments or {}, index = 1}
+    local complete = Route._continue_result_copy(work, cursor, budget)
+    if not complete and resume then resume._result_copy = cursor end
+    return complete
 end
 
 --Player: “underground belts are more expensive than normal one and unused ones must be 'unburied'.”
@@ -4153,8 +4189,13 @@ function Route.tidy_step(state, budget)
         return state
     end
     if work.improved then
-        state.result, state.done, state.ok = result_for(work, true), true, true
-        state.progress.phase = "done"
+        local result_budget = {ops = ops}
+        local result = result_for(work, true, result_budget, state)
+        ops = result_budget.ops
+        if result then
+            state.result, state.done, state.ok = result, true, true
+            state.progress.phase = "done"
+        end
     end
     budget.ops = math.max(0, ops)
     return state
@@ -4387,8 +4428,53 @@ local function untangle_splitter_chains(work)
     end
 end
 
+Route._trim_dead_ends = function(work)
+    local endpoints = {}
+    local function mark(ep)
+        if ep and ep.x ~= nil and ep.y ~= nil then endpoints[coordinate_key(ep.x, ep.y)] = true end
+    end
+    for _, demand in ipairs(work.demands or {}) do mark(demand.source); mark(demand.sink) end
+    for _, ep in pairs(work.endpoint_by_id or {}) do mark(ep) end
+    local removed = 0
+    local changed = true
+    while changed do
+        changed = false
+        for _, seg in ipairs(work.segments or {}) do
+            if seg.kind == "belt" and not seg.underground and not seg.splitter and seg.direction ~= nil
+                and seg.flow_id ~= nil then
+                local tile
+                local cell_keys = sorted_keys(work.segments_by_cell or {})
+                for _, key in ipairs(cell_keys) do
+                    if work.segments_by_cell[key] == seg then tile = key; break end
+                end
+                if tile and not endpoints[tile] then
+                    local x, y = coordinate_from_key(tile)
+                    local dx, dy = Grid.dir_vector(seg.direction)
+                    local ahead = dx and work.segments_by_cell[coordinate_key(x + dx, y + dy)]
+                    local count = 0
+                    for _, other in ipairs(work.segments or {}) do if other == seg then count = count + 1 end end
+                    if not ahead and count == 1 then
+                        local entity = work.entity_by_segment and work.entity_by_segment[seg.segment_id]
+                        if entity then
+                            entity._route_removed = true
+                            for i = #work.entities, 1, -1 do if work.entities[i] == entity then table.remove(work.entities, i) end end
+                        end
+                        work.entity_by_segment[seg.segment_id] = nil
+                        work.segments_by_cell[tile] = nil
+                        for i = #work.segments, 1, -1 do if work.segments[i] == seg then table.remove(work.segments, i) end end
+                        removed, changed = removed + 1, true
+                        break
+                    end
+                end
+            end
+        end
+    end
+    return removed
+end
+
 prune_dead_route_segments = function(work)
     untangle_splitter_chains(work)
+    Route._trim_dead_ends(work)
     --Every route endpoint counts as a feed: a hand drop, a pickup tile or an edge cell. Binding sources alone missed
     --a machine's own output hand when its flow leaves at the map edge, and the sweep deleted a live product line
     --(round 37, tests/test_route_collision.lua RX1).
@@ -5275,8 +5361,10 @@ function Route.step(state, budget)
         local demand = work.demands[state.cursor.demand_index]
         if not demand then
             if state.tidy == false then
-                state.result, state.done, state.ok = result_for(work), true, true
-                state.progress.phase = "done"
+                local result_budget = {ops = ops}
+                local result = result_for(work, false, result_budget, state)
+                ops = result_budget.ops
+                if result then state.result, state.done, state.ok = result, true, true; state.progress.phase = "done" end
                 break
             elseif not work.improved then
                 work.improve_state = work.improve_state or improve_begin(work)
@@ -5289,8 +5377,10 @@ function Route.step(state, budget)
                 unbury_empty_pairs(work)
                 prune_dead_route_segments(work)
             end
-            state.result, state.done, state.ok = result_for(work), true, true
-            state.progress.phase = "done"
+            local result_budget = {ops = ops}
+            local result = result_for(work, false, result_budget, state)
+            ops = result_budget.ops
+            if result then state.result, state.done, state.ok = result, true, true; state.progress.phase = "done" end
             break
         end
         if demand.remaining <= tolerance(demand.remaining) then
@@ -5471,6 +5561,8 @@ Route._coordinate_key = coordinate_key
 Route._jset, Route._jinsert, Route._jremove = jset, jinsert, jremove
 Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_open, journal_rollback, journal_commit
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
+    body_jump_row_heading_allowed = Route._body_jump_row_heading_allowed, pipe_dive_port_allowed = Route._pipe_dive_port_allowed,
+    trim_dead_ends = Route._trim_dead_ends,
     rotate_connection = rotate_connection,
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
