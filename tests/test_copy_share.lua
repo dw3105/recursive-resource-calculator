@@ -42,6 +42,14 @@ H.test("CS3 copy slicers resume byte-identically", function()
     local resumed, ticks = run(1)
     H.deep_equal(resumed, one, "resumed publication equals the one-shot publication")
     H.equal(ticks > 1,true,"small operation budgets resume across calls")
+    local cursor, sliced = nil, nil
+    repeat
+        local _, next_cursor, copied = Route._test.copy_result_sliced(one.segments, 1, cursor)
+        cursor = next_cursor
+        H.equal(copied <= 1, true, "one call copies at most one unit")
+        sliced = cursor.result
+    until cursor.index > #cursor.segments
+    H.deep_equal(sliced.segments, one.segments, "sliced segment copy preserves result order and values")
 end)
 print("CS1 CS2 CS3")
 H.done("test_copy_share")

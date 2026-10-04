@@ -3479,6 +3479,12 @@ end
 --first routing left tidy working on a half-folded state that dropped the splitter (round 37, red-10s route call 3).
 Route._continue_result_copy = function(work, cursor, budget)
     local ops = budget and math.max(0, finite(budget.ops, 0)) or math.huge
+    while cursor.entity_index <= #cursor.entities and ops > 0 do
+        local entity = cursor.entities[cursor.entity_index]
+        if not entity._route_removed then cursor.result.entities[#cursor.result.entities + 1] = entity end
+        cursor.entity_index = cursor.entity_index + 1
+        ops = ops - 1
+    end
     while cursor.index <= #cursor.segments and ops > 0 do
         local segment = cursor.segments[cursor.index]
         if not cursor.current then
@@ -3501,7 +3507,7 @@ Route._continue_result_copy = function(work, cursor, budget)
         end
     end
     if budget then budget.ops = math.max(0, ops) end
-    if cursor.index <= #cursor.segments then return nil end
+    if cursor.entity_index <= #cursor.entities or cursor.index <= #cursor.segments then return nil end
     return cursor.result
 end
 
@@ -3647,10 +3653,8 @@ local function result_for(work, publish, budget, resume)
         result.port_slides[#result.port_slides + 1] = slide.hop and {port_id = port_id, hop = slide.hop}
             or {port_id = port_id, dx = slide.dx, dy = slide.dy}
     end
-    for _, entity in ipairs(work.entities) do
-        if not entity._route_removed then result.entities[#result.entities + 1] = entity end
-    end
-    local cursor = {result = result, segments = work.segments or {}, index = 1}
+    local cursor = {result = result, entities = work.entities or {}, entity_index = 1,
+        segments = work.segments or {}, index = 1}
     local complete = Route._continue_result_copy(work, cursor, budget)
     if not complete and resume then resume._result_copy = cursor end
     return complete
@@ -5563,6 +5567,13 @@ Route._journal_open, Route._journal_rollback, Route._journal_commit = journal_op
 Route._test = {lift_check = lift_check, lift_binding = lift_binding, retry_binding_skipped = retry_binding_skipped,
     body_jump_row_heading_allowed = Route._body_jump_row_heading_allowed, pipe_dive_port_allowed = Route._pipe_dive_port_allowed,
     trim_dead_ends = Route._trim_dead_ends,
+    copy_result_sliced = function(segments, ops, cursor)
+        cursor = cursor or {result = {entities = {}, segments = {}}, entities = {}, entity_index = 1,
+            segments = segments, index = 1}
+        local budget = {ops = ops}
+        local result = Route._continue_result_copy({}, cursor, budget)
+        return result, cursor, ops - budget.ops, budget.ops
+    end,
     rotate_connection = rotate_connection,
     append_normal_path = append_normal_path, binding_path = binding_path, ep_lookup = ep_lookup,
     row_head_reuse_guard = row_head_reuse_guard, end_feed_bleeds = end_feed_bleeds,
