@@ -374,7 +374,9 @@ end
 local port_flow_id
 
 local function greedy_block_order(state, candidate)
-    local natural = list_copy(candidate.blocks)
+    --The order is chosen on the candidate's own blocks (read only) and copied once at the end (round 56 gate: two
+    --deep copies of every block, 1.9 M instructions in blue's grid-start tick). Same blocks, same order.
+    local natural = candidate.blocks or {}
     local result = {}
         local function interface_weight(left, right)
             local weight = 0
@@ -390,7 +392,7 @@ local function greedy_block_order(state, candidate)
             return weight
         end
         if #natural > 1 then
-            local connected, remaining = {copy(natural[1])}, {}
+            local connected, remaining = {natural[1]}, {}
             for index = 2, #natural do remaining[#remaining + 1] = natural[index] end
             while #remaining > 0 do
                 local best_index, best_weight, best_id
@@ -402,7 +404,7 @@ local function greedy_block_order(state, candidate)
                         best_index, best_weight, best_id = index, weight, id
                     end
                 end
-                connected[#connected + 1] = copy(remaining[best_index])
+                connected[#connected + 1] = remaining[best_index]
                 table.remove(remaining, best_index)
             end
             local differs = false
@@ -411,8 +413,8 @@ local function greedy_block_order(state, candidate)
             end
             if differs then result[#result + 1] = {blocks = connected} end
         end
-    if #result == 0 then return natural end
-    return result[1].blocks
+    if #result == 0 then return list_copy(natural) end
+    return list_copy(result[1].blocks)
 end
 
 local function block_map(blocks)
@@ -1463,6 +1465,7 @@ local function start_grid(state)
     --Round 56: Groups output is the same on every grid of one search (ticket 18); its cache lives in the search
     --state, so it is saved with the job and identical on every peer (never in module state).
     state.groups_cache = state.groups_cache or {}
+    state.work.groups_split = nil
     state.work.groups = Groups.begin(stage_input(state, {plan = state.work.plan_result, grid = grid, ring_bump = state.work.attempt or 0}), state.groups_cache)
     state.work.candidate = nil
     state.work.pack, state.work.route, state.work.route_state, state.work.power, state.work.validate = nil, nil, nil, nil, nil
@@ -2158,12 +2161,18 @@ function Search.step(container, budget)
                 start_grid(state)
             end
         elseif state.phase == "groups" then
-            run_stage(state, "groups", Groups, budget)
+            if not stage_done(state.work.groups) then run_stage(state, "groups", Groups, budget) end
             if not stage_done(state.work.groups) then
                 --Grouping is a potentially dense search tree. Advance one resumable transition per game tick;
                 --leaving the unused nominal ops for the next tick keeps the engine frame bounded.
                 break
+            elseif not state.work.groups_split then
+                --Round 56 gate: a grid start ran Groups.begin (cache copy) + block order + Pack.begin in one tick
+                --(blue grid starts 57-61 ms). Prepare the candidate on a fresh tick; nothing is spent.
+                state.work.groups_split = true
+                budget.ops = 0
             else
+                state.work.groups_split = nil
                 declare_allowance(state)
                 if state.work.groups.ok == false and not (state.work.groups.result and state.work.groups.result.candidates) then
                     record_rejection(state, state.work.groups.errors or state.work.groups.result.failures, "groups")
@@ -2331,6 +2340,7 @@ function Search.step(container, budget)
                     local power_entities = list_copy(state.work.materialized.entities)
                     append_all(power_entities, state.work.route.result and state.work.route.result.entities)
                     state.work.hand_entities = power_entities
+                    state.work.hands_pruned = nil
                     trial_set_phase(state, "hands")
                     budget.ops = 0
                 end
@@ -2409,9 +2419,14 @@ function Search.step(container, budget)
                     budget.ops = 0
                 end
             end
-        elseif state.phase == "hands" then
+        elseif state.phase == "hands" and not state.work.hands_pruned then
+            --Round 56 gate: BeaconPrune, the entity copies and the power input shared one tick (blue tick 1118, 91 ms).
             BeaconPrune.run(state.work.materialized.entities, state.work.input.catalog,
                 state.work.route.result and state.work.route.result.entities)
+            state.work.hands_pruned = true
+            budget.ops = 0
+        elseif state.phase == "hands" then
+            state.work.hands_pruned = nil
             local all = list_copy(state.work.materialized.entities)
             append_all(all, state.work.route.result and state.work.route.result.entities)
             state.work.hand_entities = all
