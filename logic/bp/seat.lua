@@ -73,16 +73,23 @@ function Seat.run(materialized, grid, flows, input_edge)
     local seated = {}
     for _, item in ipairs(list) do seated[item.hand] = true end
     -- legalcopilot-dev, lua5.2, 2026-09-28: 1 of 181 hands moved on the 104x154 sheet; reserve unseated hand and port tiles.
+    --Ports by inserter id text, built once: the scan below walked every port for every unseated hand (blue: 8.4k
+    --tostring calls in one tick, round 56 gate). Same ports, same order.
+    local ports_by_inserter = {}
+    for _, port in ipairs(materialized.ports or {}) do
+        local key = tostring(port.inserter_id)
+        local list_for = ports_by_inserter[key]
+        if not list_for then list_for = {}; ports_by_inserter[key] = list_for end
+        list_for[#list_for + 1] = port
+    end
     for _, hand in ipairs(materialized.entities or {}) do
         local kind = tostring(hand.kind or hand.type or "")
         if (kind == "inserter" or tostring(hand.name or ""):find("inserter", 1, true)) and not seated[hand] then
             used[tostring(hand.x) .. ":" .. tostring(hand.y)] = true
             local inserter_id = tostring(hand.id):gsub("^m:", "")
-            for _, port in ipairs(materialized.ports or {}) do
-                if tostring(port.inserter_id) == inserter_id then
-                    local x, y = port_tile(port)
-                    used[tostring(x) .. ":" .. tostring(y)] = true
-                end
+            for _, port in ipairs(ports_by_inserter[inserter_id] or {}) do
+                local x, y = port_tile(port)
+                used[tostring(x) .. ":" .. tostring(y)] = true
             end
         end
     end

@@ -221,8 +221,11 @@ local function normalize_consumers(input)
         end
         result[#result + 1] = {id = plain_scalar(id, tostring(index)), rect = copy_rect(rect)}
     end
+    --Same comparisons; each id's text built once (round 56 gate Tick cost).
+    local id_text = {}
+    for _, entry in ipairs(result) do id_text[entry] = tostring(entry.id) end
     table.sort(result, function(a, b)
-        local aa, bb = tostring(a.id), tostring(b.id)
+        local aa, bb = id_text[a], id_text[b]
         if aa ~= bb then return aa < bb end
         local ar, br = a.rect or {}, b.rect or {}
         if (ar.y or 0) ~= (br.y or 0) then return (ar.y or 0) < (br.y or 0) end
@@ -244,12 +247,14 @@ local function normalize_occupied(input)
         rect = copy_rect(rect)
         if rect then result[#result + 1] = {rect = rect, owner = plain_scalar(owner, tostring(index)), kind = kind} end
     end
+    local owner_text = {}
+    for _, entry in ipairs(result) do owner_text[entry] = tostring(entry.owner) end
     table.sort(result, function(a, b)
         if a.rect.y ~= b.rect.y then return a.rect.y < b.rect.y end
         if a.rect.x ~= b.rect.x then return a.rect.x < b.rect.x end
         if a.rect.w ~= b.rect.w then return a.rect.w < b.rect.w end
         if a.rect.h ~= b.rect.h then return a.rect.h < b.rect.h end
-        return tostring(a.owner) < tostring(b.owner)
+        return owner_text[a] < owner_text[b]
     end)
     return result
 end
@@ -265,6 +270,24 @@ local function begin_make_room(state)
     return true
 end
 
+--Same strings as tostring(x) .. ":" .. tostring(y) for integer cells, built once (round 56 gate: 6k tostring calls in
+--one blue tick). Pure memo, cleared when large; zero takes the old path (-0 prints "-0").
+local cell_key_memo, cell_key_count = {}, 0
+local function cell_key(x, y)
+    if x == 0 or y == 0 then return tostring(x) .. ":" .. tostring(y) end
+    local row = cell_key_memo[x]
+    if row then
+        local key = row[y]
+        if key then return key end
+    else
+        if cell_key_count >= 262144 then cell_key_memo, cell_key_count = {}, 0 end
+        row = {}; cell_key_memo[x] = row
+    end
+    local key = tostring(x) .. ":" .. tostring(y)
+    row[y] = key; cell_key_count = cell_key_count + 1
+    return key
+end
+
 local function occupied_cell_index(occupied)
     local cells = {}
     for index, entry in ipairs(occupied) do
@@ -273,7 +296,7 @@ local function occupied_cell_index(occupied)
         local max_x, max_y = math.ceil(rect.x + rect.w) - 1, math.ceil(rect.y + rect.h) - 1
         for y = min_y, max_y do
             for x = min_x, max_x do
-                local key = tostring(x) .. ":" .. tostring(y)
+                local key = cell_key(x, y)
                 local cell = cells[key]
                 if not cell then cell = {}; cells[key] = cell end
                 cell[#cell + 1] = index
@@ -289,7 +312,7 @@ local function candidate_is_occupied(candidate, work)
     local seen = {}
     for y = math.floor(rect.y), math.ceil(rect.y + rect.h) - 1 do
         for x = math.floor(rect.x), math.ceil(rect.x + rect.w) - 1 do
-            local indices = cells[tostring(x) .. ":" .. tostring(y)] or {}
+            local indices = cells[cell_key(x, y)] or {}
             for _, index in ipairs(indices) do
                 if not seen[index] then
                     seen[index] = true

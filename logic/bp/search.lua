@@ -2309,6 +2309,7 @@ function Search.step(container, budget)
                         state.work.route_split = nil
                         state.work.route = Route.begin(route_input)
                         trial_set_phase(state, "route")
+                        budget.ops = 0 --round 56 gate: route steps start on a fresh tick (blue tick 622, 55 ms)
                     else
                         if state.work.trial and state.work.trial.running then
                             state.work.trial_finish={result="fail",code=state.work.route_input_error and state.work.route_input_error.code or "BP_R_INPUT"}
@@ -2426,14 +2427,24 @@ function Search.step(container, budget)
                 state.work.route.result and state.work.route.result.entities)
             state.work.hands_pruned = true
             budget.ops = 0
-        elseif state.phase == "hands" then
-            state.work.hands_pruned = nil
+        elseif state.phase == "hands" and state.work.hands_pruned == true then
+            --Copies, power input and Power.begin take a tick each (blue tick 1123: 65 ms together).
             local all = list_copy(state.work.materialized.entities)
             append_all(all, state.work.route.result and state.work.route.result.entities)
             state.work.hand_entities = all
+            state.work.hands_pruned = "copied"
+            budget.ops = 0
+        elseif state.phase == "hands" and state.work.hands_pruned == "copied" then
+            state.work.hands_power_input = make_power_input(state, state.work.grid, state.work.hand_entities,
+                state.work.roboports, state.work.robo_obstacles)
+            state.work.hands_pruned = "input"
+            budget.ops = 0
+        elseif state.phase == "hands" then
+            state.work.hands_pruned = nil
+            local power_input = state.work.hands_power_input
+            state.work.hands_power_input = nil
             state.work.power_split = nil
-            state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
-                state.work.roboports, state.work.robo_obstacles))
+            state.work.power = Power.begin(power_input)
             trial_set_phase(state, "power")
             --Round 56 gate: BeaconPrune + power input + Power.begin + power steps made one 51 ms tick (red-green
             --tick 237). Power steps start on a fresh tick; the rest of this one is left, not spent.
