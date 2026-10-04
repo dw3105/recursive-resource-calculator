@@ -16,6 +16,14 @@ local function upvalue(fn, wanted, seen)
     end
 end
 
+local function set_upvalue(fn, wanted, replacement)
+    for index = 1, math.huge do
+        local name = debug.getupvalue(fn, index)
+        if not name then return false end
+        if name == wanted then debug.setupvalue(fn, index, replacement); return true end
+    end
+end
+
 for _, shape in ipairs(H.shapes()) do
     H.test(shape .. " PC publish digest demand and persistence copy count", function()
         local world = H.new_world(shape)
@@ -32,6 +40,15 @@ for _, shape in ipairs(H.shapes()) do
         local Registry = require "logic.registry"
         Registry.calculation = {get = function() return nil end}
         local Generation = require "logic.bp.generation"
+        local canonical_digest = upvalue(Generation.register, "canonical_digest")
+        H.equal(type(canonical_digest), "function", "PC1 reaches the digest function for its call probe")
+        local original_sha = upvalue(canonical_digest, "sha256")
+        H.equal(type(original_sha), "function", "PC1 finds the pure Lua SHA-256 implementation")
+        local sha_calls = 0
+        H.equal(set_upvalue(canonical_digest, "sha256", function(value)
+            sha_calls = sha_calls + 1
+            return original_sha(value)
+        end), true, "PC1 wraps the digest SHA function")
         local Search = require "logic.bp.search"
         local layout = {entities = {{name = "assembling-machine-1", position = {x = 0, y = 0}}}}
         Search.begin = function(input) return {input = input, phase = "search", progress = {done_units = 0, total_units = 1}} end
@@ -56,6 +73,7 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(status.state, "success", "publish completes")
         H.equal(type(status.blueprint_string), "string", "delivered bytes remain available")
         H.equal(json_calls, 1, "PC1 skips the additional canonical JSON conversion used only for hashing")
+        H.equal(sha_calls, 0, "PC1 publish without demand makes no sha256 call")
         local state = storage.blueprint_generations
         local record = state.jobs[id]
         H.equal(record.canonical_sha256, nil, "PC1 does not persist an unused digest")
@@ -86,6 +104,7 @@ for _, shape in ipairs(H.shapes()) do
         local expected_digest = expected:read("*l")
         expected:close()
         H.equal(api_status.canonical_sha256, expected_digest, "PC3 digest matches the pinned base digest")
+        H.equal(sha_calls, 1, "PC3 demand invokes sha256 once")
         io.write("PC3\n")
     end)
 end
