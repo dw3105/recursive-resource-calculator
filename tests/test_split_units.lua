@@ -60,6 +60,9 @@ H.test("SU4 census and sheet unit addresses use their required prefixes", functi
     H.equal(J.classname("test_turn_flip_census", "case-x"), "census/case-x", "census prefix")
     H.equal(J.classname("test_sheets", "case-y"), "sheets/case-y", "sheet prefix")
     H.equal(J.classname("test_turn_flip_sims", "case-z"), "turnflip/case-z", "turnflip prefix")
+    H.equal(J.classname("tests/game/test_sheets.lua", "case-y"), "sheets/case-y", "sheet simulation path prefix")
+    H.equal(J.classname("tests/game/test_turn_flip_sims.lua", "case-z"), "turnflip/case-z", "Turn/Flip simulation path prefix")
+    H.equal(J.classname("tests/game/test_probe.lua", "probe"), "game/test_probe", "ordinary headless prefix")
     print("SU4")
 end)
 
