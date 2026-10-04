@@ -244,3 +244,4 @@
 | `313` | `rrc/agent` | publish: sha256 on demand, one persist copy (generation.lua) (round 56) | 2026-10-04 |
 | `314` | `rrc/agent` | suite trim: Turn/Flip slice, twins vanilla only (round 56) | 2026-10-04 |
 | `315` | `rrc/agent` | split units (RRC_CASE, JUnit) + Suite Runner recipe, image, lock (round 56) | 2026-10-04 |
+| `310b` | `rrc/agent` | Groups cache owned by caller, cheap key, real per-hand slices (redo of 310 after integrator review) (round 56) | 2026-10-04 |
