@@ -114,7 +114,7 @@ local function append_entities(source, result, seen)
     for index, raw in ipairs(list_or_map(source)) do
         if type(raw) == "table" then
             local id = entity_id(raw, index)
-            local key = type(id) .. ":" .. tostring(id)
+            local key = type(id) .. ":" .. (type(id) == "string" and id or tostring(id))
             if not seen[key] then
                 seen[key] = true
                 result[#result + 1] = raw
@@ -200,10 +200,19 @@ local function sort_entities(entities)
     return ordered
 end
 
+--Text of small whole numbers, built once (entity numbers repeat in every serialize; pure memo).
+local integer_text = {}
 local function add_reference(map, value, number)
     if value == nil then return end
     map[value] = number
-    map[tostring(value)] = number
+    --A string is its own text: same map without a tostring per reference (round 56 gate, magenta success tick).
+    if type(value) == "string" then return end
+    local text
+    if type(value) == "number" and value >= 1 and value <= 1000000 and value == math.floor(value) then
+        text = integer_text[value]
+        if not text then text = tostring(value); integer_text[value] = text end
+    else text = tostring(value) end
+    map[text] = number
 end
 
 local function order_and_map(entities)
