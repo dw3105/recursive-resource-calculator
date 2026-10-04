@@ -29,3 +29,4 @@ local b=B.apply_offline({catalog=catalog21},"2.1")
 local e=b.catalog.recipe["simple-coal-liquefaction"].fluid_boxes["oil-refinery"]["heavy-oil"]
 assert(e and #e.boxes==1 and e.boxes[1]==3,"BO3 2.1 fixture binding")
 print("BO3")
+print("test_box_binding_offline: 3 cases, 3 passed, 0 failed")

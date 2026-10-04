@@ -10,3 +10,4 @@ assert(same:match("ROW case=x pack=layered ticks=3 worst_ms=4%.00 cpu_s=2%.00 sh
 print("GT1")
 assert(run("slow"):match("verdict=SLOWER"),"GT2")
 print("GT2")
+print("test_gate56: 2 cases, 2 passed, 0 failed")
