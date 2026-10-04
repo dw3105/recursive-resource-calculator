@@ -2297,6 +2297,10 @@ function Search.step(container, budget)
                         state.work.pack.result and state.work.pack.result.placements)
                     state.work.materialized = {blocks = blocks, entities = entities, ports = ports}
                     Hands.offer_slides(state.work.materialized, state.work.grid)
+                    state.work.pack_split = "seat"
+                    --Round 56 gate (magenta drawn tick 1547, 52 ms): Seat gets a tick of its own on big sheets.
+                    if handoff_yield(state) then budget.ops = 0 end
+                elseif state.work.pack_split == "seat" then
                     local settings = state.work.input.settings or {}
                     --Integrator round 54: Seat moves every edge-fed hand to the face nearest the input edge. On a Block
                     --turned sideways that face already carries both fluids, and the extra item boxed the other one in
@@ -2307,10 +2311,21 @@ function Search.step(container, budget)
                     end
                     state.work.pack_split = "route_input"
                     if handoff_yield(state) then budget.ops = 0 end
+                elseif state.work.pack_split == "route_input" then
+                    --Round 56 gate (magenta drawn tick 1548, 54 ms): route input on its own tick, Route.begin on the next.
+                    local blocks, ports = state.work.materialized.blocks, state.work.materialized.ports
+                    state.work.pending_route_input = {value = make_route_input(state, state.work.grid, blocks, ports,
+                        state.work.robo_obstacles)}
+                    state.work.pack_split = "route_begin"
+                    if handoff_yield(state) then budget.ops = 0 end
                 else
                     state.work.pack_split = nil
                     local blocks, ports = state.work.materialized.blocks, state.work.materialized.ports
-                    local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
+                    local pending = state.work.pending_route_input
+                    state.work.pending_route_input = nil
+                    local route_input
+                    if pending then route_input = pending.value
+                    else route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles) end
                     if route_input and state.work.trial and state.work.trial.running then
                         local options=state.work.trial_route_options or {}
                         if options.collectors ~= nil then route_input.collectors=options.collectors end
