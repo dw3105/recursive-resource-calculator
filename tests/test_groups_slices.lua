@@ -153,4 +153,36 @@ H.test("GS4 fixture result remains stable", function()
     print("GS4")
 end)
 
+H.test("GS10 cache save and hit share the read-only input, own answer copied", function()
+    local cache = {}
+    local first = finish(fixture, 4000, cache)
+    local saved = cache.entries[first.work.cache_key]
+    H.equal(saved.work.input == fixture, true, "cache entry shares stage input (no catalog copy)")
+    H.equal(saved.result ~= first.result, true, "cache entry owns its result copy")
+    local hit = Groups.begin(fixture, cache)
+    H.equal(hit.cache_hit, true, "second begin hits")
+    H.equal(hit.work.input.catalog == fixture.catalog, true, "hit shares catalog")
+    H.equal(hit.result ~= saved.result, true, "hit owns its result copy")
+    H.equal(digest(hit.result), digest(first.result), "hit result equals fresh result")
+    print("GS10")
+end)
+
+H.test("GS11 am2 Groups with caller cache: every step fits the 50 ms model (cache save + hand search)", function()
+    --Round 56 gate 2026-10-04: base 3078466 weighted (cache copy of the stage input + per-cell member scans).
+    local pipe = assert(io.popen("lua5.2 tests/fixtures/r56/310/groups_tick_cost.lua tests/fixtures/r56/310/groups_am2.json 4000 cache 2>&1"))
+    local out = pipe:read("*a"); pipe:close()
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(worst ~= nil and worst <= 2440000, true, "every am2 Groups step fits the 50 ms model: " .. tostring(worst) .. " " .. out)
+    print("GS11")
+end)
+
+H.test("GS12 am2 hand search walks only the endpoint band: worst cached step under 0.5 M weighted", function()
+    --Round 56 gate 2026-10-04: 981466 weighted before the band (stack1 drawn Groups tick 52.95 ms); GS4 shas unchanged.
+    local pipe = assert(io.popen("lua5.2 tests/fixtures/r56/310/groups_tick_cost.lua tests/fixtures/r56/310/groups_am2.json 4000 cache 2>&1"))
+    local out = pipe:read("*a"); pipe:close()
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(worst ~= nil and worst <= 500000, true, "am2 Groups worst step: " .. tostring(worst) .. " " .. out)
+    print("GS12")
+end)
+
 H.done("test_groups_slices")

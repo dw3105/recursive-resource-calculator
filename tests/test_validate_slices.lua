@@ -27,4 +27,43 @@ H.test("VS6 every Validate.step at 4000 ops fits the 50 ms Tick cost", function(
     end
     print("VS6")
 end)
+H.test("VS8 red-green validate state: every step fits the 50 ms model (sort keys and tile keys built once)", function()
+    --Round 56 gate 2026-10-04: base 3312046 weighted, 22.6k tostring calls in one tick (65 ms).
+    local out = run("lua5.2 tests/fixtures/r56/312/validate_state_tick_cost.lua tests/fixtures/r56/rg_validate_t812.lua.gz 4000")
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(worst ~= nil and worst <= 2440000, true, "every validate step fits the 50 ms model: " .. tostring(worst) .. " " .. out)
+    H.equal(out:match("codes=(%d+)"), "0", "same verdict: no codes")
+    print("VS8")
+end)
+
+H.test("VS9 blue beacon pass: same answer within the 50 ms model (per-beacon and per-pair answers built once)", function()
+    --Round 56 gate 2026-10-04: base 5473472 weighted in one call (module lists re-expanded for every match).
+    local out = run("lua5.2 tests/fixtures/r56/312/validate_phase_cost.lua tests/fixtures/r56/312/blue_val_beacon.lua.gz beacon")
+    local weighted = tonumber(out:match("WEIGHTED (%d+)"))
+    H.equal(out:match("SIG (%x+)"), "7dcef8a8", "same codes and beacon effects: " .. out)
+    H.equal(weighted ~= nil and weighted <= 1000000, true, "beacon pass fits a tick: " .. tostring(weighted))
+    print("VS9")
+end)
+
+H.test("VS10 a one-shot pass asks for a fresh tick", function()
+    local G = require "tools.lib.graph_dump"
+    local Validate = require "logic.bp.validate"
+    local state = G.load("tests/fixtures/r56/312/blue_val_beacon.lua.gz")
+    local budget = {ops = 4000}
+    Validate.step(state, budget)
+    H.equal(state.yield_tick, true, "beacon pass yields")
+    H.equal(budget.ops > 0, true, "the unused rest is handed back, not spent")
+    print("VS10")
+end)
+
+H.test("VS11 blue physical: worst machine step under 2.2 M weighted (memoised kind/rect, numeric cell index)", function()
+    --Round 56 gate 2026-10-04: base 2437418 weighted (drawn blue 3.0 M); same codes and witnesses after.
+    local out = run("lua5.2 tests/fixtures/r56/312/validate_physical_cost.lua tests/fixtures/r56/312/blue_val_physical.lua.gz")
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(out:match("ERRORS (%d+)"), "0", "same verdict: " .. out)
+    H.equal(out:match("WITNESSES (%d+)"), "216", "same transfer witnesses: " .. out)
+    H.equal(worst ~= nil and worst <= 2200000, true, "physical step fits: " .. tostring(worst))
+    print("VS11")
+end)
+
 H.done("test_validate_slices")

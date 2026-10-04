@@ -84,8 +84,10 @@ end
 
 local function sorted_keys(map)
     local result = {}
-    for key, _ in pairs(map or {}) do result[#result + 1] = key end
-    table.sort(result, function(a, b) return tostring(a) < tostring(b) end)
+    local text = {}
+    for key, _ in pairs(map or {}) do result[#result + 1] = key; text[key] = tostring(key) end
+    --Same comparisons as tostring(a) < tostring(b), each key's text built once (round 56 gate Tick cost).
+    table.sort(result, function(a, b) return text[a] < text[b] end)
     return result
 end
 
@@ -404,7 +406,11 @@ local function collect_entities(root, catalog)
             end
         end
     end
-    table.sort(result, function(a, b) return tostring(id_of(a)) < tostring(id_of(b)) end)
+    --Same comparisons as tostring(id_of(a)) < tostring(id_of(b)), each id's text built once (round 56 gate: 11k
+    --tostring calls in one tick on red-green).
+    local id_text = {}
+    for _, entity in ipairs(result) do id_text[entity] = tostring(id_of(entity)) end
+    table.sort(result, function(a, b) return id_text[a] < id_text[b] end)
     local infos = {}
     for index, entity in ipairs(result) do infos[index] = physical_info(entity, catalog, index) end
     return result, infos
@@ -515,15 +521,41 @@ local function multi_flow_hands_enabled(work)
     return multi_flow_hands
 end
 
+--Lower-cased entity names and whether they name a splitter (pure memo by name).
+local name_lower_memo, name_splitter_memo = {}, {}
+local function name_lower(name)
+    local text = name_lower_memo[name]
+    if text == nil then text = tostring(name):lower(); name_lower_memo[name] = text end
+    return text
+end
+local function name_has_splitter(name)
+    local hit = name_splitter_memo[name]
+    if hit == nil then hit = tostring(name):find("splitter", 1, true) ~= nil; name_splitter_memo[name] = hit end
+    return hit
+end
+
+--transport_kind and entity_tile_rect depend on the info table only, which validate never changes; the physical
+--walk asked them again for every visit (blue: 2.4-3.0 M instructions per machine, round 56 gate). Weak-key memos
+--return the same values.
+local transport_kind_memo = setmetatable({}, {__mode = "k"})
+local tile_rect_memo = setmetatable({}, {__mode = "k"})
+local transport_kind_raw
 local function transport_kind(info)
     if not info then return nil end
+    local hit = transport_kind_memo[info]
+    if hit ~= nil then return hit or nil end
+    local kind = transport_kind_raw(info)
+    transport_kind_memo[info] = kind or false
+    return kind
+end
+transport_kind_raw = function(info)
     if info.kind == "belt" then return "belt" end
     if info.kind == "pipe" then return "pipe" end
     local entity, spec = info.entity or {}, info.spec or {}
     local kind = entity.kind or entity.type or spec.etype
     if kind == "transport-belt" or kind == "underground-belt" or kind == "splitter" then return "belt" end
     if kind == "pipe" or kind == "pipe-to-ground" then return "pipe" end
-    local name = tostring(name_of(entity) or ""):lower()
+    local name = name_lower(name_of(entity) or "")
     if name:find("underground-belt", 1, true) or name:find("transport-belt", 1, true) or name:find("splitter", 1, true) then return "belt" end
     if name == "belt" or name == "underground" or name:find("belt", 1, true) then return "belt" end
     if name == "pipe" or name == "pipe-to-ground" or name:find("pipe", 1, true) then return "pipe" end
@@ -552,21 +584,48 @@ local function point_key(x, y)
     row[y] = key; point_key_count = point_key_count + 1
     return key
 end
-
---Lower-cased entity names and whether they name a splitter (pure memo by name).
-local name_lower_memo, name_splitter_memo = {}, {}
-local function name_lower(name)
-    local text = name_lower_memo[name]
-    if text == nil then text = tostring(name):lower(); name_lower_memo[name] = text end
-    return text
+--Numeric twin of work.transport_by_cell (same lists, built once per table, weak memo so saves stay the same size):
+--the physical walk looked up 25 string keys per visited belt (round 56 gate, blue drawn physical 2.5 M per machine).
+--Any key that is not a plain integer pair (or is -0) keeps the string path for the whole table.
+local cells_num_memo = setmetatable({}, {__mode = "k"})
+local NO_CELLS = {}
+local function cells_index(work)
+    local by_cell = work.transport_by_cell
+    if not by_cell then return false end
+    local index = cells_num_memo[by_cell]
+    if index == nil then
+        index = {}
+        for key, list in pairs(by_cell) do
+            local kx, ky = string.match(key, "^(-?%d+):(-?%d+)$")
+            kx, ky = tonumber(kx), tonumber(ky)
+            if kx == nil or ky == nil or (kx == 0 and key:sub(1, 1) == "-") or (ky == 0 and key:find(":-", 1, true)) then
+                index = false; break
+            end
+            index[(kx + 1048576) * 2097152 + (ky + 1048576)] = list
+        end
+        cells_num_memo[by_cell] = index
+    end
+    return index
 end
-local function name_has_splitter(name)
-    local hit = name_splitter_memo[name]
-    if hit == nil then hit = tostring(name):find("splitter", 1, true) ~= nil; name_splitter_memo[name] = hit end
-    return hit
+local function cells_at(work, x, y)
+    local by_cell = work.transport_by_cell
+    if not by_cell then return NO_CELLS end
+    local index = cells_index(work)
+    if index == false then return by_cell[point_key(x, y)] or NO_CELLS end
+    x, y = math.floor(x), math.floor(y)
+    if (x == 0 and 1 / x < 0) or (y == 0 and 1 / y < 0) then return by_cell[point_key(x, y)] or NO_CELLS end
+    return index[(x + 1048576) * 2097152 + (y + 1048576)] or NO_CELLS
 end
 
+local entity_tile_rect_raw
 local function entity_tile_rect(info)
+    local hit = tile_rect_memo[info]
+    if hit then return hit[1], hit[2], hit[3], hit[4] end
+    local x, y, w, h = entity_tile_rect_raw(info)
+    tile_rect_memo[info] = {x, y, w, h}
+    return x, y, w, h
+end
+entity_tile_rect_raw = function(info)
     local entity = info.entity or {}
     --A player's captured catalog lists machines only (green science sheet, 2026-09-24: no `splitter` spec), so a
     --splitter fell back to one tile and its second output was never walked. A splitter is two tiles wide.
@@ -638,7 +697,7 @@ local function transport_neighbors(work, info, wanted_flow)
     local result, seen = {}, {}
     local kind = transport_kind(info)
     local function add_at(x, y)
-        for _, next_info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}) do
+        for _, next_info in ipairs(cells_at(work, x, y)) do
             local next_entity = next_info.entity or {}
             local next_kind = transport_kind(next_info)
             local next_name = name_lower(name_of(next_entity) or "")
@@ -781,8 +840,22 @@ local function tile_of(info)
     return math.floor(info.cx + EPSILON), math.floor(info.cy + EPSILON)
 end
 
+--Same strings as tostring(x) .. ":" .. tostring(y), built once per exact (x, y) (round 56 gate Tick cost). Pure memo,
+--cleared when large; a non-number, NaN or zero (-0 prints "-0") takes the old path.
+local tile_key_memo, tile_key_count = {}, 0
 local function tile_key(x, y)
-    return tostring(x) .. ":" .. tostring(y)
+    if type(x) ~= "number" or type(y) ~= "number" or x ~= x or y ~= y or x == 0 or y == 0 then return tostring(x) .. ":" .. tostring(y) end
+    local row = tile_key_memo[x]
+    if row then
+        local key = row[y]
+        if key then return key end
+    else
+        if tile_key_count >= 262144 then tile_key_memo, tile_key_count = {}, 0 end
+        row = {}; tile_key_memo[x] = row
+    end
+    local key = tostring(x) .. ":" .. tostring(y)
+    row[y] = key; tile_key_count = tile_key_count + 1
+    return key
 end
 
 local function endpoint_type(info)
@@ -875,7 +948,7 @@ end
 
 local coordinate_key, make_score
 
-local function make_work(input)
+local function make_work_base(input)
     input = type(input) == "table" and input or {}
     local root = input.candidate or input.result or input
     local plan = input.plan or root.plan
@@ -912,16 +985,25 @@ local function make_work(input)
             connection_witnesses = {}, transfer_witnesses = {},
             peak_power_w = 0, pollution_per_min = 0},
     }
+    return work
+end
+
+--Round 56 gate: make_work cost 2.4 M instructions in one tick on blue (collect 1.46 M, score 0.42 M, transport
+--0.39 M). Validate.begin keeps the input; the first steps build the work in these three parts, one per tick.
+local function make_work_geometry(work)
     work.geometry_world, work.geometry_masks = {}, {}
-    for index, info in ipairs(infos) do
+    for index, info in ipairs(work.infos) do
         work.geometry_world[index] = box_world(info)
         work.geometry_masks[index] = collision_mask_set(info.mask)
     end
     work.coordinate_key = coordinate_key(work)
+end
+
+local function make_work_index(work)
     work.transport_by_cell = transport_cells(work)
     work.initial_score = make_score(work)
-    return work
 end
+
 
 local function disjoint_union(work, a, b)
     local parent = work.power_parent
@@ -1094,14 +1176,31 @@ end
 
 local function check_beacons(work)
     local influence_by_machine, groups_by_machine = {}, {}
+    --Per beacon (projection, supply box, module effects) and per machine (world box), built once: the pair loop below
+    --rebuilt them for every machine x beacon pair (blue 5.47 M weighted in one tick, round 56 gate). Same values.
+    local projection_of, supply_of, effects_of = {}, {}, {}
+    --beacon_group_matches re-expanded both module lists per call; the answer depends on (beacon, group) only.
+    local match_memo = {}
+    local function group_matches(beacon, group)
+        local row = match_memo[beacon]
+        if not row then row = {}; match_memo[beacon] = row end
+        local hit = row[group]
+        if hit == nil then hit = beacon_group_matches(beacon, group); row[group] = hit end
+        return hit
+    end
+    for _, beacon in ipairs(work.beacons) do
+        local projection = beacon_projection(beacon, work.catalog)
+        projection_of[beacon] = projection
+        --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9); a pole's
+        --counts from its centre. Add the half footprint here only.
+        local half_w, half_h = finite(beacon.w, 3) / 2, finite(beacon.h, finite(beacon.w, 3)) / 2
+        supply_of[beacon] = Geometry.supply_box(beacon.cx, beacon.cy, projection.supply_w + half_w, projection.supply_h + half_h)
+    end
     for _, machine in ipairs(work.machines) do
         local influencing, effects = {}, {speed = 0, consumption = 0, pollution = 0, quality = 0}
+        local machine_box = box_world(machine)
         for _, beacon in ipairs(work.beacons) do
-            local projection = beacon_projection(beacon, work.catalog)
-            --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9); a pole's
-            --counts from its centre. Add the half footprint here only.
-            local half_w, half_h = finite(beacon.w, 3) / 2, finite(beacon.h, finite(beacon.w, 3)) / 2
-            if box_in_area(machine, beacon.cx, beacon.cy, projection.supply_w + half_w, projection.supply_h + half_h) then
+            if Geometry.box_overlaps_supply(machine_box, supply_of[beacon]) then
                 influencing[#influencing + 1] = beacon
                 if machine.entity.forbids_speed_beacon or machine.entity.has_quality_module
                     or (work.steps[machine.entity.step_id] and (work.steps[machine.entity.step_id].forbids_speed_beacon
@@ -1115,17 +1214,19 @@ local function check_beacons(work)
         for _, group in ipairs(configured_groups(machine, work)) do
             local required = finite(group.count_per_machine, finite(group.count, 0))
             if required > 0 then
-                local got = 0; for _, beacon in ipairs(influencing) do if beacon_group_matches(beacon, group) then got = got + 1 end end
+                local got = 0; for _, beacon in ipairs(influencing) do if group_matches(beacon, group) then got = got + 1 end end
                 if got + tolerance(got) < required then error_record(work.errors, "BP_V_BEACON_COVERAGE_SHORT", {tostring(machine.id)}, {group = group.signature or group.name, required = required, got = got}) end
             end
         end
         local total = #influencing
         for _, beacon in ipairs(influencing) do
-            local projection = beacon_projection(beacon, work.catalog); local count = total
+            local projection = projection_of[beacon]; local count = total
             if projection.counter == "same_type" then count = 0; for _, peer in ipairs(influencing) do if peer.name == beacon.name then count = count + 1 end end end
             local sample = 1
             if type(projection.profile) == "table" and #projection.profile > 0 then sample = finite(projection.profile[math.max(1, math.min(#projection.profile, count))], 1) end
-            local weight = projection.effectivity * sample; local module_effects = module_effect_total(work.catalog, beacon.entity.modules)
+            local weight = projection.effectivity * sample
+            local module_effects = effects_of[beacon]
+            if not module_effects then module_effects = module_effect_total(work.catalog, beacon.entity.modules); effects_of[beacon] = module_effects end
             for _, key in ipairs({"speed", "consumption", "pollution", "quality"}) do effects[key] = effects[key] + weight * module_effects[key] end
         end
         --A step can have several physical machines.  The effect belongs to the machine box that was actually
@@ -1148,7 +1249,7 @@ local function check_beacons(work)
                     if required > 0 then
                         local got, removes = 0, false
                         for _, candidate in ipairs(influencing) do
-                            if beacon_group_matches(candidate, group) then
+                            if group_matches(candidate, group) then
                                 got = got + 1
                                 if candidate.id == beacon.id then removes = true end
                             end
@@ -1165,7 +1266,7 @@ local function check_beacons(work)
             for _, candidate in ipairs(influencing) do
                 if candidate.id == beacon.id then
                     for _, group in ipairs(groups) do
-                        if finite(group.count_per_machine, finite(group.count, 0)) > 0 and beacon_group_matches(beacon, group) then
+                        if finite(group.count_per_machine, finite(group.count, 0)) > 0 and group_matches(beacon, group) then
                             load_bearing = true
                             break
                         end
@@ -2510,10 +2611,23 @@ local function check_physical_transfers(work, machine_index, final)
             end
             local candidates = {}
             --Belts, splitters and a side-load sit next to what they feed (a splitter is two tiles wide).
-            for oy = -2, 2 do
-                for ox = -2, 2 do
-                    for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x + ox, y + oy)] or {}) do
-                        candidates[#candidates + 1] = candidate
+            local index = cells_index(work)
+            local fx, fy = math.floor(x), math.floor(y)
+            if index and not ((fx == 0 and 1 / fx < 0) or (fy == 0 and 1 / fy < 0)) then
+                --Same tiles, same order as the loop below: floor(x + ox) = floor(x) + ox for whole ox.
+                for oy = -2, 2 do
+                    local row = fy + oy + 1048576
+                    for ox = -2, 2 do
+                        local cell_list = index[(fx + ox + 1048576) * 2097152 + row]
+                        if cell_list then for i = 1, #cell_list do candidates[#candidates + 1] = cell_list[i] end end
+                    end
+                end
+            else
+                for oy = -2, 2 do
+                    for ox = -2, 2 do
+                        for _, candidate in ipairs(cells_at(work, x + ox, y + oy)) do
+                            candidates[#candidates + 1] = candidate
+                        end
                     end
                 end
             end
@@ -3300,12 +3414,33 @@ local function finish(work, state)
 end
 
 function Validate.begin(input)
-    local work = make_work(input)
-    return {done = false, ok = nil, cursor = {phase = "geometry", index = 1, other_index = 2}, progress = {phase = "validating", done_units = 0, total_units = math.max(1, #work.infos + #work.wires + #work.segments + #work.flows)}, result = nil, errors = nil, ops_used = 0, _work = work}
+    return {done = false, ok = nil, cursor = {phase = "setup", part = 1}, progress = {phase = "validating", done_units = 0, total_units = 1}, result = nil, errors = nil, ops_used = 0, _input = input}
 end
+
+--One setup part per call (search gives each its own tick). Returns true while setup is not finished.
+function Validate.setup_step(state)
+    if type(state) ~= "table" or state.cursor.phase ~= "setup" then return false end
+    local part = state.cursor.part or 1
+    if part == 1 then
+        state._work = make_work_base(state._input); state.cursor.part = 2
+    elseif part == 2 then
+        make_work_geometry(state._work); state.cursor.part = 3
+    else
+        local work = state._work
+        make_work_index(work)
+        state._input = nil
+        state.cursor = {phase = "geometry", index = 1, other_index = 2}
+        state.progress.total_units = math.max(1, #work.infos + #work.wires + #work.segments + #work.flows)
+    end
+    return state.cursor.phase == "setup"
+end
+
+local YIELD_AFTER = {beacon = true, segments = true, fluid_mix = true, underground = true, shapes = true, physical = true}
 
 function Validate.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
+    if state.cursor.phase == "setup" then Validate.setup_step(state); return state end
+    local approaches = 0
     budget = type(budget) == "table" and budget or {ops = 1}; local ops = math.max(0, math.floor(finite(budget.ops, 1))); local work = state._work
     while ops > 0 and not state.done do
         local phase = state.cursor.phase
@@ -3364,6 +3499,14 @@ function Validate.step(state, budget)
             or phase == "physical" then spent = math.min(ops, 2000) end
         if phase == "port_approaches" then spent = math.min(ops, 20) end
         ops = ops - spent; state.ops_used = state.ops_used + spent; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + spent)
+        --Round 56 gate (blue, legalcopilot-dev 2026-10-04): the 2000-op charges above meant "one pass, one tick" at
+        --2000 ops per tick; at 4000 two passes shared a tick (up to 97 ms), and 200 port approaches fit one tick. Ask the
+        --caller for a fresh tick instead (ops_used unchanged): after each one-shot pass and every 60 port approaches.
+        if YIELD_AFTER[phase] then state.yield_tick = true; break end
+        if phase == "port_approaches" then
+            approaches = approaches + 1
+            if approaches >= 60 then state.yield_tick = true; break end
+        end
     end
     budget.ops = ops; return state
 end

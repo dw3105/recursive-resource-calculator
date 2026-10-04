@@ -13,7 +13,10 @@ local NEIGHBOUR_STEPS = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}}
 
 function PipeRuns.prune_redundant(work, h)
     local by_cell = work.segments_by_cell or {}
-    local function key(x, y) return h.key(x, y) end
+    local key = h.key
+    --Round 56 gate (blue publish tick 201 ms, 2 rounds x 562 checks): a check records every cell key it reads; the
+    --next round re-checks a cell only when a later removal hit that set, else the same reads give the same answer.
+    local reads = nil
     local entity_by_segment = {}
     -- legalcopilot-dev, lua5.2, 2026-09-28: index once per call; all fixes cut blue publish from 573-773 to 98 ms, with golden sha unchanged.
     local entity_by_tile = {}
@@ -47,42 +50,71 @@ function PipeRuns.prune_redundant(work, h)
         local dx, dy = Grid.dir_vector(entity.direction)
         return dx ~= nil and x + dx == tx and y + dy == ty
     end
-    local function neighbours(x, y, flow, skip)
-        local result, here = {}, by_cell[key(x, y)]
-        for _, d in ipairs(NEIGHBOUR_STEPS) do
-            local nx, ny = x + d[1], y + d[2]
-            local nk = key(nx, ny)
-            local other = by_cell[nk]
-            if nk ~= skip and live(other) and flow_of(other) == flow
-                and opens_to(here, x, y, nx, ny) and opens_to(other, nx, ny, x, y) then
-                result[#result + 1] = {x = nx, y = ny}
+    --Neighbour candidates per cell, built once: prune only removes cells, so a later call filters the same list by
+    --liveness, flow and skip (same keys read, same order; round 56 gate blue publish tick).
+    local adjacency = {}
+    local function neighbours(x, y, flow, skip, known_key)
+        local here_key = known_key or key(x, y)
+        local here = by_cell[here_key]
+        local entry = adjacency[here_key]
+        if not entry or entry.here ~= here then
+            entry = {here = here, keys = {}, cands = {}}
+            for index, d in ipairs(NEIGHBOUR_STEPS) do
+                local nx, ny = x + d[1], y + d[2]
+                local nk = key(nx, ny)
+                entry.keys[index] = nk
+                local other = by_cell[nk]
+                if here and live(other) and opens_to(here, x, y, nx, ny) and opens_to(other, nx, ny, x, y) then
+                    entry.cands[#entry.cands + 1] = {key = nk, other = other, x = nx, y = ny, flow = flow_of(other)}
+                end
+            end
+            if here and here.underground then
+                local partner_key = here_key == here.underground_entry_key
+                    and here.underground_exit_key or here.underground_entry_key
+                entry.partner_key = partner_key
+                if partner_key then
+                    local px, py = h.coordinate_from_key(partner_key)
+                    entry.partner = {x = px, y = py, key = partner_key}
+                end
+            end
+            adjacency[here_key] = entry
+        end
+        --A check reads this cell, its four neighbours and its underground partner. Only the cell is recorded: the
+        --staleness test below expands it (a removed cell is plain, never a partner).
+        if reads then reads[here_key] = true end
+        local result = {}
+        --A candidate's kind and flow never change; only removal does (by_cell cleared, _route_removed set). Callers
+        --only read x, y and key, so the candidate record itself is returned.
+        for _, cand in ipairs(entry.cands) do
+            local other = cand.other
+            if cand.key ~= skip and cand.flow == flow and by_cell[cand.key] == other and not other._route_removed then
+                result[#result + 1] = cand
             end
         end
-        if here and here.underground then
-            local partner_key = key(x, y) == here.underground_entry_key
-                and here.underground_exit_key or here.underground_entry_key
-            local partner = partner_key and by_cell[partner_key]
-            if partner_key and partner_key ~= skip and live(partner) and flow_of(partner) == flow then
-                local px, py = h.coordinate_from_key(partner_key)
-                result[#result + 1] = {x = px, y = py}
+        local partner_key = entry.partner_key
+        if partner_key then
+            local partner = by_cell[partner_key]
+            if partner_key ~= skip and live(partner) and flow_of(partner) == flow then
+                result[#result + 1] = entry.partner
             end
         end
         return result
     end
     local function connected(a, b, flow, skip)
-        local seen, queue, head = {[key(a.x, a.y)] = true}, {a}, 1
+        local seen, queue, head = {[a.key or key(a.x, a.y)] = true}, {a}, 1
         while queue[head] and head <= 64 do
             local cell = queue[head]
             head = head + 1
             if cell.x == b.x and cell.y == b.y then return true end
-            for _, n in ipairs(neighbours(cell.x, cell.y, flow, skip)) do
-                local nk = key(n.x, n.y)
+            for _, n in ipairs(neighbours(cell.x, cell.y, flow, skip, cell.key)) do
+                local nk = n.key or key(n.x, n.y)
                 if not seen[nk] then seen[nk] = true; queue[#queue + 1] = n end
             end
         end
         return false
     end
     local removed, changed = 0, true
+    local removals, checked = {}, {}
     while changed do
         changed = false
         local cells = {}
@@ -94,7 +126,17 @@ function PipeRuns.prune_redundant(work, h)
             local segment = by_cell[cell_key]
             local x, y = h.coordinate_from_key(cell_key)
             local reserved = work.port_cells and work.port_cells[cell_key]
-            if live(segment) and not (reserved and reserved._port_owners) then
+            local memo = checked[cell_key]
+            local stale = memo == nil
+            if memo then
+                for i = memo.seq + 1, #removals do
+                    local r, seen = removals[i], memo.reads
+                    if seen[r.key] or seen[key(r.x + 1, r.y)] or seen[key(r.x - 1, r.y)]
+                        or seen[key(r.x, r.y + 1)] or seen[key(r.x, r.y - 1)] then stale = true; break end
+                end
+            end
+            if stale and live(segment) and not (reserved and reserved._port_owners) then
+                reads = {}
                 local around = neighbours(x, y, flow_of(segment), nil)
                 local redundant = #around >= 2
                 for i = 2, #around do
@@ -102,6 +144,9 @@ function PipeRuns.prune_redundant(work, h)
                         redundant = false
                     end
                 end
+                local my_reads = reads
+                reads = nil
+                if not redundant then checked[cell_key] = {seq = #removals, reads = my_reads} end
                 if redundant then
                     segment._route_removed = true
                     local entity = entity_by_segment[segment.segment_id]
@@ -111,6 +156,7 @@ function PipeRuns.prune_redundant(work, h)
                         if binding.segment_id == segment.segment_id then binding.segment_id = heir.segment_id end
                     end
                     by_cell[cell_key] = nil
+                    removals[#removals + 1] = {key = cell_key, x = x, y = y}
                     removed, changed = removed + 1, true
                 end
             end

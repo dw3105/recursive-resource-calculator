@@ -7,7 +7,8 @@ local JSON = assert(load(gen:sub(a, b - 1) .. "\nreturn JSON"))()
 local input = JSON.decode(assert(io.open(arg[1] or "tests/fixtures/r56/310/blue_bound_groups.json")):read("*a"))
 local Groups = require "logic.bp.groups"
 local ops = tonumber(arg[2]) or 4000
-local state, worst = Groups.begin(input), 0
+--arg[3] == "cache": pass a caller cache, so the finishing step also pays the cache save (round 56 gate spike).
+local state, worst = Groups.begin(input, arg[3] == "cache" and {} or nil), 0
 local native = tostring
 while not state.done do
     local instr, calls = 0, 0

@@ -201,4 +201,23 @@ H.test("FD9 pinned Output shuffle is valid when Output nodes meet", function()
     label("FD9")
 end)
 
+H.test("FD10 step hands back the ops it has left, never more than it got", function()
+    --Round 56 gate (2026-10-04): step handed back ops used, so a call that spent its whole budget left 4000 ops
+    --and search drew again in the same tick (green-1s drawn, 64.54 ms tick).
+    local ns,ls={},{}
+    for i=1,12 do ns[i]=node("n"..i) end
+    for i=1,11 do ls[#ls+1]=link("n"..i,"n"..(i+1)) end
+    for i=1,8 do ls[#ls+1]=link("n"..i,"n"..(i+4)) end
+    local state=FlowDraw.begin({nodes=ns,links=ls,input_edge="top",output_edge="bottom",seed=9,restarts=30,sweeps=8})
+    local spent_whole=false
+    while not state.done do
+        local budget={ops=100}
+        FlowDraw.step(state,budget)
+        H.equal(budget.ops>=0 and budget.ops<=100,true,"left ops within the budget")
+        if not state.done then H.equal(budget.ops,0,"an unfinished draw spent its whole budget"); spent_whole=true end
+    end
+    H.equal(spent_whole,true,"draw took more than one call")
+    label("FD10")
+end)
+
 H.done("test_flow_draw")

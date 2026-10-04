@@ -56,6 +56,21 @@ local function copy(value, seen)
     return result
 end
 
+--Deep copy that keeps the read-only stage input (catalog, snapshot) shared: the Groups cache copies only its own
+--answer. Copying the input made one 2.5 M-instruction tick at 4000 ops (red-10s-bulk tick 6, round 56 gate).
+local function copy_keeping_input(state)
+    local seen = {}
+    local work = state.work or {}
+    local input = work.input
+    if work.cache then seen[work.cache] = work.cache end
+    if type(input) == "table" then
+        seen[input] = input
+        if type(input.catalog) == "table" then seen[input.catalog] = input.catalog end
+        if type(input.snapshot) == "table" then seen[input.snapshot] = input.snapshot end
+    end
+    return copy(state, seen)
+end
+
 local function sorted(list, less)
     table.sort(list, less or function(a, b) return tostring(a) < tostring(b) end)
     return list
@@ -506,10 +521,29 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
     for direction_index, direction in ipairs(directions) do
         local pickup_dx, pickup_dy = Grid.rotate_vector(pickup_offset.x, pickup_offset.y, direction)
         local drop_dx, drop_dy = Grid.rotate_vector(drop_offset.x, drop_offset.y, direction)
-        for y = machine.y - radius, machine.y + machine.h + radius do
-            for x = machine.x - radius, machine.x + machine.w + radius do
-                local rect = {x = x, y = y, w = iw, h = ih}
-                if not rectangles_overlap(rect, machine) then
+        --Round 56 gate (stack1 drawn Groups tick 2.6 M): an endpoint fixed to one member rect or one cell (and not
+        --both) passes only on a band of x and y, since cell_of(x + c) grows with x. Walk that band, widened by one
+        --tile per side against rounding; every skipped cell fails the endpoint test, the visit order is unchanged.
+        local xlo, xhi = machine.x - radius, machine.x + machine.w + radius
+        local ylo, yhi = machine.y - radius, machine.y + machine.h + radius
+        local function band(member, cell, dx, dy)
+            local cx, cy = iw / 2 + dx + Geometry.EPSILON, ih / 2 + dy + Geometry.EPSILON
+            local ax, bx, ay, by
+            if member and not cell then ax, bx, ay, by = member.x, member.x + member.w, member.y, member.y + member.h
+            elseif cell and not member then ax, bx, ay, by = cell[1], cell[1] + 1, cell[2], cell[2] + 1
+            else return end
+            if type(ax) ~= "number" or type(bx) ~= "number" or type(ay) ~= "number" or type(by) ~= "number" then return end
+            xlo = math.max(xlo, math.ceil(ax - cx) - 1); xhi = math.min(xhi, math.ceil(bx - cx))
+            ylo = math.max(ylo, math.ceil(ay - cy) - 1); yhi = math.min(yhi, math.ceil(by - cy))
+        end
+        band(target_member, target_cell, drop_dx, drop_dy)
+        band(source_member, source_cell, pickup_dx, pickup_dy)
+        for y = ylo, yhi do
+            for x = xlo, xhi do
+                --Same test as rectangles_overlap({x, y, iw, ih}, machine) without a table per cell (round 56 gate:
+                --am2 tick 9, 2.2 M instructions in this loop).
+                if not (x < machine.x + machine.w and machine.x < x + iw and y < machine.y + machine.h and machine.y < y + ih) then
+                    local rect = nil
                     local center_x, center_y = x + iw / 2, y + ih / 2
                     local pickup_x, pickup_y = cell_of(center_x + pickup_dx), cell_of(center_y + pickup_dy)
                     local drop_x, drop_y = cell_of(center_x + drop_dx), cell_of(center_y + drop_dy)
@@ -528,12 +562,25 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
                             or not cell_in_rect(machine, target_x, target_y)
                     end
                     local face_ok = true
-                    if port_bound and face ~= nil then
+                    --The face geometry and both endpoints are cheap; the member scans below run only for cells that
+                    --pass them (same answer, round 56 gate).
+                    if port_bound and face ~= nil and target_ok and source_ok then
                         local port_x, port_y = role == "input" and source_x or target_x,
                             role == "input" and source_y or target_y
-                        local endpoint_clear = true
-                        for _, member in ipairs(block.members or {}) do
-                            if cell_in_rect(member, port_x, port_y) then endpoint_clear = false; break end
+                        if face == "top" then
+                            face_ok = port_y < machine.y and port_x >= machine.x and port_x < machine.x + machine.w
+                        elseif face == "bottom" then
+                            face_ok = port_y >= machine.y + machine.h and port_x >= machine.x and port_x < machine.x + machine.w
+                        elseif face == "left" then
+                            face_ok = port_x < machine.x and port_y >= machine.y and port_y < machine.y + machine.h
+                        else
+                            face_ok = port_x >= machine.x + machine.w and port_y >= machine.y and port_y < machine.y + machine.h
+                        end
+                        local endpoint_clear = face_ok
+                        if endpoint_clear then
+                            for _, member in ipairs(block.members or {}) do
+                                if cell_in_rect(member, port_x, port_y) then endpoint_clear = false; break end
+                            end
                         end
                         if endpoint_clear then
                             for _, member in ipairs(block.machines or {}) do
@@ -551,17 +598,9 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
                             end
                         end
                         face_ok = endpoint_clear
-                        if face == "top" then
-                            face_ok = face_ok and port_y < machine.y and port_x >= machine.x and port_x < machine.x + machine.w
-                        elseif face == "bottom" then
-                            face_ok = face_ok and port_y >= machine.y + machine.h and port_x >= machine.x and port_x < machine.x + machine.w
-                        elseif face == "left" then
-                            face_ok = face_ok and port_x < machine.x and port_y >= machine.y and port_y < machine.y + machine.h
-                        else
-                            face_ok = face_ok and port_x >= machine.x + machine.w and port_y >= machine.y and port_y < machine.y + machine.h
-                        end
                     end
                     if target_ok and source_ok and face_ok then
+                        rect = {x = x, y = y, w = iw, h = ih}
                         local blocked = false
                         for _, other in ipairs(occupied) do
                             if other ~= machine and rectangles_overlap(rect, other) then blocked = true; break end
@@ -2776,7 +2815,7 @@ function Groups.begin(input, cache)
     local key = cache and groups_key(input)
     local cached = cache and cache.entries and cache.entries[key]
     if cached then
-        local state = copy(cached)
+        local state = copy_keeping_input(cached)
         state.cache_hit = true
         return state
     end
@@ -2824,7 +2863,7 @@ function Groups.step(state, budget)
             cache.entries = cache.entries or {}
             cache.order = cache.order or {}
             if not cache.entries[key] then cache.order[#cache.order + 1] = key end
-            local saved = copy(state)
+            local saved = copy_keeping_input(state)
             saved.work.cache = nil
             cache.entries[key] = saved
             state.work.cache = nil

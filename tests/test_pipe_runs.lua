@@ -120,4 +120,15 @@ H.test("PR6 a run above an existing same-axis pipe pair is not buried", function
     H.equal(live_at(work, 5, 2) and live_at(work, 5, 2).underground ~= true, true)
 end)
 
+H.test("PR-COST blue publish prune: same answer at a fraction of the cost (cached answers + neighbour records)", function()
+    --Round 56 gate 2026-10-04: base 5589172 weighted on blue's 1318 pipe cells (one 201 ms publish tick).
+    local pipe = assert(io.popen("lua5.2 tests/fixtures/r56/309/prune_tick_cost.lua tests/fixtures/r56/309/blue_prune_work.lua.gz 2>&1"))
+    local out = pipe:read("*a"); pipe:close()
+    local weighted = tonumber(out:match("WEIGHTED (%d+)"))
+    H.equal(out:match("REMOVED (%d+)"), "17", "same pipes removed: " .. out)
+    H.equal(out:match("SHA (%x+)"), "f0cae908", "same kept segments and bindings: " .. out)
+    H.equal(weighted ~= nil and weighted <= 1600000, true, "prune fits beside the rest of the publish tick: " .. tostring(weighted))
+    print("PR-COST")
+end)
+
 H.done("test_pipe_runs")

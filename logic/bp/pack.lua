@@ -331,14 +331,30 @@ local function world_slot(block, x, y, direction, slot)
     return x + dx, y + dy
 end
 
+--First port index per port id text, per block: port_tile scanned every port for every link end of every origin
+--(stack1 drawn: 4.3 M instructions in one pack tick, round 56 gate). Pack never edits block.ports; a weak-key memo
+--gives the same first match.
+local port_index_memo = setmetatable({}, {__mode = "k"})
+local function port_index(block, port_id)
+    local ports = block.ports or {}
+    local map = port_index_memo[block]
+    if not map or map.__count ~= #ports then
+        map = {__count = #ports}
+        for i, port in ipairs(ports) do
+            local text = id_text(port.port_id)
+            if map[text] == nil then map[text] = i end
+        end
+        port_index_memo[block] = map
+    end
+    return map[id_text(port_id)]
+end
+
 local function port_tile(block, placement, endpoint)
     if endpoint.port_id ~= nil then
-        for i, port in ipairs(block.ports or {}) do
-            if id_text(port.port_id) == id_text(endpoint.port_id) then
-                local slot = placement.port_slots and placement.port_slots[i]
-                if slot then return world_slot(block, placement.x, placement.y, placement.dir, slot) end
-                break
-            end
+        local i = port_index(block, endpoint.port_id)
+        if i then
+            local slot = placement.port_slots and placement.port_slots[i]
+            if slot then return world_slot(block, placement.x, placement.y, placement.dir, slot) end
         end
     end
     return placement.x + math.floor(placement.w / 2), placement.y + math.floor(placement.h / 2)
@@ -813,6 +829,10 @@ local function layered_scan(state, block, budget)
         if c then
             ring.found_r = ring.found_r or ring.r
             if better(c, state.cursor.best) then state.cursor.best = c end
+            --A legal origin's link cost grows with the Block's links (stack1 drawn: 2.7 M instructions in one
+            --tick at 4000 ops, round 56 gate). Past SCAN_UNITS link units in one call, ask for a fresh tick;
+            --the walk resumes at the next origin (same order, same pick, budget untouched).
+            state._scan_units = (state._scan_units or 0) + 1 + #(state.links_by_block[id_text(block.block_id)] or {})
         end
         --advance: direction, then the second dy of this dx, then dx, then the ring
         ring.di = ring.di + 1
@@ -825,6 +845,7 @@ local function layered_scan(state, block, budget)
                 if ring.dx > ring.r then ring.r = ring.r + 1; ring.dx = -ring.r end
             end
         end
+        if (state._scan_units or 0) >= Pack.SCAN_UNITS then state.yield_tick = true; return false end
     end
     return false
 end
@@ -1106,9 +1127,12 @@ function Pack.begin(input)
     return state
 end
 
+Pack.SCAN_UNITS = 3000
+
 function Pack.step(state, budget)
     if state.done then return state end
     budget = budget or {ops = 0}
+    state._scan_units = nil
 
     while not state.done do
         if state.pending_place then
@@ -1136,6 +1160,8 @@ function Pack.step(state, budget)
             if layered_scan(state, block, budget) then
                 state.cursor.ring = nil
                 start_place(state, block)
+            elseif state.yield_tick then
+                break
             end
         elseif state.cursor.region_index <= #state.regions then
             if budget.ops == nil or budget.ops <= 0 then break end
