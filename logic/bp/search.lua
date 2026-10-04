@@ -2342,6 +2342,10 @@ function Search.step(container, budget)
             end
         elseif state.phase == "route" then
             if not stage_done(state.work.route) then run_stage(state, "route", Route, budget) end
+            if state.work.route and state.work.route.yield_tick and not stage_done(state.work.route) then
+                state.work.route.yield_tick = nil
+                budget.ops = 0
+            end
             if stage_done(state.work.route) then
                     if not state.work.route.ok then
                         if state.work.trial and state.work.trial.running then

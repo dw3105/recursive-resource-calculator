@@ -131,9 +131,11 @@ local function copy_rect(value)
 end
 
 local function sorted_keys(map)
-    local keys = {}
-    for key, _ in pairs(map or {}) do keys[#keys + 1] = key end
-    table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+    local keys, text = {}, {}
+    for key, _ in pairs(map or {}) do keys[#keys + 1] = key; text[key] = tostring(key) end
+    --Same comparisons as tostring(a) < tostring(b), each key's text built once (round 56 gate: 30k tostring calls
+    --in blue's tidy cleanup tick, 54.6 ms).
+    table.sort(keys, function(a, b) return text[a] < text[b] end)
     return keys
 end
 
@@ -5370,7 +5372,10 @@ function Route.step(state, budget)
         budget.ops = math.max(0, ops)
         return state
     end
-    while ops > 0 and not state.done do
+    --A failed demand restarts the route (restart_with_priority, up to 0.9 M instructions on blue): the next search
+    --starts on a fresh tick (round 56 gate, blue tick 896, 50.7 ms). The caller ends the tick; ops are not spent.
+    state.yield_tick = nil
+    while ops > 0 and not state.done and not state.yield_tick do
         local demand = work.demands[state.cursor.demand_index]
         if not demand then
             if state.tidy == false then
@@ -5558,6 +5563,7 @@ function Route.step(state, budget)
                         local code = search.saw_fluid_mix and "BP_R_FLUID_MIX" or (search.saw_capacity and "BP_R_CAPACITY" or "BP_R_NO_PATH")
                         work.current = nil
                         fail_demand(state, work, demand, code)
+                        state.yield_tick = true
                     end
                 end
                 end
