@@ -697,12 +697,12 @@ tests/fixtures/validate_cryo4_turn4.json	algo	-	stage input captured from a Turn
 tests/fixtures/validate_em1_exit_sideload.json	algo	-	stage input captured from a Turn and Flip census case (round 54); its sheet is built and run by the census sims
 tests/fixtures/validate_plastic4_lane_ok.json	algo	-	stage input captured from a Turn and Flip census case (round 54); its sheet is built and run by the census sims
 tests/fixtures/validate_plastic4_lane_overload.json	algo	-	stage input captured from a Turn and Flip census case (round 54); its sheet is built and run by the census sims
-tests/fixtures/r56/blue_bound_groups.json	catalog	player	round 56 frozen stage input, blue bound (engine box binding), first Groups call; stage state is algo
-tests/fixtures/r56/blue_bound_pack.json	catalog	player	round 56 frozen stage input, blue bound, first Pack call
-tests/fixtures/r56/blue_bound_power.json	catalog	player	round 56 frozen stage input, blue bound, first Power call
-tests/fixtures/r56/blue_bound_route.json	catalog	player	round 56 frozen stage input, blue bound, first Route call
-tests/fixtures/r56/310/blue_bound_groups.json	catalog	player	lane 310 copy of the blue bound Groups input (GS tests)
-tests/fixtures/r56/310/groups_am2.json	catalog	player	lane 310 copy of groups_am2.json (GS4 digest)
+tests/fixtures/r56/blue_bound_groups.json	algo	-	round 56 frozen stage input, blue bound (engine box binding), first Groups call; stage state is algo
+tests/fixtures/r56/blue_bound_pack.json	algo	-	round 56 frozen stage input, blue bound, first Pack call
+tests/fixtures/r56/blue_bound_power.json	algo	-	round 56 frozen stage input, blue bound, first Power call
+tests/fixtures/r56/blue_bound_route.json	algo	-	round 56 frozen stage input, blue bound, first Route call
+tests/fixtures/r56/310/blue_bound_groups.json	algo	-	lane 310 copy of the blue bound Groups input (GS tests)
+tests/fixtures/r56/310/groups_am2.json	algo	-	lane 310 copy of groups_am2.json (GS4 digest)
 tests/fixtures/r56/310/groups_tick_cost.lua	algo	-	GS8 probe: worst Groups.step weighted instructions in a clean lua5.2
 tests/fixtures/r56/311/pack_base.json	algo	-	round-56-base pack placements on the blue bound pack input (PR2/PR3)
 tests/fixtures/r56/311/power_base.json	algo	-	round-56-base power result on the blue bound power input (PF1)
