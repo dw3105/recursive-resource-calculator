@@ -176,4 +176,13 @@ H.test("GS11 am2 Groups with caller cache: every step fits the 50 ms model (cach
     print("GS11")
 end)
 
+H.test("GS12 am2 hand search walks only the endpoint band: worst cached step under 0.5 M weighted", function()
+    --Round 56 gate 2026-10-04: 981466 weighted before the band (stack1 drawn Groups tick 52.95 ms); GS4 shas unchanged.
+    local pipe = assert(io.popen("lua5.2 tests/fixtures/r56/310/groups_tick_cost.lua tests/fixtures/r56/310/groups_am2.json 4000 cache 2>&1"))
+    local out = pipe:read("*a"); pipe:close()
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(worst ~= nil and worst <= 500000, true, "am2 Groups worst step: " .. tostring(worst) .. " " .. out)
+    print("GS12")
+end)
+
 H.done("test_groups_slices")

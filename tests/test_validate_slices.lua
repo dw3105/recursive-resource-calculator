@@ -56,4 +56,14 @@ H.test("VS10 a one-shot pass asks for a fresh tick", function()
     print("VS10")
 end)
 
+H.test("VS11 blue physical: worst machine step under 2.2 M weighted (memoised kind/rect, numeric cell index)", function()
+    --Round 56 gate 2026-10-04: base 2437418 weighted (drawn blue 3.0 M); same codes and witnesses after.
+    local out = run("lua5.2 tests/fixtures/r56/312/validate_physical_cost.lua tests/fixtures/r56/312/blue_val_physical.lua.gz")
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(out:match("ERRORS (%d+)"), "0", "same verdict: " .. out)
+    H.equal(out:match("WITNESSES (%d+)"), "216", "same transfer witnesses: " .. out)
+    H.equal(worst ~= nil and worst <= 2200000, true, "physical step fits: " .. tostring(worst))
+    print("VS11")
+end)
+
 H.done("test_validate_slices")

@@ -521,8 +521,25 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
     for direction_index, direction in ipairs(directions) do
         local pickup_dx, pickup_dy = Grid.rotate_vector(pickup_offset.x, pickup_offset.y, direction)
         local drop_dx, drop_dy = Grid.rotate_vector(drop_offset.x, drop_offset.y, direction)
-        for y = machine.y - radius, machine.y + machine.h + radius do
-            for x = machine.x - radius, machine.x + machine.w + radius do
+        --Round 56 gate (stack1 drawn Groups tick 2.6 M): an endpoint fixed to one member rect or one cell (and not
+        --both) passes only on a band of x and y, since cell_of(x + c) grows with x. Walk that band, widened by one
+        --tile per side against rounding; every skipped cell fails the endpoint test, the visit order is unchanged.
+        local xlo, xhi = machine.x - radius, machine.x + machine.w + radius
+        local ylo, yhi = machine.y - radius, machine.y + machine.h + radius
+        local function band(member, cell, dx, dy)
+            local cx, cy = iw / 2 + dx + Geometry.EPSILON, ih / 2 + dy + Geometry.EPSILON
+            local ax, bx, ay, by
+            if member and not cell then ax, bx, ay, by = member.x, member.x + member.w, member.y, member.y + member.h
+            elseif cell and not member then ax, bx, ay, by = cell[1], cell[1] + 1, cell[2], cell[2] + 1
+            else return end
+            if type(ax) ~= "number" or type(bx) ~= "number" or type(ay) ~= "number" or type(by) ~= "number" then return end
+            xlo = math.max(xlo, math.ceil(ax - cx) - 1); xhi = math.min(xhi, math.ceil(bx - cx))
+            ylo = math.max(ylo, math.ceil(ay - cy) - 1); yhi = math.min(yhi, math.ceil(by - cy))
+        end
+        band(target_member, target_cell, drop_dx, drop_dy)
+        band(source_member, source_cell, pickup_dx, pickup_dy)
+        for y = ylo, yhi do
+            for x = xlo, xhi do
                 --Same test as rectangles_overlap({x, y, iw, ih}, machine) without a table per cell (round 56 gate:
                 --am2 tick 9, 2.2 M instructions in this loop).
                 if not (x < machine.x + machine.w and machine.x < x + iw and y < machine.y + machine.h and machine.y < y + ih) then

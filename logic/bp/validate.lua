@@ -584,6 +584,38 @@ local function point_key(x, y)
     row[y] = key; point_key_count = point_key_count + 1
     return key
 end
+--Numeric twin of work.transport_by_cell (same lists, built once per table, weak memo so saves stay the same size):
+--the physical walk looked up 25 string keys per visited belt (round 56 gate, blue drawn physical 2.5 M per machine).
+--Any key that is not a plain integer pair (or is -0) keeps the string path for the whole table.
+local cells_num_memo = setmetatable({}, {__mode = "k"})
+local NO_CELLS = {}
+local function cells_index(work)
+    local by_cell = work.transport_by_cell
+    if not by_cell then return false end
+    local index = cells_num_memo[by_cell]
+    if index == nil then
+        index = {}
+        for key, list in pairs(by_cell) do
+            local kx, ky = string.match(key, "^(-?%d+):(-?%d+)$")
+            kx, ky = tonumber(kx), tonumber(ky)
+            if kx == nil or ky == nil or (kx == 0 and key:sub(1, 1) == "-") or (ky == 0 and key:find(":-", 1, true)) then
+                index = false; break
+            end
+            index[(kx + 1048576) * 2097152 + (ky + 1048576)] = list
+        end
+        cells_num_memo[by_cell] = index
+    end
+    return index
+end
+local function cells_at(work, x, y)
+    local by_cell = work.transport_by_cell
+    if not by_cell then return NO_CELLS end
+    local index = cells_index(work)
+    if index == false then return by_cell[point_key(x, y)] or NO_CELLS end
+    x, y = math.floor(x), math.floor(y)
+    if (x == 0 and 1 / x < 0) or (y == 0 and 1 / y < 0) then return by_cell[point_key(x, y)] or NO_CELLS end
+    return index[(x + 1048576) * 2097152 + (y + 1048576)] or NO_CELLS
+end
 
 local entity_tile_rect_raw
 local function entity_tile_rect(info)
@@ -665,7 +697,7 @@ local function transport_neighbors(work, info, wanted_flow)
     local result, seen = {}, {}
     local kind = transport_kind(info)
     local function add_at(x, y)
-        for _, next_info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}) do
+        for _, next_info in ipairs(cells_at(work, x, y)) do
             local next_entity = next_info.entity or {}
             local next_kind = transport_kind(next_info)
             local next_name = name_lower(name_of(next_entity) or "")
@@ -2579,10 +2611,23 @@ local function check_physical_transfers(work, machine_index, final)
             end
             local candidates = {}
             --Belts, splitters and a side-load sit next to what they feed (a splitter is two tiles wide).
-            for oy = -2, 2 do
-                for ox = -2, 2 do
-                    for _, candidate in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x + ox, y + oy)] or {}) do
-                        candidates[#candidates + 1] = candidate
+            local index = cells_index(work)
+            local fx, fy = math.floor(x), math.floor(y)
+            if index and not ((fx == 0 and 1 / fx < 0) or (fy == 0 and 1 / fy < 0)) then
+                --Same tiles, same order as the loop below: floor(x + ox) = floor(x) + ox for whole ox.
+                for oy = -2, 2 do
+                    local row = fy + oy + 1048576
+                    for ox = -2, 2 do
+                        local cell_list = index[(fx + ox + 1048576) * 2097152 + row]
+                        if cell_list then for i = 1, #cell_list do candidates[#candidates + 1] = cell_list[i] end end
+                    end
+                end
+            else
+                for oy = -2, 2 do
+                    for ox = -2, 2 do
+                        for _, candidate in ipairs(cells_at(work, x + ox, y + oy)) do
+                            candidates[#candidates + 1] = candidate
+                        end
                     end
                 end
             end
