@@ -2412,6 +2412,7 @@ function Search.step(container, budget)
                     end
                     for _, port in ipairs(state.work.materialized.ports or {}) do filter_port(port) end
                     for _, block in ipairs(state.work.materialized.blocks or {}) do for _, port in ipairs(block.ports or {}) do filter_port(port) end end
+                    state.work.tidy_split = nil
                     state.work.route_state = Route.tidy_begin(state.work.route, {obstacles = poles})
                     trial_set_phase(state, "tidy")
                     end
@@ -2451,10 +2452,21 @@ function Search.step(container, budget)
             local tidy_progress = state.work.route_state and state.work.route_state.progress or {}
             state.progress.stage_done = finite(tidy_progress.done_units, 0)
             state.progress.stage_total = math.max(1, finite(tidy_progress.total_units, 1))
-            if stage_done(state.work.route_state) then
-                local before = #(state.work.route_state.result and state.work.route_state.result.port_slides or {})
+            if stage_done(state.work.route_state) and not state.work.tidy_split then
+                --Round 56 gate: the publish step and the next handoff (turn heads, hands, power input) shared a tick
+                --(blue tick 2260, 115 ms). Hand off on a fresh tick; nothing is spent.
+                state.work.tidy_split = true
+                budget.ops = 0
+            elseif stage_done(state.work.route_state) and state.work.tidy_split == true then
+                state.work.tidy_slides = #(state.work.route_state.result and state.work.route_state.result.port_slides or {})
                 Ends.turn_heads(state.work.route_state.result or {})
                 Hands.place(state.work.materialized, state.work.route_state.result or {})
+                state.work.tidy_split = "placed"
+                budget.ops = 0
+            elseif stage_done(state.work.route_state) then
+                state.work.tidy_split = nil
+                local before = state.work.tidy_slides or 0
+                state.work.tidy_slides = nil
                 if before > 0 then
                     state.work.post_tidy_power = true
                     local all = list_copy(state.work.materialized.entities)

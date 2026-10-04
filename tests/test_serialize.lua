@@ -228,4 +228,29 @@ for _, shape in ipairs(H.shapes()) do
     end)
 end
 
+H.test("SR-NOMUT serialize never writes into its input (it keeps the input, copies only the entities it numbers)", function()
+    --Round 56 gate: Serialize.begin no longer copies the whole input (blue success tick 108 -> 41 ms).
+    local input = {
+        blocks = {{id = "b1", members = {{name = "assembling-machine-2", x = 1, y = 2, w = 3, h = 3}}}},
+        placements = {b1 = {x = 4, y = 5}},
+        route = {entities = {{id = "r1", name = "transport-belt", position = {x = 0.5, y = 0.5}, direction = 4}}},
+        power = {entities = {{id = "p1", name = "small-electric-pole", position = {x = 9.5, y = 9.5}}}},
+    }
+    local function dump(value, out)
+        out = out or {}
+        if type(value) ~= "table" then out[#out + 1] = tostring(value); return out end
+        local keys = {}; for k in pairs(value) do keys[#keys + 1] = k end
+        table.sort(keys, function(a, b) return tostring(a) < tostring(b) end)
+        out[#out + 1] = "{"
+        for _, k in ipairs(keys) do out[#out + 1] = tostring(k) .. "="; dump(value[k], out) end
+        out[#out + 1] = "}"
+        return out
+    end
+    local before = table.concat(dump(input))
+    local state = Serialize.begin(input)
+    while not state.done do Serialize.step(state, {ops = 1}) end
+    H.equal(table.concat(dump(input)), before, "input unchanged after a full serialize")
+    H.equal(#state.result.entities, 3, "all three entities serialized")
+end)
+
 H.done("test_serialize")

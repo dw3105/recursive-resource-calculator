@@ -186,11 +186,14 @@ local function sort_entities(entities)
         ordered[index] = copy(entity) or {}
         ordered[index]._serialize_index = index
     end
+    --Same comparisons as before; each entity's position and id text built once (round 56 gate Tick cost).
+    local pos, ids = {}, {}
+    for _, entity in ipairs(ordered) do pos[entity] = entity_position(entity); ids[entity] = id_text(entity, entity._serialize_index) end
     table.sort(ordered, function(a, b)
-        local pa, pb = entity_position(a), entity_position(b)
+        local pa, pb = pos[a], pos[b]
         if pa.y ~= pb.y then return pa.y < pb.y end
         if pa.x ~= pb.x then return pa.x < pb.x end
-        local ia, ib = id_text(a, a._serialize_index), id_text(b, b._serialize_index)
+        local ia, ib = ids[a], ids[b]
         if ia ~= ib then return ia < ib end
         return a._serialize_index < b._serialize_index
     end)
@@ -534,7 +537,8 @@ end
 
 function Serialize.begin(input)
     input = type(input) == "table" and input or {}
-    input = copy(input) or {}
+    --No whole-input copy (round 56 gate: 2.9 M instructions in blue's success tick): every entity serialize writes is
+    --a copy already (block_entities, sort_entities), and the rest is only read.
     local entities = candidate_entities(input)
     local ordered, references = Serialize.entity_order(entities)
     return {
