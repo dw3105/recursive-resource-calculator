@@ -37,7 +37,7 @@ H.test("GS1 repeated Groups build hits cache and matches fresh result", function
     for k, v in pairs(input) do fresh_input[k] = v end
     fresh_input.ring_bump = 1
     local fresh = finish(fresh_input, 2000)
-    H.equal(second.work.cache_hit, true, "second call is a cache hit")
+    H.equal(second.cache_hit, true, "second call is a cache hit")
     H.equal(digest(second.result), digest(first.result), "cached output matches fresh result")
     H.equal(fresh.done, true, "fresh build completes")
     print("GS1")

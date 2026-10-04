@@ -2715,7 +2715,8 @@ local groups_cache_order = {}
 local function cache_value(value, out, seen, root)
     local kind = type(value)
     if kind ~= "table" then
-        out[#out + 1] = kind .. ":" .. tostring(value) .. ";"
+        local scalar = kind == "number" and string.format("%.17g", value) or tostring(value)
+        out[#out + 1] = kind .. #scalar .. ":" .. scalar
         return
     end
     if seen[value] then out[#out + 1] = "cycle;"; return end
@@ -2726,9 +2727,9 @@ local function cache_value(value, out, seen, root)
         if type(a) ~= type(b) then return type(a) < type(b) end
         return tostring(a) < tostring(b)
     end)
-    out[#out + 1] = "{" .. tostring(#keys) .. ":"
+    out[#out + 1] = "T" .. tostring(#keys) .. ":"
     for _, key in ipairs(keys) do cache_value(key, out, seen); cache_value(value[key], out, seen, false) end
-    out[#out + 1] = "}"
+    out[#out + 1] = "E"
     seen[value] = nil
 end
 
@@ -2742,8 +2743,11 @@ function Groups.begin(input)
     local key = groups_cache_key(input)
     local cached = groups_cache[key]
     if cached then
-        local state = copy(cached)
-        state.work.cache_hit = true
+        local state = {}
+        for name, value in pairs(cached) do state[name] = value end
+        state.work = {}
+        for name, value in pairs(cached.work) do state.work[name] = value end
+        state.cache_hit = true
         return state
     end
     return {
@@ -2792,7 +2796,7 @@ function Groups.step(state, budget)
         local key = state.work.cache_key
         if key then
             if not groups_cache[key] then groups_cache_order[#groups_cache_order + 1] = key end
-            groups_cache[key] = copy(state)
+            groups_cache[key] = state
             while #groups_cache_order > 8 do
                 local oldest = table.remove(groups_cache_order, 1)
                 groups_cache[oldest] = nil
