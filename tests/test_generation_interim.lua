@@ -53,7 +53,8 @@ for _, shape in ipairs(H.shapes()) do
             snapshot = {sheet_id = sid, state = "current", fingerprint = {input = "interim"}},
             solver_result = {status = "ok", columns = {}}, catalog = {}, settings = {}, options = {},
             revisions = {sheet = 0, config = 0}, surface = "nauvis", force = "player"}, deliver = true}
-        H.run_ticks(world, 1)
+        --tick 1 prepare, ticks 2-4 prepare finish (capture, persist, search begin; round 56), tick 5 first search step
+        H.run_ticks(world, 5)
         local pending = Generation.status(1, id)
         H.equal(pending.state, "pending", "first interim keeps the job pending")
         H.equal(pending.phase, "improving", "first interim marks the improving phase")

@@ -1137,7 +1137,7 @@ local function step(job, budget)
         return job
     end
 
-    if state.phase == "queued" or state.phase == "prepare" then
+    if (state.phase == "queued" or state.phase == "prepare") and state.prepare_finish == nil then
         state.phase = "prepare"
         local ok, prepared_or_reason, preparation_reason = pcall(prepared_input, state.input, job, state, budget)
         if not ok then
@@ -1164,29 +1164,51 @@ local function step(job, budget)
             return job
         end
         if prepared_or_reason ~= nil then
+            --Round 56 engine sample (2026-10-04, 2.0.77): prepare end ran capture copy (27 ms red-1s), persist +
+            --bridge (24 ms), Search.begin (25 ms), plan and the binding surface in one 139-245 ms tick. Each now
+            --gets its own fresh tick; state.prepare_finish is the cursor (1 capture, 2 persist, 3 search begin).
             state.prepared = prepared_or_reason
-            local handle = handle_for(job)
-            if handle and not handle.capture then
-                handle.capture = copy_plain(prepared_or_reason) or {}
+            state.prepare_finish = 1
+            budget.ops = 0
+            return job
+        end
+    end
+
+    if state.phase == "prepare" and state.prepare_finish ~= nil then
+        local prepared = state.prepared
+        local handle = handle_for(job)
+        if state.prepare_finish == 1 then
+            --held in job state, attached complete at stage 2: a capture reader never sees it without source_kind
+            if handle and not handle.capture then state.capture_pending = copy_plain(prepared) or {} end
+            state.prepare_finish, budget.ops = 2, 0
+            return job
+        elseif state.prepare_finish == 2 then
+            if handle and state.capture_pending and not handle.capture then
+                handle.capture = state.capture_pending
                 if type(handle.settings) ~= "table" or next(handle.settings) == nil then
-                    handle.settings = copy_plain(prepared_or_reason.settings) or {}
+                    handle.settings = copy_plain(prepared.settings) or {}
                 end
-                handle.prepared_input_identity = prepared_input_identity(prepared_or_reason, handle.sheet_id, handle.revisions)
-                handle.capture.source_kind = capture_source_kind(state.input, prepared_or_reason)
+                handle.prepared_input_identity = prepared_input_identity(prepared, handle.sheet_id, handle.revisions)
+                handle.capture.source_kind = capture_source_kind(state.input, prepared)
                 handle.capture.provenance = initial_provenance(state.input, job)
                 persist_handle(handle)
                 bridge_attempt(handle, false)
             end
-            local input = prepared_or_reason
-            local search_input = search_input_for(input, job, state.input)
-            state.search = Search.begin(search_input)
-            state.search.player_index, state.search.sheet_id = job.player_index, job.sheet_id
-            state.search.generation_job_id = input.generation_job_id or job.state.input.generation_job_id
-            state.search.revisions = copy_plain(job.revisions) or {}
-            state.phase = "search"
-            job.phase = state.search.phase
-            job.progress = result_progress(state.search.progress)
+            state.prepare_finish, state.capture_pending, budget.ops = 3, nil, 0
+            return job
         end
+        local input = prepared
+        local search_input = search_input_for(input, job, state.input)
+        state.search = Search.begin(search_input)
+        state.search.player_index, state.search.sheet_id = job.player_index, job.sheet_id
+        state.search.generation_job_id = input.generation_job_id or job.state.input.generation_job_id
+        state.search.revisions = copy_plain(job.revisions) or {}
+        state.phase = "search"
+        state.prepare_finish = nil
+        job.phase = state.search.phase
+        job.progress = result_progress(state.search.progress)
+        budget.ops = 0
+        return job
     end
 
     if state.phase == "search" and budget.ops > 0 then
