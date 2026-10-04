@@ -10,4 +10,8 @@ assert(same:match("ROW case=x pack=layered ticks=3 worst_ms=4%.00 cpu_s=2%.00 sh
 print("GT1")
 assert(run("slow"):match("verdict=SLOWER"),"GT2")
 print("GT2")
-print("test_gate56: 2 cases, 2 passed, 0 failed")
+--GT3 (integrator 2026-10-04, red on lane 308 head): same bytes but head slower than main is SLOWER, never SAME
+--(DoD 1: every row Speed tie or faster).
+assert(run("sameslow"):match("verdict=SLOWER"),"GT3")
+print("GT3")
+print("test_gate56: 3 cases, 3 passed, 0 failed")

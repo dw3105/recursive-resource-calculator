@@ -20,9 +20,9 @@ function G.row(head, main)
  local tie=delta<=math.max(1,0.1*math.max(head.cpu_s,main.cpu_s)) and math.abs(head.worst_ms-main.worst_ms)<=0.1*math.max(head.worst_ms,main.worst_ms)
  local verdict
  if head.valid~="ok" or main.valid~="ok" or head.worst_ms>50 then verdict="FAIL"
+ elseif not (head.cpu_s<main.cpu_s or tie) then verdict="SLOWER"
  elseif head.sha==main.sha then verdict="SAME"
- elseif head.cpu_s<main.cpu_s or tie then verdict="DIFF"
- else verdict="SLOWER" end
+ else verdict="DIFF" end
  return string.format("ROW case=%s pack=%s ticks=%d worst_ms=%.2f cpu_s=%.2f sha=%s valid=%s main_cpu_s=%.2f main_sha=%s verdict=%s",head.case,head.pack,head.ticks,head.worst_ms,head.cpu_s,head.sha,head.valid,main.cpu_s,main.sha,verdict)
 end
 local function parse(line)
