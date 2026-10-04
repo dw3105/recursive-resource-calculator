@@ -56,7 +56,7 @@ game() {  # game <pattern|""> -> runs FactorioTest, writes build/<FV>/results.js
   cmp -s "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$data/mods/factorio-test_$FT_VER.zip" || cp "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$data/mods/"
   mod=$(STAGE_DIR="$BUILD" RRC_SHARD="$SHARD" RRC_PROFILE="$PROFILE" RRC_PROFILE_TEST_MAP="$PROFILE_TEST_MAP" RRC_TURN_FLIP_FULL="${RRC_FULL_TURN_FLIP:-0}" "$ROOT/tools/game_stage.sh" "$FV")
   mkdir -p "$mod/tools"
-  cp "$ROOT/tools/turn_flip_slice.lua" "$mod/tools/"
+  cp "$ROOT/tools/turn_flip_slice.lua" "$ROOT/tools/junit.lua" "$mod/tools/"
   python3 - "$mod/tests/game/profile_map.lua" "$PROFILE" "$PROFILE_TEST_MAP" "${RRC_ROUND:-56}" <<'PY'
 import sys
 out, profile, raw, round_id = sys.argv[1:]
