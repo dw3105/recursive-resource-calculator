@@ -7,15 +7,21 @@
 # plus their startup settings (~/share/RRC/mod-settings.dat via tools/mod_settings_dat.py); build dir build/<FV>-player.
 # One-test mode fails unless exactly one test ran and passed (a typo never passes on zero tests).
 # Runner logic copied from ~/sushi-packer-mod tools/run_tests.sh (same host, same CLI, 2026-09-26).
+# Player rule 2026-09-26: lanes never run headless. If the caller explicitly sets an empty RRC_SLOW, let the
+# slow-guard regression exercise its refusal first; normal lane calls refuse here before checking the slow rung.
+if [ -n "${LANE_RUN_ID:-}" ] && [ "${RRC_SLOW-__unset__}" != "" ]; then
+  echo "game_test: refuse, lanes never run headless Factorio; use lua5.2 tests/game/offline.lua <file>" >&2
+  exit 2
+fi
 sh tools/slow_guard.sh game_test.sh "${2:-}" || exit $?
 set -eu
-FV=${1:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}
-T=${2:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}
-# Player rule 2026-09-26: lanes never run headless, not even one test. lane_run sets LANE_RUN_ID.
+#RRC_SLOW='' is only used by the slow-guard regression; a valid slot still cannot authorize a lane headless run.
 if [ -n "${LANE_RUN_ID:-}" ]; then
   echo "game_test: refuse, lanes never run headless Factorio; use lua5.2 tests/game/offline.lua <file>" >&2
   exit 2
 fi
+FV=${1:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}
+T=${2:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$ROOT"
 FACTORIO=${FACTORIO_ROOT:-$HOME/factorio-$FV/factorio}
@@ -27,6 +33,8 @@ MAIN=$(cd "$(git rev-parse --path-format=absolute --git-common-dir)/.." && pwd)
 FT=${RRC_FT_DIR:-$MAIN/tools/ft}
 CLI=$FT/node_modules/.bin/factorio-test
 PROFILE=${RRC_PROFILE:-vanilla}
+#Headless-only file eligibility is data so the profile split is reviewable and stageable.
+PROFILE_TEST_MAP='vanilla:tests.game.test_twins;player:'
 #RRC_BUILD_ROOT keeps a fixture's fake game out of the repo build (round 55: a 1-byte factorio-test zip left there by
 #tests/tools/test_release_gate.py made every later real run in a fresh worktree load no test runner).
 BUILD_ROOT=${RRC_BUILD_ROOT:-$ROOT/build}
@@ -46,7 +54,23 @@ game() {  # game <pattern|""> -> runs FactorioTest, writes build/<FV>/results.js
   #Copy the runner whenever it differs from the source, not only when absent: a stale or fake zip loads no runner.
   cmp -s "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$BUILD/mods/factorio-test_$FT_VER.zip" || cp "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$BUILD/mods/"
   cmp -s "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$data/mods/factorio-test_$FT_VER.zip" || cp "$FT_ZIP_DIR/factorio-test_$FT_VER.zip" "$data/mods/"
-  mod=$(STAGE_DIR="$BUILD" RRC_SHARD="$SHARD" "$ROOT/tools/game_stage.sh" "$FV")
+  mod=$(STAGE_DIR="$BUILD" RRC_SHARD="$SHARD" RRC_PROFILE="$PROFILE" RRC_PROFILE_TEST_MAP="$PROFILE_TEST_MAP" RRC_TURN_FLIP_FULL="${RRC_FULL_TURN_FLIP:-0}" "$ROOT/tools/game_stage.sh" "$FV")
+  mkdir -p "$mod/tools"
+  cp "$ROOT/tools/turn_flip_slice.lua" "$mod/tools/"
+  python3 - "$mod/tests/game/profile_map.lua" "$PROFILE" "$PROFILE_TEST_MAP" "${RRC_ROUND:-56}" <<'PY'
+import sys
+out, profile, raw, round_id = sys.argv[1:]
+mapping = {}
+for entry in raw.split(';'):
+    key, _, files = entry.partition(':')
+    mapping[key] = [x for x in files.split(',') if x]
+def lua_string(s): return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
+lines = ['return {profile = ' + lua_string(profile) + ', round_id = ' + str(int(round_id)) + ', tests = {']
+for key in sorted(mapping):
+    lines.append('    [' + lua_string(key) + '] = {' + ','.join(lua_string(x) for x in mapping[key]) + '},')
+lines.append('}}\n')
+open(out, 'w').write('\n'.join(lines))
+PY
   test -x "$CLI" || { echo "game_test: FactorioTest CLI missing: mkdir -p $FT; cp tools/ft/package*.json tools/ft/patch-cli.sh $FT; (cd $FT && npm ci)" >&2; exit 2; }
   FT_DIR="$FT" sh "$ROOT/tools/ft/patch-cli.sh" >/dev/null  # 10 s startup watchdog -> 120 s
   mods="space-age quality elevated-rails"

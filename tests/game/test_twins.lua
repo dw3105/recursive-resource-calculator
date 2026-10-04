@@ -5,6 +5,14 @@
 local Lab = require "tests.game.lib.lab"
 local Twin = require "tests.twins.lib.twin"
 local Catalog = require "logic.catalog"
+local ok_profile, PROFILE_MAP = pcall(require, "tests.game.profile_map")
+local PROFILE = ok_profile and PROFILE_MAP.profile or "vanilla"
+local TWINS_ENABLED = not ok_profile
+if ok_profile then
+    for _, name in ipairs((PROFILE_MAP.tests or {})[PROFILE] or {}) do
+        if name == "tests.game.test_twins" then TWINS_ENABLED = true end
+    end
+end
 local ok_index, INDEX = pcall(require, "tests.twins.index")
 local TWINS = {}
 if ok_index and type(INDEX) == "table" then
@@ -298,6 +306,9 @@ local function static_verdict(twin, surface, built, by_id, powered_ok)
 end
 
 describe("twins", function()
+    if not TWINS_ENABLED then
+        it.skip("skipped: twins are vanilla-only", function() end)
+    else
     --Offline the static index does not exist (tools/game_stage.sh writes it): check the twins are there to stage.
     if not ok_index then
         it("twin files exist to stage", function()
@@ -433,5 +444,6 @@ describe("twins", function()
                 return false
             end)
         end)
+    end
     end
 end)
