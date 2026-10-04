@@ -4439,14 +4439,18 @@ Route._trim_dead_ends = function(work)
     end
     for _, demand in ipairs(work.demands or {}) do mark(demand.source); mark(demand.sink) end
     for _, ep in pairs(work.endpoint_by_id or {}) do mark(ep) end
-    local tile_by_segment = {}
+    --Only a belt segment that covers ONE cell is a trim candidate (as the probe proven on the goldens,
+    --r56_probes/p_fix3b.lua): for a longer run the first sorted key need not be its output tile.
+    local tile_by_segment, cells_of = {}, {}
     for _, key in ipairs(sorted_keys(work.segments_by_cell or {})) do
         local seg = work.segments_by_cell[key]
         if tile_by_segment[seg] == nil then tile_by_segment[seg] = key end
+        cells_of[seg] = (cells_of[seg] or 0) + 1
     end
     local queue, queued = {}, {}
     local function dead_end(seg)
         if not seg or seg.kind ~= "belt" or seg.underground or seg.splitter or seg.direction == nil or seg.flow_id == nil then return false end
+        if cells_of[seg] ~= 1 then return false end
         local tile = tile_by_segment[seg]
         if not tile or endpoints[tile] then return false end
         local x, y = coordinate_from_key(tile)

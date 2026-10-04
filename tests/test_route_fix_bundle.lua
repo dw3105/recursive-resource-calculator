@@ -17,6 +17,16 @@ H.test("RF3 cleanup trims disconnected plain belt tail", function()
     Route._test.trim_dead_ends(work)
     H.equal(#work.segments, 0)
 end)
+--RF5 (integrator 2026-10-04, red on a39ee6a): the proven probe (r56_probes/p_fix3b.lua) trims only a belt segment
+--that covers ONE cell; a two-cell east run (9,0)-(10,0) whose sorted-first key "10:0" is its end tile is kept.
+H.test("RF5 cleanup keeps a multi-cell belt segment", function()
+    local seg = {segment_id="run",kind="belt",flow_id="f",direction=4,length=2,allocations={{flow_id="f",rate_per_second=1}}}
+    local ent = {segment_id="run",name="belt",position={x=9.5,y=0.5},direction=4}
+    local work = {segments={seg},entities={ent},segments_by_cell={["9:0"]=seg, ["10:0"]=seg},entity_by_segment={run=ent},demands={},endpoint_by_id={}}
+    Route._test.trim_dead_ends(work)
+    H.equal(#work.segments, 1, "multi-cell segment kept")
+    print("RF5")
+end)
 H.test("RF4 first route is strict", function()
     local original_begin, original_step = Route.begin, Route.step
     local strict

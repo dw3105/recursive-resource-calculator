@@ -354,10 +354,11 @@ local function stage_input(state, extra, shared)
 end
 
 local function keep_incumbent(score, candidate, source_candidate, validation, pre_tidy_material)
-    --These search-owned values are frozen after validation. Keep their tables by reference; the work state may
-    --advance to another candidate, but it replaces these roots instead of editing them in place.
-    return {score = copy(score), candidate = candidate, source_candidate = source_candidate,
-        validation = validation, pre_tidy_material = pre_tidy_material}
+    --Deep copies (round 56 integrator): lane 309 kept these by reference, but the collector trial re-routes after
+    --an accept and edits the work candidate in place, so the kept incumbent changed under it (player-inserter-10s:
+    --BP_V_PORT_EDGE_WRONG + BP_V_ROUTE_DISCONTINUOUS, test_collector_trial CT1 red).
+    return {score = copy(score), candidate = copy(candidate), source_candidate = copy(source_candidate),
+        validation = copy(validation), pre_tidy_material = pre_tidy_material}
 end
 
 --`port_flow_id` is defined below, next to the other port helpers, but greedy_block_order reads it. A Lua local
