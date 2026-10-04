@@ -9,11 +9,12 @@ H.test("PR1 rejected layered origins charge each buffer zone scanned", function(
         mode="sugiyama", drawing={layer_of={x=1},rank_of={x=1}},
         blocks = {{block_id = "x", w = 1, h = 1,
         allowed_dirs = {Grid.NORTH}, buffer_zones = {{x=0,y=0,w=1,h=1,ring=1}}}}})
-    -- Every tested origin remains in bounds/free; the first candidate zone conflicts with each placed zone.
+    -- The far-away placed zones all miss; the candidate is then rejected by the blocker after scanning them.
     for i = 1, 40 do state.buffer_zones[i] = {rect = {x=100+i,y=100,w=1,h=1}, ring=1} end
     local budget = {ops = 200}
     Pack.step(state, budget)
     H.equal((state.counters.buffer_zone_checks or 0) >= 40, true, "a reject bills the 40 placed zones")
+    H.equal(200 - budget.ops >= 40, true, "the reject spends at least one op per scanned zone")
     H.equal(state.done, false, "zone scan yields with work remaining")
     print("PR1")
 end)
