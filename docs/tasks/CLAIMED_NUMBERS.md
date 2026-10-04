@@ -236,3 +236,11 @@
 | `305` | `rrc/agent` | whole-blueprint Material in Lua, TRIAL row lines, trial stage on progress bar (round 55) | 2026-10-03 |
 | `306` | `rrc/agent` | Turn trial step: after drawn sheet valid, try other Turns per Block, keep cheaper (search.lua) (round 55) | 2026-10-03 |
 | `307` | `rrc/agent` | Turn trial screen: every try scored by Material before tidy, only cheapest gets tidy + validate (search.lua) (round 55) | 2026-10-03 |
+| `308` | `rrc/agent` | gate tool: tick cost model, gate rows, proof-checked baseline writer, offline box binding loader (round 56) | 2026-10-04 |
+| `309` | `rrc/agent` | route fix bundle D1-D3 + strict ends from start + copies shared or sliced (route.lua, search.lua) (round 56) | 2026-10-04 |
+| `310` | `rrc/agent` | Groups cache per search, hoists, slices (groups.lua) (round 56) | 2026-10-04 |
+| `311` | `rrc/agent` | pack reject charge, power pcov/pfast + consumer charge + publish split (round 56) | 2026-10-04 |
+| `312` | `rrc/agent` | validate slices: transfers, beacons, transport, fluid (round 56) | 2026-10-04 |
+| `313` | `rrc/agent` | publish: sha256 on demand, one persist copy (generation.lua) (round 56) | 2026-10-04 |
+| `314` | `rrc/agent` | suite trim: Turn/Flip slice, twins vanilla only (round 56) | 2026-10-04 |
+| `315` | `rrc/agent` | split units (RRC_CASE, JUnit) + Suite Runner recipe, image, lock (round 56) | 2026-10-04 |

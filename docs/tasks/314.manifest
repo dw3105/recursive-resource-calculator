@@ -1,0 +1,8 @@
+# bound: 5400s
+tools/turn_flip_slice.lua
+tests/test_turn_flip_census.lua
+tests/game/test_turn_flip_sims.lua
+tests/game/test_twins.lua
+tests/run.sh
+tools/game_test.sh
+tests/test_turn_flip_slice.lua

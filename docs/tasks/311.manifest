@@ -1,0 +1,5 @@
+# bound: 5400s
+logic/bp/pack.lua
+logic/bp/power.lua
+tests/test_pack_reject_charge.lua
+tests/test_power_fast.lua

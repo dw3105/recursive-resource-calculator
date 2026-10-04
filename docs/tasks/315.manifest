@@ -1,0 +1,10 @@
+# bound: 5400s
+tests/harness.lua
+tools/junit.lua
+tools/suite_units.sh
+tests/game/support.lua
+ci/suite-runner/rrc.recipe.json
+ci/image/Dockerfile
+ci/image.lock
+tests/test_split_units.lua
+tests/tools/test_recipe.py

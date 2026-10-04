@@ -1,0 +1,45 @@
+diff --git a/tools/ckpt.lua b/tools/ckpt.lua
+index 4023f79..4552ae6 100644
+--- a/tools/ckpt.lua
++++ b/tools/ckpt.lua
+@@ -105,9 +105,20 @@ local function main()
+         local loader=assert(load(src,"@logic/bp/search.lua")); local Search=loader()
+         local begin,step=Search.begin,Search.step
+         Search.begin=function(input) if saved then resumed=true; return saved.state end; return begin(input) end
+-        Search.step=function(st,b) step_index=step_index+1; _G.__ckpt_tick=step_index; local ph=tostring(st.phase); local t0=os.clock(); local r=step(st,{ops=ops}); local dt=os.clock()-t0; _G.__ckpt_last_state=st;
++        Search.step=function(st,b) step_index=step_index+1; _G.__ckpt_tick=step_index; local ph=tostring(st.phase); local t0=os.clock(); local r
++            if os.getenv("RRC_GAME_TICK") then
++                --exact logic/jobs.lua service loop: one game tick re-calls the job until its 2000 ops are spent;
++                --registered_step charges at least 1 op per call
++                local b={ops=ops}; local calls=0
++                if _G.__tt then _G.__tt.begin(step_index, ph) end
++                repeat local before=b.ops; r=step(st,b); calls=calls+1; if b.ops>=before then b.ops=before-1 end until b.ops<=0 or st.done
++                if _G.__tt then _G.__tt.finish(step_index, ph, tostring(st.phase), os.clock()-t0, calls) end
++                _G.__gt_calls=(_G.__gt_calls or 0)+calls; if calls>(_G.__gt_maxcalls or 0) then _G.__gt_maxcalls=calls end
++            else r=step(st,{ops=ops}) end
++            local dt=os.clock()-t0; _G.__ckpt_last_state=st;
+             local pt=prof[ph] or {n=0,cpu=0,worst=0,at=0}; prof[ph]=pt; pt.n=pt.n+1; pt.cpu=pt.cpu+dt; if dt>pt.worst then pt.worst=dt; pt.at=step_index end
+             if o["at-tick"] and step_index>=tonumber(o["at-tick"]) then stopped=true end
++            if o["cpu-cap"] and os.clock()>=tonumber(o["cpu-cap"]) then stopped=true end
+             if command=="save-all" and _G.__ckpt_pending then
+                 local c=_G.__ckpt_pending; _G.__ckpt_pending=nil; _G.__ckpt_saves=(_G.__ckpt_saves or 0)+1
+                 local name=string.format("%s/%03d_g%s_a%s_l%s_%s.lua.gz",out,_G.__ckpt_saves,tostring(c.grid),tostring(c.attempt or 0),tostring(c.layered),tostring(c.phase))
+@@ -118,6 +129,10 @@ local function main()
+             if stopped and (command=="save" or (command=="resume" and o.save)) then
+             local meta={case=case,input_path=input_path,input_sha256=digest,git_head=assert(io.popen("git rev-parse HEAD","r")):read("*l"),tick=step_index,ops_per_step=ops,spec=until_spec or at,
+               env={RRC_PACK=os.getenv("RRC_PACK"),RRC_PACK_EXTRA=os.getenv("RRC_PACK_EXTRA")},lua=_VERSION}
++            local nm={}; for k in pairs(prof) do nm[#nm+1]=k end; table.sort(nm)
++            for _,k in ipairs(nm) do local pt=prof[k]; io.write(string.format("PROF phase=%s ticks=%d cpu=%.1fs worst=%.3fs at=%d\n",k,pt.n,pt.cpu,pt.worst,pt.at)) end
++            io.write(string.format("GT step_calls=%d max_calls_per_tick=%d\n",_G.__gt_calls or 0,_G.__gt_maxcalls or 0))
++            io.write(string.format("CHUNK stop tick=%d ops_used=%d\n",step_index,st.ops_used or 0)); io.flush()
+             Graph.dump({state=st,meta=meta},o.save or out); io.write("SAVED "..tostring(o.save or out).." tick="..step_index.." event="..tostring(events[#events] and events[#events].kind).."\n"); os.exit(0)
+         end; return r end
+         return Search
+@@ -134,6 +149,7 @@ local function main()
+     local names={}; for k in pairs(prof) do names[#names+1]=k end; table.sort(names); local all=0
+     for _,k in ipairs(names) do local pt=prof[k]; all=all+pt.cpu; io.write(string.format("PROF phase=%s ticks=%d cpu=%.1fs worst=%.3fs at=%d\n",k,pt.n,pt.cpu,pt.worst,pt.at)) end
+     io.write(string.format("PROF total step cpu=%.1fs\n",all))
++    io.write(string.format("GT step_calls=%d max_calls_per_tick=%d\n",_G.__gt_calls or 0,_G.__gt_maxcalls or 0))
+     io.write(string.format("RESUMED %s END ok=%s ticks=%d ops_used=%d sha=%s entities=%d\n",command, tostring(ok),ticks,used,sha_out,entities))
+ end
+ local ok,err=pcall(main); if not ok then io.stderr:write(tostring(err).."\n"); os.exit(1) end
