@@ -80,7 +80,8 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(after_reload ~= nil, true, "the saved job still has an owner after reload")
         H.equal(after_reload.state, "pending", "the saved job resumes after reload")
 
-        for _ = 1, 8 do
+        --round 56: prepare finish 3 ticks + publish prep 4 ticks (engine sample split) -> bound 16
+        for _ = 1, 16 do
             H.run_ticks(world, 1)
             local result = ReloadedGeneration.status(1, first)
             if result and result.state ~= "pending" then break end
@@ -119,7 +120,8 @@ for _, shape in ipairs(H.shapes()) do
         game.players[1].cursor_stack.set_stack{name = "raw"}
         local job_id = Generation.start{player_index = 1, sheet_id = sheet_id,
             prepared_input = prepared(sheet_id, Snapshot.of_sheet(sheet)), deliver = true}
-        for _ = 1, 8 do
+        --round 56: prepare finish 3 ticks + publish prep 4 ticks (engine sample split) -> bound 16
+        for _ = 1, 16 do
             H.run_ticks(world, 1)
             if Generation.status(1, job_id).state ~= "pending" then break end
         end

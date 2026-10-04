@@ -793,7 +793,7 @@ local function initial_provenance(input, job)
     return copy_plain(provenance) or {}
 end
 
-local function update_capture(handle, state, outcome, errors, stage)
+local function update_capture(handle, state, outcome, errors, stage, defer_persist)
     if not handle then return end
     if type(handle.capture) ~= "table" then
         persist_handle(handle)
@@ -805,7 +805,7 @@ local function update_capture(handle, state, outcome, errors, stage)
     if stage then handle.capture.provenance.stage = stage end
     state = state or {}
     handle.capture.provenance.revisions = copy_plain(state.revisions or handle.revisions) or {}
-    persist_handle(handle)
+    if not defer_persist then persist_handle(handle) end
 end
 
 local function search_grid_spacing(job)
@@ -1211,6 +1211,23 @@ local function step(job, budget)
         return job
     end
 
+    if state.phase == "search" and budget.ops > 0 and state.publish_prep ~= nil then
+        local stage = state.publish_prep
+        if stage == 1 then
+            state.publish_blueprint = copy_plain(job.result)
+        elseif stage == 2 then
+            state.publish_encoded = encode_blueprint(state.publish_blueprint)
+        elseif stage == 3 then
+            state.publish_canonical, state.publish_version = Serialize.canonical(state.publish_blueprint)
+            state.publish_ready = true
+        else
+            state.publish_prep, state.phase, job.done = nil, "done", true
+            return job
+        end
+        state.publish_prep, budget.ops = stage + 1, 0
+        return job
+    end
+
     if state.phase == "search" and budget.ops > 0 then
         --Box binding (CONTEXT.md, round 52): the engine's fluid -> box choice is read on a scratch surface, one plan
         --step per op, and the search never starts before every step is probed (groups and validate read the
@@ -1256,11 +1273,19 @@ local function step(job, budget)
                 persist_handle(handle)
                 bridge_attempt(handle, false)
             end
-            job.done, job.ok = true, state.search.ok == true
+            job.ok = state.search.ok == true
             job.result = copy_plain(state.search.result)
             job.errors = copy_plain(state.search.errors)
-            state.phase = state.search.ok and "done" or "failed"
-            if not job.ok and failure_code(job.errors) == "BP_FAIL_REVISION_CHANGED" then
+            if job.ok then
+                --Round 56 engine sample (2026-10-04, 2.0.77): blue publish tick 218-313 ms (copy 10, encode 42,
+                --canonical 31, persist x2 + bridge ~135). Copy, encode and canonical now each get a fresh tick
+                --before the job is done (state.publish_prep cursor); publish persists once.
+                state.publish_prep, budget.ops = 1, 0
+                return job
+            end
+            job.done = true
+            state.phase = "failed"
+            if failure_code(job.errors) == "BP_FAIL_REVISION_CHANGED" then
                 terminal_failure(handle_for(job), job)
             end
         end
@@ -1278,9 +1303,16 @@ local function publish(job)
         return
     end
 
-    local blueprint = copy_plain(job.result)
-    local encoded = encode_blueprint(blueprint)
-    local canonical, version = Serialize.canonical(blueprint)
+    local prep = type(job.state) == "table" and job.state.publish_ready and job.state or nil
+    local blueprint, encoded, canonical, version
+    if prep then
+        blueprint, encoded, canonical, version = prep.publish_blueprint, prep.publish_encoded, prep.publish_canonical, prep.publish_version
+        prep.publish_blueprint, prep.publish_encoded, prep.publish_canonical, prep.publish_version, prep.publish_ready = nil, nil, nil, nil, nil
+    else
+        blueprint = copy_plain(job.result)
+        encoded = encode_blueprint(blueprint)
+        canonical, version = Serialize.canonical(blueprint)
+    end
     handle.state = "success"
     handle.phase = "done"
     handle.progress = {done_units = 1, total_units = 1}
@@ -1290,7 +1322,7 @@ local function publish(job)
     handle.canonical_version = version
     handle.canonical = canonical
     if handle.compute_canonical_sha256 then handle.canonical_sha256 = canonical_digest(canonical) end
-    update_capture(handle, nil, "success", nil, "done")
+    update_capture(handle, nil, "success", nil, "done", true) --persisted once at the end of publish
     bridge_attempt(handle, false)
 
     local final_sequence = type(job.state) == "table" and type(job.state.search) == "table"

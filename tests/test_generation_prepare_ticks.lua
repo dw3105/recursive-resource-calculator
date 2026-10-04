@@ -34,10 +34,11 @@ for _, shape in ipairs(H.shapes()) do
             snapshot = {sheet_id = sid, state = "current", fingerprint = {input = "prepare-ticks"}},
             solver_result = {status = "ok", columns = {}}, catalog = {}, settings = {}, options = {},
             revisions = {sheet = 0, config = 0}, surface = "nauvis", force = "player"}, deliver = false}
-        local capture_tick
+        local capture_tick, done_tick
         for n = 1, 8 do
             tick = n
             H.run_ticks(world, 1)
+            if not done_tick and Generation.status(1, id).state ~= "pending" then done_tick = n end
             local capture = Generation.capture(1, id)
             if capture and not capture_tick then
                 capture_tick = n
@@ -45,6 +46,12 @@ for _, shape in ipairs(H.shapes()) do
             end
         end
         H.deep_equal({capture_tick, begun_at, stepped_at}, {3, 4, 5}, "capture at tick 3, Search.begin 4, first step 5")
+        for n = 9, 16 do
+            H.run_ticks(world, 1)
+            if not done_tick and Generation.status(1, id).state ~= "pending" then done_tick = n end
+        end
+        --step 5 search done, ticks 6-8 copy / encode / canonical, tick 9 job done + publish (GP2)
+        H.equal(done_tick, 9, "publish prep spends 4 fresh ticks after the last search step")
         H.equal(Generation.status(1, id).state, "success", "the job still finishes")
     end)
 end
