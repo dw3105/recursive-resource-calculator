@@ -715,3 +715,13 @@ tests/fixtures/r56/315/tiny.lua	algo	-	tiny harness suite for split-unit collect
 tests/fixtures/r56/308/gate_stub.sh	algo	-	gate56 stub runner (GT1-GT3)
 tests/fixtures/sheets/player-magenta-science-10s.bp.txt	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7; magenta joins round 56)
 tests/fixtures/sheets/player-magenta-science-10s.ports.json	sheet	player	delivered sheet bytes + ports for the headless sheet sim (D7; magenta joins round 56)
+tests/fixtures/r56/309/blue_prune_work.lua.gz	algo	-	round 56 gate: blue route work at its biggest PipeRuns.prune_redundant call (PR-COST)
+tests/fixtures/r56/309/prune_tick_cost.lua	algo	-	PR-COST probe: prune_redundant weighted cost + removed count + kept-segment digest, clean lua5.2
+tests/fixtures/r56/311/power_tick_cost.lua	algo	-	PF4 probe: worst Power.step weighted cost on a mid-run power state + sliced == one-shot
+tests/fixtures/r56/312/blue_val_beacon.lua.gz	algo	-	round 56 gate: blue validate state at the beacon pass (VS9, VS10)
+tests/fixtures/r56/312/blue_val_physical.lua.gz	algo	-	round 56 gate: blue validate state at the physical pass (VS11)
+tests/fixtures/r56/312/validate_phase_cost.lua	algo	-	VS9 probe: one Validate phase call weighted cost + codes/effects digest, clean lua5.2
+tests/fixtures/r56/312/validate_physical_cost.lua	algo	-	VS11 probe: worst Validate.step weighted cost in one phase, clean lua5.2
+tests/fixtures/r56/312/validate_state_tick_cost.lua	algo	-	VS8 probe: worst Validate.step weighted cost on a mid-run validate state, clean lua5.2
+tests/fixtures/r56/rg_power_t312.lua.gz	algo	-	round 56 gate: red-green layered power state at tick 312 (PF4)
+tests/fixtures/r56/rg_validate_t812.lua.gz	algo	-	round 56 gate: red-green layered validate state at tick 812 (VS8)
