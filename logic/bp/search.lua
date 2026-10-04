@@ -656,8 +656,22 @@ local function perimeter_slots(grid, edge, pitch)
     return slots
 end
 
+--Same strings as tostring(x) .. ":" .. tostring(y), built once per exact (x, y) (round 56 gate: 7k tostring calls in
+--one red-green pack tick). Pure memo, cleared when large; a non-number, NaN or zero (-0 prints "-0") takes the old path.
+local perimeter_key_memo, perimeter_key_count = {}, 0
 local function perimeter_cell_key(x, y)
-    return tostring(x) .. ":" .. tostring(y)
+    if type(x) ~= "number" or type(y) ~= "number" or x ~= x or y ~= y or x == 0 or y == 0 then return tostring(x) .. ":" .. tostring(y) end
+    local row = perimeter_key_memo[x]
+    if row then
+        local key = row[y]
+        if key then return key end
+    else
+        if perimeter_key_count >= 262144 then perimeter_key_memo, perimeter_key_count = {}, 0 end
+        row = {}; perimeter_key_memo[x] = row
+    end
+    local key = tostring(x) .. ":" .. tostring(y)
+    row[y] = key; perimeter_key_count = perimeter_key_count + 1
+    return key
 end
 
 local function mark_perimeter_port_cells(blocked, block)
@@ -1660,6 +1674,7 @@ local function start_try(state, pose)
     local obstacles = bare_rects(state.work.robo_obstacles)
     append_all(obstacles, bare_rects(state.work.input.obstacles)); append_all(obstacles, bare_rects(state.work.input.occupied))
     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
+    state.work.pack_split = nil
     state.work.pack = Pack.begin({area = pack_area(state, input_edge), obstacles = obstacles,
         zone_blockers = bare_rects(state.work.robo_obstacles), links = candidate_links(state, candidate),
         blocks = greedy_block_order(state, candidate), limits = state.work.input.limits or {}, layered = true,
@@ -1971,6 +1986,7 @@ local function prepare_candidate(state, budget)
         set_phase(state, "draw")
         return true
     end
+    state.work.pack_split = nil
     state.work.pack = Pack.begin({area = pack_area(state, input_edge), obstacles = obstacles,
         zone_blockers = bare_rects(state.work.robo_obstacles), links = state.work.pack_links,
         blocks = block_order, limits = state.work.input.limits or {}, layered = pack_layered(state), input_edge=input_edge,
@@ -2217,6 +2233,7 @@ function Search.step(container, budget)
                     local obstacles = bare_rects(state.work.robo_obstacles)
                     append_all(obstacles, bare_rects(state.work.input.obstacles)); append_all(obstacles, bare_rects(state.work.input.occupied))
                     append_all(obstacles, perimeter_roboport_clearance(state, state.work.grid))
+                    state.work.pack_split = nil
                     state.work.pack = Pack.begin({area=pack_area(state,input_edge), obstacles=obstacles,
                         zone_blockers=bare_rects(state.work.robo_obstacles), links=state.work.pack_links,
                         blocks=greedy_block_order(state,candidate), limits=state.work.input.limits or {}, layered=true,
@@ -2226,7 +2243,8 @@ function Search.step(container, budget)
                 end
             end
         elseif state.phase == "pack" then
-            run_stage(state, "pack", Pack, budget)
+            --A done stage is not stepped again on the split handoff ticks (round 56 gate).
+            if not stage_done(state.work.pack) then run_stage(state, "pack", Pack, budget) end
             if stage_done(state.work.pack) then
                     if not state.work.pack.ok then
                         if state.work.trial and state.work.trial.running then
@@ -2239,7 +2257,13 @@ function Search.step(container, budget)
                     if no_fit and next_grid(state) then -- a no-fit pack rejection grows this attempt's grid
                     else discard_candidate(state) end
                     end
-                else
+                elseif state.work.pack_split == nil then
+                    --Round 56 gate: pack end + materialize + Seat + route input + Route.begin ran uncharged in one tick
+                    --(red-green tick 128, 61 ms). Materialize on a fresh tick, route input on the next; the unused rest
+                    --of each tick is left, not spent (ops_used and every budget unchanged).
+                    state.work.pack_split = "materialize"
+                    budget.ops = 0
+                elseif state.work.pack_split == "materialize" then
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
                         state.work.pack.result and state.work.pack.result.placements)
                     state.work.materialized = {blocks = blocks, entities = entities, ports = ports}
@@ -2252,6 +2276,11 @@ function Search.step(container, budget)
                         settings.input_edge or state.work.input.input_edge or "left") > 0 then
                         Hands.offer_slides(state.work.materialized, state.work.grid)
                     end
+                    state.work.pack_split = "route_input"
+                    budget.ops = 0
+                else
+                    state.work.pack_split = nil
+                    local blocks, ports = state.work.materialized.blocks, state.work.materialized.ports
                     local route_input = make_route_input(state, state.work.grid, blocks, ports, state.work.robo_obstacles)
                     if route_input and state.work.trial and state.work.trial.running then
                         local options=state.work.trial_route_options or {}
@@ -2268,6 +2297,7 @@ function Search.step(container, budget)
                             state.work.current_collectors=route_input.collectors
                         end
                         state.work.collector_trial, state.work.collector_first = nil, nil
+                        state.work.route_split = nil
                         state.work.route = Route.begin(route_input)
                         trial_set_phase(state, "route")
                     else
@@ -2281,7 +2311,7 @@ function Search.step(container, budget)
                 end
             end
         elseif state.phase == "route" then
-            run_stage(state, "route", Route, budget)
+            if not stage_done(state.work.route) then run_stage(state, "route", Route, budget) end
             if stage_done(state.work.route) then
                     if not state.work.route.ok then
                         if state.work.trial and state.work.trial.running then
@@ -2291,17 +2321,26 @@ function Search.step(container, budget)
                         record_rejection(state, state.work.route.errors, "route")
                         discard_candidate(state)
                         end
+                elseif not state.work.route_split then
+                    --Round 56 gate: the last route step, the entity copies and the hands pass ran in one tick
+                    --(red-green tick 235, 70 ms). Copy on a fresh tick; the rest of this one is left, not spent.
+                    state.work.route_split = true
+                    budget.ops = 0
                 else
+                    state.work.route_split = nil
                     local power_entities = list_copy(state.work.materialized.entities)
                     append_all(power_entities, state.work.route.result and state.work.route.result.entities)
                     state.work.hand_entities = power_entities
                     trial_set_phase(state, "hands")
+                    budget.ops = 0
                 end
             end
         elseif state.phase == "power" then
-            power_room(state, true)
-            run_stage(state, "power", Power, budget)
-            power_room(state, false)
+            if not stage_done(state.work.power) then
+                power_room(state, true)
+                run_stage(state, "power", Power, budget)
+                power_room(state, false)
+            end
             if stage_done(state.work.power) then
                 if not state.work.power.ok then
                     if state.work.trial and state.work.trial.running then
@@ -2315,7 +2354,13 @@ function Search.step(container, budget)
                         if state.work.power_bound_hit then finish_search_bound(state, "BP_FAIL_POWER_BOUND")
                         else discard_candidate(state) end
                     end
+                elseif not state.work.power_split then
+                    --Round 56 gate: the last power step and the tidy/validate handoff shared a tick (blue tick 2543,
+                    --91 ms). Hand off on a fresh tick, and start the next stage on the one after; nothing is spent.
+                    state.work.power_split = true
+                    budget.ops = 0
                 else
+                    state.work.power_split = nil
                     if state.work.post_tidy_power then
                         state.work.post_tidy_power = false
                         state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
@@ -2361,6 +2406,7 @@ function Search.step(container, budget)
                     trial_set_phase(state, "tidy")
                     end
                     end
+                    budget.ops = 0
                 end
             end
         elseif state.phase == "hands" then
@@ -2369,9 +2415,13 @@ function Search.step(container, budget)
             local all = list_copy(state.work.materialized.entities)
             append_all(all, state.work.route.result and state.work.route.result.entities)
             state.work.hand_entities = all
+            state.work.power_split = nil
             state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
                 state.work.roboports, state.work.robo_obstacles))
             trial_set_phase(state, "power")
+            --Round 56 gate: BeaconPrune + power input + Power.begin + power steps made one 51 ms tick (red-green
+            --tick 237). Power steps start on a fresh tick; the rest of this one is left, not spent.
+            budget.ops = 0
         elseif state.phase == "tidy" then
             local before = budget.ops
             Route.tidy_step(state.work.route_state, budget)
@@ -2394,9 +2444,11 @@ function Search.step(container, budget)
                     state.work.post_tidy_power = true
                     local all = list_copy(state.work.materialized.entities)
                     append_all(all, state.work.route_state.result.entities)
+                    state.work.power_split = nil
                     state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
                         state.work.roboports, state.work.robo_obstacles))
                     trial_set_phase(state, "power")
+                    budget.ops = 0 --round 56 gate: next stage starts on a fresh tick (red-green tick 601, 56 ms)
                 else
                     state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
                         state.work.materialized.entities, state.work.materialized.ports,
@@ -2405,6 +2457,7 @@ function Search.step(container, budget)
                     state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
                         plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
                     trial_set_phase(state, "validate")
+                    budget.ops = 0 --round 56 gate: next stage starts on a fresh tick
                 end
             end
         elseif state.phase == "validate" and state.work.serialize_next then
@@ -2412,6 +2465,11 @@ function Search.step(container, budget)
             --three deep copies 0.21 s + begin_serialization 0.24 s; legalcopilot-dev 2026-09-29, DoD 300 ms).
             state.work.serialize_next = nil
             begin_serialization(state)
+            budget.ops = 0
+        elseif state.phase == "validate" and state.work.validate and state.work.validate.cursor
+            and state.work.validate.cursor.phase == "setup" then
+            --Round 56 gate: Validate builds its work in three parts, each on its own tick; unspent, as Validate.begin was.
+            Validate.setup_step(state.work.validate)
             budget.ops = 0
         elseif state.phase == "validate" then
             local was_done = stage_done(state.work.validate)
@@ -2494,6 +2552,7 @@ function Search.step(container, budget)
                             state.work.collector_first = {incumbent = freeze_incumbent(incumbent), record = record}
                             state.work.collector_trial = "running"
                             state.work.power, state.work.validate, state.work.tidy, state.work.route_state = nil, nil, nil, nil
+                            state.work.route_split = nil
                             state.work.route = Route.begin(retry_input)
                             trial_set_phase(state, "route")
                             incumbent = nil
