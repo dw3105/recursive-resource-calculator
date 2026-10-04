@@ -1267,30 +1267,40 @@ local function lay_belt_runs(work)
         end
         for _,feed in ipairs(run.feeds or {}) do if feed.side_tile then mark_near(feed.side_tile.x,feed.side_tile.y) end end
         --Measured legalcopilot-dev (2026-09-28): demand-local row booking reduced validation errors 334 -> 137; 13 golden sheet bytes stayed unchanged.
+        --Which demands book a run's flow does not depend on the tile: chosen once per flow, in demand order (round 56
+        --gate: lay_belt_runs walked every demand twice per tile and flow, 0.98 M instructions per route restart).
+        local booking = {}
+        for _, flow_id in ipairs(run.flows or {}) do
+            local local_demands = {}
+            for _, demand in ipairs(work.demands or {}) do
+                local endpoint = run.role == "in" and demand.sink or demand.source
+                if demand.flow_id == flow_id and endpoint and near_tiles[coordinate_key(endpoint.x, endpoint.y)] then
+                    local_demands[demand] = true
+                end
+            end
+            local has_near_demand = next(local_demands) ~= nil
+            local list = {}
+            for _, demand in ipairs(work.demands or {}) do
+                local endpoint = run.role == "in" and demand.sink or demand.source
+                if demand.flow_id == flow_id and endpoint and (not has_near_demand or local_demands[demand]) then
+                    list[#list + 1] = {demand = demand, endpoint = endpoint}
+                end
+            end
+            booking[#booking + 1] = list
+        end
         for _, tile in ipairs(run.tiles or {}) do
             local key = coordinate_key(tile.x, tile.y)
             if not work.segments_by_cell[key] then
                 local segment = {segment_id = next_segment_id(work), kind = kind,
                     capacity_per_second = capacity, allocations = {}, direction = direction, length = 1,
                     fixed = true, belt_run_role = run.role}
-                for _, flow_id in ipairs(run.flows or {}) do
+                for flow_index, flow_id in ipairs(run.flows or {}) do
                     register_segment_flow(work, segment, flow_id)
-                    local local_demands={}
-                    for _, demand in ipairs(work.demands or {}) do
-                        local endpoint=run.role=="in" and demand.sink or demand.source
-                        if demand.flow_id==flow_id and endpoint and near_tiles[coordinate_key(endpoint.x,endpoint.y)] then
-                            local_demands[demand]=true
-                        end
-                    end
-                    local has_near_demand=next(local_demands)~=nil
-                    for _, demand in ipairs(work.demands or {}) do
-                        local endpoint = run.role == "in" and demand.sink or demand.source
-                        if not run.synthetic_collector and demand.flow_id == flow_id and endpoint and endpoint.step_id ~= "$external"
-                            and (not has_near_demand or local_demands[demand]) then
+                    for _, entry in ipairs(booking[flow_index]) do
+                        local demand, endpoint = entry.demand, entry.endpoint
+                        if not run.synthetic_collector and endpoint.step_id ~= "$external" then
                             add_allocation(work, segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
-                        elseif run.synthetic_collector and demand.flow_id == flow_id and endpoint
-                            and (not has_near_demand or local_demands[demand])
-                            and (tile.x ~= endpoint.x or tile.y ~= endpoint.y) then
+                        elseif run.synthetic_collector and (tile.x ~= endpoint.x or tile.y ~= endpoint.y) then
                             add_allocation(work, segment, flow_id, sink_key(demand.sink, work, demand.sink_port_id), demand.amount)
                         end
                     end
@@ -3958,7 +3968,11 @@ local function restart_with_priority(state, work, demand)
     for _, entry in ipairs(work.demand_order) do
         if not claimed[entry.order_key] then ordered[#ordered + 1] = entry end
     end
-    audit_route_work(work)
+    --This audit writes only the seven fields reset just below; with no journal frame open nothing keeps its result,
+    --so it is skipped (round 56 gate: restart 1.15 M instructions, magenta drawn tick 3063 53 ms). With a frame
+    --open, jset records the audited values for rollback, so it still runs.
+    local frames = work.journal
+    if frames and #frames > 0 then audit_route_work(work) end
     work.counters.restarts = work.counters.restarts + 1
     work.demands = ordered
     for _, entry in ipairs(ordered) do
