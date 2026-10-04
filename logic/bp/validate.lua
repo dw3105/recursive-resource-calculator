@@ -538,15 +538,39 @@ local function entity_direction(info)
     return info and info.entity and (info.entity.direction or info.entity.dir)
 end
 
+--Same strings as before, built once per tile (round 56 Tick cost: two tostring calls and a concat per lookup were
+--the top cost of the physical pass). Pure memo; cleared when large so it never grows without bound.
+local point_key_memo, point_key_count = {}, 0
 local function point_key(x, y)
-    return tostring(math.floor(x)) .. ":" .. tostring(math.floor(y))
+    x, y = math.floor(x), math.floor(y)
+    local row = point_key_memo[x]
+    if not row then row = {}; point_key_memo[x] = row end
+    local key = row[y]
+    if key then return key end
+    if point_key_count >= 262144 then point_key_memo, point_key_count = {[x] = {}}, 0; row = point_key_memo[x] end
+    key = tostring(x) .. ":" .. tostring(y)
+    row[y] = key; point_key_count = point_key_count + 1
+    return key
+end
+
+--Lower-cased entity names and whether they name a splitter (pure memo by name).
+local name_lower_memo, name_splitter_memo = {}, {}
+local function name_lower(name)
+    local text = name_lower_memo[name]
+    if text == nil then text = tostring(name):lower(); name_lower_memo[name] = text end
+    return text
+end
+local function name_has_splitter(name)
+    local hit = name_splitter_memo[name]
+    if hit == nil then hit = tostring(name):find("splitter", 1, true) ~= nil; name_splitter_memo[name] = hit end
+    return hit
 end
 
 local function entity_tile_rect(info)
     local entity = info.entity or {}
     --A player's captured catalog lists machines only (green science sheet, 2026-09-24: no `splitter` spec), so a
     --splitter fell back to one tile and its second output was never walked. A splitter is two tiles wide.
-    local fallback_w = tostring(entity.name or ""):find("splitter", 1, true) and 2 or 1
+    local fallback_w = name_has_splitter(entity.name or "") and 2 or 1
     local width = math.max(1, math.floor(finite(entity.w, finite(info.spec.tile_w, fallback_w))))
     local height = math.max(1, math.floor(finite(entity.h, finite(info.spec.tile_h, 1))))
     --A catalog footprint is the NORTH one, so a body facing east or west is a quarter turn round and its tile
@@ -617,7 +641,7 @@ local function transport_neighbors(work, info, wanted_flow)
         for _, next_info in ipairs(work.transport_by_cell and work.transport_by_cell[point_key(x, y)] or {}) do
             local next_entity = next_info.entity or {}
             local next_kind = transport_kind(next_info)
-            local next_name = tostring(name_of(next_entity) or ""):lower()
+            local next_name = name_lower(name_of(next_entity) or "")
             local is_splitter = next_entity.type == "splitter" or next_entity.kind == "splitter"
                 or next_name:find("splitter", 1, true) ~= nil
             local current_direction = entity_direction(info)
@@ -2415,8 +2439,13 @@ local function check_physical_transfers(work, machine_index, final)
             -- name just one representative port, so witness every same-flow hand
             -- whose drop cell is this witnessed belt tile.
             local witnessed_output_segments = {}
-            for _, inserter in ipairs(work.inserters or {}) do
-                if transport_accepts_flow(inserter, flow_id) then
+            --Output hands by drop tile, built once per validation in work.inserters order (round 56 Tick cost: the scan
+            --of every hand per witnessed tile was 2.7 M instructions for one machine). Role and drop tile depend on
+            --the hand and its machine only, so matches and their order are the same as the full scan.
+            local drops = work._output_hands_by_drop
+            if not drops then
+                drops = {}
+                for _, inserter in ipairs(work.inserters or {}) do
                     local role = inserter.entity and inserter.entity.role
                     if role ~= "output" then
                         local machine = inserter.entity and inserter.entity.machine_id and work.info_by_id[inserter.entity.machine_id]
@@ -2428,14 +2457,22 @@ local function check_physical_transfers(work, machine_index, final)
                         if type(position) == "table" and finite(position.x) ~= nil and finite(position.y) ~= nil then
                             drop_x, drop_y = math.floor(finite(position.x) + EPSILON), math.floor(finite(position.y) + EPSILON)
                         end
-                        if drop_x == x and drop_y == y then
-                            work._collector_witnessed = work._collector_witnessed or {}
-                            work._collector_witnessed[inserter.id] = true
-                            for _, binding in ipairs(work.bindings or {}) do
-                                if binding.segment_id and binding.flow_id == flow_id and binding_matches_inserter(binding, inserter) then
-                                    witnessed_output_segments[binding.segment_id] = true
-                                end
-                            end
+                        if drop_x ~= nil and drop_y ~= nil then
+                            local key = point_key(drop_x, drop_y)
+                            local list = drops[key]; if not list then list = {}; drops[key] = list end
+                            list[#list + 1] = inserter
+                        end
+                    end
+                end
+                work._output_hands_by_drop = drops
+            end
+            for _, inserter in ipairs(drops[point_key(x, y)] or {}) do
+                if transport_accepts_flow(inserter, flow_id) then
+                    work._collector_witnessed = work._collector_witnessed or {}
+                    work._collector_witnessed[inserter.id] = true
+                    for _, binding in ipairs(work.bindings or {}) do
+                        if binding.segment_id and binding.flow_id == flow_id and binding_matches_inserter(binding, inserter) then
+                            witnessed_output_segments[binding.segment_id] = true
                         end
                     end
                 end
