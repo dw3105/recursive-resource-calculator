@@ -1015,6 +1015,10 @@ function Power.step(state, budget)
                         for ci, consumer in ipairs(work.consumers) do
                             if consumer_covered(candidate, consumer) then covers[#covers + 1] = ci end
                         end
+                        --This scan walks every consumer inside one unit: charge 1 op per 16 consumers, as far as the
+                        --budget goes (round 56 gate: red-green ticks 313-316 ran 848 instructions per op, 75 ms).
+                        local extra = math.min(integer(budget.ops, 0), math.floor(#work.consumers / 16))
+                        if extra > 0 then budget.ops = integer(budget.ops, 0) - extra; state.ops_used = state.ops_used + extra end
                         candidate.covers = covers
                         if #covers > 0 then work.blocked_candidates[#work.blocked_candidates + 1] = candidate end
                         work.candidate_eval = nil; cursor.phase = "candidate_position"

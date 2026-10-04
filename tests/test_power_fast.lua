@@ -39,6 +39,16 @@ H.test("PF2 consumer coverage bills one op per consumer", function()
     print("PF2")
 end)
 
+H.test("PF4 blocked-candidate scan is charged: every red-green power step fits the 50 ms model", function()
+    --Round 56 gate 2026-10-04: base 3722854 weighted (one unit walked all 129 consumers for 4 ops), 75 ms ticks.
+    local pipe = assert(io.popen("lua5.2 tests/fixtures/r56/311/power_tick_cost.lua tests/fixtures/r56/rg_power_t312.lua.gz 4000 2>&1"))
+    local out = pipe:read("*a"); pipe:close()
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(worst ~= nil and worst <= 2440000, true, "every power step fits the 50 ms model: " .. tostring(worst) .. " " .. out)
+    H.equal(out:match("SAME (%a+)"), "true", "sliced result equals one-shot result")
+    print("PF4")
+end)
+
 H.test("PF3 publish finish resumes and matches one-shot output", function()
     local function finish(slice)
         local state = {done=false, cursor={phase="publish_finish"}, progress={done_units=0,total_units=9},
