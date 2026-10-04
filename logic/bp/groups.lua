@@ -492,6 +492,10 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
     --inserters of assembling-machine-2 both scored the same best cell and the candidate rejected with
     --BP_V_COLLISION naming `:input:3` against `:input:4`.
     local occupied = {}
+    local world_boxes = {}
+    for _, member in ipairs(block.machines or {}) do
+        world_boxes[member] = Geometry.world_box(member, lookup_entity(catalog, member.name, "machine"))
+    end
     for _, member in ipairs(block.members or {}) do occupied[#occupied + 1] = member end
     for _, placed in ipairs(block.inserters or {}) do occupied[#occupied + 1] = placed end
     local best, best_score
@@ -500,12 +504,15 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
     local radius = 8
     local directions = {EAST, SOUTH, WEST, NORTH}
     for direction_index, direction in ipairs(directions) do
+        local pickup_dx, pickup_dy = Grid.rotate_vector(pickup_offset.x, pickup_offset.y, direction)
+        local drop_dx, drop_dy = Grid.rotate_vector(drop_offset.x, drop_offset.y, direction)
         for y = machine.y - radius, machine.y + machine.h + radius do
             for x = machine.x - radius, machine.x + machine.w + radius do
                 local rect = {x = x, y = y, w = iw, h = ih}
                 if not rectangles_overlap(rect, machine) then
-                    local _, _, pickup_x, pickup_y, drop_x, drop_y =
-                        transfer_cells(x, y, iw, ih, direction, pickup_offset, drop_offset)
+                    local center_x, center_y = x + iw / 2, y + ih / 2
+                    local pickup_x, pickup_y = cell_of(center_x + pickup_dx), cell_of(center_y + pickup_dy)
+                    local drop_x, drop_y = cell_of(center_x + drop_dx), cell_of(center_y + drop_dy)
                     local target_x, target_y = drop_x, drop_y
                     local source_x, source_y = pickup_x, pickup_y
                     local target_ok = target_member and cell_in_rect(target_member, target_x, target_y)
@@ -530,8 +537,7 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
                         end
                         if endpoint_clear then
                             for _, member in ipairs(block.machines or {}) do
-                                local spec = lookup_entity(catalog, member.name, "machine")
-                                local box = Geometry.world_box(member, spec)
+                                local box = world_boxes[member]
                                 if port_x + 1 > box.left and port_x < box.right
                                     and port_y + 1 > box.top and port_y < box.bottom then
                                     endpoint_clear = false
@@ -2622,7 +2628,7 @@ local function make_candidates_once(input, work)
         if target then target[#target + 1] = step else buckets[#buckets + 1] = {step} end
     end
     work = {catalog = catalog, flows = flows, ports = ports, buckets = buckets,
-        bucket_index = 1, blocks = {}, failures = {}}
+        bucket_index = 1, blocks = {}, failures = {}, last_ops = 1}
     end
     if not prepared then
         multi_flow_hands = previous_multi_flow_hands
@@ -2630,6 +2636,8 @@ local function make_candidates_once(input, work)
     end
     local group = work.buckets[work.bucket_index]
     if group then
+        local machine_work = 0
+        for _, step in ipairs(group) do machine_work = machine_work + math.max(1, step.machine_count or 1) end
         local ids = {}
         for _, step in ipairs(group) do
             ids[#ids + 1] = tostring(step.step_id) .. (step._physical_ordinal and ("#" .. tostring(step._physical_ordinal))
@@ -2681,6 +2689,7 @@ local function make_candidates_once(input, work)
             end
         else work.blocks[#work.blocks + 1] = block end
         work.bucket_index = work.bucket_index + 1
+        work.last_ops = math.max(1, machine_work)
     end
     if work.bucket_index <= #work.buckets then
         multi_flow_hands = previous_multi_flow_hands
@@ -2700,14 +2709,50 @@ local function make_candidates(input)
     return make_candidates_once(input)
 end
 
+local groups_cache = {}
+local groups_cache_order = {}
+
+local function cache_value(value, out, seen, root)
+    local kind = type(value)
+    if kind ~= "table" then
+        out[#out + 1] = kind .. ":" .. tostring(value) .. ";"
+        return
+    end
+    if seen[value] then out[#out + 1] = "cycle;"; return end
+    seen[value] = true
+    local keys = {}
+    for key in pairs(value) do if not (root and key == "grid") then keys[#keys + 1] = key end end
+    table.sort(keys, function(a, b)
+        if type(a) ~= type(b) then return type(a) < type(b) end
+        return tostring(a) < tostring(b)
+    end)
+    out[#out + 1] = "{" .. tostring(#keys) .. ":"
+    for _, key in ipairs(keys) do cache_value(key, out, seen); cache_value(value[key], out, seen, false) end
+    out[#out + 1] = "}"
+    seen[value] = nil
+end
+
+local function groups_cache_key(input)
+    local out = {}
+    cache_value(input or {}, out, {}, true)
+    return table.concat(out)
+end
+
 function Groups.begin(input)
+    local key = groups_cache_key(input)
+    local cached = groups_cache[key]
+    if cached then
+        local state = copy(cached)
+        state.work.cache_hit = true
+        return state
+    end
     return {
         done = false, ok = nil, cursor = {phase = "enumerate", candidate_index = 1},
         progress = {phase = "grouping", done_units = 0, total_units = nil},
-        -- Search already crosses a data-only copy boundary before this call. Retaining this immutable input
-        -- reference keeps begin constant-time; candidate construction and its copy costs belong in step.
+        -- Search already crosses a data-only copy boundary before this call. Retain that immutable input;
+        -- candidate construction belongs in step.
         work = {input = input or {}, candidates = nil, failures = nil, emitted = {}, build = nil,
-            candidate_enumerations = 0},
+            candidate_enumerations = 0, cache_key = key},
     }
 end
 
@@ -2718,7 +2763,12 @@ function Groups.step(state, budget)
     -- Candidate construction is deferred until the budgeted step. Keep the counter on the plain-data
     -- state so callers can verify begin did not enumerate candidates.
     if ops > 0 and state.work.candidates == nil then
-        local candidates, failures, build = make_candidates_once(state.work.input, state.work.build)
+        local pending_build = state.work.build
+        local pending_group = pending_build and pending_build.buckets and pending_build.buckets[pending_build.bucket_index]
+        local pending_cost = 0
+        for _, step in ipairs(pending_group or {}) do pending_cost = pending_cost + math.max(1, step.machine_count or 1) end
+        if pending_cost > ops and ops > 1 then budget.ops = ops; return state end
+        local candidates, failures, build = make_candidates_once(state.work.input, pending_build)
         state.work.build = build
         if candidates then
             state.work.candidates, state.work.failures = candidates, failures
@@ -2726,7 +2776,7 @@ function Groups.step(state, budget)
             state.progress.total_units = #candidates
             state.cursor.phase = "emit"
         end
-        ops = ops - 1
+        ops = ops - math.min(ops, math.max(1, finite(build and build.last_ops, 1)))
     end
     while ops > 0 and state.work.candidates and state.cursor.candidate_index <= #state.work.candidates do
         local candidate = state.work.candidates[state.cursor.candidate_index]
@@ -2739,6 +2789,15 @@ function Groups.step(state, budget)
     if state.work.candidates and state.cursor.candidate_index > #state.work.candidates then
         state.result = {candidates = state.work.emitted, failures = list_copy(state.work.failures)}
         state.done, state.ok = true, #state.work.emitted > 0
+        local key = state.work.cache_key
+        if key then
+            if not groups_cache[key] then groups_cache_order[#groups_cache_order + 1] = key end
+            groups_cache[key] = copy(state)
+            while #groups_cache_order > 8 do
+                local oldest = table.remove(groups_cache_order, 1)
+                groups_cache[oldest] = nil
+            end
+        end
     end
     return state
 end
