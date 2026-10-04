@@ -3,6 +3,14 @@
 package.path = "./?.lua;" .. package.path
 
 local H = {}
+local JUnit = require "tools.junit"
+
+local selected = {}
+local selection = os.getenv("RRC_CASE")
+if selection and selection ~= "" then
+    for name in selection:gmatch("[^,]+") do selected[name] = false end
+end
+local collecting = os.getenv("RRC_COLLECT") == "1"
 
 local TOLERANCE = 1e-9
 
@@ -2152,6 +2160,14 @@ H.ASSERT_MARK = "RRC-ASSERT: "
 local CASE_REPORT = os.getenv("RRC_CASE_REPORT") == "1"
 
 function H.test(name, fn)
+    if collecting then
+        results.names[#results.names + 1] = name
+        return
+    end
+    if selection and selection ~= "" then
+        if selected[name] == nil then return end
+        selected[name] = true
+    end
     local ok, err = xpcall(fn, debug.traceback)
     local outcome
     if ok then
@@ -2163,6 +2179,7 @@ function H.test(name, fn)
         outcome = tag == "[assert]" and "fail" or "error"
         print("FAIL " .. name .. " " .. tag .. "\n  " .. tostring(err):gsub("\n", "\n  "))
     end
+    results.names[#results.names + 1] = {name = name, outcome = outcome, message = ok and "" or tostring(err)}
     if CASE_REPORT then print("CASE " .. outcome .. " " .. name) end
 end
 
@@ -2264,6 +2281,25 @@ function H.shapes()
 end
 
 function H.done(file)
+    if collecting then
+        table.sort(results.names)
+        for _, name in ipairs(results.names) do print(JUnit.address(JUnit.classname(file, name), name)) end
+        os.exit(0)
+    end
+    if selection and selection ~= "" then
+        local missing = {}
+        for name, found in pairs(selected) do if not found then missing[#missing + 1] = name end end
+        table.sort(missing)
+        if #missing > 0 then
+            io.stderr:write("RRC_CASE unknown case(s): " .. table.concat(missing, ",") .. "\n")
+            os.exit(2)
+        end
+    end
+    local junit_dir = os.getenv("RRC_JUNIT_DIR")
+    if junit_dir and junit_dir ~= "" then
+        local path, err = JUnit.write(junit_dir, file, results.names)
+        if not path then io.stderr:write("JUnit write failed: " .. tostring(err) .. "\n"); os.exit(2) end
+    end
     --The terminator. A gate that reads a summary without this line is reading a truncated run, and a crash
     --after the summary is what this line's absence catches.
     if CASE_REPORT then print(string.format("CASES-COMPLETE %d", results.passed + results.failed)) end

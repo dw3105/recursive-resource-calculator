@@ -2,6 +2,7 @@
 --on the tests/harness.lua mock). Lanes read it, never change it. Parse-time requires only.
 local Sheet = require "gui.sheet"
 local Generation = require "logic.bp.generation"
+local JUnit = require "tools.junit"
 
 local S = {}
 
@@ -15,6 +16,12 @@ function S.first_sheet()
     return pane.tabs[1].content
 end
 function S.sheet_id(sheet) return sheet.tags.hxrrc_sheet_id end
+
+--A delivered sheet simulation is one independently runnable runner unit.
+function S.junit_sim_address(kind, case)
+    if kind ~= "sheets" and kind ~= "turnflip" and kind ~= "census" then error("unknown simulation kind " .. tostring(kind), 2) end
+    return JUnit.address(JUnit.classname(kind, case), "sim")
+end
 
 function S.find(root, name)
     if root == nil then return nil end
