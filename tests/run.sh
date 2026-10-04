@@ -5,6 +5,9 @@ sh tools/slow_guard.sh tests/run.sh "tests/test_*.lua" || exit $?
 #8 files red, round 47 suite 2, 2026-09-29); tests/test_slow_guard.lua clears it itself for its refusal cases.
 cd "$(dirname "$0")/.." || exit 1
 status=0
+RRC_FULL_TURN_FLIP=${RRC_FULL_TURN_FLIP:-0}
+RRC_ROUND=${RRC_ROUND:-56}
+export RRC_FULL_TURN_FLIP RRC_ROUND
 for lua in ${LUAS:-lua5.2}; do
     for test_file in tests/test_*.lua; do
         "$lua" "$test_file" || status=1
