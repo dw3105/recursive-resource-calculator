@@ -13,3 +13,6 @@
 - 2026-10-03 (round 55 close): RC-17..RC-21 from `docs/incidents/2026-10-03-round-55-close.md` reflection: time cap
   fixed before one try was measured, step-count budgets, headless hang from stand-in runner zip (~2 h), CONTEXT.md
   written in stale checkout, slow-guard reasons per case. Player approved 2026-10-03 "ok".
+- 2026-10-04 (round 56 close): RC-22 from `docs/incidents/2026-10-04-round-56-close.md` reflection: offline gate
+  tick != game tick and game-only ticks found only at release engine sample. Player approved 2026-10-04 "yes to rule
+  changes".

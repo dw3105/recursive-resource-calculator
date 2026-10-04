@@ -86,6 +86,10 @@ Round 47 probe patches (`p_valdetail`, `p_trunk`, `p_bindwatch`, `p_parts`, `p_v
   `__factorio-test__` line = runner not loaded (round 55: 1-byte stand-in zip, ~2 h lost on load theory).
 - **RC-20** Grill reads origin/main `CONTEXT.md` and `docs/adr/` before writing any term; session cwd may be stale branch.
 - **RC-21** One `RRC_SLOW` reason per question loop (case name in reason = new run each); wave file exists before use.
+- **RC-22** Speed round: engine probe (`tests/game/test_speed_probe.lua`, local, per-call profilers on `Search.step` /
+  `BoxBinding.fill`) on red-1s + blue in FIRST week, before trusting gate tick rows. Round 56: gate counted one
+  `Search.step` per tick, game Jobs loop ran many; prepare/binding/publish ticks game-only (241/313/141 ms), found at
+  release, 4 late fixes + extra suite. Memory `rrc-game-runs-layered-and-ticks-pile-up`.
 
 | Reference | Read when |
 |---|---|
