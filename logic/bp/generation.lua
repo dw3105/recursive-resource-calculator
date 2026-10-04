@@ -1240,6 +1240,10 @@ local function step(job, budget)
             if not Generation._bind_step(state, search_work, budget) or budget.ops <= 0 then return job end
         end
         Search.step(state.search, budget)
+        --One Search.step per game tick, as the offline gate measures it (generate.lua / ckpt.lua: one call per
+        --tick, unspent ops dropped). Jobs re-calls a step while ops remain, so cheap calls piled up: engine sample
+        --2026-10-04 blue tick 30 = 16 Groups calls, 141 ms, where the gate saw 16 ticks of <= 46 ms.
+        budget.ops = 0
         job.phase = state.search.phase
         job.progress = copy_plain(state.search.progress) or job.progress
         local active_handle = handle_for(job)

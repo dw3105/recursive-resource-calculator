@@ -54,6 +54,42 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(done_tick, 9, "publish prep spends 4 fresh ticks after the last search step")
         H.equal(Generation.status(1, id).state, "success", "the job still finishes")
     end)
+    H.test(shape .. " GP3 one Search.step per game tick even when it leaves ops unspent", function()
+        local world = H.new_world(shape)
+        world.add_default_infrastructure()
+        world.add_blueprint_item()
+        world.add_player(1)
+        world.init()
+        require "control"
+        world.handlers.on_init()
+        local pane, sheet = H.fill_sheet({})
+        storage[1].sheet_section = {sheet_pane = pane}
+        local sid = sheet.tags.hxrrc_sheet_id
+        storage[1].sheet_revision, storage[1].config_revision = {[sid] = 0}, 0
+        local Registry = require "logic.registry"
+        Registry.calculation = {get = function() return nil end}
+        local Generation = require "logic.bp.generation"
+        local Search = require "logic.bp.search"
+        local tick, calls = 0, {}
+        Search.begin = function(input)
+            return {input = input, phase = "groups", progress = {phase = "groups", done_units = 0, total_units = 1}}
+        end
+        Search.step = function(state, budget)
+            calls[tick] = (calls[tick] or 0) + 1
+            budget.ops = budget.ops - 1 --a cheap call: almost all of the tick's ops left
+            state.n = (state.n or 0) + 1
+            if state.n >= 6 then state.done, state.ok, state.result = true, true, {entities = {}} end
+        end
+        Generation.start{player_index = 1, sheet_id = sid, prepared_input = {
+            snapshot = {sheet_id = sid, state = "current", fingerprint = {input = "one-step"}},
+            solver_result = {status = "ok", columns = {}}, catalog = {}, settings = {}, options = {},
+            revisions = {sheet = 0, config = 0}, surface = "nauvis", force = "player"}, deliver = false}
+        for n = 1, 16 do tick = n; H.run_ticks(world, 1) end
+        local most = 0
+        for _, c in pairs(calls) do if c > most then most = c end end
+        H.equal(most, 1, "at most one Search.step per game tick")
+    end)
+
 end
 
 H.done("test_generation_prepare_ticks")
