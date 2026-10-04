@@ -23,6 +23,8 @@ class RecipeTests(unittest.TestCase):
         dockerfile = (ROOT / "ci/image/Dockerfile").read_text()
         self.assertRegex(dockerfile, r"2\.0\.77")
         self.assertRegex(dockerfile, r"2\.1\.20")
+        self.assertRegex(dockerfile, r"lua5\.2")
+        self.assertRegex(dockerfile, r"python3")
         print("RC3")
 
 
