@@ -1,5 +1,6 @@
 --Red on round-56-base: per-case selection, unit collection, and JUnit addresses are absent there. 2026-10-04.
 local H = require "tests.harness"
+local J = require "tools.junit"
 
 local function command_output(command)
     local pipe = assert(io.popen(command .. " 2>&1", "r"))
@@ -17,6 +18,10 @@ H.test("SU1 RRC_CASE selects only the exact named fixture case", function()
     H.equal(ok, true, "selected fixture exits successfully: " .. output)
     H.equal(has(output, "FIXTURE-a"), true, "selected case ran")
     H.equal(has(output, "FIXTURE-b"), false, "unselected case did not run")
+    local dispatched, dispatched_ok = command_output("RRC_SUITE_ROOT=tests/fixtures/r56/315 RRC_JUNIT_DIR=/tmp/rrc-315-junit sh tools/suite_units.sh run lua/tiny::a")
+    H.equal(dispatched_ok, true, "runner dispatched one address: " .. dispatched)
+    H.equal(has(dispatched, "FIXTURE-a"), true, "runner executed requested unit")
+    H.equal(has(dispatched, "FIXTURE-b"), false, "runner omitted other unit")
     print("SU1")
 end)
 
@@ -47,7 +52,6 @@ H.test("SU3 JUnit classnames never contain a separator", function()
 end)
 
 H.test("SU4 census and sheet unit addresses use their required prefixes", function()
-    local J = require "tools.junit"
     H.equal(J.classname("test_turn_flip_census", "case-x"), "census/case-x", "census prefix")
     H.equal(J.classname("test_sheets", "case-y"), "sheets/case-y", "sheet prefix")
     H.equal(J.classname("test_turn_flip_sims", "case-z"), "turnflip/case-z", "turnflip prefix")
