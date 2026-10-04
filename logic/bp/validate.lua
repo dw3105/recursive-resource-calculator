@@ -84,8 +84,10 @@ end
 
 local function sorted_keys(map)
     local result = {}
-    for key, _ in pairs(map or {}) do result[#result + 1] = key end
-    table.sort(result, function(a, b) return tostring(a) < tostring(b) end)
+    local text = {}
+    for key, _ in pairs(map or {}) do result[#result + 1] = key; text[key] = tostring(key) end
+    --Same comparisons as tostring(a) < tostring(b), each key's text built once (round 56 gate Tick cost).
+    table.sort(result, function(a, b) return text[a] < text[b] end)
     return result
 end
 
@@ -404,7 +406,11 @@ local function collect_entities(root, catalog)
             end
         end
     end
-    table.sort(result, function(a, b) return tostring(id_of(a)) < tostring(id_of(b)) end)
+    --Same comparisons as tostring(id_of(a)) < tostring(id_of(b)), each id's text built once (round 56 gate: 11k
+    --tostring calls in one tick on red-green).
+    local id_text = {}
+    for _, entity in ipairs(result) do id_text[entity] = tostring(id_of(entity)) end
+    table.sort(result, function(a, b) return id_text[a] < id_text[b] end)
     local infos = {}
     for index, entity in ipairs(result) do infos[index] = physical_info(entity, catalog, index) end
     return result, infos
@@ -515,6 +521,19 @@ local function multi_flow_hands_enabled(work)
     return multi_flow_hands
 end
 
+--Lower-cased entity names and whether they name a splitter (pure memo by name).
+local name_lower_memo, name_splitter_memo = {}, {}
+local function name_lower(name)
+    local text = name_lower_memo[name]
+    if text == nil then text = tostring(name):lower(); name_lower_memo[name] = text end
+    return text
+end
+local function name_has_splitter(name)
+    local hit = name_splitter_memo[name]
+    if hit == nil then hit = tostring(name):find("splitter", 1, true) ~= nil; name_splitter_memo[name] = hit end
+    return hit
+end
+
 local function transport_kind(info)
     if not info then return nil end
     if info.kind == "belt" then return "belt" end
@@ -523,7 +542,7 @@ local function transport_kind(info)
     local kind = entity.kind or entity.type or spec.etype
     if kind == "transport-belt" or kind == "underground-belt" or kind == "splitter" then return "belt" end
     if kind == "pipe" or kind == "pipe-to-ground" then return "pipe" end
-    local name = tostring(name_of(entity) or ""):lower()
+    local name = name_lower(name_of(entity) or "")
     if name:find("underground-belt", 1, true) or name:find("transport-belt", 1, true) or name:find("splitter", 1, true) then return "belt" end
     if name == "belt" or name == "underground" or name:find("belt", 1, true) then return "belt" end
     if name == "pipe" or name == "pipe-to-ground" or name:find("pipe", 1, true) then return "pipe" end
@@ -551,19 +570,6 @@ local function point_key(x, y)
     key = tostring(x) .. ":" .. tostring(y)
     row[y] = key; point_key_count = point_key_count + 1
     return key
-end
-
---Lower-cased entity names and whether they name a splitter (pure memo by name).
-local name_lower_memo, name_splitter_memo = {}, {}
-local function name_lower(name)
-    local text = name_lower_memo[name]
-    if text == nil then text = tostring(name):lower(); name_lower_memo[name] = text end
-    return text
-end
-local function name_has_splitter(name)
-    local hit = name_splitter_memo[name]
-    if hit == nil then hit = tostring(name):find("splitter", 1, true) ~= nil; name_splitter_memo[name] = hit end
-    return hit
 end
 
 local function entity_tile_rect(info)
@@ -781,8 +787,22 @@ local function tile_of(info)
     return math.floor(info.cx + EPSILON), math.floor(info.cy + EPSILON)
 end
 
+--Same strings as tostring(x) .. ":" .. tostring(y), built once per exact (x, y) (round 56 gate Tick cost). Pure memo,
+--cleared when large; a non-number, NaN or zero (-0 prints "-0") takes the old path.
+local tile_key_memo, tile_key_count = {}, 0
 local function tile_key(x, y)
-    return tostring(x) .. ":" .. tostring(y)
+    if type(x) ~= "number" or type(y) ~= "number" or x ~= x or y ~= y or x == 0 or y == 0 then return tostring(x) .. ":" .. tostring(y) end
+    local row = tile_key_memo[x]
+    if row then
+        local key = row[y]
+        if key then return key end
+    else
+        if tile_key_count >= 262144 then tile_key_memo, tile_key_count = {}, 0 end
+        row = {}; tile_key_memo[x] = row
+    end
+    local key = tostring(x) .. ":" .. tostring(y)
+    row[y] = key; tile_key_count = tile_key_count + 1
+    return key
 end
 
 local function endpoint_type(info)
@@ -875,7 +895,7 @@ end
 
 local coordinate_key, make_score
 
-local function make_work(input)
+local function make_work_base(input)
     input = type(input) == "table" and input or {}
     local root = input.candidate or input.result or input
     local plan = input.plan or root.plan
@@ -912,16 +932,25 @@ local function make_work(input)
             connection_witnesses = {}, transfer_witnesses = {},
             peak_power_w = 0, pollution_per_min = 0},
     }
+    return work
+end
+
+--Round 56 gate: make_work cost 2.4 M instructions in one tick on blue (collect 1.46 M, score 0.42 M, transport
+--0.39 M). Validate.begin keeps the input; the first steps build the work in these three parts, one per tick.
+local function make_work_geometry(work)
     work.geometry_world, work.geometry_masks = {}, {}
-    for index, info in ipairs(infos) do
+    for index, info in ipairs(work.infos) do
         work.geometry_world[index] = box_world(info)
         work.geometry_masks[index] = collision_mask_set(info.mask)
     end
     work.coordinate_key = coordinate_key(work)
+end
+
+local function make_work_index(work)
     work.transport_by_cell = transport_cells(work)
     work.initial_score = make_score(work)
-    return work
 end
+
 
 local function disjoint_union(work, a, b)
     local parent = work.power_parent
@@ -3300,12 +3329,30 @@ local function finish(work, state)
 end
 
 function Validate.begin(input)
-    local work = make_work(input)
-    return {done = false, ok = nil, cursor = {phase = "geometry", index = 1, other_index = 2}, progress = {phase = "validating", done_units = 0, total_units = math.max(1, #work.infos + #work.wires + #work.segments + #work.flows)}, result = nil, errors = nil, ops_used = 0, _work = work}
+    return {done = false, ok = nil, cursor = {phase = "setup", part = 1}, progress = {phase = "validating", done_units = 0, total_units = 1}, result = nil, errors = nil, ops_used = 0, _input = input}
+end
+
+--One setup part per call (search gives each its own tick). Returns true while setup is not finished.
+function Validate.setup_step(state)
+    if type(state) ~= "table" or state.cursor.phase ~= "setup" then return false end
+    local part = state.cursor.part or 1
+    if part == 1 then
+        state._work = make_work_base(state._input); state.cursor.part = 2
+    elseif part == 2 then
+        make_work_geometry(state._work); state.cursor.part = 3
+    else
+        local work = state._work
+        make_work_index(work)
+        state._input = nil
+        state.cursor = {phase = "geometry", index = 1, other_index = 2}
+        state.progress.total_units = math.max(1, #work.infos + #work.wires + #work.segments + #work.flows)
+    end
+    return state.cursor.phase == "setup"
 end
 
 function Validate.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
+    if state.cursor.phase == "setup" then Validate.setup_step(state); return state end
     budget = type(budget) == "table" and budget or {ops = 1}; local ops = math.max(0, math.floor(finite(budget.ops, 1))); local work = state._work
     while ops > 0 and not state.done do
         local phase = state.cursor.phase

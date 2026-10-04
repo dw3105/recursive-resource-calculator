@@ -27,4 +27,13 @@ H.test("VS6 every Validate.step at 4000 ops fits the 50 ms Tick cost", function(
     end
     print("VS6")
 end)
+H.test("VS8 red-green validate state: every step fits the 50 ms model (sort keys and tile keys built once)", function()
+    --Round 56 gate 2026-10-04: base 3312046 weighted, 22.6k tostring calls in one tick (65 ms).
+    local out = run("lua5.2 tests/fixtures/r56/312/validate_state_tick_cost.lua tests/fixtures/r56/rg_validate_t812.lua.gz 4000")
+    local worst = tonumber(out:match("WORST (%d+)"))
+    H.equal(worst ~= nil and worst <= 2440000, true, "every validate step fits the 50 ms model: " .. tostring(worst) .. " " .. out)
+    H.equal(out:match("codes=(%d+)"), "0", "same verdict: no codes")
+    print("VS8")
+end)
+
 H.done("test_validate_slices")
