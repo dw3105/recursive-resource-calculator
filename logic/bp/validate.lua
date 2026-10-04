@@ -534,8 +534,21 @@ local function name_has_splitter(name)
     return hit
 end
 
+--transport_kind and entity_tile_rect depend on the info table only, which validate never changes; the physical
+--walk asked them again for every visit (blue: 2.4-3.0 M instructions per machine, round 56 gate). Weak-key memos
+--return the same values.
+local transport_kind_memo = setmetatable({}, {__mode = "k"})
+local tile_rect_memo = setmetatable({}, {__mode = "k"})
+local transport_kind_raw
 local function transport_kind(info)
     if not info then return nil end
+    local hit = transport_kind_memo[info]
+    if hit ~= nil then return hit or nil end
+    local kind = transport_kind_raw(info)
+    transport_kind_memo[info] = kind or false
+    return kind
+end
+transport_kind_raw = function(info)
     if info.kind == "belt" then return "belt" end
     if info.kind == "pipe" then return "pipe" end
     local entity, spec = info.entity or {}, info.spec or {}
@@ -572,7 +585,15 @@ local function point_key(x, y)
     return key
 end
 
+local entity_tile_rect_raw
 local function entity_tile_rect(info)
+    local hit = tile_rect_memo[info]
+    if hit then return hit[1], hit[2], hit[3], hit[4] end
+    local x, y, w, h = entity_tile_rect_raw(info)
+    tile_rect_memo[info] = {x, y, w, h}
+    return x, y, w, h
+end
+entity_tile_rect_raw = function(info)
     local entity = info.entity or {}
     --A player's captured catalog lists machines only (green science sheet, 2026-09-24: no `splitter` spec), so a
     --splitter fell back to one tile and its second output was never walked. A splitter is two tiles wide.

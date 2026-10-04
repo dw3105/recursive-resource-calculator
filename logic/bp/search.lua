@@ -2272,6 +2272,8 @@ function Search.step(container, budget)
         elseif state.phase == "pack" then
             --A done stage is not stepped again on the split handoff ticks (round 56 gate).
             if not stage_done(state.work.pack) then run_stage(state, "pack", Pack, budget) end
+            --Pack asks for a fresh tick after a heavy scan slice; the rest of this tick is left, not spent.
+            if state.work.pack and state.work.pack.yield_tick then state.work.pack.yield_tick = nil; budget.ops = 0 end
             if stage_done(state.work.pack) then
                     if not state.work.pack.ok then
                         if state.work.trial and state.work.trial.running then
