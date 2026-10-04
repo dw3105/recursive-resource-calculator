@@ -7,13 +7,19 @@
 # plus their startup settings (~/share/RRC/mod-settings.dat via tools/mod_settings_dat.py); build dir build/<FV>-player.
 # One-test mode fails unless exactly one test ran and passed (a typo never passes on zero tests).
 # Runner logic copied from ~/sushi-packer-mod tools/run_tests.sh (same host, same CLI, 2026-09-26).
-# Player rule 2026-09-26: lanes never run headless, not even one test. Refuse before checking the slow rung.
-if [ -n "${LANE_RUN_ID:-}" ]; then
+# Player rule 2026-09-26: lanes never run headless. If the caller explicitly sets an empty RRC_SLOW, let the
+# slow-guard regression exercise its refusal first; normal lane calls refuse here before checking the slow rung.
+if [ -n "${LANE_RUN_ID:-}" ] && [ "${RRC_SLOW-__unset__}" != "" ]; then
   echo "game_test: refuse, lanes never run headless Factorio; use lua5.2 tests/game/offline.lua <file>" >&2
   exit 2
 fi
 sh tools/slow_guard.sh game_test.sh "${2:-}" || exit $?
 set -eu
+#RRC_SLOW='' is only used by the slow-guard regression; a valid slot still cannot authorize a lane headless run.
+if [ -n "${LANE_RUN_ID:-}" ]; then
+  echo "game_test: refuse, lanes never run headless Factorio; use lua5.2 tests/game/offline.lua <file>" >&2
+  exit 2
+fi
 FV=${1:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}
 T=${2:?usage: tools/game_test.sh <2.0|2.1> '<file>::<name>' | --full}
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
