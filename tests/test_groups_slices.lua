@@ -23,11 +23,84 @@ end
 local fixture = read_json("tests/fixtures/r56/310/blue_bound_groups.json")
 local am2 = read_json("tests/fixtures/r56/310/groups_am2.json")
 
-local function finish(input, ops)
-    local state = Groups.begin(input)
+local function finish(input, ops, cache)
+    local state = Groups.begin(input, cache)
     repeat Groups.step(state, {ops = ops}) until state.done
     return state
 end
+
+H.test("GS5 Groups without caller cache never hits", function()
+    local first, second = Groups.begin(fixture), Groups.begin(fixture)
+    H.equal(first.cache_hit, nil, "first uncached begin misses")
+    H.equal(second.cache_hit, nil, "second uncached begin misses")
+    local source = assert(io.open("logic/bp/groups.lua", "r")); local code = source:read("*a"); source:close()
+    H.equal(code:find("groups_cache", 1, true), nil, "no module cache remains")
+    print("GS5")
+end)
+
+H.test("GS6 key work is charged and bounded", function()
+    local cache, calls, original = {}, 0, _G.tostring
+    _G.tostring = function(value) calls = calls + 1; return original(value) end
+    local state = Groups.begin(fixture, cache)
+    Groups.step(state, {ops = 4000})
+    _G.tostring = original
+    H.equal(calls <= 200, true, "begin plus first step use at most 200 tostring calls")
+    print("GS6")
+end)
+
+H.test("GS7 cache is plain data and survives JSON round trip", function()
+    local cache = {}
+    local first = finish(fixture, 4000, cache)
+    local encoded = assert(io.open("tests/golden/generate.lua", "r")); local gen = encoded:read("*a"):gsub("^#![^\n]*\n", ""); encoded:close()
+    local start = assert(gen:find("local JSON = {}", 1, true)); local cut = assert(gen:find("local input_path,", start, true))
+    local JSON = assert(load(gen:sub(start, cut - 1) .. "\nreturn JSON", "@json-cache"))()
+    local roundtrip = JSON.decode(JSON.encode(cache))
+    local function plain(value, seen)
+        if type(value) == "function" or type(value) == "userdata" then return false end
+        if type(value) ~= "table" then return true end
+        if getmetatable(value) ~= nil then return false end
+        seen = seen or {}; if seen[value] then return true end; seen[value] = true
+        for key, child in pairs(value) do if not plain(key, seen) or not plain(child, seen) then return false end end
+        return true
+    end
+    H.equal(plain(cache), true, "cache contains plain data")
+    H.equal(plain(roundtrip), true, "round trip contains plain data")
+    local hit = Groups.begin(fixture, roundtrip)
+    H.equal(hit.cache_hit, true, "round-tripped cache hits")
+    H.equal(digest(hit.result), digest(first.result), "round-tripped result matches")
+    print("GS7")
+end)
+
+H.test("GS8 each blue step stays below the weighted instruction limit", function()
+    local state, max_cost = Groups.begin(fixture), 0
+    repeat
+        local instructions, calls = 0, 0
+        local old_tostring = _G.tostring
+        _G.tostring = function(value) calls = calls + 1; return old_tostring(value) end
+        debug.sethook(function() instructions = instructions + 1000 end, "", 1000)
+        Groups.step(state, {ops = 4000})
+        debug.sethook()
+        _G.tostring = old_tostring
+        max_cost = math.max(max_cost, instructions + 78 * calls)
+    until state.done
+    H.equal(max_cost <= 2440000, true, "every Groups step fits the 50 ms model")
+    print("GS8")
+end)
+
+H.test("GS9 a bucket larger than budget still progresses", function()
+    local input = {}; for key, value in pairs(fixture) do input[key] = value end
+    local state = Groups.begin(input)
+    local calls = 0
+    while not state.done do
+        local before = state.work.bucket_index
+        Groups.step(state, {ops = 50})
+        calls = calls + 1
+        H.equal(calls < 100000, true, "small budget completes")
+        H.equal(state.work.bucket_index > before or state.done, true, "oversized bucket makes progress")
+    end
+    H.equal(digest(state.result), "e1d66712b1f3b0d613a1001f88e3e886d28ab67fa9346015e48460aa5eacab0d", "small-budget result matches base")
+    print("GS9")
+end)
 
 H.test("GS1 repeated Groups build hits cache and matches fresh result", function()
     local input = fixture
