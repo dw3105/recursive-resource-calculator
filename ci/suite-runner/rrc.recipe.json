@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "name": "rrc",
+  "kind": "generic",
+  "pool_image": "ghcr.io/recursive-resource-calculator/rrc-suite:round-56@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "split": "auto",
+  "timeout_class": "long",
+  "resource_class": "standard",
+  "collect": {
+    "command": "sh tools/suite_units.sh collect"
+  },
+  "test": {
+    "command": "sh tools/suite_units.sh run {ids}"
+  },
+  "results": {
+    "junit": "junit-*.xml"
+  }
+}
