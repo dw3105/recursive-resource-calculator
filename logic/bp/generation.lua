@@ -125,6 +125,7 @@ local function persist_handle(handle)
         settings = copy_plain(handle.settings) or {},
         prepared_input_identity = copy_plain(handle.prepared_input_identity),
         grid_spacing = copy_plain(handle.grid_spacing),
+        compute_canonical_sha256 = handle.compute_canonical_sha256 == true,
         interim = copy_plain(handle.interim), delivered_sequence = handle.delivered_sequence,
     }
     if handle.reason_codes then record.reason_codes = copy_plain(handle.reason_codes) or {} end
@@ -136,7 +137,7 @@ local function persist_handle(handle)
     if handle.canonical then record.canonical = copy_plain(handle.canonical) or {} end
     if handle.capture then record.capture = copy_plain(handle.capture) or {} end
     if handle.delivery_reason ~= nil then record.delivery_reason = handle.delivery_reason end
-    state.jobs[handle.job_id] = copy_plain(record) or {}
+    state.jobs[handle.job_id] = record
     state.next_job_id = math.max(integer(state.next_job_id, 0), integer(handle.job_id, 0))
     if terminal_state(handle.state) then
         prune_older_finished(state, handle.player_index, handle.sheet_id, handle.job_id)
@@ -172,6 +173,7 @@ local function handle_from_record(record)
     if record.blueprint_string ~= nil then handle.blueprint_string = record.blueprint_string end
     if record.canonical_sha256 ~= nil then handle.canonical_sha256 = record.canonical_sha256 end
     if record.canonical_version ~= nil then handle.canonical_version = record.canonical_version end
+    if record.compute_canonical_sha256 == true then handle.compute_canonical_sha256 = true end
     if record.canonical then handle.canonical = copy_plain(record.canonical) or {} end
     if record.capture then handle.capture = copy_plain(record.capture) or {} end
     if record.delivery_reason ~= nil then handle.delivery_reason = record.delivery_reason end
@@ -1289,7 +1291,7 @@ local function publish(job)
     handle.blueprint_string = encoded
     handle.canonical_version = version
     handle.canonical = canonical
-    handle.canonical_sha256 = canonical_digest(canonical)
+    if handle.compute_canonical_sha256 then handle.canonical_sha256 = canonical_digest(canonical) end
     update_capture(handle, nil, "success", nil, "done")
     bridge_attempt(handle, false)
 
@@ -1388,6 +1390,8 @@ function Generation.start(input)
         job_id = id, state = "pending", phase = "queued", progress = {done_units = 0, total_units = nil},
         player_index = player_index, sheet_id = sheet_id, revisions = copy_plain(input.revisions), deliver = input.deliver,
         settings = copy_plain(input.settings or input.prepared_input and input.prepared_input.settings) or {},
+        compute_canonical_sha256 = input.compute_canonical_sha256 == true
+            or (type(input.provenance) == "table" and input.provenance.packaged == true),
         prepared_input_identity = prepared_input_identity(input.prepared_input, sheet_id, input.revisions),
     }
     persist_handle(handles[id])
