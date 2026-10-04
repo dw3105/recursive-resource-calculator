@@ -11,7 +11,7 @@ while not state.done do
     local ph, instr, calls = state.cursor and state.cursor.phase or state.phase, 0, 0
     _G.tostring = function(v) calls = calls + 1; return native(v) end
     debug.sethook(function() instr = instr + 1000 end, "", 1000)
-    Validate.step(state, {ops = ops})
+    Validate.step(state, {ops = ops}); state.yield_tick = nil
     debug.sethook(); _G.tostring = native
     if instr + 78 * calls > worst then worst, phase = instr + 78 * calls, tostring(ph) end
 end

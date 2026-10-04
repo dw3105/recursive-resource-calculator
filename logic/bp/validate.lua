@@ -1123,14 +1123,31 @@ end
 
 local function check_beacons(work)
     local influence_by_machine, groups_by_machine = {}, {}
+    --Per beacon (projection, supply box, module effects) and per machine (world box), built once: the pair loop below
+    --rebuilt them for every machine x beacon pair (blue 5.47 M weighted in one tick, round 56 gate). Same values.
+    local projection_of, supply_of, effects_of = {}, {}, {}
+    --beacon_group_matches re-expanded both module lists per call; the answer depends on (beacon, group) only.
+    local match_memo = {}
+    local function group_matches(beacon, group)
+        local row = match_memo[beacon]
+        if not row then row = {}; match_memo[beacon] = row end
+        local hit = row[group]
+        if hit == nil then hit = beacon_group_matches(beacon, group); row[group] = hit end
+        return hit
+    end
+    for _, beacon in ipairs(work.beacons) do
+        local projection = beacon_projection(beacon, work.catalog)
+        projection_of[beacon] = projection
+        --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9); a pole's
+        --counts from its centre. Add the half footprint here only.
+        local half_w, half_h = finite(beacon.w, 3) / 2, finite(beacon.h, finite(beacon.w, 3)) / 2
+        supply_of[beacon] = Geometry.supply_box(beacon.cx, beacon.cy, projection.supply_w + half_w, projection.supply_h + half_h)
+    end
     for _, machine in ipairs(work.machines) do
         local influencing, effects = {}, {speed = 0, consumption = 0, pollution = 0, quality = 0}
+        local machine_box = box_world(machine)
         for _, beacon in ipairs(work.beacons) do
-            local projection = beacon_projection(beacon, work.catalog)
-            --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9); a pole's
-            --counts from its centre. Add the half footprint here only.
-            local half_w, half_h = finite(beacon.w, 3) / 2, finite(beacon.h, finite(beacon.w, 3)) / 2
-            if box_in_area(machine, beacon.cx, beacon.cy, projection.supply_w + half_w, projection.supply_h + half_h) then
+            if Geometry.box_overlaps_supply(machine_box, supply_of[beacon]) then
                 influencing[#influencing + 1] = beacon
                 if machine.entity.forbids_speed_beacon or machine.entity.has_quality_module
                     or (work.steps[machine.entity.step_id] and (work.steps[machine.entity.step_id].forbids_speed_beacon
@@ -1144,17 +1161,19 @@ local function check_beacons(work)
         for _, group in ipairs(configured_groups(machine, work)) do
             local required = finite(group.count_per_machine, finite(group.count, 0))
             if required > 0 then
-                local got = 0; for _, beacon in ipairs(influencing) do if beacon_group_matches(beacon, group) then got = got + 1 end end
+                local got = 0; for _, beacon in ipairs(influencing) do if group_matches(beacon, group) then got = got + 1 end end
                 if got + tolerance(got) < required then error_record(work.errors, "BP_V_BEACON_COVERAGE_SHORT", {tostring(machine.id)}, {group = group.signature or group.name, required = required, got = got}) end
             end
         end
         local total = #influencing
         for _, beacon in ipairs(influencing) do
-            local projection = beacon_projection(beacon, work.catalog); local count = total
+            local projection = projection_of[beacon]; local count = total
             if projection.counter == "same_type" then count = 0; for _, peer in ipairs(influencing) do if peer.name == beacon.name then count = count + 1 end end end
             local sample = 1
             if type(projection.profile) == "table" and #projection.profile > 0 then sample = finite(projection.profile[math.max(1, math.min(#projection.profile, count))], 1) end
-            local weight = projection.effectivity * sample; local module_effects = module_effect_total(work.catalog, beacon.entity.modules)
+            local weight = projection.effectivity * sample
+            local module_effects = effects_of[beacon]
+            if not module_effects then module_effects = module_effect_total(work.catalog, beacon.entity.modules); effects_of[beacon] = module_effects end
             for _, key in ipairs({"speed", "consumption", "pollution", "quality"}) do effects[key] = effects[key] + weight * module_effects[key] end
         end
         --A step can have several physical machines.  The effect belongs to the machine box that was actually
@@ -1177,7 +1196,7 @@ local function check_beacons(work)
                     if required > 0 then
                         local got, removes = 0, false
                         for _, candidate in ipairs(influencing) do
-                            if beacon_group_matches(candidate, group) then
+                            if group_matches(candidate, group) then
                                 got = got + 1
                                 if candidate.id == beacon.id then removes = true end
                             end
@@ -1194,7 +1213,7 @@ local function check_beacons(work)
             for _, candidate in ipairs(influencing) do
                 if candidate.id == beacon.id then
                     for _, group in ipairs(groups) do
-                        if finite(group.count_per_machine, finite(group.count, 0)) > 0 and beacon_group_matches(beacon, group) then
+                        if finite(group.count_per_machine, finite(group.count, 0)) > 0 and group_matches(beacon, group) then
                             load_bearing = true
                             break
                         end
@@ -3350,9 +3369,12 @@ function Validate.setup_step(state)
     return state.cursor.phase == "setup"
 end
 
+local YIELD_AFTER = {beacon = true, segments = true, fluid_mix = true, underground = true, shapes = true, physical = true}
+
 function Validate.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
     if state.cursor.phase == "setup" then Validate.setup_step(state); return state end
+    local approaches = 0
     budget = type(budget) == "table" and budget or {ops = 1}; local ops = math.max(0, math.floor(finite(budget.ops, 1))); local work = state._work
     while ops > 0 and not state.done do
         local phase = state.cursor.phase
@@ -3411,6 +3433,14 @@ function Validate.step(state, budget)
             or phase == "physical" then spent = math.min(ops, 2000) end
         if phase == "port_approaches" then spent = math.min(ops, 20) end
         ops = ops - spent; state.ops_used = state.ops_used + spent; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + spent)
+        --Round 56 gate (blue, legalcopilot-dev 2026-10-04): the 2000-op charges above meant "one pass, one tick" at
+        --2000 ops per tick; at 4000 two passes shared a tick (up to 97 ms), and 200 port approaches fit one tick. Ask the
+        --caller for a fresh tick instead (ops_used unchanged): after each one-shot pass and every 60 port approaches.
+        if YIELD_AFTER[phase] then state.yield_tick = true; break end
+        if phase == "port_approaches" then
+            approaches = approaches + 1
+            if approaches >= 60 then state.yield_tick = true; break end
+        end
     end
     budget.ops = ops; return state
 end

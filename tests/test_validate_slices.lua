@@ -36,4 +36,24 @@ H.test("VS8 red-green validate state: every step fits the 50 ms model (sort keys
     print("VS8")
 end)
 
+H.test("VS9 blue beacon pass: same answer within the 50 ms model (per-beacon and per-pair answers built once)", function()
+    --Round 56 gate 2026-10-04: base 5473472 weighted in one call (module lists re-expanded for every match).
+    local out = run("lua5.2 tests/fixtures/r56/312/validate_phase_cost.lua tests/fixtures/r56/312/blue_val_beacon.lua.gz beacon")
+    local weighted = tonumber(out:match("WEIGHTED (%d+)"))
+    H.equal(out:match("SIG (%x+)"), "7dcef8a8", "same codes and beacon effects: " .. out)
+    H.equal(weighted ~= nil and weighted <= 1000000, true, "beacon pass fits a tick: " .. tostring(weighted))
+    print("VS9")
+end)
+
+H.test("VS10 a one-shot pass asks for a fresh tick", function()
+    local G = require "tools.lib.graph_dump"
+    local Validate = require "logic.bp.validate"
+    local state = G.load("tests/fixtures/r56/312/blue_val_beacon.lua.gz")
+    local budget = {ops = 4000}
+    Validate.step(state, budget)
+    H.equal(state.yield_tick, true, "beacon pass yields")
+    H.equal(budget.ops > 0, true, "the unused rest is handed back, not spent")
+    print("VS10")
+end)
+
 H.done("test_validate_slices")

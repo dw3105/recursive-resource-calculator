@@ -2474,6 +2474,11 @@ function Search.step(container, budget)
         elseif state.phase == "validate" then
             local was_done = stage_done(state.work.validate)
             if not was_done then run_stage(state, "validate", Validate, budget) end
+            --Validate asks for a fresh tick after a one-shot pass; the rest of this tick is left, not spent.
+            if state.work.validate and state.work.validate.yield_tick then
+                state.work.validate.yield_tick = nil
+                budget.ops = 0
+            end
             if stage_done(state.work.validate) and state.work.validate.ok and not was_done then
                 --The copies below get a tick of their own, apart from the last validate step.
                 budget.ops = 0
