@@ -286,7 +286,9 @@ function FlowDraw.step(state,budget)
             end
         end
     end
-    if budget.ops then budget.ops=math.max(0,budget.ops-allowance) end
+    --budget.ops hands back what is left (it handed back what was used: a full draw call left 4000 ops, so search
+    --drew again in the same tick; round 56 gate green-1s drawn tick 9, 64.54 ms).
+    if budget.ops then budget.ops=math.max(0,allowance) end
     return state.done
 end
 
