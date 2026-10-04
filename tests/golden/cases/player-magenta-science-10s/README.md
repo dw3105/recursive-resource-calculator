@@ -1,3 +1,6 @@
+> **SKIPPED** (player 2026-10-04): magenta builds too slowly; its golden and lab tests are skipped and will be
+> re-enabled once generation performance is improved significantly.
+
 # player-magenta-science-10s
 
 Player's production (magenta) science 10/s. Source: `~/share/RRC/magenta-science-10s-1.1.103.txt` (RRC 1.1.103

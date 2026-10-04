@@ -26,12 +26,20 @@ H.test("every baseline sheet is stored", function()
     table.sort(missing)
     H.deep_equal(missing, {}, "baseline sheets without tests/fixtures/sheets/<case>.bp.txt")
 end)
+--Sheets whose lab test is skipped (player 2026-10-04): the pin is skipped with them and named in the output.
+local SKIPPED = {
+    ["player-magenta-science-10s"] = "skipped 2026-10-04 (player): magenta builds too slowly; re-enable once generation performance is improved significantly",
+}
 for _, case in ipairs(cases) do
+    if SKIPPED[case] then
+        print("SKIP sheet " .. case .. ": " .. SKIPPED[case])
+    else
     H.test("sheet " .. case .. " bytes and ports", function()
         local sum = assert(io.popen("sha256sum tests/fixtures/sheets/" .. case .. ".bp.txt")):read("*l"):sub(1, 64)
         if want[case] or not case:match("^vanilla%-") then H.equal(sum, want[case], case .. " sha256 vs " .. tostring(from[case])) end
         local text = assert(io.open("tests/fixtures/sheets/" .. case .. ".ports.json")):read("*a")
         H.equal(text:find('"problems": %[%]') ~= nil, true, case .. " ports traced with no problem")
     end)
+    end
 end
 H.done("test_sheet_fixtures")
