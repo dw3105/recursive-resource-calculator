@@ -47,9 +47,10 @@ def main():
     # An interpreter must START a command segment (after ; && || | ( and env/timeout prefixes). File names inside a
     # read-only command (`git diff a.sh tests/run.sh`) are not a run: the first hook blocked exactly that (2026-09-28).
     running = []
+    # Shell keywords (if/while/do/!/{) also prefix a run: `if lua5.2 ...; then` slipped past (ticket 06, 2026-10-04).
     for seg in re.split(r"&&|\|\||[;|()\n]", cmd):
         words = seg.strip().split()
-        while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("timeout", "env", "time", "nice")
+        while words and (re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", words[0]) or words[0] in ("timeout", "env", "time", "nice", "if", "then", "else", "elif", "while", "until", "do", "!", "{", "exec", "command", "builtin")
                          or re.match(r"^-|^\d+s?$", words[0])):
             words = words[1:]
         if words and (words[0] in ("lua5.2", "lua") or words[0].startswith("./tools/")
