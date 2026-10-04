@@ -40,6 +40,30 @@ _Avoid_: entity tie (retired 2026-09-30: entity count treats a pipe and an under
 A delivered sheet blueprint built for real in headless Factorio, powered, fed at its ports, run, and its output rate counted.
 _Avoid_: sheet test, golden run
 
+**Parity row**:
+One sheet generated inside headless Factorio and offline from the same input and code, delivered sha compared. Same sha means the offline Sheet sim covers what the player gets; a different sha is a drift defect owed a fix.
+_Avoid_: engine check, in-game golden
+
+**Accepted DIFF**:
+A gate row whose bytes differ from the Bytes baseline and that ships: faster or Speed tie against `main` run back to back, proven valid (offline validate and lane sim; Sheet sim and Parity row for a layered sheet), and written into the next baseline by the baseline tool, which refuses a row without proof.
+_Avoid_: known diff, expected change
+
+**Tick cost**:
+Engine milliseconds of one game tick predicted offline from the Lua work done in it: 20.28 x million VM instructions + 1.58 x thousand `tostring` calls + 0.51 (ADR 0003). Gates judge the worst tick by it, not by host clock.
+_Avoid_: tick time (host ms, noisy), ops per tick (the budget, not the cost)
+
+**Turn/Flip slice**:
+The suite's share of the forced Turn and Flip census: 18 cases with one pose each, the pose rotating by round, on 2.0. The full census and full sims run only on demand and at release.
+_Avoid_: mini census, sample
+
+**Split unit**:
+The smallest piece of the suite a runner can hand to one machine: one harness case, one census sheet, one headless test file or one sheet sim, named by its JUnit prefix.
+_Avoid_: shard (one machine's share of units), chunk
+
+**Integrator-proven row**:
+A gate row a lane cannot check in a 60 s single test (a whole big sheet, a worst tick on a big sheet); the lane task names it and the integrator proves it before merge or at the round gate.
+_Avoid_: deferred check, skipped row
+
 **Bytes baseline**:
 The sha256 of each gated sheet's delivered blueprint string at one round (`bytes_roundNN.txt`). It detects change; the sheet sim judges whether the change is good.
 _Avoid_: golden hash
