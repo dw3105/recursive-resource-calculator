@@ -85,12 +85,12 @@ local function stage_done(stage)
 end
 
 --Round 56 gate: a stage handoff ends the tick (rest left unspent) only on big sheets. Its cost grows with the sheet:
---red-green (609 entities) and blue (1475) went over 50 ms, sheets under 400 stayed under 30 ms but paid 13-25% more
---ticks for the splits (legalcopilot-dev 2026-10-04). Size = materialized entities, else Groups members.
-Search.HANDOFF_HEAVY = 450
+--red-green (196 Groups members + hands) and blue (411) went over 50 ms; sheets at 108 or fewer stayed under 45 ms but
+--paid 13-25% more ticks for the splits (legalcopilot-dev 2026-10-04). Size = Groups members + hands of the current
+--candidate, the same count in every stage of a grid (materialized entities leave out the route: red-green 129).
+Search.HANDOFF_HEAVY = 150
 local function handoff_size(state)
     local work = state.work or {}
-    if work.materialized and work.materialized.entities then return #work.materialized.entities end
     local candidates = work.groups and work.groups.result and work.groups.result.candidates
     local n = 0
     for _, block in ipairs(candidates and candidates[1] and candidates[1].blocks or {}) do
