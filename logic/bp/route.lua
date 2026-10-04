@@ -4439,38 +4439,43 @@ Route._trim_dead_ends = function(work)
     end
     for _, demand in ipairs(work.demands or {}) do mark(demand.source); mark(demand.sink) end
     for _, ep in pairs(work.endpoint_by_id or {}) do mark(ep) end
-    local removed = 0
-    local changed = true
-    while changed do
-        changed = false
-        for _, seg in ipairs(work.segments or {}) do
-            if seg.kind == "belt" and not seg.underground and not seg.splitter and seg.direction ~= nil
-                and seg.flow_id ~= nil then
-                local tile
-                local cell_keys = sorted_keys(work.segments_by_cell or {})
-                for _, key in ipairs(cell_keys) do
-                    if work.segments_by_cell[key] == seg then tile = key; break end
-                end
-                if tile and not endpoints[tile] then
-                    local x, y = coordinate_from_key(tile)
-                    local dx, dy = Grid.dir_vector(seg.direction)
-                    local ahead = dx and work.segments_by_cell[coordinate_key(x + dx, y + dy)]
-                    local count = 0
-                    for _, other in ipairs(work.segments or {}) do if other == seg then count = count + 1 end end
-                    if not ahead and count == 1 then
-                        local entity = work.entity_by_segment and work.entity_by_segment[seg.segment_id]
-                        if entity then
-                            entity._route_removed = true
-                            for i = #work.entities, 1, -1 do if work.entities[i] == entity then table.remove(work.entities, i) end end
-                        end
-                        work.entity_by_segment[seg.segment_id] = nil
-                        work.segments_by_cell[tile] = nil
-                        for i = #work.segments, 1, -1 do if work.segments[i] == seg then table.remove(work.segments, i) end end
-                        removed, changed = removed + 1, true
-                        break
-                    end
-                end
+    local tile_by_segment = {}
+    for _, key in ipairs(sorted_keys(work.segments_by_cell or {})) do
+        local seg = work.segments_by_cell[key]
+        if tile_by_segment[seg] == nil then tile_by_segment[seg] = key end
+    end
+    local queue, queued = {}, {}
+    local function dead_end(seg)
+        if not seg or seg.kind ~= "belt" or seg.underground or seg.splitter or seg.direction == nil or seg.flow_id == nil then return false end
+        local tile = tile_by_segment[seg]
+        if not tile or endpoints[tile] then return false end
+        local x, y = coordinate_from_key(tile)
+        local dx, dy = Grid.dir_vector(seg.direction)
+        return dx ~= nil and work.segments_by_cell[coordinate_key(x + dx, y + dy)] == nil
+    end
+    local function enqueue(seg)
+        if not queued[seg] and dead_end(seg) then queued[seg] = true; queue[#queue + 1] = seg end
+    end
+    for _, seg in ipairs(work.segments or {}) do enqueue(seg) end
+    local head, removed = 1, 0
+    while head <= #queue do
+        local seg = queue[head]
+        head = head + 1
+        local tile = tile_by_segment[seg]
+        if tile and dead_end(seg) then
+            local x, y = coordinate_from_key(tile)
+            local dx, dy = Grid.dir_vector(seg.direction)
+            local entity = work.entity_by_segment and work.entity_by_segment[seg.segment_id]
+            if entity then
+                entity._route_removed = true
+                for i = #work.entities, 1, -1 do if work.entities[i] == entity then table.remove(work.entities, i) end end
             end
+            work.entity_by_segment[seg.segment_id] = nil
+            work.segments_by_cell[tile] = nil
+            tile_by_segment[seg] = nil
+            for i = #work.segments, 1, -1 do if work.segments[i] == seg then table.remove(work.segments, i) end end
+            removed = removed + 1
+            enqueue(work.segments_by_cell[coordinate_key(x - dx, y - dy)])
         end
     end
     return removed
