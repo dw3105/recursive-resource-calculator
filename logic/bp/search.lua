@@ -2498,17 +2498,37 @@ function Search.step(container, budget)
                 Hands.place(state.work.materialized, state.work.route_state.result or {})
                 state.work.tidy_split = "placed"
                 if handoff_yield(state) then budget.ops = 0 end
+            elseif stage_done(state.work.route_state) and state.work.tidy_split == "placed"
+                and (state.work.tidy_slides or 0) > 0 then
+                --Post-tidy power: copies, power input and Power.begin take a tick each on big sheets (magenta drawn
+                --tick 4187: 62 ms together, round 56 gate).
+                local all = list_copy(state.work.materialized.entities)
+                append_all(all, state.work.route_state.result.entities)
+                state.work.tidy_power_entities = all
+                state.work.tidy_split = "copied"
+                if handoff_yield(state) then budget.ops = 0 end
+            elseif stage_done(state.work.route_state) and state.work.tidy_split == "copied" then
+                state.work.tidy_power_input = make_power_input(state, state.work.grid, state.work.tidy_power_entities,
+                    state.work.roboports, state.work.robo_obstacles)
+                state.work.tidy_power_entities = nil
+                state.work.tidy_split = "input"
+                if handoff_yield(state) then budget.ops = 0 end
             elseif stage_done(state.work.route_state) then
+                local input_ready = state.work.tidy_split == "input"
                 state.work.tidy_split = nil
                 local before = state.work.tidy_slides or 0
                 state.work.tidy_slides = nil
                 if before > 0 then
                     state.work.post_tidy_power = true
-                    local all = list_copy(state.work.materialized.entities)
-                    append_all(all, state.work.route_state.result.entities)
+                    local power_input = state.work.tidy_power_input
+                    state.work.tidy_power_input = nil
+                    if not (input_ready and power_input) then
+                        local all = list_copy(state.work.materialized.entities)
+                        append_all(all, state.work.route_state.result.entities)
+                        power_input = make_power_input(state, state.work.grid, all, state.work.roboports, state.work.robo_obstacles)
+                    end
                     state.work.power_split = nil
-                    state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
-                        state.work.roboports, state.work.robo_obstacles))
+                    state.work.power = Power.begin(power_input)
                     trial_set_phase(state, "power")
                     if handoff_yield(state) then budget.ops = 0 end --round 56 gate: next stage starts on a fresh tick (red-green tick 601, 56 ms)
                 else
