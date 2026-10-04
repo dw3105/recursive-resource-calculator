@@ -2711,17 +2711,22 @@ end
 
 local function cache_value(value, out)
     if type(value) == "table" then
-        local keys = {}
-        for key in pairs(value) do keys[#keys + 1] = key end
-        table.sort(keys, function(a, b)
-            if type(a) == "number" and type(b) == "number" then return a < b end
-            return tostring(a) < tostring(b)
-        end)
+        local keys, tokens = {}, {}
+        local function token(key)
+            if type(key) == "number" then return "n:" .. string.format("%.17g", key) end
+            if type(key) == "string" then return "s:" .. #key .. ":" .. key end
+            return type(key) .. ":" .. tostring(key)
+        end
+        for key in pairs(value) do keys[#keys + 1] = key; tokens[key] = token(key) end
+        table.sort(keys, function(a, b) return tokens[a] < tokens[b] end)
         out[#out + 1] = "{"
-        for _, key in ipairs(keys) do cache_value(key, out); out[#out + 1] = "="; cache_value(value[key], out); out[#out + 1] = ";" end
+        for _, key in ipairs(keys) do
+            out[#out + 1] = tokens[key]; out[#out + 1] = "="; cache_value(value[key], out); out[#out + 1] = ";"
+        end
         out[#out + 1] = "}"
-    elseif type(value) == "number" then out[#out + 1] = string.format("%.17g", value)
-    else out[#out + 1] = tostring(value) end
+    elseif type(value) == "number" then out[#out + 1] = "n:" .. string.format("%.17g", value)
+    elseif type(value) == "string" then out[#out + 1] = "s:" .. #value .. ":" .. value
+    else out[#out + 1] = type(value) .. ":" .. tostring(value) end
 end
 
 local function groups_key(input)
