@@ -2359,7 +2359,9 @@ function Search.step(container, budget)
             if not stage_done(state.work.route) then run_stage(state, "route", Route, budget) end
             if state.work.route and state.work.route.yield_tick and not stage_done(state.work.route) then
                 state.work.route.yield_tick = nil
-                budget.ops = 0
+                --Only big sheets pay a tick for a restart; a small sheet's restart is cheap (red-1s 98 -> 105 ticks
+                --when every restart yielded, gate 3 on ac86226).
+                if handoff_yield(state) then budget.ops = 0 end
             end
             if stage_done(state.work.route) then
                     if not state.work.route.ok then

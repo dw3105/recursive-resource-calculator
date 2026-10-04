@@ -3466,6 +3466,7 @@ function Validate.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
     if state.cursor.phase == "setup" then Validate.setup_step(state); return state end
     local approaches = 0
+    local physical_partial = false
     budget = type(budget) == "table" and budget or {ops = 1}; local ops = math.max(0, math.floor(finite(budget.ops, 1))); local work = state._work
     while ops > 0 and not state.done do
         local phase = state.cursor.phase
@@ -3518,7 +3519,7 @@ function Validate.step(state, budget)
                 local k = (state.cursor.physical_entry or 0) + 1
                 check_physical_transfers(work, index, false, k)
                 if k >= total then state.cursor.physical_entry = nil; state.cursor.physical_index = index + 1
-                else state.cursor.physical_entry = k end
+                else state.cursor.physical_entry = k; physical_partial = true end
             else
                 if index == 1 then check_physical_transfers(work, index, false)
                 elseif index <= #work.machines then check_physical_transfers(work, index, false)
@@ -3534,6 +3535,8 @@ function Validate.step(state, budget)
         if phase == "beacon" or phase == "segments" or phase == "fluid_mix" or phase == "underground" or phase == "shapes"
             or phase == "physical" then spent = math.min(ops, 2000) end
         if phase == "port_approaches" then spent = math.min(ops, 20) end
+        --A machine's physical check is charged once, on its last plan entry (same ops_used as one call per machine).
+        if physical_partial then spent = 0; physical_partial = false end
         ops = ops - spent; state.ops_used = state.ops_used + spent; state.progress.done_units = math.min(state.progress.total_units, state.progress.done_units + spent)
         --Round 56 gate (blue, legalcopilot-dev 2026-10-04): the 2000-op charges above meant "one pass, one tick" at
         --2000 ops per tick; at 4000 two passes shared a tick (up to 97 ms), and 200 port approaches fit one tick. Ask the
