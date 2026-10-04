@@ -84,6 +84,24 @@ local function stage_done(stage)
     return type(stage) == "table" and stage.done == true
 end
 
+--Round 56 gate: a stage handoff ends the tick (rest left unspent) only on big sheets. Its cost grows with the sheet:
+--red-green (609 entities) and blue (1475) went over 50 ms, sheets under 400 stayed under 30 ms but paid 13-25% more
+--ticks for the splits (legalcopilot-dev 2026-10-04). Size = materialized entities, else Groups members.
+Search.HANDOFF_HEAVY = 450
+local function handoff_size(state)
+    local work = state.work or {}
+    if work.materialized and work.materialized.entities then return #work.materialized.entities end
+    local candidates = work.groups and work.groups.result and work.groups.result.candidates
+    local n = 0
+    for _, block in ipairs(candidates and candidates[1] and candidates[1].blocks or {}) do
+        n = n + #(block.members or {}) + #(block.inserters or {})
+    end
+    return n
+end
+local function handoff_yield(state)
+    return handoff_size(state) >= Search.HANDOFF_HEAVY
+end
+
 local function stage_error(stage)
     if type(stage) ~= "table" then return {{code = "BP_FAIL_NO_LAYOUT_GRID_LIMIT"}} end
     if type(stage.errors) == "table" and #stage.errors > 0 then return copy(stage.errors) end
@@ -2170,7 +2188,7 @@ function Search.step(container, budget)
                 --Round 56 gate: a grid start ran Groups.begin (cache copy) + block order + Pack.begin in one tick
                 --(blue grid starts 57-61 ms). Prepare the candidate on a fresh tick; nothing is spent.
                 state.work.groups_split = true
-                budget.ops = 0
+                if handoff_yield(state) then budget.ops = 0 end
             else
                 state.work.groups_split = nil
                 declare_allowance(state)
@@ -2271,7 +2289,7 @@ function Search.step(container, budget)
                     --(red-green tick 128, 61 ms). Materialize on a fresh tick, route input on the next; the unused rest
                     --of each tick is left, not spent (ops_used and every budget unchanged).
                     state.work.pack_split = "materialize"
-                    budget.ops = 0
+                    if handoff_yield(state) then budget.ops = 0 end
                 elseif state.work.pack_split == "materialize" then
                     local blocks, entities, ports = materialize_candidate(state, state.work.candidate,
                         state.work.pack.result and state.work.pack.result.placements)
@@ -2286,7 +2304,7 @@ function Search.step(container, budget)
                         Hands.offer_slides(state.work.materialized, state.work.grid)
                     end
                     state.work.pack_split = "route_input"
-                    budget.ops = 0
+                    if handoff_yield(state) then budget.ops = 0 end
                 else
                     state.work.pack_split = nil
                     local blocks, ports = state.work.materialized.blocks, state.work.materialized.ports
@@ -2309,7 +2327,7 @@ function Search.step(container, budget)
                         state.work.route_split = nil
                         state.work.route = Route.begin(route_input)
                         trial_set_phase(state, "route")
-                        budget.ops = 0 --round 56 gate: route steps start on a fresh tick (blue tick 622, 55 ms)
+                        if handoff_yield(state) then budget.ops = 0 end --round 56 gate: route steps start on a fresh tick (blue tick 622, 55 ms)
                     else
                         if state.work.trial and state.work.trial.running then
                             state.work.trial_finish={result="fail",code=state.work.route_input_error and state.work.route_input_error.code or "BP_R_INPUT"}
@@ -2335,7 +2353,7 @@ function Search.step(container, budget)
                     --Round 56 gate: the last route step, the entity copies and the hands pass ran in one tick
                     --(red-green tick 235, 70 ms). Copy on a fresh tick; the rest of this one is left, not spent.
                     state.work.route_split = true
-                    budget.ops = 0
+                    if handoff_yield(state) then budget.ops = 0 end
                 else
                     state.work.route_split = nil
                     local power_entities = list_copy(state.work.materialized.entities)
@@ -2343,7 +2361,7 @@ function Search.step(container, budget)
                     state.work.hand_entities = power_entities
                     state.work.hands_pruned = nil
                     trial_set_phase(state, "hands")
-                    budget.ops = 0
+                    if handoff_yield(state) then budget.ops = 0 end
                 end
             end
         elseif state.phase == "power" then
@@ -2369,7 +2387,7 @@ function Search.step(container, budget)
                     --Round 56 gate: the last power step and the tidy/validate handoff shared a tick (blue tick 2543,
                     --91 ms). Hand off on a fresh tick, and start the next stage on the one after; nothing is spent.
                     state.work.power_split = true
-                    budget.ops = 0
+                    if handoff_yield(state) then budget.ops = 0 end
                 else
                     state.work.power_split = nil
                     if state.work.post_tidy_power then
@@ -2418,7 +2436,7 @@ function Search.step(container, budget)
                     trial_set_phase(state, "tidy")
                     end
                     end
-                    budget.ops = 0
+                    if handoff_yield(state) then budget.ops = 0 end
                 end
             end
         elseif state.phase == "hands" and not state.work.hands_pruned then
@@ -2426,19 +2444,19 @@ function Search.step(container, budget)
             BeaconPrune.run(state.work.materialized.entities, state.work.input.catalog,
                 state.work.route.result and state.work.route.result.entities)
             state.work.hands_pruned = true
-            budget.ops = 0
+            if handoff_yield(state) then budget.ops = 0 end
         elseif state.phase == "hands" and state.work.hands_pruned == true then
             --Copies, power input and Power.begin take a tick each (blue tick 1123: 65 ms together).
             local all = list_copy(state.work.materialized.entities)
             append_all(all, state.work.route.result and state.work.route.result.entities)
             state.work.hand_entities = all
             state.work.hands_pruned = "copied"
-            budget.ops = 0
+            if handoff_yield(state) then budget.ops = 0 end
         elseif state.phase == "hands" and state.work.hands_pruned == "copied" then
             state.work.hands_power_input = make_power_input(state, state.work.grid, state.work.hand_entities,
                 state.work.roboports, state.work.robo_obstacles)
             state.work.hands_pruned = "input"
-            budget.ops = 0
+            if handoff_yield(state) then budget.ops = 0 end
         elseif state.phase == "hands" then
             state.work.hands_pruned = nil
             local power_input = state.work.hands_power_input
@@ -2448,7 +2466,7 @@ function Search.step(container, budget)
             trial_set_phase(state, "power")
             --Round 56 gate: BeaconPrune + power input + Power.begin + power steps made one 51 ms tick (red-green
             --tick 237). Power steps start on a fresh tick; the rest of this one is left, not spent.
-            budget.ops = 0
+            if handoff_yield(state) then budget.ops = 0 end
         elseif state.phase == "tidy" then
             local before = budget.ops
             Route.tidy_step(state.work.route_state, budget)
@@ -2467,13 +2485,13 @@ function Search.step(container, budget)
                 --Round 56 gate: the publish step and the next handoff (turn heads, hands, power input) shared a tick
                 --(blue tick 2260, 115 ms). Hand off on a fresh tick; nothing is spent.
                 state.work.tidy_split = true
-                budget.ops = 0
+                if handoff_yield(state) then budget.ops = 0 end
             elseif stage_done(state.work.route_state) and state.work.tidy_split == true then
                 state.work.tidy_slides = #(state.work.route_state.result and state.work.route_state.result.port_slides or {})
                 Ends.turn_heads(state.work.route_state.result or {})
                 Hands.place(state.work.materialized, state.work.route_state.result or {})
                 state.work.tidy_split = "placed"
-                budget.ops = 0
+                if handoff_yield(state) then budget.ops = 0 end
             elseif stage_done(state.work.route_state) then
                 state.work.tidy_split = nil
                 local before = state.work.tidy_slides or 0
@@ -2486,7 +2504,7 @@ function Search.step(container, budget)
                     state.work.power = Power.begin(make_power_input(state, state.work.grid, all,
                         state.work.roboports, state.work.robo_obstacles))
                     trial_set_phase(state, "power")
-                    budget.ops = 0 --round 56 gate: next stage starts on a fresh tick (red-green tick 601, 56 ms)
+                    if handoff_yield(state) then budget.ops = 0 end --round 56 gate: next stage starts on a fresh tick (red-green tick 601, 56 ms)
                 else
                     state.work.validate_candidate = make_candidate(state, state.work.grid, state.work.materialized.blocks,
                         state.work.materialized.entities, state.work.materialized.ports,
@@ -2495,7 +2513,7 @@ function Search.step(container, budget)
                     state.work.validate = Validate.begin({candidate = state.work.validate_candidate,
                         plan = state.work.plan_result, catalog = state.work.input.catalog, ring_bump = state.work.attempt or 0})
                     trial_set_phase(state, "validate")
-                    budget.ops = 0 --round 56 gate: next stage starts on a fresh tick
+                    if handoff_yield(state) then budget.ops = 0 end --round 56 gate: next stage starts on a fresh tick
                 end
             end
         elseif state.phase == "validate" and state.work.serialize_next then
@@ -2508,14 +2526,14 @@ function Search.step(container, budget)
             and state.work.validate.cursor.phase == "setup" then
             --Round 56 gate: Validate builds its work in three parts, each on its own tick; unspent, as Validate.begin was.
             Validate.setup_step(state.work.validate)
-            budget.ops = 0
+            if handoff_yield(state) then budget.ops = 0 end
         elseif state.phase == "validate" then
             local was_done = stage_done(state.work.validate)
             if not was_done then run_stage(state, "validate", Validate, budget) end
             --Validate asks for a fresh tick after a one-shot pass; the rest of this tick is left, not spent.
             if state.work.validate and state.work.validate.yield_tick then
                 state.work.validate.yield_tick = nil
-                budget.ops = 0
+                if handoff_yield(state) then budget.ops = 0 end
             end
             if stage_done(state.work.validate) and state.work.validate.ok and not was_done then
                 --The copies below get a tick of their own, apart from the last validate step.

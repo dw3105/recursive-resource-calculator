@@ -5,7 +5,8 @@ local D=require 'tests.fixtures.search_doubles'
 local Search=require 'logic.bp.search'
 local Pack=require 'logic.bp.pack'
 
-local function trace()
+local function trace(heavy)
+ local old_heavy=Search.HANDOFF_HEAVY; Search.HANDOFF_HEAVY=heavy or 0
  local old=Pack.mode; Pack.mode='layered'
  local rows
  D.run({},function()
@@ -33,7 +34,7 @@ local function trace()
   H.equal(s.done,true,"search finishes"); H.equal(s.ok,true,"search succeeds")
   return s
  end)
- Pack.mode=old
+ Pack.mode=old; Search.HANDOFF_HEAVY=old_heavy
  return rows
 end
 
@@ -68,6 +69,19 @@ H.test('TS4 power end and the tidy handoff are different ticks',function()
  H.equal(tidy~=nil,true,"tidy begin seen")
  H.equal(tidy.power_done_before,true,"power was already done before the tick that starts tidy")
  print("TS4")
+end)
+
+H.test('TS5 a small sheet keeps its handoffs in one tick (no split below HANDOFF_HEAVY)',function()
+ local small=trace(math.huge)
+ local mat, rt
+ for _,r in ipairs(small) do
+  if r.new_materialized and not mat then mat=r end
+  if r.new_route and not rt then rt=r end
+ end
+ H.equal(mat~=nil and rt~=nil,true,"materialize and route begin seen")
+ H.equal(rt.step,mat.step,"Route.begin in the materialize tick")
+ H.equal(#small<#rows,true,"fewer ticks than the split run: "..#small.." vs "..#rows)
+ print("TS5")
 end)
 
 H.done("test_search_tick_splits")
