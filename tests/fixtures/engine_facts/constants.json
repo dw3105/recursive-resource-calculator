@@ -385,7 +385,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1079,
+  "line": 1103,
   "name": "beacon_size_fallback",
   "probe": {
    "expect": "tile_size",
@@ -397,7 +397,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1527,
+  "line": 1551,
   "name": "long_hand_offset_multiplier",
   "probe": {
    "expect": "offset_distance",
@@ -409,7 +409,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1940,
+  "line": 1964,
   "name": "underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -421,7 +421,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1940,
+  "line": 1964,
   "name": "fast_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -433,7 +433,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1940,
+  "line": 1964,
   "name": "express_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
@@ -445,7 +445,7 @@
  },
  {
   "file": "logic/bp/validate.lua",
-  "line": 1940,
+  "line": 1964,
   "name": "turbo_underground_belt_default_reach",
   "probe": {
    "expect": "equal",
