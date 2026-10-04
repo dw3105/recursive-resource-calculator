@@ -45,6 +45,10 @@ local function main()
     local digest=sha(input_path); local events, step_index={},0; local stopped, listing=false,false
     local saved, resumed
     local prof={}  --per phase: ticks, step CPU, worst step CPU and its tick (DoD speed numbers, dumps excluded)
+    local tick_cost = os.getenv("RRC_TICK_COST") == "1"
+    local tick_ts, tick_rows = 0, {}
+    local native_tostring = tostring
+    if tick_cost then _G.tostring = function(v) tick_ts=tick_ts+1; return native_tostring(v) end end
     if command=="resume" then
         saved=Graph.load(snap)
         if not o.ops then ops=tonumber(saved.meta.ops_per_step) or ops end
@@ -105,7 +109,7 @@ local function main()
         local loader=assert(load(src,"@logic/bp/search.lua")); local Search=loader()
         local begin,step=Search.begin,Search.step
         Search.begin=function(input) if saved then resumed=true; return saved.state end; return begin(input) end
-        Search.step=function(st,b) step_index=step_index+1; _G.__ckpt_tick=step_index; local ph=tostring(st.phase); local t0=os.clock(); local r=step(st,{ops=ops}); local dt=os.clock()-t0; _G.__ckpt_last_state=st;
+        Search.step=function(st,b) step_index=step_index+1; _G.__ckpt_tick=step_index; local ph=tostring(st.phase); local before_ts=tick_ts; local instr=0; if tick_cost then debug.sethook(function() instr=instr+1000 end,"",1000) end; local t0=os.clock(); local r=step(st,{ops=ops}); if tick_cost then debug.sethook(); local ts=tick_ts-before_ts; instr=math.max(0,instr-7*ts); local ms=20.28*instr/1000000+1.58*ts/1000+0.51; local line=string.format("TICK case=%s tick=%d instr=%d ts=%d ms=%.2f phase=%s",native_tostring(case),step_index,instr,ts,ms,ph); tick_rows[#tick_rows+1]={ms=ms,line=line}; io.write(line.."\n") end; local dt=os.clock()-t0; _G.__ckpt_last_state=st;
             local pt=prof[ph] or {n=0,cpu=0,worst=0,at=0}; prof[ph]=pt; pt.n=pt.n+1; pt.cpu=pt.cpu+dt; if dt>pt.worst then pt.worst=dt; pt.at=step_index end
             if o["at-tick"] and step_index>=tonumber(o["at-tick"]) then stopped=true end
             if command=="save-all" and _G.__ckpt_pending then
@@ -135,5 +139,6 @@ local function main()
     for _,k in ipairs(names) do local pt=prof[k]; all=all+pt.cpu; io.write(string.format("PROF phase=%s ticks=%d cpu=%.1fs worst=%.3fs at=%d\n",k,pt.n,pt.cpu,pt.worst,pt.at)) end
     io.write(string.format("PROF total step cpu=%.1fs\n",all))
     io.write(string.format("RESUMED %s END ok=%s ticks=%d ops_used=%d sha=%s entities=%d\n",command, tostring(ok),ticks,used,sha_out,entities))
+    if tick_cost then local worst; for _,r in ipairs(tick_rows) do if not worst or r.ms>worst.ms then worst=r end end; if worst then io.write("WORST case="..native_tostring(case).." "..worst.line:match("ms=[^ ]+ tick=[^ ]+ phase=.+").."\n") end; _G.tostring=native_tostring end
 end
 local ok,err=pcall(main); if not ok then io.stderr:write(tostring(err).."\n"); os.exit(1) end

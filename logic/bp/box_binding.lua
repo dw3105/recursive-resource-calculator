@@ -133,6 +133,10 @@ function BoxBinding.boxes_for(catalog, machine_name, recipe_name, fluid_name_val
 end
 
 function BoxBinding.parse_fixture(text)
+    if type(text) == "string" and not text:find("\n", 1, true) and not text:match("^%s*BIND") then
+        local file = io.open(text, "r")
+        if file then text = file:read("*a"); file:close() end
+    end
     local result, count = {recipe = {}}, 0
     for line in tostring(text or ""):gmatch("[^\r\n]+") do
         local machine, recipe, fluid, role, box = line:match("^BIND%s+(%S+)%s+recipe=(%S+)%s+fluid=(%S+)%s+role=(%S+)%s+box=(%d+)")
@@ -144,6 +148,34 @@ function BoxBinding.parse_fixture(text)
         end
     end
     return result, count
+end
+
+-- Add the measured engine facts to an offline PreparedInput. Existing bindings are
+-- authoritative: a catalog with any binding is treated as already engine-bound.
+function BoxBinding.apply_offline(prepared, version)
+    if os.getenv("RRC_BIND") == "0" or type(prepared) ~= "table" then return prepared end
+    if type(prepared.prepared_input) == "table" then prepared = prepared.prepared_input end
+    local catalog = prepared.catalog
+    if type(catalog) ~= "table" or type(catalog.recipe) ~= "table" or type(catalog.entity) ~= "table" then return prepared end
+    for _, recipe in pairs(catalog.recipe) do
+        if type(recipe) == "table" and type(recipe.fluid_boxes) == "table" and next(recipe.fluid_boxes) then return prepared end
+    end
+    version = version == "2.1" and "2.1" or "2.0"
+    local file = assert(io.open("tests/fixtures/box_binding_" .. version .. ".txt", "r"))
+    local fixture = file:read("*a"); file:close()
+    local bindings = BoxBinding.parse_fixture(fixture).recipe
+    for recipe_name, machines in pairs(bindings) do
+        local recipe = catalog.recipe[recipe_name]
+        if recipe then
+            for machine, fluids in pairs(machines.fluid_boxes) do
+                if catalog.entity[machine] then
+                    recipe.fluid_boxes = recipe.fluid_boxes or {}
+                    recipe.fluid_boxes[machine] = fluids
+                end
+            end
+        end
+    end
+    return prepared
 end
 
 --Scratch surface for the in-game probe: created once per fill by name, deleted after (generation.lua).

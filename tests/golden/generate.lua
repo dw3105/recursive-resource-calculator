@@ -484,6 +484,9 @@ local ok, result_or_error = xpcall(function()
     local prepared = input_path and JSON.decode(read_file(input_path)) or {}
     if type(prepared) ~= "table" then error("prepared input must be an object") end
     if type(prepared.prepared_input) == "table" then prepared = prepared.prepared_input end
+    local BoxBinding = require "logic.bp.box_binding"
+    local bind_version = tostring(prepared.provenance and prepared.provenance.base_game_version or prepared.version or "2.0"):match("^(%d+%.%d+)") or "2.0"
+    BoxBinding.apply_offline(prepared, bind_version)
     if type(prepared.catalog) == "table" and prepared.catalog.material == nil then
         local MaterialCost = require("logic.bp.material_cost")
         local version = tostring(prepared.provenance and prepared.provenance.base_game_version or prepared.version or "2.1"):match("^(%d+%.%d+)") or "2.1"
