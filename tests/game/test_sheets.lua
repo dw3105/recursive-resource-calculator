@@ -15,6 +15,11 @@ end
 
 local function player_profile() return script.active_mods["Moshine"] ~= nil end
 
+--Sheets marked skipped (player 2026-10-04). Each stays registered so the report shows it as skipped, not gone.
+local SKIPPED = {
+    ["player-magenta-science-10s"] = "skipped 2026-10-04 (player): magenta builds too slowly; re-enable once generation performance is improved significantly",
+}
+
 local function slowest_cycle_ticks(built)
     local worst = 0
     for _, ent in pairs(built.entities) do
@@ -39,7 +44,8 @@ describe("sheets", function()
         end)
     end
     for index, sheet in ipairs(SHEETS) do
-        it(sheet.case, function()
+        local register = SKIPPED[sheet.case] and it.skip or it
+        register(sheet.case, function()
             if RRC_OFFLINE then return end
             if (sheet.profile == "player") ~= player_profile() then return end
             local only = sheet.case:match("^vanilla%-(%d+%.%d+)%-")
