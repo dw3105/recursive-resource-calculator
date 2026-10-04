@@ -53,7 +53,7 @@ function PipeRuns.prune_redundant(work, h)
     --Neighbour candidates per cell, built once: prune only removes cells, so a later call filters the same list by
     --liveness, flow and skip (same keys read, same order; round 56 gate blue publish tick).
     local adjacency = {}
-    local function neighbours(x, y, flow, skip, known_key)
+    local function entry_for(x, y, known_key)
         local here_key = known_key or key(x, y)
         local here = by_cell[here_key]
         local entry = adjacency[here_key]
@@ -82,6 +82,10 @@ function PipeRuns.prune_redundant(work, h)
         --A check reads this cell, its four neighbours and its underground partner. Only the cell is recorded: the
         --staleness test below expands it (a removed cell is plain, never a partner).
         if reads then reads[here_key] = true end
+        return entry
+    end
+    local function neighbours(x, y, flow, skip, known_key)
+        local entry = entry_for(x, y, known_key)
         local result = {}
         --A candidate's kind and flow never change; only removal does (by_cell cleared, _route_removed set). Callers
         --only read x, y and key, so the candidate record itself is returned.
@@ -106,9 +110,24 @@ function PipeRuns.prune_redundant(work, h)
             local cell = queue[head]
             head = head + 1
             if cell.x == b.x and cell.y == b.y then return true end
-            for _, n in ipairs(neighbours(cell.x, cell.y, flow, skip, cell.key)) do
-                local nk = n.key or key(n.x, n.y)
-                if not seen[nk] then seen[nk] = true; queue[#queue + 1] = n end
+            --Same candidates and order as neighbours(), without a result table per visited cell (round 56 gate:
+            --magenta publish tick, prune BFS 2.5 M instructions).
+            local entry = entry_for(cell.x, cell.y, cell.key)
+            local cands = entry.cands
+            for i = 1, #cands do
+                local cand = cands[i]
+                local other = cand.other
+                if cand.key ~= skip and cand.flow == flow and by_cell[cand.key] == other and not other._route_removed then
+                    local nk = cand.key
+                    if not seen[nk] then seen[nk] = true; queue[#queue + 1] = cand end
+                end
+            end
+            local partner_key = entry.partner_key
+            if partner_key then
+                local partner = by_cell[partner_key]
+                if partner_key ~= skip and live(partner) and flow_of(partner) == flow then
+                    if not seen[partner_key] then seen[partner_key] = true; queue[#queue + 1] = entry.partner end
+                end
             end
         end
         return false
@@ -186,6 +205,17 @@ function PipeRuns.bury(work, h)
     for _, entity in ipairs(work.entities or {}) do
         if entity.segment_id and not entity._route_removed then entity_by_segment[entity.segment_id] = entity end
     end
+    --Entities by segment id in work.entities order (kept up to date below where bury adds a pair): connects_back
+    --scanned every entity per run end (round 56 gate, magenta publish tick). Same first match.
+    local entities_by_segment = {}
+    local function index_entity(entity)
+        if entity and entity.segment_id ~= nil then
+            local list_for = entities_by_segment[entity.segment_id]
+            if not list_for then list_for = {}; entities_by_segment[entity.segment_id] = list_for end
+            list_for[#list_for + 1] = entity
+        end
+    end
+    for _, entity in ipairs(work.entities or {}) do index_entity(entity) end
     local function plain(segment)
         return segment and segment.kind == "pipe" and not segment.underground and not segment._route_removed
     end
@@ -200,7 +230,7 @@ function PipeRuns.bury(work, h)
         if not segment or segment._route_removed or segment.kind ~= "pipe" or flow_of(segment) ~= flow then return false end
         if not segment.underground then return true end
         local entity = nil
-        for _, candidate in ipairs(work.entities or {}) do
+        for _, candidate in ipairs(entities_by_segment[segment.segment_id] or {}) do
             if candidate.segment_id == segment.segment_id and not candidate._route_removed
                 and math.floor(candidate.position.x) == x and math.floor(candidate.position.y) == y then
                 entity = candidate
@@ -310,6 +340,7 @@ function PipeRuns.bury(work, h)
                                 flow_id = flow, ug_role = "output", ug_pair_id = first_id, segment_id = pair.segment_id}
                             if work.journal then h.jinsert(work, work.entities, first_entity) else work.entities[#work.entities + 1] = first_entity end
                             if work.journal then h.jinsert(work, work.entities, second_entity) else work.entities[#work.entities + 1] = second_entity end
+                            index_entity(first_entity); index_entity(second_entity)
                             if work.journal then h.jinsert(work, work.segments, pair) else work.segments[#work.segments + 1] = pair end
                             by_cell[pair.underground_entry_key] = pair
                             by_cell[pair.underground_exit_key] = pair

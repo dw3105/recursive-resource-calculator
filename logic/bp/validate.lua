@@ -113,7 +113,7 @@ end
 
 local function map_by_id(list)
     local result = {}
-    for index, value in ipairs(list or {}) do result[id_of(value, tostring(index))] = value end
+    for index, value in ipairs(list or {}) do result[(id_of(value) or tostring(index))] = value end
     return result
 end
 
@@ -124,11 +124,11 @@ end
 local function port_index(ports)
     local result = {}
     for index, port in ipairs(ports or {}) do
-        local primary = port.port_id or id_of(port, tostring(index))
+        local primary = port.port_id or (id_of(port) or tostring(index))
         if primary ~= nil then result[primary] = result[primary] or {}; result[primary][#result[primary] + 1] = port end
     end
     for index, port in ipairs(ports or {}) do
-        local alias = id_of(port, tostring(index))
+        local alias = (id_of(port) or tostring(index))
         if alias ~= nil then
             local found = false
             for _, existing in ipairs(result[alias] or {}) do if existing == port then found = true; break end end
@@ -251,7 +251,7 @@ local function physical_info(entity, catalog, ordinal)
         box = Geometry.tile_box(finite(entity.w, spec.tile_w or 1), finite(entity.h, spec.tile_h or 1))
     end
     return {
-        entity = entity, id = id_of(entity, tostring(ordinal)), name = name_of(entity), spec = spec,
+        entity = entity, id = (id_of(entity) or tostring(ordinal)), name = name_of(entity), spec = spec,
         kind = kind_of(entity, spec), quality = entity.quality or spec.quality or "normal",
         cx = cx, cy = cy, box = box, mask = spec.collision_mask or entity.collision_mask,
     }
@@ -376,7 +376,7 @@ end
 
 local function add_unique_entity(result, seen, entity)
     if type(entity) ~= "table" then return end
-    local id = id_of(entity, tostring(#result + 1))
+    local id = (id_of(entity) or tostring(#result + 1))
     if seen[id] then return end
     seen[id] = true; result[#result + 1] = entity
 end
@@ -3460,13 +3460,18 @@ function Validate.setup_step(state)
     return state.cursor.phase == "setup"
 end
 
-local YIELD_AFTER = {beacon = true, segments = true, fluid_mix = true, underground = true, shapes = true, physical = true}
+local YIELD_AFTER = {beacon = true, segments = true, fluid_mix = true, underground = true, shapes = true}
+--Physical work units per tick: one plan entry scans every inserter (extra_hands), about 13k instructions per inserter
+--(inserter-10s-stack1, round 56 gate). Yield once a call has done PHYSICAL_UNITS, not after every entry: red-green
+--(64 inserters) paid 65 ticks for per-entry yields it did not need.
+Validate.PHYSICAL_UNITS = 140
 
 function Validate.step(state, budget)
     if type(state) ~= "table" or state.done then return state end
     if state.cursor.phase == "setup" then Validate.setup_step(state); return state end
     local approaches = 0
     local physical_partial = false
+    local physical_units = 0
     budget = type(budget) == "table" and budget or {ops = 1}; local ops = math.max(0, math.floor(finite(budget.ops, 1))); local work = state._work
     while ops > 0 and not state.done do
         local phase = state.cursor.phase
@@ -3542,6 +3547,10 @@ function Validate.step(state, budget)
         --2000 ops per tick; at 4000 two passes shared a tick (up to 97 ms), and 200 port approaches fit one tick. Ask the
         --caller for a fresh tick instead (ops_used unchanged): after each one-shot pass and every 60 port approaches.
         if YIELD_AFTER[phase] then state.yield_tick = true; break end
+        if phase == "physical" then
+            physical_units = physical_units + math.max(1, #(work.inserters or {}))
+            if physical_units >= Validate.PHYSICAL_UNITS then state.yield_tick = true; break end
+        end
         if phase == "port_approaches" then
             approaches = approaches + 1
             if approaches >= 60 then state.yield_tick = true; break end

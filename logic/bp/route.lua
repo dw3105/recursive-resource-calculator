@@ -1933,7 +1933,7 @@ local function bury_port_or_obstacle(work, px, py, allow_port_adjacent)
     return static_owner(work, px, py) ~= nil
 end
 
-local function bury_candidate(work, x, y, cross_direction, allow_port_adjacent, key)
+local function bury_candidate(work, x, y, cross_direction, allow_port_adjacent, key, undergrounds)
     key = key or coordinate_key(x, y)
     local dx, dy = Grid.dir_vector(cross_direction)
     local rdx, rdy = Grid.dir_vector(Grid.rotate_dir(cross_direction, 12))
@@ -1968,7 +1968,10 @@ local function bury_candidate(work, x, y, cross_direction, allow_port_adjacent, 
     local after_flows = bury_same_flows(after)
     for id in pairs(flows) do if not after_flows[id] then return nil end end
     local reach = math.max(0, math.floor(finite(work.belt and work.belt.underground_max_distance, 0)))
-    for _, s in ipairs(work.segments) do
+    --undergrounds: the underground segments of work.segments, kept by the caller's search while the route is unchanged
+    --(round 56 gate: this scan of every segment per A* expansion was 2.2 M instructions in a magenta tidy tick). The
+    --scan only returns nil or goes on, so the order of the list does not matter.
+    for _, s in ipairs(undergrounds or work.segments) do
         if s.underground and s.direction == b.direction then
             for _, p in ipairs({{bx,by},{ax,ay}}) do
                 if not s.underground_entry_x or not s.underground_exit_x
@@ -3144,6 +3147,21 @@ local function has_rideable_pair(work, flow_id)
     return false
 end
 
+--Underground segments of work.segments for one A* search, rebuilt when the segment list changes (same table and
+--length, same route attempt). A search runs while its route stands still; a new trial gets a new search.
+--A Route field, not a main-chunk local: route.lua sits at the 200-local limit (tools/route_prof.lua adds three).
+function Route._search_undergrounds(work, search)
+    local segments = work.segments or {}
+    local cache = search._undergrounds
+    if not cache or cache.segments ~= segments or cache.count ~= #segments or cache.generation ~= work.attempt_generation then
+        local list = {}
+        for _, segment in ipairs(segments) do if segment.underground then list[#list + 1] = segment end end
+        cache = {segments = segments, count = #segments, generation = work.attempt_generation, list = list}
+        search._undergrounds = cache
+    end
+    return cache.list
+end
+
 local function search_step(work, search)
     local current = heap_pop(search)
     if not current then return "failed" end
@@ -3383,7 +3401,7 @@ local function search_step(work, search)
                 --sheet 248 -> 263 entities, measured 2026-09-23 on legalcopilot-dev.
                 local bury = work.allow_bury == true
                     and not (search.demand.bury_blocked and search.demand.bury_blocked[bury_key])
-                    and bury_candidate(work, nx, ny, direction, false, next_tile_key) or nil
+                    and bury_candidate(work, nx, ny, direction, false, next_tile_key, Route._search_undergrounds(work, search)) or nil
                 if bury then
                     local inserted = enqueue_state(search, nx, ny, direction, 0, current.key,
                         current.cost + BURY_COST + (current.direction ~= direction and 1 or 0))
