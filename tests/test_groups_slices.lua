@@ -1,4 +1,4 @@
--- GS1-GS4 red on round-56-base (2026-10-04): Groups has no per-search cache or resumable inner work.
+-- GS1-GS9 red on round-56-310b-base (2026-10-04): Groups cache ownership, key cost, and inner slices.
 local H = require "tests.harness"
 local Groups = require "logic.bp.groups"
 local function read_json(path)
@@ -92,11 +92,14 @@ H.test("GS9 a bucket larger than budget still progresses", function()
     local state = Groups.begin(input)
     local calls = 0
     while not state.done do
-        local before = state.work.bucket_index
+        local before = state.work.build and state.work.build.bucket_index or 0
+        local had_build = state.work.build ~= nil
         Groups.step(state, {ops = 50})
         calls = calls + 1
         H.equal(calls < 100000, true, "small budget completes")
-        H.equal(state.work.bucket_index > before or state.done, true, "oversized bucket makes progress")
+        H.equal((state.work.build and state.work.build.bucket_index or 0) > before
+            or (not had_build and state.work.build ~= nil) or state.done,
+            true, "oversized bucket makes progress")
     end
     H.equal(digest(state.result), "e1d66712b1f3b0d613a1001f88e3e886d28ab67fa9346015e48460aa5eacab0d", "small-budget result matches base")
     print("GS9")
@@ -104,12 +107,13 @@ end)
 
 H.test("GS1 repeated Groups build hits cache and matches fresh result", function()
     local input = fixture
-    local first = finish(input, 2000)
-    local second = finish(input, 2000)
+    local cache = {}
+    local first = finish(input, 2000, cache)
+    local second = finish(input, 2000, cache)
     local fresh_input = {}
     for k, v in pairs(input) do fresh_input[k] = v end
     fresh_input.ring_bump = 1
-    local fresh = finish(fresh_input, 2000)
+    local fresh = finish(fresh_input, 2000, {})
     H.equal(second.cache_hit, true, "second call is a cache hit")
     H.equal(digest(second.result), digest(first.result), "cached output matches fresh result")
     H.equal(fresh.done, true, "fresh build completes")

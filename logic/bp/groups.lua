@@ -2709,44 +2709,32 @@ local function make_candidates(input)
     return make_candidates_once(input)
 end
 
-local groups_cache = {}
-local groups_cache_order = {}
-
-local function cache_value(value, out, seen, root)
-    local kind = type(value)
-    if kind ~= "table" then
-        local scalar = kind == "number" and string.format("%.17g", value) or tostring(value)
-        out[#out + 1] = kind .. #scalar .. ":" .. scalar
-        return
-    end
-    if seen[value] then out[#out + 1] = "cycle;"; return end
-    seen[value] = true
-    local keys = {}
-    for key in pairs(value) do if not (root and key == "grid") then keys[#keys + 1] = key end end
-    table.sort(keys, function(a, b)
-        if type(a) ~= type(b) then return type(a) < type(b) end
-        return tostring(a) < tostring(b)
-    end)
-    out[#out + 1] = "T" .. tostring(#keys) .. ":"
-    for _, key in ipairs(keys) do cache_value(key, out, seen); cache_value(value[key], out, seen, false) end
-    out[#out + 1] = "E"
-    seen[value] = nil
+local function cache_value(value, out)
+    if type(value) == "table" then
+        local keys = {}
+        for key in pairs(value) do keys[#keys + 1] = key end
+        table.sort(keys, function(a, b)
+            if type(a) == "number" and type(b) == "number" then return a < b end
+            return tostring(a) < tostring(b)
+        end)
+        out[#out + 1] = "{"
+        for _, key in ipairs(keys) do cache_value(key, out); out[#out + 1] = "="; cache_value(value[key], out); out[#out + 1] = ";" end
+        out[#out + 1] = "}"
+    elseif type(value) == "number" then out[#out + 1] = string.format("%.17g", value)
+    else out[#out + 1] = tostring(value) end
 end
 
-local function groups_cache_key(input)
-    local out = {}
-    cache_value(input or {}, out, {}, true)
-    return table.concat(out)
+local function groups_key(input)
+    local pieces = {}
+    cache_value((input or {}).split_steps or {}, pieces)
+    return table.concat(pieces) .. "|" .. tostring((input or {}).ring_bump or 0)
 end
 
-function Groups.begin(input)
-    local key = groups_cache_key(input)
-    local cached = groups_cache[key]
+function Groups.begin(input, cache)
+    local key = cache and groups_key(input)
+    local cached = cache and cache.entries and cache.entries[key]
     if cached then
-        local state = {}
-        for name, value in pairs(cached) do state[name] = value end
-        state.work = {}
-        for name, value in pairs(cached.work) do state.work[name] = value end
+        local state = copy(cached)
         state.cache_hit = true
         return state
     end
@@ -2756,7 +2744,7 @@ function Groups.begin(input)
         -- Search already crosses a data-only copy boundary before this call. Retain that immutable input;
         -- candidate construction belongs in step.
         work = {input = input or {}, candidates = nil, failures = nil, emitted = {}, build = nil,
-            candidate_enumerations = 0, cache_key = key},
+            candidate_enumerations = 0, cache_key = key, cache = cache},
     }
 end
 
@@ -2768,10 +2756,6 @@ function Groups.step(state, budget)
     -- state so callers can verify begin did not enumerate candidates.
     if ops > 0 and state.work.candidates == nil then
         local pending_build = state.work.build
-        local pending_group = pending_build and pending_build.buckets and pending_build.buckets[pending_build.bucket_index]
-        local pending_cost = 0
-        for _, step in ipairs(pending_group or {}) do pending_cost = pending_cost + math.max(1, step.machine_count or 1) end
-        if pending_cost > ops and ops > 1 then budget.ops = ops; return state end
         local candidates, failures, build = make_candidates_once(state.work.input, pending_build)
         state.work.build = build
         if candidates then
@@ -2793,13 +2777,18 @@ function Groups.step(state, budget)
     if state.work.candidates and state.cursor.candidate_index > #state.work.candidates then
         state.result = {candidates = state.work.emitted, failures = list_copy(state.work.failures)}
         state.done, state.ok = true, #state.work.emitted > 0
-        local key = state.work.cache_key
-        if key then
-            if not groups_cache[key] then groups_cache_order[#groups_cache_order + 1] = key end
-            groups_cache[key] = state
-            while #groups_cache_order > 8 do
-                local oldest = table.remove(groups_cache_order, 1)
-                groups_cache[oldest] = nil
+        local key, cache = state.work.cache_key, state.work.cache
+        if key and cache then
+            cache.entries = cache.entries or {}
+            cache.order = cache.order or {}
+            if not cache.entries[key] then cache.order[#cache.order + 1] = key end
+            local saved = copy(state)
+            saved.work.cache = nil
+            cache.entries[key] = saved
+            state.work.cache = nil
+            while #cache.order > 8 do
+                local oldest = table.remove(cache.order, 1)
+                cache.entries[oldest] = nil
             end
         end
     end
