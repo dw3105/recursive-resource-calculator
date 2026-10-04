@@ -5386,7 +5386,8 @@ function Route.step(state, budget)
                 if finished then work.improved, work.improve_state = true, nil end
             end
             if not work.improved then break end
-            if state.tidy ~= false then
+            --A resumed result copy walks work.segments: never unbury or prune again under it (round 56 integrator).
+            if state.tidy ~= false and not state._result_copy then
                 unbury_empty_pairs(work)
                 prune_dead_route_segments(work)
             end
