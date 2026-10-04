@@ -37,6 +37,11 @@ H.test("SU2 collect ids agree with JUnit addresses for the tiny fixture suite", 
     junit_file:close()
     H.equal(has(junit, 'classname="lua/tiny" name="a"'), true, "JUnit a address")
     H.equal(has(junit, 'classname="lua/tiny" name="b"'), true, "JUnit b address")
+    local junit_ids = {}
+    for classname, name in junit:gmatch('classname="([^"]+)" name="([^"]+)"') do
+        junit_ids[#junit_ids + 1] = classname .. "::" .. name
+    end
+    H.equal(table.concat(junit_ids, "\n") .. "\n", ids, "collected ids equal emitted JUnit addresses")
     print("SU2")
 end)
 
