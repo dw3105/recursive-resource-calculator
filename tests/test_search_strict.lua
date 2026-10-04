@@ -44,13 +44,14 @@ local function bounded_finish(state, phase)
     return state
 end
 
-H.test("ST1 belt refusal reroutes same grid strictly and delivers", function()
+--Round 56 lever B (ticket 06/13, player 2026-10-04): every route runs strict ends from the start, so a belt
+--refusal never triggers a same-grid strict redo (the redo cost magenta a second whole route).
+H.test("ST1 belt refusal: routes are strict from the start, no strict redo, delivers", function()
     local state, routes = scenario({[1] = "BP_V_BELT_BLEED"})
     H.equal(state.ok, true, "delivered")
-    H.equal(#routes, 2, "two route inputs")
-    H.equal(routes[1].strict_ends, nil, "first route non-strict")
-    H.equal(routes[2].strict_ends, true, "redo strict")
-    H.equal(routes[1].grid.w, routes[2].grid.w, "same grid")
+    H.equal(#routes, 2, "two route inputs (refused candidate, then the next one)")
+    H.equal(routes[1].strict_ends, true, "first route strict")
+    H.equal(routes[2].strict_ends, true, "next route strict")
 end)
 
 --Round 54: plastic x4 Turn 8 in Factorio 2.0.77 gave 7.5/s of 7.992/s (two branches on one lane).
@@ -60,7 +61,7 @@ H.test("ST6 a lane overload reroutes the same grid with lane capacity counted", 
     H.equal(#routes, 2, "two route inputs")
     H.equal(routes[1].lane_cap, nil, "first route counts no lanes")
     H.equal(routes[2].lane_cap, true, "redo counts lanes")
-    H.equal(routes[2].strict_ends, nil, "the lane redo is not the strict-ends redo")
+    H.equal(routes[2].strict_ends, true, "strict ends on every route (lever B)")
     H.equal(routes[1].grid.w, routes[2].grid.w, "same grid")
 end)
 
@@ -74,21 +75,18 @@ end)
 H.test("ST2 non-shape refusal follows ordinary retry", function()
     local state, routes = scenario({[1] = "BP_V_COLLISION"})
     H.equal(state.ok, true, "eventually delivered")
-    H.equal(routes[1].strict_ends, nil, "initial route non-strict")
-    H.equal(routes[2].strict_ends, nil, "next candidate remains non-strict")
+    H.equal(routes[1].strict_ends, true, "initial route strict (lever B)")
+    H.equal(routes[2].strict_ends, true, "next candidate strict")
 end)
 
-H.test("ST3 each belt refusal gets one strict redo then next candidate starts non-strict", function()
+H.test("ST3 belt refusals: one route per candidate, all strict, no redo", function()
     local state, routes = scenario({}, true)
     state = bounded_finish(state, state.phase)
     H.equal(state.ok, false, "search fails")
     H.equal(state.errors[1].code, "BP_FAIL_NO_LAYOUT", "no layout")
-    --Round 54: three last-resort inset rounds (3, 6, 9) follow the four ordinary candidates, each routed twice too.
-    H.equal(#routes, 14, "four candidates and three inset rounds each route twice")
-    for i = 1, #routes, 2 do
-        H.equal(routes[i].strict_ends, nil, "candidate starts non-strict " .. i)
-        H.equal(routes[i + 1].strict_ends, true, "strict redo " .. (i + 1))
-    end
+    --Round 54: three last-resort inset rounds (3, 6, 9) follow the four ordinary candidates. Round 56: each routes once.
+    H.equal(#routes, 7, "four candidates and three inset rounds each route once")
+    for i = 1, #routes do H.equal(routes[i].strict_ends, true, "route strict " .. i) end
 end)
 
 print("ST1 ST2 ST3")

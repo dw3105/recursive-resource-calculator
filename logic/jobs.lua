@@ -25,7 +25,8 @@ local Jobs = {}
 
 Jobs.SCHEMA_VERSION = 1
 --Deterministic and the same on every machine: a multiplayer game must do the same work in the same tick.
-Jobs.OPS_PER_TICK = 2000
+--Round 56 (ADR 0003, fast first): 4000 ops per tick after every spike class was sliced; worst tick judged by Tick cost.
+Jobs.OPS_PER_TICK = 4000
 
 local steppers = {}
 local current_tick = 0

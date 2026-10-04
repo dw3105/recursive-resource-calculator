@@ -1439,7 +1439,10 @@ local function start_grid(state)
     state.grid_spacing = copy(grid.grid_spacing)
     state.work.robo_obstacles = robo_obstacles
     state.work.roboports = roboports
-    state.work.groups = Groups.begin(stage_input(state, {plan = state.work.plan_result, grid = grid, ring_bump = state.work.attempt or 0}))
+    --Round 56: Groups output is the same on every grid of one search (ticket 18); its cache lives in the search
+    --state, so it is saved with the job and identical on every peer (never in module state).
+    state.groups_cache = state.groups_cache or {}
+    state.work.groups = Groups.begin(stage_input(state, {plan = state.work.plan_result, grid = grid, ring_bump = state.work.attempt or 0}), state.groups_cache)
     state.work.candidate = nil
     state.work.pack, state.work.route, state.work.route_state, state.work.power, state.work.validate = nil, nil, nil, nil, nil
     state.work.materialized, state.work.hand_entities, state.work.validate_candidate = nil, nil, nil
