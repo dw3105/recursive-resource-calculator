@@ -586,13 +586,41 @@ local function candidate_inserter(block, machine, role, index, iw, ih, catalog, 
     return best
 end
 
+--Machine world boxes for beacon cover tests (round 56 Tick cost: blue's chemistry bucket rebuilt the same box per
+--beacon candidate, 9.2 M instructions in one call). Pure memo keyed by the machine table and checked against every
+--input of Geometry.world_box, so results are identical and no saved state or charged ops depend on it.
+local machine_box_memo = setmetatable({}, {__mode = "k"})
+local function machine_world_box(machine, machine_spec)
+    local m = machine_box_memo[machine]
+    local dir = machine.dir or machine.direction
+    if m and m.spec == machine_spec and m.x == machine.x and m.y == machine.y and m.dir == dir
+        and m.w == machine.w and m.h == machine.h and m.cbox == machine.collision_box then return m.box end
+    local box = Geometry.world_box(machine, machine_spec)
+    machine_box_memo[machine] = {spec = machine_spec, x = machine.x, y = machine.y, dir = dir, w = machine.w,
+        h = machine.h, cbox = machine.collision_box, box = box}
+    return box
+end
+
+local supply_box_memo = setmetatable({}, {__mode = "k"})
+local function beacon_supply_box(beacon, supply_w, supply_h)
+    local m = supply_box_memo[beacon]
+    local dir = beacon.dir or beacon.direction
+    if m and m.x == beacon.x and m.y == beacon.y and m.w == beacon.w and m.h == beacon.h and m.dir == dir
+        and m.sw == supply_w and m.sh == supply_h then return m.box end
+    local beacon_x, beacon_y = Geometry.center(beacon)
+    --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9), unlike a pole's.
+    local box = Geometry.supply_box(beacon_x, beacon_y,
+        (supply_w or 0) + (beacon.w or 3) / 2, (supply_h or supply_w or 0) + (beacon.h or beacon.w or 3) / 2)
+    supply_box_memo[beacon] = {x = beacon.x, y = beacon.y, w = beacon.w, h = beacon.h, dir = dir,
+        sw = supply_w, sh = supply_h, box = box}
+    return box
+end
+
 local function covers(beacon, machine, machine_spec, supply_w, supply_h)
     -- Supply is measured from the beacon centre, but the supplied entity is its collision box.  Keeping the
     -- conversion in Geometry is important: a tile footprint is a deliberate fallback, not a second predicate.
-    local beacon_x, beacon_y = Geometry.center(beacon)
-    --Engine: a beacon's supply_area_distance counts from its EDGE (vanilla 3x3, distance 3 -> 9x9), unlike a pole's.
-    return Geometry.box_in_supply(machine, machine_spec, beacon_x, beacon_y,
-        (supply_w or 0) + (beacon.w or 3) / 2, (supply_h or supply_w or 0) + (beacon.h or beacon.w or 3) / 2)
+    return Geometry.box_overlaps_supply(machine_world_box(machine, machine_spec),
+        beacon_supply_box(beacon, supply_w, supply_h))
 end
 
 --Contract 28.1 and 28.3: one hand may serve two item flows that ride one belt, using both belt lanes, which
@@ -2157,9 +2185,18 @@ local function build_block(step_group, catalog, ports, flows, input, block_id, o
         return 0
     end
 
+    --Beacons and machines do not move while redundant beacons are pruned: one cover answer per pair (round 56
+    --Tick cost, blue chemistry bucket). Local to this block build.
+    local cover_memo = {}
     local function covered_by(beacon, machine)
+        local row = cover_memo[beacon]
+        if not row then row = {}; cover_memo[beacon] = row end
+        local hit = row[machine]
+        if hit ~= nil then return hit end
         local spec = machine_specs_by_id[machine.id] and machine_specs_by_id[machine.id].machine_spec
-        return covers(beacon, machine, spec, beacon.supply_w, beacon.supply_h)
+        hit = covers(beacon, machine, spec, beacon.supply_w, beacon.supply_h) and true or false
+        row[machine] = hit
+        return hit
     end
 
     local function redundant(candidate)
