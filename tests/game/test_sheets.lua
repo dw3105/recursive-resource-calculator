@@ -1,10 +1,10 @@
---Sheet sims use calculation refs: full-feed warm-up, input belts emptied, then Metered feed.
+--Sheet sims use calculation refs: Port feed + Pre-fill (default) or Metered feed (RRC_FEED=metered), judged by Lab.settle / Lab.floor_pass.
 --Fixtures: tests/fixtures/sheets/<case>.bp.txt + <case>.ports.json (tools/sheet_ports.py), embedded by
 --tools/game_stage.sh as tests.game.fixtures.sheets_index. A sheet runs only in its profile (player sheets need the
 --player's mods: RRC_PROFILE=player).
---RRC_FEED=full (tools/game_test.sh): endless feed while measuring instead of Metered feed.
+--Port feed + Pre-fill by default (player 2026-10-05: maximize input filling); RRC_FEED=metered (tools/game_test.sh) = Metered feed.
 local ok_profile_map, PROFILE_MAP = pcall(require, "tests.game.profile_map")
-local FULL_FEED = ok_profile_map and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "full"
+local FULL_FEED = not (ok_profile_map and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "metered")
 local Lab = require "tests.game.lib.lab"
 local ok_index, INDEX = pcall(require, "tests.game.fixtures.sheets_index")
 local SHEETS = {}
@@ -58,7 +58,7 @@ describe("sheets", function()
             local ports = helpers.json_to_table(sheet.data.ports)
             --Staged refs are JSON text (tools/game_stage.sh), decoded here like ports.
             local refs = type(sheet.refs) == "string" and helpers.json_to_table(sheet.refs) or sheet.refs
-            local feed_full = FULL_FEED or Lab.FULL_FEED_CASES[sheet.case] == true
+            local feed_full = FULL_FEED
             assert(#(ports.problems or {}) == 0, sheet.case .. ": ports.json problems " .. serpent.line(ports.problems))
             local force = game.forces.player
             local stack = Lab.research_stack(force)
@@ -141,7 +141,7 @@ describe("sheets", function()
                         pool = Lab.meter_new(refs.inputs)
                         if not feed_full then log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_input_belts(built.entities, refs.inputs))) end
                     end
-                    if feed_full then Lab.feed_tick(feeds, stack) else Lab.meter_tick(pool, feeds, stack) end  --RRC_FEED=full: endless feed
+                    if feed_full then Lab.feed_tick(feeds, stack) else Lab.meter_tick(pool, feeds, stack) end  --Port feed (default) or Metered feed
                 end
                 if measuring and not window_start then window_start = t; made_start = Lab.made(built.entities, refs.outputs) end
                 Lab.sink_tick(sinks, measuring)

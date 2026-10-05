@@ -37,7 +37,7 @@ Two runs of one sheet in a Speed tie whose whole-blueprint Material cost (machin
 _Avoid_: entity tie (retired 2026-09-30: entity count treats a pipe and an underground belt as equal), close enough
 
 **Sheet sim**:
-A delivered sheet blueprint, generated offline, built for real in headless Factorio, powered, given a Metered feed, run, and its output rate counted. Same pass rule as a Player run.
+A delivered sheet blueprint, generated offline, built for real in headless Factorio, powered, given a Port feed and a Pre-fill, run, and its output rate counted. Same pass rule as a Player run.
 _Avoid_: sheet test, golden run
 
 **Parity row**:
@@ -69,15 +69,19 @@ The sha256 of each gated sheet's delivered blueprint string at one round (`bytes
 _Avoid_: golden hash
 
 **Port feed**:
-Items pushed onto an input belt as fast as it takes them: unlimited, both lanes full, stacked to the maximum belt stack research allows. In a Sheet sim or Player run only during warm-up, which ends with every belt emptied.
+Items pushed onto an input belt as fast as it takes them: unlimited, both lanes full, stacked to the maximum belt stack research allows. A Sheet sim and a Player run feed every input this way for the whole run (player 2026-10-05: maximize input filling).
 _Avoid_: supply, source chest
 
 **Player run**:
-One golden driven end to end the way a player does it, in headless Factorio: calculation sheet set up through the GUI, blueprint generated from the generation dialog into the cursor, built from the cursor, given a Metered feed, run at full speed. Passes when each output's measured rate R over the calculation's rate is at least 0.98; making more than the calculation never fails.
+One golden driven end to end the way a player does it, in headless Factorio: calculation sheet set up through the GUI, blueprint generated from the generation dialog into the cursor, built from the cursor, given a Port feed and a Pre-fill, run at full speed. Judged once settled: the last three windows of every output agree, or each of them is at least 0.98 of the calculation while the stock on inner belts does not drain. Passes when each output's measured rate R over the calculation's rate is at least 0.98; making more than the calculation never fails.
 _Avoid_: e2e test, finishing test, sheet sim (a Sheet sim starts from delivered bytes and skips the GUI)
 
+**Pre-fill**:
+At the start of a Sheet sim or Player run, every inner belt lane that carries one intermediate item is filled at half density with it, so buffers start where a long-running factory has them instead of filling for many game minutes. A lane its producer cannot keep up drains afterwards, and a draining stock keeps the run from settling, so a Pre-fill can never fake a pass.
+_Avoid_: preload, priming
+
 **Metered feed**:
-Inputs pushed into a built sheet at exactly the calculation's rate per input item or fluid, pooled across all its entry belts and pipes (whichever has room takes it), after a Port feed warm-up that primes machines and pipes and ends with every belt emptied, so output can never beat the calculation by round-up machines eating a belt stock, and is judged only after it settles: the last three 60-second windows of every output agree within 1.5%.
+Not the default (Port feed is). Inputs pushed into a built sheet at exactly the calculation's rate per input item or fluid, pooled across all its entry belts and pipes (whichever has room takes it), after a Port feed warm-up that primes machines and pipes and ends with every belt emptied, so output can never beat the calculation by round-up machines eating a belt stock, and is judged only after it settles: the last three 60-second windows of every output agree within 1.5%.
 _Avoid_: port feed (unlimited), endless supply
 
 ### Rule classes

@@ -1,8 +1,8 @@
 --Player run (plan ~/.claude/plans/rrc-player-run-plan-2026-10-05.md, player 2026-10-05): one Case driven end to end
 --the way a player does it. GUI handlers set up the sheet (tests/game/lib/player_drive.lua), the generation dialog's
 --generate click puts the blueprint in the cursor, build_from_cursor places ghosts, revive + module insert stand in for
---bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), a full-feed warm-up
---primes machines and pipes, input belts are emptied, then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output R >= 0.98, no upper cap (player 2026-10-05)
+--bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), Port feed + Pre-fill run it
+--(RRC_FEED=metered: Metered feed at calc input rate; tests/game/lib/lab.lua). Pass: every output R >= 0.98, no upper cap (player 2026-10-05)
 --against the calculation (Lab.judge), live calc == staged refs, no foreign item at a sink, no refused build.
 --Round gate + release only: runs when tools/game_test.sh got RRC_PLAYER_RUN=1 (profile_map.player_run).
 --Engine facts (probes P1/P3 2026-10-05, 2.0 + 2.1): the headless player is a character; build_from_cursor out of
@@ -13,8 +13,8 @@ local Ports = require "tests.game.lib.ports"
 local Drive = require "tests.game.lib.player_drive"
 local Calculation = require "logic.calculation_result"
 local ok_profile, PROFILE_MAP = pcall(require, "tests.game.profile_map")
---RRC_FEED=full (tools/game_test.sh): endless feed while measuring instead of Metered feed.
-local FULL_FEED = ok_profile and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "full"
+--Port feed + Pre-fill by default (player 2026-10-05: maximize input filling); RRC_FEED=metered (tools/game_test.sh) = Metered feed.
+local FULL_FEED = not (ok_profile and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "metered")
 
 local CASES = {
     {case = "player-am2-chain-repaired", profile = "player"},
@@ -165,8 +165,7 @@ describe("player run", function()
             if (c.profile == "player") ~= player_profile() then return end
             if c.version and c.version ~= (script.active_mods.base or ""):match("^(%d+%.%d+)") then return end
             local refs = assert(REFS[c.case], c.case .. ": no staged refs")
-            --Endless feed + pre-fill for Cases whose buffers outlast 120 s on Metered feed (player 2026-10-05), or all with RRC_FEED=full.
-            local feed_full = FULL_FEED or Lab.FULL_FEED_CASES[c.case] == true
+            local feed_full = FULL_FEED
             if type(refs) == "string" then refs = helpers.json_to_table(refs) end  --staged as JSON text
             local def = c.profile == "player"
                 and Drive.case_def(helpers.json_to_table((assert(PREPARED[c.case], c.case .. ": no staged prepared input"))))
@@ -345,7 +344,7 @@ describe("player run", function()
                             end
                         else
                             if feed_full then
-                                Lab.feed_tick(feeds, stack)  --RRC_FEED=full: endless feed while measuring
+                                Lab.feed_tick(feeds, stack)  --Port feed (default)
                             else
                                 if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_input_belts(entities, refs.inputs)) end
                                 Lab.meter_tick(pool, feeds, stack)
