@@ -379,6 +379,9 @@ end
 --Endless feed only (RRC_FEED=full, player 2026-10-05 "maximize filling"): fill every inner belt lane that carries one
 --item kind to full with it, so buffers stand where a long-running factory has them instead of filling for 75000 ticks
 --(red-green). A lane its producer cannot keep full drains afterwards; warm_ready waits for that too. Returns items added.
+--Half density (one stack every 0.5 tile instead of 0.25): full lanes drained for 7 game minutes on blue's engine belt
+--upstream of its producers (12 of 14 engine assemblers full_output, 2026-10-05).
+Lab.PREFILL_SPACING = 0.5
 function Lab.prefill_inner(entities, inputs, outputs, stack)
     local added = 0
     for _, e in pairs(entities) do
@@ -389,7 +392,7 @@ function Lab.prefill_inner(entities, inputs, outputs, stack)
                 for _, it in pairs(line.get_contents()) do kinds, name = kinds + 1, it.name end
                 if kinds == 1 and not inputs["item/" .. name] and not outputs["item/" .. name] then
                     local before = line.get_item_count()
-                    for position = 0, line.line_length, 0.25 do
+                    for position = 0, line.line_length, Lab.PREFILL_SPACING do
                         if line.can_insert_at(position) then pcall(line.insert_at, position, {name = name, count = stack}, stack) end
                     end
                     added = added + line.get_item_count() - before
