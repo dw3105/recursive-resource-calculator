@@ -150,6 +150,18 @@ for _, shape in ipairs(H.shapes()) do
             "array and object drop positions canonicalize alike")
     end)
 
+    H.test(shape .. " S5b a hand carries no drop_position: the engine adds it to the hand as a custom vector", function()
+        local candidate = fixture()
+        candidate.entities[#candidate.entities + 1] = {id = "i:hand", name = "inserter", position = {x = 4.5, y = 6.5},
+            entity_number = 19, pickup_position = {x = 4.5, y = 5.5}, drop_position = {x = 4.5, y = 7.5}}
+        H.equal(by_name(serialize(candidate), "inserter").drop_position, nil, "hand drop_position omitted")
+        local typed = fixture()
+        typed.catalog = {entity = {["fast-inserter"] = {name = "fast-inserter", etype = "inserter"}}}
+        typed.entities[#typed.entities + 1] = {id = "i:fast", name = "fast-inserter", position = {x = 7.5, y = 6.5},
+            entity_number = 20, drop_position = {x = 7.5, y = 7.5}}
+        H.equal(by_name(serialize(typed), "fast-inserter").drop_position, nil, "catalog inserter drop_position omitted")
+    end)
+
     H.test(shape .. " S6 two runs produce byte-identical canonical JSON and metadata", function()
         local first = serialize(fixture(), 1)
         local second = serialize(fixture(), 100)

@@ -450,7 +450,12 @@ local function serialize_entity(entity, references, catalog)
     end
     if result.type == nil and (entity.ug_role == "input" or entity.ug_role == "output") then result.type = entity.ug_role end
     if result.recipe ~= nil and result.recipe_quality == nil then result.recipe_quality = "normal" end
-    if entity.drop_position ~= nil then result.drop_position = map_position(entity.drop_position) end
+    --A hand's drop_position is a tile point inside the generator; the blueprint field is a custom vector the engine
+    --adds to the hand's own position where the prototype allows custom vectors (bobinserters): every hand of
+    --player-red-science-1s dropped 4-17 tiles away (headless 2.0.77 player mods, 2026-10-05). Hands keep the default
+    --drop their direction gives, the one every lab sim measured.
+    local is_hand = etype == "inserter" or entity.pickup_position ~= nil
+    if entity.drop_position ~= nil and not is_hand then result.drop_position = map_position(entity.drop_position) end
 
     local items = make_items(entity)
     if items then result.items = items end
