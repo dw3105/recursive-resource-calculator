@@ -162,6 +162,19 @@ for _, shape in ipairs(H.shapes()) do
         H.equal(by_name(serialize(typed), "fast-inserter").drop_position, nil, "catalog inserter drop_position omitted")
     end)
 
+    H.test(shape .. " S5c a custom hand drop is written as the game writes it (engine probe 2026-10-05)", function()
+        local candidate = fixture()
+        --Long hand (pickup 2 tiles out) dropping one tile short: the game wrote {0, 1.19921875} for this drop.
+        candidate.entities[#candidate.entities + 1] = {id = "i:long", name = "long-handed-inserter", position = {x = 4.5, y = 6.5},
+            entity_number = 21, pickup_position = {x = 4.5, y = 4.5}, drop_position = {x = 4.5, y = 7.5}}
+        --Hand dropping into the side tile (5,7) instead of its mirror tile (4,7).
+        candidate.entities[#candidate.entities + 1] = {id = "i:side", name = "inserter", position = {x = 10.5, y = 6.5},
+            entity_number = 22, pickup_position = {x = 10.5, y = 5.5}, drop_position = {x = 11.5, y = 7.5}}
+        local blueprint = serialize(candidate)
+        H.deep_equal(by_name(blueprint, "long-handed-inserter").drop_position, {x = 0, y = 1.19921875}, "long hand one tile short")
+        H.deep_equal(by_name(blueprint, "inserter").drop_position, {x = 1.19921875, y = 1}, "side drop, world axes, 1/256 floor")
+    end)
+
     H.test(shape .. " S6 two runs produce byte-identical canonical JSON and metadata", function()
         local first = serialize(fixture(), 1)
         local second = serialize(fixture(), 100)

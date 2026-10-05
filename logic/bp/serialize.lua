@@ -427,6 +427,24 @@ local function published_direction(entity, direction, catalog)
     return (direction + 8) % 16
 end
 
+--The game's own blueprint field for a hand (see serialize_entity): nil when the drop tile is the default one, the tile
+--mirrored from the pickup tile through the hand; else the offset to the drop tile's centre plus the game's 0.2 far-lane
+--overshoot along the main axis, floored to 1/256 as the engine stores it.
+local function hand_drop_vector(at, entity)
+    local drop, pickup = position(entity.drop_position), position(entity.pickup_position)
+    if not (at and drop) then return nil end
+    local tx, ty = math.floor(drop.x), math.floor(drop.y)
+    if pickup then
+        local mx, my = 2 * at.x - pickup.x, 2 * at.y - pickup.y
+        if math.floor(mx) == tx and math.floor(my) == ty then return nil end
+    else
+        return nil
+    end
+    local vx, vy = tx + 0.5 - at.x, ty + 0.5 - at.y
+    if math.abs(vx) >= math.abs(vy) then vx = vx + (vx < 0 and -0.2 or 0.2) else vy = vy + (vy < 0 and -0.2 or 0.2) end
+    return {x = math.floor(vx * 256) / 256, y = math.floor(vy * 256) / 256}
+end
+
 local function serialize_entity(entity, references, catalog)
     local result = {entity_number = entity.entity_number, name = entity.name or entity.prototype}
     result.position = entity_position(entity)
@@ -450,12 +468,18 @@ local function serialize_entity(entity, references, catalog)
     end
     if result.type == nil and (entity.ug_role == "input" or entity.ug_role == "output") then result.type = entity.ug_role end
     if result.recipe ~= nil and result.recipe_quality == nil then result.recipe_quality = "normal" end
-    --A hand's drop_position is a tile point inside the generator; the blueprint field is a custom vector the engine
-    --adds to the hand's own position where the prototype allows custom vectors (bobinserters): every hand of
-    --player-red-science-1s dropped 4-17 tiles away (headless 2.0.77 player mods, 2026-10-05). Hands keep the default
-    --drop their direction gives, the one every lab sim measured.
+    --A hand's drop_position is written exactly as the game writes it (engine probe, headless 2.0.77 player mods incl.
+    --bobinserters, 2026-10-05): a hand dropping into its default tile carries NO drop_position; a custom drop is the
+    --offset from the hand in world axes, floored to 1/256 ({0, 1.296875} for +1.3). Writing the generator's absolute
+    --tile point sent every hand of player-red-science-1s 4-17 tiles away.
     local is_hand = etype == "inserter" or entity.pickup_position ~= nil
-    if entity.drop_position ~= nil and not is_hand then result.drop_position = map_position(entity.drop_position) end
+    if entity.drop_position ~= nil then
+        if is_hand then
+            result.drop_position = hand_drop_vector(result.position, entity)
+        else
+            result.drop_position = map_position(entity.drop_position)
+        end
+    end
 
     local items = make_items(entity)
     if items then result.items = items end

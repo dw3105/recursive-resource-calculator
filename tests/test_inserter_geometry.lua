@@ -163,9 +163,9 @@ for _, shape in ipairs(H.shapes()) do
         end
     end)
 
-    --Engine truth (Player run, headless 2.0.77 + bobinserters, 2026-10-05): a blueprint drop_position is a custom
-    --vector the engine ADDS to the hand's position; the world drop cell written here sent every hand 4-17 tiles away.
-    H.test(shape .. " IG8 serialization leaves the drop to the hand's direction (no drop_position)", function()
+    --As the game writes it (engine probe, headless 2.0.77 + bobinserters, 2026-10-05): a game blueprint of a hand with
+    --its default drop has no drop_position; the world drop cell written here sent every hand 4-17 tiles away.
+    H.test(shape .. " IG8 a default-drop hand serializes as the game's own blueprint does (no drop_position)", function()
         local block = block_for({plan = plan(), catalog = catalog()})
         local placed = Groups.materialize(block, {x = 10, y = 10, dir = Grid.WEST})
         local state = Serialize.begin({entities = placed.entities, catalog = catalog()})
