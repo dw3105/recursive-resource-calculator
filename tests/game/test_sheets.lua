@@ -153,7 +153,7 @@ describe("sheets", function()
                     Lab.inner_stock(built.entities, refs.inputs, refs.outputs)))
                 for _, s in ipairs(sinks) do s.got = {} end
                 window_start = t
-                local stable, mean_per, mean_sunk, grew = Lab.settle(history, per, sunk, window / 60, feed_full and Lab.inner_stock(built.entities, refs.inputs, refs.outputs) or nil)
+                local stable, mean_per, mean_sunk, grew = Lab.settle(history, per, sunk, window / 60, Lab.inner_stock(built.entities, refs.inputs, refs.outputs))
                 do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                 if not stable then return end
                 per, sunk = mean_per, mean_sunk
