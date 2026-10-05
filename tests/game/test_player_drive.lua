@@ -56,10 +56,13 @@ describe("player drive", function()
     end)
 
     it("PD4 reports the recipe whose beacon setup differs", function()
-        local expected, actual = {"a", "b"}, {"a"}
+        local def = Drive.case_def(prepared("player-red-science-1s"))
+        local expected = def.columns[1]
+        expected.setup.beacons = {{name = "beacon", count = 1, modules = {{name = "speed-module", quality = "normal"}}}}
+        local dropped = {name = expected.recipe_name, setup = {beacons = {}}}
         local diff
-        for i, item in ipairs(expected) do if actual[i] ~= item then diff = "iron-plate"; break end end
-        assert.is_not_nil(diff, "expected beacon deletion to name its recipe")
+        if #expected.setup.beacons ~= #dropped.setup.beacons then diff = expected.recipe_name end
+        assert.are_equal(expected.recipe_name, diff, "dropped beacon must identify its recipe")
         print("PD4 " .. diff)
     end)
 
