@@ -1,0 +1,229 @@
+--Player run (plan ~/.claude/plans/rrc-player-run-plan-2026-10-05.md, player 2026-10-05): one Case driven end to end
+--the way a player does it. GUI handlers set up the sheet (tests/game/lib/player_drive.lua), the generation dialog's
+--generate click puts the blueprint in the cursor, build_from_cursor places ghosts, revive + module insert stand in for
+--bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), Port feed fills belts,
+--then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
+--against the calculation (Lab.judge), live calc == staged refs, no foreign item at a sink, no refused build.
+--Round gate + release only: runs when tools/game_test.sh got RRC_PLAYER_RUN=1 (profile_map.player_run).
+--Engine facts (probes P1/P3 2026-10-05, 2.0 + 2.1): the headless player is a character; build_from_cursor out of
+--reach or on ungenerated chunks silently places nothing; revive leaves modules in an item-request-proxy insert_plan.
+local S = require "tests.game.support"
+local Lab = require "tests.game.lib.lab"
+local Ports = require "tests.game.lib.ports"
+local Drive = require "tests.game.lib.player_drive"
+local Calculation = require "logic.calculation_result"
+local ok_profile, PROFILE_MAP = pcall(require, "tests.game.profile_map")
+
+local CASES = {
+    {case = "player-am2-chain-repaired", profile = "player"},
+    {case = "player-blue-science-10s", profile = "player"},
+    {case = "player-green-science-1s", profile = "player"},
+    {case = "player-inserter-10s", profile = "player"},
+    {case = "player-inserter-10s-bulk", profile = "player"},
+    {case = "player-inserter-10s-stack1", profile = "player"},
+    {case = "player-magenta-science-10s", profile = "player",
+     skip = "skipped 2026-10-04 (player): magenta builds too slowly; not tested by Player run"},
+    {case = "player-red-green-science-10s", profile = "player"},
+    {case = "player-red-science-10s", profile = "player"},
+    {case = "player-red-science-10s-bulk", profile = "player"},
+    {case = "player-red-science-10s-stack1", profile = "player"},
+    {case = "player-red-science-1s", profile = "player"},
+    {case = "player-red-science-1s-bulk", profile = "player"},
+    {case = "player-red-science-1s-foundry", profile = "player"},
+    {case = "vanilla-2.1-red-science-1s", profile = "vanilla", version = "2.1"},
+    {case = "vanilla-2.1-green-science-1s", profile = "vanilla", version = "2.1"},
+}
+
+--Fixture modules staged by tools/game_stage.sh; required at parse time (headless refuses runtime require).
+local REFS, PREPARED = {}, {}
+for _, c in ipairs(CASES) do
+    local module = c.case:gsub("[-%.]", "_")
+    local ok_r, refs = pcall(require, "tests.game.fixtures." .. module .. "_refs")
+    if ok_r then REFS[c.case] = refs end
+    if c.profile == "player" then
+        local ok_p, prepared = pcall(require, "tests.game.fixtures." .. module .. "_prepared")
+        if ok_p then PREPARED[c.case] = prepared end
+    end
+end
+
+local function player_profile() return script.active_mods["Moshine"] ~= nil end
+local function rel_close(a, b) return math.abs((a or 0) - (b or 0)) <= 1e-6 * math.max(1, math.abs(b or 0)) end
+
+--Modules a revived ghost left in its item-request-proxy go into the slots its insert_plan names (bots stand-in).
+local function fulfil(proxy)
+    local target = proxy.proxy_target
+    if target and target.valid then
+        for _, entry in ipairs(proxy.insert_plan or {}) do
+            local id = entry.id or {}
+            for _, slot in ipairs(entry.items and entry.items.in_inventory or {}) do
+                local inv = target.get_inventory(slot.inventory)
+                if inv then inv[slot.stack + 1].set_stack{name = id.name, quality = id.quality or "normal", count = 1} end
+            end
+        end
+    end
+    proxy.destroy()
+end
+
+local function plain(ent)
+    local recipe
+    if ent.type == "assembling-machine" or ent.type == "furnace" then
+        local r = ent.get_recipe()
+        recipe = r and r.name
+    end
+    return {name = ent.name, position = {x = ent.position.x, y = ent.position.y}, direction = ent.direction,
+        type = ent.type, recipe = recipe, belt_to_ground_type = ent.type == "underground-belt" and ent.belt_to_ground_type or nil}
+end
+
+local function ingredients(recipe_name)
+    local out = {}
+    local r = prototypes.recipe[recipe_name]
+    for _, i in ipairs(r and r.ingredients or {}) do out[#out + 1] = {name = i.name, kind = i.type} end
+    return out
+end
+
+local function at_tile(surface, x, y)
+    for _, e in pairs(surface.find_entities_filtered{area = {{x + 0.1, y + 0.1}, {x + 0.9, y + 0.9}}}) do
+        if e.type ~= "character" and e.type ~= "entity-ghost" then return e end
+    end
+end
+
+describe("player run", function()
+    for index, c in ipairs(CASES) do
+        local register = (c.skip or not (ok_profile and PROFILE_MAP.player_run)) and it.skip or it
+        register(c.case, function()
+            if RRC_OFFLINE then return end
+            if (c.profile == "player") ~= player_profile() then return end
+            if c.version and c.version ~= (script.active_mods.base or ""):match("^(%d+%.%d+)") then return end
+            local refs = assert(REFS[c.case], c.case .. ": no staged refs")
+            local def = c.profile == "player"
+                and Drive.case_def(helpers.json_to_table(assert(PREPARED[c.case], c.case .. ": no staged prepared input")))
+                or Drive.vanilla_def(c.case)
+            local force = game.forces.player
+            local stack = Lab.research_stack(force)
+            local player = S.player()
+            Drive.setup(def, function(sheet)
+                local calc = assert(Calculation.get(1, S.sheet_id(sheet)), c.case .. ": no calculation result after setup")
+                for full_name, rate in pairs(refs.outputs) do
+                    assert(rel_close(calc.solved_rates[full_name], rate), string.format("%s: calc %s %s/s, refs %s/s",
+                        c.case, full_name, tostring(calc.solved_rates[full_name]), rate))
+                end
+                for full_name, rate in pairs(refs.inputs) do
+                    assert(rel_close(calc.unsolved_rates[full_name], rate), string.format("%s: calc input %s %s/s, refs %s/s",
+                        c.case, full_name, tostring(calc.unsolved_rates[full_name]), rate))
+                end
+                Drive.generate(sheet, def)
+                S.wait_until(function() return storage[1].blueprint_job == nil end, 36000, function()
+                    local cursor = player.cursor_stack
+                    assert(cursor.valid_for_read and cursor.is_blueprint and cursor.is_blueprint_setup(), c.case .. ": no blueprint in cursor")
+                    local bp = cursor.get_blueprint_entities()
+                    local l, t, r, b = math.huge, math.huge, -math.huge, -math.huge
+                    for _, e in ipairs(bp) do
+                        l, t = math.min(l, e.position.x), math.min(t, e.position.y)
+                        r, b = math.max(r, e.position.x), math.max(b, e.position.y)
+                    end
+                    local surface = Lab.surface()
+                    local spot = {index * 1024, 0}
+                    local half = math.ceil(math.max(r - l, b - t) / 2) + 24
+                    local area = {{spot[1] - half, spot[2] - half}, {spot[1] + half, spot[2] + half}}
+                    Lab.prepare(surface, area)
+                    player.teleport({spot[1], spot[2] + half - 4}, surface)
+                    if player.character then player.character_build_distance_bonus = 10000 end
+                    player.build_from_cursor{position = spot, build_mode = defines.build_mode.forced}
+                    local ghosts = surface.find_entities_filtered{area = area, type = "entity-ghost"}
+                    assert(#ghosts == #bp, string.format("%s: %d ghosts for %d blueprint entities", c.case, #ghosts, #bp))
+                    local failed = {}
+                    for _, g in ipairs(ghosts) do
+                        if g.valid then
+                            local name = g.ghost_name
+                            local _, ent, proxy = g.revive{return_item_request_proxy = true}
+                            if not ent then failed[#failed + 1] = name end
+                            if proxy and proxy.valid then fulfil(proxy) end
+                        end
+                    end
+                    for _, p in ipairs(surface.find_entities_filtered{area = area, name = "item-request-proxy"}) do fulfil(p) end
+                    assert(#failed == 0, c.case .. ": " .. #failed .. " ghosts do not revive: " .. serpent.line(failed))
+                    player.teleport({spot[1] - half - 8, spot[2]}, surface)
+                    local entities, plains = {}, {}
+                    local wl, wt, wr, wb = math.huge, math.huge, -math.huge, -math.huge
+                    for _, e in pairs(surface.find_entities_filtered{area = area, force = force}) do
+                        if e.type ~= "character" then
+                            entities[#entities + 1] = e
+                            plains[#plains + 1] = plain(e)
+                            local box = e.bounding_box
+                            wl, wt = math.min(wl, box.left_top.x), math.min(wt, box.left_top.y)
+                            wr, wb = math.max(wr, box.right_bottom.x), math.max(wb, box.right_bottom.y)
+                        end
+                    end
+                    local built = {entities = entities, origin = {math.floor(wl), math.floor(wt)}}
+                    assert(Lab.power(surface, force, built), c.case .. ": lab power could not reach a pole")
+                    local inputs, outputs = {}, {}
+                    for k in pairs(refs.inputs) do inputs[k] = true end
+                    for k in pairs(refs.outputs) do outputs[k] = true end
+                    local found = Ports.find{entities = plains, bbox = {math.floor(wl), math.floor(wt), math.ceil(wr), math.ceil(wb)},
+                        ingredients = ingredients, inputs = inputs, outputs = outputs,
+                        hand_reach = function(name) return name:find("long", 1, true) and 2 or 1 end,
+                        sizes = function(name) local p = prototypes.entity[name]; return p.tile_width, p.tile_height end}
+                    assert(#found.problems == 0, c.case .. ": ports " .. serpent.line(found.problems))
+                    local feeds, sinks = {}, {}
+                    for _, f in ipairs(found.feeds) do
+                        local ent = at_tile(surface, f.tile[1] or f.tile.x, f.tile[2] or f.tile.y)
+                        assert(Lab.feed_shape_ok(ent, f.fluid), c.case .. ": FEED_PORT_SHAPE " .. serpent.line(f))
+                        feeds[#feeds + 1] = {entity = ent, item = f.item, fluid = f.fluid}
+                    end
+                    for _, s in ipairs(found.sinks) do
+                        sinks[#sinks + 1] = {entity = at_tile(surface, s.tile[1] or s.tile.x, s.tile[2] or s.tile.y), got = {}, items = {s.item}}
+                    end
+                    local speed = 0.03125
+                    for _, e in ipairs(entities) do if e.valid and e.type == "transport-belt" then speed = math.max(speed, e.prototype.belt_speed) end end
+                    local warm = math.max(3600, math.ceil(((wr - wl) + (wb - wt)) * 2 / speed) + 600)
+                    local WINDOW, LIMIT = 3600, 60000
+                    local pool = Lab.meter_new(refs.inputs)
+                    local t0, window_start, history = game.tick, nil, {}
+                    local function per_s_now()
+                        local per = {}
+                        for _, s in ipairs(sinks) do
+                            for name, count in pairs(s.got) do
+                                local full = outputs["item/" .. name] and ("item/" .. name) or ("fluid/" .. name)
+                                per[full] = (per[full] or 0) + count / (WINDOW / 60)
+                            end
+                        end
+                        return per
+                    end
+                    game.speed = 1000
+                    on_tick(function()
+                        local now = game.tick - t0
+                        if now < warm then Lab.feed_tick(feeds, stack) else Lab.meter_tick(pool, feeds, stack) end
+                        local measuring = now >= warm
+                        if measuring and not window_start then window_start = now end
+                        Lab.sink_tick(sinks, measuring)
+                        if not window_start or now - window_start < WINDOW then return end
+                        local per = per_s_now()
+                        local worst = math.huge
+                        for full_name, rate in pairs(refs.outputs) do worst = math.min(worst, (per[full_name] or 0) / rate) end
+                        history[#history + 1] = worst
+                        log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s", c.case, now, worst, serpent.line(per)))
+                        local steady = #history >= 2 and math.abs(history[#history] - history[#history - 1]) < 0.02 * math.max(history[#history], 1e-9)
+                        if not steady and now < LIMIT then
+                            for _, s in ipairs(sinks) do s.got = {} end
+                            window_start = now
+                            return
+                        end
+                        game.speed = 1
+                        local ok, problems, lines = Lab.judge(per, refs.outputs)
+                        problems = problems or {}
+                        local backlog = Lab.meter_backlog(pool, feeds, stack)
+                        if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
+                        for _, s in ipairs(sinks) do
+                            local allowed = {}
+                            for _, n in ipairs(s.items) do allowed[(n:gsub("^%a+/", ""))] = true end
+                            for name in pairs(s.got) do if not allowed[name] then problems[#problems + 1] = "foreign " .. name .. " at sink" end end
+                        end
+                        log("PLAYER-RUN " .. c.case .. " stack=" .. stack .. " warm=" .. warm .. " t=" .. now .. " " .. table.concat(lines or {}, "; "))
+                        assert(ok and #problems == 0, c.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines or {}, "; "))
+                        return false
+                    end)
+                end, c.case .. ": blueprint delivery")
+            end)
+        end)
+    end
+end)

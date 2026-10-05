@@ -3,6 +3,7 @@
 # usage: tools/game_test.sh <2.0|2.1> '<file>::<describe> > <it>'    one test
 #        tools/game_test.sh <2.0|2.1> --full                       every tests/game test
 #        tools/game_test.sh <2.0|2.1> --shard I/N                  test files I, I+N, I+2N... of tests/game/index.lua
+# RRC_PLAYER_RUN=1: also run tests/game/test_player_run.lua (round gate + release only, player 2026-10-05).
 # RRC_PROFILE=player (2.0 only): the player's exact mods (tests/player_mods.lock.json, tools/fetch_player_mods.py)
 # plus their startup settings (~/share/RRC/mod-settings.dat via tools/mod_settings_dat.py); build dir build/<FV>-player.
 # One-test mode fails unless exactly one test ran and passed (a typo never passes on zero tests).
@@ -57,15 +58,15 @@ game() {  # game <pattern|""> -> runs FactorioTest, writes build/<FV>/results.js
   mod=$(STAGE_DIR="$BUILD" RRC_SHARD="$SHARD" RRC_PROFILE="$PROFILE" RRC_PROFILE_TEST_MAP="$PROFILE_TEST_MAP" RRC_TURN_FLIP_FULL="${RRC_FULL_TURN_FLIP:-0}" "$ROOT/tools/game_stage.sh" "$FV")
   mkdir -p "$mod/tools"
   cp "$ROOT/tools/turn_flip_slice.lua" "$ROOT/tools/junit.lua" "$mod/tools/"
-  python3 - "$mod/tests/game/profile_map.lua" "$PROFILE" "$PROFILE_TEST_MAP" "${RRC_ROUND:-56}" <<'PY'
+  python3 - "$mod/tests/game/profile_map.lua" "$PROFILE" "$PROFILE_TEST_MAP" "${RRC_ROUND:-56}" "${RRC_PLAYER_RUN:-0}" <<'PY'
 import sys
-out, profile, raw, round_id = sys.argv[1:]
+out, profile, raw, round_id, player_run = sys.argv[1:]
 mapping = {}
 for entry in raw.split(';'):
     key, _, files = entry.partition(':')
     mapping[key] = [x for x in files.split(',') if x]
 def lua_string(s): return '"' + s.replace('\\', '\\\\').replace('"', '\\"') + '"'
-lines = ['return {profile = ' + lua_string(profile) + ', round_id = ' + str(int(round_id)) + ', tests = {']
+lines = ['return {profile = ' + lua_string(profile) + ', round_id = ' + str(int(round_id)) + ', player_run = ' + ('true' if player_run == '1' else 'false') + ', tests = {']
 for key in sorted(mapping):
     lines.append('    [' + lua_string(key) + '] = {' + ','.join(lua_string(x) for x in mapping[key]) + '},')
 lines.append('}}\n')
