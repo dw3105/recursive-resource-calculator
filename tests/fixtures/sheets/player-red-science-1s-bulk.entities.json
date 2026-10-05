@@ -1,0 +1,776 @@
+{
+  "entities": [
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 17.5,
+        "y": 0.5
+      }
+    },
+    {
+      "name": "turbo-underground-belt",
+      "position": {
+        "x": 22.5,
+        "y": 0.5
+      },
+      "type": "output"
+    },
+    {
+      "name": "roboport",
+      "position": {
+        "x": 2,
+        "y": 2
+      }
+    },
+    {
+      "name": "roboport",
+      "position": {
+        "x": 52,
+        "y": 2
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 11.5,
+        "y": 2.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-underground-belt",
+      "position": {
+        "x": 12.5,
+        "y": 2.5
+      },
+      "direction": 4,
+      "type": "input"
+    },
+    {
+      "name": "turbo-underground-belt",
+      "position": {
+        "x": 23.5,
+        "y": 2.5
+      },
+      "direction": 4,
+      "type": "output"
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 24.5,
+        "y": 2.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 28.5,
+        "y": 2.5
+      }
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 31.5,
+        "y": 2.5
+      }
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 10.5,
+        "y": 3.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 11.5,
+        "y": 3.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 12.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "foundry",
+      "position": {
+        "x": 15.5,
+        "y": 3.5
+      },
+      "recipe": "casting-copper"
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 24.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 25.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 26.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 27.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 28.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 29.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 30.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 31.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 32.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 33.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 34.5,
+        "y": 3.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 19.5,
+        "y": 4.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 20.5,
+        "y": 4.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 21.5,
+        "y": 4.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 22.5,
+        "y": 4.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 23.5,
+        "y": 4.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 24.5,
+        "y": 4.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 25.5,
+        "y": 4.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 28.5,
+        "y": 4.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 31.5,
+        "y": 4.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 34.5,
+        "y": 4.5
+      }
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 2.5,
+        "y": 5.5
+      }
+    },
+    {
+      "name": "pipe",
+      "position": {
+        "x": 6.5,
+        "y": 5.5
+      }
+    },
+    {
+      "name": "pipe-to-ground",
+      "position": {
+        "x": 7.5,
+        "y": 5.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "position": {
+        "x": 11.5,
+        "y": 5.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "position": {
+        "x": 12.5,
+        "y": 5.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 19.5,
+        "y": 5.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 0.5,
+        "y": 6.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 6.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 2.5,
+        "y": 6.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "pipe",
+      "position": {
+        "x": 12.5,
+        "y": 6.5
+      }
+    },
+    {
+      "name": "pipe",
+      "position": {
+        "x": 13.5,
+        "y": 6.5
+      }
+    },
+    {
+      "name": "pipe",
+      "position": {
+        "x": 14.5,
+        "y": 6.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 19.5,
+        "y": 6.5
+      }
+    },
+    {
+      "name": "assembling-machine-3",
+      "position": {
+        "x": 25.5,
+        "y": 6.5
+      },
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "assembling-machine-3",
+      "position": {
+        "x": 28.5,
+        "y": 6.5
+      },
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "assembling-machine-3",
+      "position": {
+        "x": 31.5,
+        "y": 6.5
+      },
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "assembling-machine-3",
+      "position": {
+        "x": 34.5,
+        "y": 6.5
+      },
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 0.5,
+        "y": 7.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 19.5,
+        "y": 7.5
+      }
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 22.5,
+        "y": 7.5
+      }
+    },
+    {
+      "name": "foundry",
+      "position": {
+        "x": 5.5,
+        "y": 8.5
+      },
+      "recipe": "molten-copper"
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 19.5,
+        "y": 8.5
+      }
+    },
+    {
+      "name": "turbo-underground-belt",
+      "position": {
+        "x": 22.5,
+        "y": 8.5
+      },
+      "type": "input"
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 25.5,
+        "y": 8.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 28.5,
+        "y": 8.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 31.5,
+        "y": 8.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 34.5,
+        "y": 8.5
+      }
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 19.5,
+        "y": 9.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 22.5,
+        "y": 9.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 23.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 24.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 25.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 26.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 27.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 28.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 29.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 30.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 31.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 32.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 33.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 34.5,
+        "y": 9.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 0.5,
+        "y": 10.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 10.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 2.5,
+        "y": 10.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 31.5,
+        "y": 10.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 11.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 12.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "foundry",
+      "position": {
+        "x": 17.5,
+        "y": 12.5
+      },
+      "recipe": "casting-iron-gear-wheel"
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 0.5,
+        "y": 13.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 13.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 14.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 15.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "pipe",
+      "position": {
+        "x": 6.5,
+        "y": 15.5
+      }
+    },
+    {
+      "name": "pipe-to-ground",
+      "position": {
+        "x": 7.5,
+        "y": 15.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "position": {
+        "x": 15.5,
+        "y": 15.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "position": {
+        "x": 16.5,
+        "y": 15.5
+      }
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 16.5
+      },
+      "direction": 8
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 2.5,
+        "y": 16.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "medium-electric-pole",
+      "position": {
+        "x": 0.5,
+        "y": 17.5
+      }
+    },
+    {
+      "name": "foundry",
+      "position": {
+        "x": 5.5,
+        "y": 18.5
+      },
+      "recipe": "molten-iron"
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 0.5,
+        "y": 20.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "turbo-transport-belt",
+      "position": {
+        "x": 1.5,
+        "y": 20.5
+      },
+      "direction": 4
+    },
+    {
+      "name": "bulk-inserter",
+      "position": {
+        "x": 2.5,
+        "y": 20.5
+      },
+      "direction": 12
+    },
+    {
+      "name": "roboport",
+      "position": {
+        "x": 2,
+        "y": 52
+      }
+    },
+    {
+      "name": "roboport",
+      "position": {
+        "x": 52,
+        "y": 52
+      }
+    }
+  ],
+  "bbox": [
+    0,
+    0,
+    52,
+    52
+  ]
+}
