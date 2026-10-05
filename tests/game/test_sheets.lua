@@ -96,7 +96,7 @@ describe("sheets", function()
             --After warm-up, metered windows (Lab.window_ticks) until output stabilizes (Lab.settle); R = mean of the 3 stable windows.
             local window = Lab.window_ticks(refs.outputs)
             local t0, window_start, history, pool = game.tick, nil, {}, nil
-            local warmed, warm_stock = false, nil
+            local warmed, warm_stock, prefilled = false, nil, false
             --Judged on production (Lab.made deltas over the window); the sink count is the cross-check.
             local made_start
             local function rates_now()
@@ -124,6 +124,10 @@ describe("sheets", function()
                 if not measuring then
                     Lab.feed_tick(feeds, stack)
                     if t >= warm and (t - warm) % Lab.WARM_STEP == 0 then
+                        if FULL_FEED and not prefilled then
+                            prefilled = true
+                            log(string.format("SHEET-PREFILL %s t=%d items=%d", sheet.case, t, Lab.prefill_inner(built.entities, refs.inputs, refs.outputs, stack)))
+                        end
                         local stock = Lab.inner_stock(built.entities, refs.inputs, refs.outputs)
                         if Lab.warm_ready(warm_stock, stock) or t - warm >= Lab.WARM_CAP then
                             warmed, warm = true, t

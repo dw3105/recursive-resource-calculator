@@ -274,7 +274,7 @@ describe("player run", function()
                     local window = Lab.window_ticks(refs.outputs)  --metered windows until output stabilizes (Lab.settle), as tests/game/test_sheets.lua
                     local pool = Lab.meter_new(refs.inputs)
                     local t0, window_start, history, cleared = game.tick, nil, {}, false
-                    local warmed, warm_stock = false, nil
+                    local warmed, warm_stock, prefilled = false, nil, false
                     --Judged on production (Lab.made deltas); the sink count is the cross-check (tests/game/test_sheets.lua).
                     local made_start
                     local function per_s_now()
@@ -299,6 +299,10 @@ describe("player run", function()
                         if not measuring then
                             Lab.feed_tick(feeds, stack)
                             if now >= warm and (now - warm) % Lab.WARM_STEP == 0 then
+                                if FULL_FEED and not prefilled then
+                                    prefilled = true
+                                    log(string.format("PLAYER-RUN-PREFILL %s t=%d items=%d", c.case, now, Lab.prefill_inner(entities, refs.inputs, refs.outputs, stack)))
+                                end
                                 local stock = Lab.inner_stock(entities, refs.inputs, refs.outputs)
                                 if Lab.warm_ready(warm_stock, stock) or now - warm >= Lab.WARM_CAP then
                                     warmed, warm = true, now

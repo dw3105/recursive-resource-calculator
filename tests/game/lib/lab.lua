@@ -376,10 +376,35 @@ function Lab.inner_stock(entities, inputs, outputs)
     return stock
 end
 
---Warm-up ends once inner stock grew under 2% (+5 items) over the last WARM_STEP ticks, or at WARM_CAP.
+--Endless feed only (RRC_FEED=full, player 2026-10-05 "maximize filling"): fill every inner belt lane that carries one
+--item kind to full with it, so buffers stand where a long-running factory has them instead of filling for 75000 ticks
+--(red-green). A lane its producer cannot keep full drains afterwards; warm_ready waits for that too. Returns items added.
+function Lab.prefill_inner(entities, inputs, outputs, stack)
+    local added = 0
+    for _, e in pairs(entities) do
+        if e.valid and (e.type == "transport-belt" or e.type == "underground-belt") then
+            for i = 1, e.get_max_transport_line_index() do
+                local line = e.get_transport_line(i)
+                local kinds, name = 0, nil
+                for _, it in pairs(line.get_contents()) do kinds, name = kinds + 1, it.name end
+                if kinds == 1 and not inputs["item/" .. name] and not outputs["item/" .. name] then
+                    local before = line.get_item_count()
+                    for position = 0, line.line_length, 0.25 do
+                        if line.can_insert_at(position) then pcall(line.insert_at, position, {name = name, count = stack}, stack) end
+                    end
+                    added = added + line.get_item_count() - before
+                end
+            end
+        end
+    end
+    return added
+end
+
+--Warm-up ends once inner stock moved under 2% (+5 items) either way over the last WARM_STEP ticks, or at WARM_CAP:
+--growing = buffers still filling; shrinking = a pre-filled lane draining (Lab.prefill_inner).
 Lab.WARM_STEP, Lab.WARM_CAP = 3600, 72000
 function Lab.warm_ready(previous, stock)
-    return previous ~= nil and stock <= previous * 1.02 + 5
+    return previous ~= nil and math.abs(stock - previous) <= previous * 0.02 + 5
 end
 
 --Window long enough for 200 units of the slowest output: one craft at 1/s was 1.7% of a 60 s window, wider than the

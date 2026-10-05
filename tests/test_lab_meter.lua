@@ -147,4 +147,28 @@ do
     assert(#Lab.meter_backlog(pool, feeds, 4, {["item/ore"] = 4}) == 1, "MT10 credit grown 9 > 2 stacks is backlog")
     print("MT10")
 end
-print("test_lab_meter 10 passed 0 failed")
+do
+    assert(not Lab.warm_ready(700, 500), "MT11 a draining pre-filled lane keeps warming")
+    local function lane(items)
+        local l = {items = items, line_length = 1}
+        function l.get_contents()
+            local by = {}
+            for _, n in ipairs(l.items) do by[n] = (by[n] or 0) + 1 end
+            local out = {}
+            for n, c in pairs(by) do out[#out + 1] = {name = n, count = c} end
+            return out
+        end
+        function l.get_item_count() return #l.items end
+        function l.can_insert_at() return #l.items < 4 end
+        function l.insert_at(_, stack) l.items[#l.items + 1] = stack.name; return true end
+        return l
+    end
+    local inner, mixed, input = lane({"gear"}), lane({"gear", "plate"}), lane({"ore"})
+    local belt = {valid = true, type = "transport-belt", get_max_transport_line_index = function() return 3 end,
+        get_transport_line = function(i) return ({inner, mixed, input})[i] end}
+    local added = Lab.prefill_inner({belt}, {["item/ore"] = 1}, {["item/pack"] = 1}, 4)
+    assert(added == 3 and #inner.items == 4, "MT11 one-kind inner lane filled: " .. added)
+    assert(#mixed.items == 2 and #input.items == 1, "MT11 mixed and input lanes untouched")
+    print("MT11")
+end
+print("test_lab_meter 11 passed 0 failed")
