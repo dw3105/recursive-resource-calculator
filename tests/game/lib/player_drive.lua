@@ -101,7 +101,8 @@ local function select_picker(name, quality)
     click(S.find(picker.frame, "hxrrc_picker_confirm_button"))
 end
 local function idle()
-    return (storage[1].backlogged_computation_count or 0) == 0 and #(storage.calc_jobs or {}) == 0
+    --Calculations are jobs in storage[1].calc_jobs = {[sheet_id] = job} (logic/jobs.lua): a map, so next(), never #.
+    return (storage[1].backlogged_computation_count or 0) == 0 and next(storage[1].calc_jobs or {}) == nil
 end
 
 function Drive.setup(def, done_fn)
@@ -223,7 +224,14 @@ function Drive.setup(def, done_fn)
             else
                 local recipes_by_product = storage[1].recipes_by_product_full_name
                 local current = recipes_by_product[full_name]
-                if not current or current.name ~= recipe_name then error("recipe button missing for " .. tostring(col and col.recipe_name or recipe_name)) end
+                if not current or current.name ~= recipe_name then
+                    local seen = {}
+                    local function walk(e, d) if not e or d > 12 then return end
+                        if e.name and e.name ~= "" then seen[#seen + 1] = e.name .. (e.tags and e.tags.product_full_name and ("{" .. e.tags.product_full_name .. "}") or "") end
+                        for _, ch in pairs(e.children or {}) do walk(ch, d + 1) end end
+                    walk(sheet.output_flow, 0)
+                    error("recipe button missing for " .. tostring(col and col.recipe_name or recipe_name) .. " out=" .. tostring(sheet.output_flow and sheet.output_flow.valid) .. " current=" .. tostring(current and current.name) .. " seen=" .. table.concat(seen, ","):sub(1, 1500))
+                end
             end
         elseif step.kind == "machine" then
             local b = find(sheet.output_flow, "hxrrc_choose_crafting_machine_button", function(e) return e.tags.recipe_name == col.recipe_name end)

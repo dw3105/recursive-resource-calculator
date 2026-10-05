@@ -52,6 +52,60 @@ local function player_profile() return script.active_mods["Moshine"] ~= nil end
 local function rel_close(a, b) return math.abs((a or 0) - (b or 0)) <= 1e-6 * math.max(1, math.abs(b or 0)) end
 
 --Modules a revived ghost left in its item-request-proxy go into the slots its insert_plan names (bots stand-in).
+--Built poles must be wired as the game wires them (red-1s: one pole group powered, 20 hands no_power, 2.0.77
+--2026-10-05). A blueprint with wires: they are laid, its poles mapped onto built poles by one offset that fits them
+--all. The delivered blueprint has none: poles connect in wire reach as bot-built poles auto-connect.
+--Returns wires laid, wires in the blueprint.
+local function lay_wires(bp, surface, area, force)
+    local poles = {}
+    for _, e in ipairs(bp.entities or {}) do
+        if prototypes.entity[e.name] and prototypes.entity[e.name].type == "electric-pole" then poles[#poles + 1] = e end
+    end
+    local built = surface.find_entities_filtered{area = area, force = force, type = "electric-pole"}
+    if #(bp.wires or {}) == 0 then
+        --The delivered blueprint carries no wires (2026-10-05): a bot-built pole auto-connects to poles in wire reach.
+        local laid = 0
+        for i, a in ipairs(built) do
+            for j = i + 1, #built do
+                local b = built[j]
+                local reach = math.min(a.prototype.get_max_wire_distance(a.quality), b.prototype.get_max_wire_distance(b.quality))
+                local dx, dy = a.position.x - b.position.x, a.position.y - b.position.y
+                if dx * dx + dy * dy <= reach * reach then
+                    local ca = a.get_wire_connector(defines.wire_connector_id.pole_copper, true)
+                    local cb = b.get_wire_connector(defines.wire_connector_id.pole_copper, true)
+                    if ca.is_connected_to(cb) or ca.connect_to(cb, false) then laid = laid + 1 end
+                end
+            end
+        end
+        return laid, 0
+    end
+    if #poles == 0 then return 0, #bp.wires end
+    local at = {}
+    for _, b in ipairs(built) do at[b.name .. "@" .. b.position.x .. "," .. b.position.y] = b end
+    local map
+    for _, b in ipairs(built) do
+        if b.name == poles[1].name then
+            local dx, dy = b.position.x - poles[1].position.x, b.position.y - poles[1].position.y
+            local try = {}
+            for _, p in ipairs(poles) do
+                try[p.entity_number] = at[p.name .. "@" .. (p.position.x + dx) .. "," .. (p.position.y + dy)]
+                if not try[p.entity_number] then try = nil; break end
+            end
+            if try then map = try; break end
+        end
+    end
+    assert(map, "no offset maps the blueprint's poles onto the built poles")
+    local laid = 0
+    for _, w in ipairs(bp.wires) do
+        local a, b = map[w[1]], map[w[3]]
+        if a and b then
+            local ca, cb = a.get_wire_connector(w[2], true), b.get_wire_connector(w[4], true)
+            if ca.is_connected_to(cb) or ca.connect_to(cb, false) then laid = laid + 1 end
+        end
+    end
+    return laid, #bp.wires
+end
+
 local function fulfil(proxy)
     local target = proxy.proxy_target
     if target and target.valid then
@@ -111,7 +165,7 @@ describe("player run", function()
             local refs = assert(REFS[c.case], c.case .. ": no staged refs")
             if type(refs) == "string" then refs = helpers.json_to_table(refs) end  --staged as JSON text
             local def = c.profile == "player"
-                and Drive.case_def(helpers.json_to_table(assert(PREPARED[c.case], c.case .. ": no staged prepared input")))
+                and Drive.case_def(helpers.json_to_table((assert(PREPARED[c.case], c.case .. ": no staged prepared input"))))
                 or Drive.vanilla_def(c.case)
             local force = game.forces.player
             local stack = Lab.research_stack(force)
@@ -126,7 +180,8 @@ describe("player run", function()
             local player = S.player()
             async(10000000)  --settling has no tick limit (player Q14); the 120 s per-check cap ends a Case that never settles
             Drive.setup(def, function(sheet)
-                local calc = assert(Calculation.get(1, S.sheet_id(sheet)), c.case .. ": no calculation result after setup")
+                --The record keeps the solver answer under .result (logic/calculation_result.lua normalized_record).
+                local calc = assert((Calculation.get(1, S.sheet_id(sheet))), c.case .. ": no calculation result after setup").result
                 for full_name, rate in pairs(refs.outputs) do
                     assert(rel_close(calc.solved_rates[full_name], rate), string.format("%s: calc %s %s/s, refs %s/s",
                         c.case, full_name, tostring(calc.solved_rates[full_name]), rate))
@@ -145,13 +200,21 @@ describe("player run", function()
                         l, t = math.min(l, e.position.x), math.min(t, e.position.y)
                         r, b = math.max(r, e.position.x), math.max(b, e.position.y)
                     end
-                    local surface = Lab.surface()
+                    --nauvis, not Lab.surface(): the engine places no blueprint ghost on the lab surface (build_from_cursor and
+                    --LuaItemStack.build_blueprint both 0 of 148 on rrc-lab, 2.0.77 2026-10-05; Lab.build notes the same 2026-09-29).
+                    local surface = game.surfaces.nauvis
+                    surface.peaceful_mode = true
                     local spot = {index * 1024, 0}
                     local half = math.ceil(math.max(r - l, b - t) / 2) + 24
                     local area = {{spot[1] - half, spot[2] - half}, {spot[1] + half, spot[2] + half}}
                     Lab.prepare(surface, area)
-                    player.teleport({spot[1], spot[2] + half - 4}, surface)
+                    local tiles = {}
+                    for x = area[1][1], area[2][1] - 1 do for y = area[1][2], area[2][2] - 1 do tiles[#tiles + 1] = {name = "refined-concrete", position = {x, y}} end end
+                    surface.set_tiles(tiles)
+                    for _, e in pairs(surface.find_entities(area)) do if e.valid and e.type ~= "character" then e.destroy() end end
+                    assert(player.teleport(spot, surface), c.case .. ": character cannot reach the build spot")
                     if player.character then player.character_build_distance_bonus = 10000 end
+                    player.opened = nil
                     player.build_from_cursor{position = spot, build_mode = defines.build_mode.forced}
                     local ghosts = surface.find_entities_filtered{area = area, type = "entity-ghost"}
                     assert(#ghosts == #bp, string.format("%s: %d ghosts for %d blueprint entities", c.case, #ghosts, #bp))
@@ -166,6 +229,8 @@ describe("player run", function()
                     end
                     for _, p in ipairs(surface.find_entities_filtered{area = area, name = "item-request-proxy"}) do fulfil(p) end
                     assert(#failed == 0, c.case .. ": " .. #failed .. " ghosts do not revive: " .. serpent.line(failed))
+                    local laid, wires = lay_wires(Lab.decode(cursor.export_stack()), surface, area, force)
+                    log(string.format("PLAYER-RUN-WIRES %s laid=%d of %d", c.case, laid, wires))
                     player.teleport({spot[1] - half - 8, spot[2]}, surface)
                     local entities, plains = {}, {}
                     local wl, wt, wr, wb = math.huge, math.huge, -math.huge, -math.huge
