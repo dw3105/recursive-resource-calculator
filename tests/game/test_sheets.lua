@@ -1,4 +1,4 @@
---Sheet sims use calculation refs and meter their feeds after the port-feed warmup.
+--Sheet sims use calculation refs and meter their feeds from tick 0 (Metered feed).
 --Fixtures: tests/fixtures/sheets/<case>.bp.txt + <case>.ports.json (tools/sheet_ports.py), embedded by
 --tools/game_stage.sh as tests.game.fixtures.sheets_index. A sheet runs only in its profile (player sheets need the
 --player's mods: RRC_PROFILE=player).
@@ -106,16 +106,16 @@ describe("sheets", function()
                 end
                 return out, worst
             end
+            --Warm-up plus steady windows can pass the FactorioTest 36000-tick default (green-1s, blue): own limit.
+            async(warm + LIMIT + 3600)
             game.speed = 1000
             on_tick(function()
                 local t = game.tick - t0
                 local measuring = t >= warm
-                if measuring then
-                    if not pool then pool = Lab.meter_new(refs.inputs) end
-                    Lab.meter_tick(pool, feeds, stack)
-                else
-                    Lab.feed_tick(feeds, stack)
-                end
+                --Metered from tick 0 (2026-10-05): a Port feed fill left full stacked belts that rounded-up machines
+                --ate for minutes, so steady windows read R=1.05 on metered input (red-10s 10.5/s of 10.0).
+                if not pool then pool = Lab.meter_new(refs.inputs) end
+                Lab.meter_tick(pool, feeds, stack)
                 if measuring and not window_start then window_start = t end
                 Lab.sink_tick(sinks, measuring)
                 if not window_start or t - window_start < WINDOW then return end
@@ -154,6 +154,7 @@ describe("sheets", function()
                 if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
                 log("SHEET-SIM " .. sheet.case .. " stack=" .. stack .. " warm=" .. warm .. " window=" .. window .. " " .. table.concat(lines, "; "))
                 assert(judged and #problems == 0, sheet.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines, "; "))
+                done()
                 return false
             end)
         end)

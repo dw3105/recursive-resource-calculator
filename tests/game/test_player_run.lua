@@ -1,8 +1,8 @@
 --Player run (plan ~/.claude/plans/rrc-player-run-plan-2026-10-05.md, player 2026-10-05): one Case driven end to end
 --the way a player does it. GUI handlers set up the sheet (tests/game/lib/player_drive.lua), the generation dialog's
 --generate click puts the blueprint in the cursor, build_from_cursor places ghosts, revive + module insert stand in for
---bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), Port feed fills belts,
---then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
+--bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), and Metered feed
+--pushes exactly calc input rate from tick 0 (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
 --against the calculation (Lab.judge), live calc == staged refs, no foreign item at a sink, no refused build.
 --Round gate + release only: runs when tools/game_test.sh got RRC_PLAYER_RUN=1 (profile_map.player_run).
 --Engine facts (probes P1/P3 2026-10-05, 2.0 + 2.1): the headless player is a character; build_from_cursor out of
@@ -35,9 +35,11 @@ local CASES = {
 }
 
 --Fixture modules staged by tools/game_stage.sh; required at parse time (headless refuses runtime require).
-local REFS, PREPARED = {}, {}
+local REFS, PREPARED, SHEET = {}, {}, {}
 for _, c in ipairs(CASES) do
     local module = c.case:gsub("[-%.]", "_")
+    local ok_s, sheet = pcall(require, "tests.game.fixtures.sheet_" .. module)
+    if ok_s then SHEET[c.case] = sheet end
     local ok_r, refs = pcall(require, "tests.game.fixtures." .. module .. "_refs")
     if ok_r then REFS[c.case] = refs end
     if c.profile == "player" then
@@ -101,7 +103,16 @@ describe("player run", function()
                 or Drive.vanilla_def(c.case)
             local force = game.forces.player
             local stack = Lab.research_stack(force)
+            --The player's force as the Case captured it (ports.json "force", newest export, 1e67075): inserter bonuses
+            --and recipe productivity research. Blue ran 5.7-6.8/s of 10 without the research (2026-09-29).
+            local captured = SHEET[c.case] and helpers.json_to_table(SHEET[c.case].ports).force or {}
+            if captured.bulk_inserter_capacity_bonus then force.bulk_inserter_capacity_bonus = captured.bulk_inserter_capacity_bonus end
+            if captured.inserter_stack_size_bonus then force.inserter_stack_size_bonus = captured.inserter_stack_size_bonus end
+            for recipe, bonus in pairs(captured.research or {}) do
+                if force.recipes[recipe] then force.recipes[recipe].productivity_bonus = bonus end
+            end
             local player = S.player()
+            async(250000)  --setup + generation + warm-up + steady windows pass the 36000-tick default
             Drive.setup(def, function(sheet)
                 local calc = assert(Calculation.get(1, S.sheet_id(sheet)), c.case .. ": no calculation result after setup")
                 for full_name, rate in pairs(refs.outputs) do
@@ -193,7 +204,7 @@ describe("player run", function()
                     game.speed = 1000
                     on_tick(function()
                         local now = game.tick - t0
-                        if now < warm then Lab.feed_tick(feeds, stack) else Lab.meter_tick(pool, feeds, stack) end
+                        Lab.meter_tick(pool, feeds, stack)  --metered from tick 0, no full-belt fill
                         local measuring = now >= warm
                         if measuring and not window_start then window_start = now end
                         Lab.sink_tick(sinks, measuring)
@@ -221,6 +232,7 @@ describe("player run", function()
                         end
                         log("PLAYER-RUN " .. c.case .. " stack=" .. stack .. " warm=" .. warm .. " t=" .. now .. " " .. table.concat(lines or {}, "; "))
                         assert(ok and #problems == 0, c.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines or {}, "; "))
+                        done()
                         return false
                     end)
                 end, c.case .. ": blueprint delivery")
