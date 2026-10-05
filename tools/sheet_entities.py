@@ -18,7 +18,8 @@ def main():
               for entity in entities]
     xs = [e["position"]["x"] for e in result]
     ys = [e["position"]["y"] for e in result]
-    bbox = [int(min(xs)), int(min(ys)), int(max(xs)), int(max(ys))]
+    ports = json.loads(source.with_name(f"{case}.ports.json").read_text())
+    bbox = ports["bbox"]
     out = root / "tests/fixtures/sheets" / f"{case}.entities.json"
     out.write_text(json.dumps({"entities": result, "bbox": bbox}, indent=2) + "\n")
 
