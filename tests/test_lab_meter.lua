@@ -188,4 +188,17 @@ do
     assert(not Lab.warm_ready(27000, 26000, true), "MT12 prefilled warm waits while draining")
     print("MT12")
 end
-print("test_lab_meter 12 passed 0 failed")
+do
+    local function hist(values, inners)
+        local h = {}
+        for i, v in ipairs(values) do h[#h + 1] = {per = {["item/am2"] = v}, sunk = {["item/am2"] = v}, inner = inners[i]} end
+        return h
+    end
+    local out = {["item/am2"] = 1}
+    local ok, mean = Lab.floor_pass(hist({1.083, 0.992, 1.167, 1.158}, {2625, 2696, 2655, 2570}), out)
+    assert(ok and math.abs(mean["item/am2"] - (0.992 + 1.167 + 1.158) / 3) < 1e-9, "MT13 swinging windows all >= 0.98 pass")
+    assert(not Lab.floor_pass(hist({1.1, 0.97, 1.2, 1.1}, {}), out), "MT13 one window under 0.98 is no floor pass")
+    assert(not Lab.floor_pass(hist({1.6, 1.6, 1.6, 1.6}, {49900, 49084, 48412, 48104}), out), "MT13 draining stock is no floor pass")
+    print("MT13")
+end
+print("test_lab_meter 13 passed 0 failed")

@@ -436,6 +436,28 @@ end
 Lab.SETTLE_WINDOWS, Lab.SETTLE_BAND, Lab.SETTLE_UNITS = 3, 0.015, 4
 --inner (optional): inner belt stock at this window's end. Settled also needs it flat over the judged windows (within
 --1% + 50 items of the stock before them): pre-filled blue drained 49084 -> 48104 while it made 1.59x calc (2026-10-05).
+--Floor pass (no upper cap, player 2026-10-05): the last SETTLE_WINDOWS windows each made >= 0.98 of every output's
+--calculation rate and the inner stock did not drain over them, so the factory makes at least the calculation however
+--much the windows swing (am2 lumps 0.99-1.17 never met the band). Call after Lab.settle appended this window.
+--Returns ok, mean made, mean sunk.
+function Lab.floor_pass(history, outputs)
+    local n = Lab.SETTLE_WINDOWS
+    if #history < n then return false end
+    local last, before = history[#history], history[#history - n] or history[#history - n + 1]
+    if last.inner and before.inner and last.inner < before.inner - (0.01 * before.inner + 50) then return false end
+    local mean_per, mean_sunk = {}, {}
+    for name, rate in pairs(outputs) do
+        local sum, sum_sunk = 0, 0
+        for i = #history - n + 1, #history do
+            local v = history[i].per[name] or 0
+            if v < 0.98 * rate then return false end
+            sum, sum_sunk = sum + v, sum_sunk + (history[i].sunk[name] or 0)
+        end
+        mean_per[name], mean_sunk[name] = sum / n, sum_sunk / n
+    end
+    return true, mean_per, mean_sunk
+end
+
 function Lab.settle(history, per, sunk, window_s, inner)
     history[#history + 1] = {per = per, sunk = sunk, inner = inner}
     local n = Lab.SETTLE_WINDOWS

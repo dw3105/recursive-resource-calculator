@@ -366,7 +366,11 @@ describe("player run", function()
                         window_start = now
                         local stable, mean_per, mean_sunk, grew = Lab.settle(history, per, sunk, window / 60, Lab.inner_stock(entities, refs.inputs, refs.outputs))
                         do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
-                        if not stable then return end
+                        if not stable then
+                            stable, mean_per, mean_sunk = Lab.floor_pass(history, refs.outputs)
+                            if not stable then return end
+                            grew = false
+                        end
                         per, sunk = mean_per, mean_sunk
                         game.speed = 1
                         local ok, problems, lines = Lab.judge(per, refs.outputs)
