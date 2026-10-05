@@ -17,15 +17,15 @@ local ok_profile, PROFILE_MAP = pcall(require, "tests.game.profile_map")
 local FULL_FEED = ok_profile and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "full"
 
 local CASES = {
-    {case = "player-am2-chain-repaired", profile = "player", feed = "full"},
-    {case = "player-blue-science-10s", profile = "player", feed = "full"},
+    {case = "player-am2-chain-repaired", profile = "player"},
+    {case = "player-blue-science-10s", profile = "player"},
     {case = "player-green-science-1s", profile = "player"},
     {case = "player-inserter-10s", profile = "player"},
     {case = "player-inserter-10s-bulk", profile = "player"},
     {case = "player-inserter-10s-stack1", profile = "player"},
     {case = "player-magenta-science-10s", profile = "player",
      skip = "skipped 2026-10-04 (player): magenta builds too slowly; not tested by Player run"},
-    {case = "player-red-green-science-10s", profile = "player", feed = "full"},
+    {case = "player-red-green-science-10s", profile = "player"},
     {case = "player-red-science-10s", profile = "player"},
     {case = "player-red-science-10s-bulk", profile = "player"},
     {case = "player-red-science-10s-stack1", profile = "player"},
@@ -166,7 +166,7 @@ describe("player run", function()
             if c.version and c.version ~= (script.active_mods.base or ""):match("^(%d+%.%d+)") then return end
             local refs = assert(REFS[c.case], c.case .. ": no staged refs")
             --Endless feed + pre-fill for Cases whose buffers outlast 120 s on Metered feed (player 2026-10-05), or all with RRC_FEED=full.
-            local feed_full = FULL_FEED or c.feed == "full"
+            local feed_full = FULL_FEED or Lab.FULL_FEED_CASES[c.case] == true
             if type(refs) == "string" then refs = helpers.json_to_table(refs) end  --staged as JSON text
             local def = c.profile == "player"
                 and Drive.case_def(helpers.json_to_table((assert(PREPARED[c.case], c.case .. ": no staged prepared input"))))

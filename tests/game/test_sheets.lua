@@ -58,6 +58,7 @@ describe("sheets", function()
             local ports = helpers.json_to_table(sheet.data.ports)
             --Staged refs are JSON text (tools/game_stage.sh), decoded here like ports.
             local refs = type(sheet.refs) == "string" and helpers.json_to_table(sheet.refs) or sheet.refs
+            local feed_full = FULL_FEED or Lab.FULL_FEED_CASES[sheet.case] == true
             assert(#(ports.problems or {}) == 0, sheet.case .. ": ports.json problems " .. serpent.line(ports.problems))
             local force = game.forces.player
             local stack = Lab.research_stack(force)
@@ -124,7 +125,7 @@ describe("sheets", function()
                 if not measuring then
                     Lab.feed_tick(feeds, stack)
                     if t >= warm and (t - warm) % Lab.WARM_STEP == 0 then
-                        if FULL_FEED and not prefilled then
+                        if feed_full and not prefilled then
                             prefilled = true
                             log(string.format("SHEET-PREFILL %s t=%d items=%d", sheet.case, t, Lab.prefill_inner(built.entities, refs.inputs, refs.outputs, stack)))
                         end
@@ -138,9 +139,9 @@ describe("sheets", function()
                 else
                     if not pool then
                         pool = Lab.meter_new(refs.inputs)
-                        if not FULL_FEED then log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_input_belts(built.entities, refs.inputs))) end
+                        if not feed_full then log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_input_belts(built.entities, refs.inputs))) end
                     end
-                    if FULL_FEED then Lab.feed_tick(feeds, stack) else Lab.meter_tick(pool, feeds, stack) end  --RRC_FEED=full: endless feed
+                    if feed_full then Lab.feed_tick(feeds, stack) else Lab.meter_tick(pool, feeds, stack) end  --RRC_FEED=full: endless feed
                 end
                 if measuring and not window_start then window_start = t; made_start = Lab.made(built.entities, refs.outputs) end
                 Lab.sink_tick(sinks, measuring)
@@ -152,7 +153,7 @@ describe("sheets", function()
                     Lab.inner_stock(built.entities, refs.inputs, refs.outputs)))
                 for _, s in ipairs(sinks) do s.got = {} end
                 window_start = t
-                local stable, mean_per, mean_sunk, grew = Lab.settle(history, per, sunk, window / 60, FULL_FEED and Lab.inner_stock(built.entities, refs.inputs, refs.outputs) or nil)
+                local stable, mean_per, mean_sunk, grew = Lab.settle(history, per, sunk, window / 60, feed_full and Lab.inner_stock(built.entities, refs.inputs, refs.outputs) or nil)
                 do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                 if not stable then return end
                 per, sunk = mean_per, mean_sunk

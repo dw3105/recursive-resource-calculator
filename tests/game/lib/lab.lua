@@ -376,6 +376,10 @@ function Lab.inner_stock(entities, inputs, outputs)
     return stock
 end
 
+--Cases on endless feed + pre-fill in Sheet sim and Player run alike (player Q11: same feed rules): their buffers
+--outlast 120 s on Metered feed (red-green, am2, blue; 2026-10-05). The rest stay Metered.
+Lab.FULL_FEED_CASES = {["player-red-green-science-10s"] = true, ["player-am2-chain-repaired"] = true, ["player-blue-science-10s"] = true}
+
 --Endless feed only (RRC_FEED=full, player 2026-10-05 "maximize filling"): fill every inner belt lane that carries one
 --item kind to full with it, so buffers stand where a long-running factory has them instead of filling for 75000 ticks
 --(red-green). A lane its producer cannot keep full drains afterwards; warm_ready waits for that too. Returns items added.
