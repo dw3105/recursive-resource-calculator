@@ -248,16 +248,20 @@ function Lab.meter_tick(pool, feeds, stack)
                     end
                 end
             else
-                for lane = 1, 2 do
-                    local line = entity.get_transport_line(lane)
-                    --Batch = one second of rate, 1..stack: whole-stack-only held calcite at 0.0178/s for 67500 ticks and
-                    --foundries made nothing (red-1s-bulk R=0.000, 2026-10-05); 1-item stacks at 10/s would waste belt slots.
-                    local batch = math.max(1, math.min(stack, math.ceil(meter.rate)))
-                    while meter.credit >= batch do
-                        local n = math.min(stack, math.floor(meter.credit))
-                        local ok, inserted = pcall(line.insert_at_back, {name = feed.item, count = n}, n)
-                        if not ok or not inserted then break end
-                        meter.credit = meter.credit - n
+                --Batch = one second of rate, 1..stack: whole-stack-only held calcite at 0.0178/s for 67500 ticks and
+                --foundries made nothing (red-1s-bulk R=0.000, 2026-10-05); 1-item stacks at 10/s would waste belt slots.
+                local batch = math.max(1, math.min(stack, math.ceil(meter.rate)))
+                --Lanes take turns batch by batch: lane 1 first always had room at low rates, lane 2 stayed empty and a
+                --furnace fed from it never ran (green-1s R=0.96, 2026-10-05).
+                local failed = 0
+                while meter.credit >= batch and failed < 2 do
+                    feed.lane = (feed.lane or 0) % 2 + 1
+                    local n = math.min(stack, math.floor(meter.credit))
+                    local ok, inserted = pcall(entity.get_transport_line(feed.lane).insert_at_back, {name = feed.item, count = n}, n)
+                    if ok and inserted then
+                        meter.credit, failed = meter.credit - n, 0
+                    else
+                        failed = failed + 1
                     end
                 end
             end
@@ -350,6 +354,40 @@ function Lab.made(entities, outputs)
         end
     end
     return made
+end
+
+--Items on belts that are neither sheet inputs nor outputs: the inner buffers a full-feed warm-up must fill first. Metered
+--feed has no slack to fill them: green-1s foundry filled a 54-tile belt (188 -> 692 belts) on iron the packs needed,
+--R 0.80-0.97 for 90000 ticks (2026-10-05).
+function Lab.inner_stock(entities, inputs, outputs)
+    local stock = 0
+    for _, e in pairs(entities) do
+        if e.valid and (e.type == "transport-belt" or e.type == "underground-belt" or e.type == "splitter") then
+            for i = 1, e.get_max_transport_line_index() do
+                for _, it in pairs(e.get_transport_line(i).get_contents()) do
+                    local name = "item/" .. it.name
+                    if not inputs[name] and not outputs[name] then stock = stock + it.count end
+                end
+            end
+        end
+    end
+    return stock
+end
+
+--Warm-up ends once inner stock grew under 2% (+5 items) over the last WARM_STEP ticks, or at WARM_CAP.
+Lab.WARM_STEP, Lab.WARM_CAP = 3600, 72000
+function Lab.warm_ready(previous, stock)
+    return previous ~= nil and stock <= previous * 1.02 + 5
+end
+
+--Window long enough for 200 units of the slowest output: one craft at 1/s was 1.7% of a 60 s window, wider than the
+--1.5% band, so green-1s and am2 never settled (2026-10-05).
+Lab.WINDOW_UNITS = 200
+function Lab.window_ticks(outputs)
+    local slowest = math.huge
+    for _, rate in pairs(outputs) do slowest = math.min(slowest, rate) end
+    if slowest == math.huge or slowest <= 0 then return 3600 end
+    return math.max(3600, 60 * math.ceil(Lab.WINDOW_UNITS / slowest))
 end
 
 --Settling (player Q14, 2026-10-05): metered windows run until output stabilizes = the last 3 windows of every output

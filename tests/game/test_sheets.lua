@@ -90,9 +90,10 @@ describe("sheets", function()
                 if ent.valid and ent.type == "transport-belt" then speed = math.max(speed, ent.prototype.belt_speed) end
             end
             local warm = math.max(3600, math.ceil(((box[3] - box[1]) + (box[4] - box[2])) * 2 / speed) + 600)
-            --After warm-up, metered 3600-tick windows until output stabilizes (Lab.settle); R = mean of the 3 stable windows.
-            local window = 3600
+            --After warm-up, metered windows (Lab.window_ticks) until output stabilizes (Lab.settle); R = mean of the 3 stable windows.
+            local window = Lab.window_ticks(refs.outputs)
             local t0, window_start, history, pool = game.tick, nil, {}, nil
+            local warmed, warm_stock = false, nil
             --Judged on production (Lab.made deltas over the window); the sink count is the cross-check.
             local made_start
             local function rates_now()
@@ -114,11 +115,19 @@ describe("sheets", function()
             game.speed = 1000
             on_tick(function()
                 local t = game.tick - t0
-                local measuring = t >= warm
-                --Warm-up: full feed primes machines and pipes; at its end input-only belts are emptied (Lab.clear_input_belts), then
-                --Metered feed only (2026-10-05).
+                local measuring = warmed
+                --Warm-up: full feed primes machines, pipes and inner belts (at least belt travel, then until inner stock stops
+                --growing, Lab.warm_ready); at its end input-only belts are emptied (Lab.clear_input_belts), then Metered feed only.
                 if not measuring then
                     Lab.feed_tick(feeds, stack)
+                    if t >= warm and (t - warm) % Lab.WARM_STEP == 0 then
+                        local stock = Lab.inner_stock(built.entities, refs.inputs, refs.outputs)
+                        if Lab.warm_ready(warm_stock, stock) or t - warm >= Lab.WARM_CAP then
+                            warmed, warm = true, t
+                            log(string.format("SHEET-WARM %s t=%d inner=%d window=%d", sheet.case, t, stock, window))
+                        end
+                        warm_stock = stock
+                    end
                 else
                     if not pool then
                         pool = Lab.meter_new(refs.inputs)

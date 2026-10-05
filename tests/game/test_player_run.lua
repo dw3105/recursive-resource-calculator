@@ -204,9 +204,10 @@ describe("player run", function()
                     local speed = 0.03125
                     for _, e in ipairs(entities) do if e.valid and e.type == "transport-belt" then speed = math.max(speed, e.prototype.belt_speed) end end
                     local warm = math.max(3600, math.ceil(((wr - wl) + (wb - wt)) * 2 / speed) + 600)
-                    local window = 3600  --metered windows until output stabilizes (Lab.settle), as tests/game/test_sheets.lua
+                    local window = Lab.window_ticks(refs.outputs)  --metered windows until output stabilizes (Lab.settle), as tests/game/test_sheets.lua
                     local pool = Lab.meter_new(refs.inputs)
                     local t0, window_start, history, cleared = game.tick, nil, {}, false
+                    local warmed, warm_stock = false, nil
                     --Judged on production (Lab.made deltas); the sink count is the cross-check (tests/game/test_sheets.lua).
                     local made_start
                     local function per_s_now()
@@ -225,14 +226,23 @@ describe("player run", function()
                     game.speed = 1000
                     on_tick(function()
                         local now = game.tick - t0
-                        --Full-feed warm-up primes machines and pipes, then input-only belts are emptied and only Metered feed runs.
-                        if now < warm then
+                        --Full-feed warm-up primes machines, pipes and inner belts (until inner stock stops growing, Lab.warm_ready),
+                        --then input-only belts are emptied and only Metered feed runs (tests/game/test_sheets.lua).
+                        local measuring = warmed
+                        if not measuring then
                             Lab.feed_tick(feeds, stack)
+                            if now >= warm and (now - warm) % Lab.WARM_STEP == 0 then
+                                local stock = Lab.inner_stock(entities, refs.inputs, refs.outputs)
+                                if Lab.warm_ready(warm_stock, stock) or now - warm >= Lab.WARM_CAP then
+                                    warmed, warm = true, now
+                                    log(string.format("PLAYER-RUN-WARM %s t=%d inner=%d window=%d", c.case, now, stock, window))
+                                end
+                                warm_stock = stock
+                            end
                         else
                             if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_input_belts(entities, refs.inputs)) end
                             Lab.meter_tick(pool, feeds, stack)
                         end
-                        local measuring = now >= warm
                         if measuring and not window_start then window_start = now; made_start = Lab.made(entities, outputs) end
                         Lab.sink_tick(sinks, measuring)
                         if not window_start or now - window_start < window then return end

@@ -107,4 +107,22 @@ do
     for name in pairs(ports) do assert(refs[name] ~= nil, "MT6 missing ref input " .. name) end
     print("MT6")
 end
-print("test_lab_meter 6 passed 0 failed")
+do
+    local lanes = {0, 0}
+    local entity = {valid = true, get_transport_line = function(lane)
+        return {insert_at_back = function(stack) lanes[lane] = lanes[lane] + stack.count; return true end}
+    end}
+    local pool = Lab.meter_new({["item/ore"] = 1})
+    run_item(pool, {{entity = entity, item = "ore"}}, 4, 3600)
+    assert(lanes[1] > 0 and math.abs(lanes[1] - lanes[2]) <= 1, "MT7 lanes take turns: " .. lanes[1] .. "/" .. lanes[2])
+    print("MT7")
+end
+do
+    assert(Lab.window_ticks({["item/a"] = 10, ["item/b"] = 1}) == 12000, "MT8 window holds 200 units of slowest output")
+    assert(Lab.window_ticks({["item/a"] = 10}) == 3600, "MT8 window floor 3600")
+    assert(not Lab.warm_ready(nil, 0), "MT8 warm needs two samples")
+    assert(not Lab.warm_ready(500, 692), "MT8 growing stock keeps warming")
+    assert(Lab.warm_ready(692, 700) and Lab.warm_ready(0, 3), "MT8 flat stock ends warm-up")
+    print("MT8")
+end
+print("test_lab_meter 8 passed 0 failed")
