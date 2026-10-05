@@ -16,24 +16,58 @@ local function run(case,edit)
     local f=json(base..".entities.json"); local expected=json(base:gsub("/sheets/","/sheets/")..".ports.json")
     for _,e in ipairs(f.entities) do e.position={x=e.x,y=e.y} end
     if edit then f.entities=edit(f.entities) or f.entities end
-    local recipes={}; local input,output={},{}; local sizes={}
+    local recipes, products, entity_catalog, input, output, sizes={}, {}, {}, {}, {}, {}
     local prepared="tests/golden/cases/"..case.."/prepared_input.json"
     local file=io.open(prepared)
-    if file then file:close(); local c=json(prepared).catalog.recipe
-        for n,r in pairs(c) do recipes[n]=r.ingredients or {} end
-        for n,v in pairs(json(prepared).catalog.entity or {}) do sizes[n]={v.tile_w or 1,v.tile_h or 1} end
+    if file then
+        file:close(); local catalog=json(prepared).catalog
+        recipes=catalog.recipe or {}; entity_catalog=catalog.entity or {}
+        for n,v in pairs(entity_catalog) do sizes[n]={v.tile_w or 1,v.tile_h or 1} end
+        for n,r in pairs(recipes) do products[n]=r.products or {} end
     else
-        recipes["automation-science-pack"]={{name="iron-plate",kind="item"},{name="copper-plate",kind="item"},{name="iron-gear-wheel",kind="item"}}
-        recipes["iron-gear-wheel"]={{name="iron-plate",kind="item"}}; recipes["copper-plate"]={{name="copper-ore",kind="item"}}; recipes["iron-plate"]={{name="iron-ore",kind="item"}}
-        recipes["logistic-science-pack"]={{name="inserter",kind="item"},{name="transport-belt",kind="item"},{name="automation-science-pack",kind="item"}}
-        sizes["assembling-machine-1"]={3,3}; sizes["stone-furnace"]={2,2}; output["item/automation-science-pack"]=true; output["item/logistic-science-pack"]=true
+        recipes={
+            ["automation-science-pack"]={{name="iron-plate",kind="item"},{name="copper-plate",kind="item"},{name="iron-gear-wheel",kind="item"}},
+            ["iron-gear-wheel"]={{name="iron-plate",kind="item"}},["copper-plate"]={{name="copper-ore",kind="item"}},
+            ["iron-plate"]={{name="iron-ore",kind="item"}},
+            ["logistic-science-pack"]={{name="inserter",kind="item"},{name="transport-belt",kind="item"},{name="automation-science-pack",kind="item"}}
+        }
+        products={ ["automation-science-pack"]={{name="automation-science-pack",kind="item"}},["logistic-science-pack"]={{name="logistic-science-pack",kind="item"}},["iron-plate"]={{name="iron-plate",kind="item"}},["copper-plate"]={{name="copper-plate",kind="item"}},["iron-gear-wheel"]={{name="iron-gear-wheel",kind="item"}} }
+        entity_catalog["assembling-machine-1"]={crafting_categories={crafting=true},fluid_boxes={},tile_w=3,tile_h=3}
+        entity_catalog["stone-furnace"]={crafting_categories={smelting=true},fluid_boxes={},tile_w=2,tile_h=2}
+        for n in pairs(recipes) do recipes[n].category=(n=="iron-plate" or n=="copper-plate") and "smelting" or "crafting" end
     end
     for n in pairs(expected.inputs or {}) do input[n:gsub("^[^/]+/","")]=true end
     for _,v in ipairs(expected.sinks or {}) do for _,n in ipairs(v.items) do output["item/"..n]=true end end
-    local function ingredients(n)
-        local result={}; for _,x in ipairs(recipes[n] or {}) do result[#result+1]={name=x.name,kind=x.kind or x.type or "item"} end; return result
+    local function normalize(list)
+        local result={}; for _,x in ipairs(list or {}) do result[#result+1]={name=x.name,kind=x.kind or x.type or "item"} end; return result
     end
-    local found=Ports.find{entities=f.entities,bbox=f.bbox,ingredients=ingredients,inputs=input,outputs=output,hand_reach=function(n)return n:find("long%-handed") and 2 or 1 end,sizes=function(n)local s=sizes[n] or {1,1}; return s[1],s[2] end}
+    local function ingredients(n) return normalize((recipes[n] or {}).ingredients or recipes[n]) end
+    local function product_list(n) return normalize((products[n] or {})) end
+    local function recipes_for(machine)
+        local spec=entity_catalog[machine] or {}; local out={}
+        for n,r in pairs(recipes) do if spec.crafting_categories and spec.crafting_categories[r.category] then out[#out+1]=n end end
+        table.sort(out); return out
+    end
+    local function fluid_boxes(machine,direction,mirror)
+        local spec=entity_catalog[machine] or {}; local out={}
+        for _,box in ipairs(spec.fluid_boxes or {}) do
+            for _,conn in ipairs(box.connections or {}) do
+                local pos=(conn.positions or {})[math.floor((direction or 0)/4)+1]
+                if pos then
+                    local x,y=pos.x,pos.y
+                    local d=((conn.direction or 0)+(direction or 0))%16
+                    if mirror then x=-x; d=(16-d)%16 end
+                    local turns=math.floor((direction or 0)/4)
+                    for _=1,turns do x,y=-y,x end
+                    local vectors={[0]={0,-1},[4]={1,0},[8]={0,1},[12]={-1,0}}
+                    local v=vectors[d]
+                    if v then out[#out+1]={tile_offset={x=math.floor(x+v[1]),y=math.floor(y+v[2])},fluid_index=box.index} end
+                end
+            end
+        end
+        return out
+    end
+    local found=Ports.find{entities=f.entities,bbox=f.bbox,ingredients=ingredients,products=product_list,recipes_for=recipes_for,fluid_boxes=fluid_boxes,inputs=input,outputs=output,hand_reach=function(n)return n:find("long%-handed") and 2 or 1 end,sizes=function(n)local z=sizes[n] or {1,1}; return z[1],z[2] end}
     return found,expected
 end
 local function set(rows,key)
