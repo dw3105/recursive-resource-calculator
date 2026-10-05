@@ -2,7 +2,7 @@
 --the way a player does it. GUI handlers set up the sheet (tests/game/lib/player_drive.lua), the generation dialog's
 --generate click puts the blueprint in the cursor, build_from_cursor places ghosts, revive + module insert stand in for
 --bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), a full-feed warm-up
---primes machines and pipes, input belts are emptied, then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
+--primes machines and pipes, input belts are emptied, then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output R >= 0.98, no upper cap (player 2026-10-05)
 --against the calculation (Lab.judge), live calc == staged refs, no foreign item at a sink, no refused build.
 --Round gate + release only: runs when tools/game_test.sh got RRC_PLAYER_RUN=1 (profile_map.player_run).
 --Engine facts (probes P1/P3 2026-10-05, 2.0 + 2.1): the headless player is a character; build_from_cursor out of

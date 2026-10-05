@@ -73,7 +73,7 @@ Items pushed onto an input belt as fast as it takes them: unlimited, both lanes 
 _Avoid_: supply, source chest
 
 **Player run**:
-One golden driven end to end the way a player does it, in headless Factorio: calculation sheet set up through the GUI, blueprint generated from the generation dialog into the cursor, built from the cursor, given a Metered feed, run at full speed. Passes when each output's measured rate R over the calculation's rate is within 0.98 <= R <= 1.1.
+One golden driven end to end the way a player does it, in headless Factorio: calculation sheet set up through the GUI, blueprint generated from the generation dialog into the cursor, built from the cursor, given a Metered feed, run at full speed. Passes when each output's measured rate R over the calculation's rate is at least 0.98; making more than the calculation never fails.
 _Avoid_: e2e test, finishing test, sheet sim (a Sheet sim starts from delivered bytes and skips the GUI)
 
 **Metered feed**:

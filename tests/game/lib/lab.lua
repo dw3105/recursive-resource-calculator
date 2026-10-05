@@ -302,12 +302,11 @@ function Lab.judge(per_s, outputs)
         local rate, measured = outputs[name], (per_s or {})[name] or 0
         local ratio = rate > 0 and measured / rate or math.huge
         lines[#lines + 1] = string.format("%s %.3f/s of %.3f/s R=%.3f", name, measured, rate, ratio)
+        --No upper cap on output (player 2026-10-05: "output items overcap!"): a factory that makes more than calc
+        --passes; only a shortfall fails.
         if ratio < 0.98 then
             ok = false
             problems[#problems + 1] = string.format("SHORT %s R=%.3f", name, ratio)
-        elseif ratio > 1.1 then
-            ok = false
-            problems[#problems + 1] = string.format("OVER %s R=%.3f", name, ratio)
         end
     end
     return ok, problems, lines

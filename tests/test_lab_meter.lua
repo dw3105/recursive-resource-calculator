@@ -66,9 +66,9 @@ end
 do
     local ok, problems, lines = Lab.judge({["item/a"] = 0.979, ["item/b"] = 0.98, ["item/c"] = 1.1, ["item/d"] = 1.101},
         { ["item/a"] = 1, ["item/b"] = 1, ["item/c"] = 1, ["item/d"] = 1, ["item/missing"] = 1 })
-    assert(not ok and #problems == 3, "MT5 threshold and missing-output judgment")
+    assert(not ok and #problems == 2, "MT5 threshold and missing-output judgment")
     assert(table.concat(problems, "|"):find("SHORT item/a", 1, true))
-    assert(table.concat(problems, "|"):find("OVER item/d", 1, true))
+    assert(not table.concat(problems, "|"):find("item/d", 1, true), "MT5 no upper cap: R=1.101 passes")
     assert(table.concat(problems, "|"):find("SHORT item/missing", 1, true))
     assert(#lines == 5)
     local pass = Lab.judge({["item/b"] = 0.98, ["item/c"] = 1.1}, { ["item/b"] = 1, ["item/c"] = 1 })
