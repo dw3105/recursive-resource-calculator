@@ -66,6 +66,38 @@ name, position, direction, type fields (`belt_to_ground_type` for undergrounds, 
      with the fluid ingredient of the machines it reaches, intersected with `inputs`. Tile = the edge pipe tile.
    Match tiles exactly the way `sheet_ports.py` does (`tile = floor(position)`), so results compare 1:1.
 
+## Attempt 2 (integrator, 2026-10-05) — read first
+
+Attempt 1 (commits 5a1b652, 55ba300, fb62a11 on `lane/317`; keep and build on them) passed PF4/PF5, failed PF1-PF3:
+feeds found for 2 of 15 Cases. Causes measured by the integrator:
+1. **Furnaces carry no recipe** in blueprint bytes (player-red-science-1s: 6 `electric-furnace`, all `recipe=None`;
+   furnaces pick their recipe from what arrives). So "item = ingredient of the recipe the hand feeds" names nothing
+   for every ore chain. Fix: a machine with no recipe gets its recipe from DOWNSTREAM: follow its output hands' drop
+   chains to the consumer hands, take the consumer machines' recipe ingredients (recurse through other recipe-less
+   machines, depth-limited), and pick the unique recipe among `recipes_for(machine_name)` whose product is one of those
+   ingredients or is in `outputs`. Its ingredient is then the feed item. Ambiguous or none = problem
+   `NO_RECIPE <machine tile>`.
+2. **Fluids**: blue's oil refinery takes water and crude-oil through different fluid boxes, so "fluid ingredient of the
+   machines a network reaches" labels both networks water. Port `tools/sheet_ports.py` lines 189-304 (fluid box
+   connection tiles from catalog `entity[*].fluid_boxes` + recipe fluid ingredient order binding) to Lua instead of
+   inventing a rule. Pass that data in through `fluid_boxes = fn(machine_name, direction, mirror) -> list of
+   {tile_offset, fluid_index}` built by the caller (offline: from prepared catalog; the integrator builds it in game).
+3. Vanilla red misses `copper-plate` at tile 0,4 although its consumer assembler has a recipe: a walk bug (check
+   undergrounds, side-loads, splitters, and that a chain head on the edge whose first belt points INTO the sheet counts).
+   Debug on this Case first: it is small.
+4. Sinks missed for blue, green-1s, inserter-10s-bulk: same walk classes, downstream side.
+
+Frozen API, extended (the integrator adapts its caller):
+```lua
+Ports.find{entities, bbox, ingredients = fn(recipe)->{{name,kind}}, products = fn(recipe)->{{name,kind}},
+           recipes_for = fn(machine_name)->{recipe_name...}, fluid_boxes = fn(machine_name, direction, mirror)->list,
+           inputs, outputs, hand_reach, sizes} -> {feeds, sinks, problems}
+```
+Offline test builds `products`, `recipes_for` (recipes whose category the machine crafts, from prepared catalog
+`entity[name].crafting_categories` and `recipe[*].category`) and `fluid_boxes` from `tests/golden/cases/<case>/
+prepared_input.json` catalog; vanilla Cases use a small hand table. PF1-PF5 unchanged. Work Case by Case: vanilla red,
+red-1s, red-1s-foundry, blue, then the rest; commit after each Case turns green.
+
 ## Tests (`tests/test_ports_find.lua`, new)
 
 - PF1 for every Case with an entities fixture: `Ports.find` feeds (tile + item/fluid) == `ports.json` `feeds` as sets.
