@@ -72,15 +72,27 @@ local function plain(ent)
         local r = ent.get_recipe()
         recipe = r and r.name
     end
+    local mirror = false
+    pcall(function() mirror = ent.mirroring == true end)
     return {name = ent.name, position = {x = ent.position.x, y = ent.position.y}, direction = ent.direction,
-        type = ent.type, recipe = recipe, belt_to_ground_type = ent.type == "underground-belt" and ent.belt_to_ground_type or nil}
+        recipe = recipe, mirror = mirror, belt_to_ground_type = ent.type == "underground-belt" and ent.belt_to_ground_type or nil}
 end
 
-local function ingredients(recipe_name)
-    local out = {}
-    local r = prototypes.recipe[recipe_name]
-    for _, i in ipairs(r and r.ingredients or {}) do out[#out + 1] = {name = i.name, kind = i.type} end
-    return out
+--Catalog for Ports.find: a player Case brings the capture's catalog (recipes with fluid-box binding, entity sizes and
+--fluid boxes); a vanilla Case (no prepared input, no fluids, no furnaces) gets recipes and sizes from prototypes.
+local function prototype_catalog(entities)
+    local catalog = {recipe = {}, entity = {}}
+    for _, e in ipairs(entities) do
+        if e.recipe and not catalog.recipe[e.recipe] then
+            local r = prototypes.recipe[e.recipe]
+            catalog.recipe[e.recipe] = {ingredients = r.ingredients, products = r.products}
+        end
+        if not catalog.entity[e.name] then
+            local p = prototypes.entity[e.name]
+            catalog.entity[e.name] = {tile_w = p.tile_width, tile_h = p.tile_height}
+        end
+    end
+    return catalog
 end
 
 local function at_tile(surface, x, y)
@@ -171,10 +183,14 @@ describe("player run", function()
                     local inputs, outputs = {}, {}
                     for k in pairs(refs.inputs) do inputs[k] = true end
                     for k in pairs(refs.outputs) do outputs[k] = true end
-                    local found = Ports.find{entities = plains, bbox = {math.floor(wl), math.floor(wt), math.ceil(wr), math.ceil(wb)},
-                        ingredients = ingredients, inputs = inputs, outputs = outputs,
-                        hand_reach = function(name) return name:find("long", 1, true) and 2 or 1 end,
-                        sizes = function(name) local p = prototypes.entity[name]; return p.tile_width, p.tile_height end}
+                    local prepared = PREPARED[c.case] and helpers.json_to_table(PREPARED[c.case])
+                    local by_machine = {}
+                    for _, col in ipairs(def.columns or {}) do
+                        local m = type(col.machine) == "table" and col.machine.name or col.machine
+                        if m then by_machine[m] = by_machine[m] or {}; table.insert(by_machine[m], col.recipe_name) end
+                    end
+                    local found = Ports.find{entities = plains, catalog = prepared and prepared.catalog or prototype_catalog(plains),
+                        inputs = inputs, outputs = outputs, recipes_for = function(m) return by_machine[m] or {} end}
                     assert(#found.problems == 0, c.case .. ": ports " .. serpent.line(found.problems))
                     local feeds, sinks = {}, {}
                     for _, f in ipairs(found.feeds) do
