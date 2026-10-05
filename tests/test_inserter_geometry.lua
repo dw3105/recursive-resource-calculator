@@ -163,7 +163,9 @@ for _, shape in ipairs(H.shapes()) do
         end
     end)
 
-    H.test(shape .. " IG8 serialization keeps the computed world drop cell", function()
+    --Engine truth (Player run, headless 2.0.77 + bobinserters, 2026-10-05): a blueprint drop_position is a custom
+    --vector the engine ADDS to the hand's position; the world drop cell written here sent every hand 4-17 tiles away.
+    H.test(shape .. " IG8 serialization leaves the drop to the hand's direction (no drop_position)", function()
         local block = block_for({plan = plan(), catalog = catalog()})
         local placed = Groups.materialize(block, {x = 10, y = 10, dir = Grid.WEST})
         local state = Serialize.begin({entities = placed.entities, catalog = catalog()})
@@ -172,11 +174,15 @@ for _, shape in ipairs(H.shapes()) do
             Serialize.step(state, {ops = 100})
         end
         H.equal(state.ok, true, "serialized placement succeeds")
-        local found = false
+        local hands, carried = 0, 0
         for _, entity in ipairs(state.result.entities or {}) do
-            if entity.name == "inserter" then found = found or entity.drop_position ~= nil end
+            if entity.name == "inserter" then
+                hands = hands + 1
+                if entity.drop_position ~= nil then carried = carried + 1 end
+            end
         end
-        H.equal(found, true, "serialized inserter carries its drop cell")
+        H.equal(hands > 0, true, "placement has hands")
+        H.equal(carried, 0, "no serialized hand carries a drop_position")
     end)
 
     H.test(shape .. " IG9 an unreachable captured reach is a named failure", function()
