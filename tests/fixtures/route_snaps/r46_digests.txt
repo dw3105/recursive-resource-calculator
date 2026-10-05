@@ -1,6 +1,8 @@
 # Base digests, round-46-base (cdea216), legalcopilot-dev 2026-09-28, lua5.2, 2000 ops/tick.
 # lua5.2 tools/ckpt.lua resume <fixture>   (runs to END)
-green_tidy.lua.gz ok=true ticks=1444 sha=6b65a1d1c6408dc4d805159f33345d2b8b901da398ffc3ca846d2f6f6d464976 entities=299
-ins10_tidy2.lua.gz ok=true ticks=2711 sha=00cee6970e7757c4fe7039f946a0bda80e6be6a866e431798b769207545b9103 entities=356
+# 2026-10-05 Player run: both digests re-pinned after f2b6a18 (hands no longer serialize drop_position); with the old
+# serialize.lua alone the old digests return, entity counts unchanged (299, 356).
+green_tidy.lua.gz ok=true ticks=1444 sha=fa1856a9c0dd345d3bbd5c6c15c1bcc56ff84b6d2f2b44b14b6eef169a607444 entities=299
+ins10_tidy2.lua.gz ok=true ticks=2711 sha=959c23f06be795cf3b98c42660fe77f7842109b61f9d0ed7b06f2f4407002b56 entities=356
 # stack1_restart27.lua.gz: saved at 27th route-restart (tick 1892); resume --until kind=route-restart runs 10.9 s,
 # holds 6 begin_search calls with order_index > 1 (2,3,4,2,3,4) on base, then 1 restart (tick 2341).

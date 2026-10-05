@@ -20,8 +20,8 @@ end)
 
 H.test("SL2 checkpoint outputs keep their frozen digests", function()
     local cases = {
-        {"green_tidy.lua.gz", "6b65a1d1c6408dc4d805159f33345d2b8b901da398ffc3ca846d2f6f6d464976"},
-        {"ins10_tidy2.lua.gz", "00cee6970e7757c4fe7039f946a0bda80e6be6a866e431798b769207545b9103"},
+        {"green_tidy.lua.gz", "fa1856a9c0dd345d3bbd5c6c15c1bcc56ff84b6d2f2b44b14b6eef169a607444"},
+        {"ins10_tidy2.lua.gz", "959c23f06be795cf3b98c42660fe77f7842109b61f9d0ed7b06f2f4407002b56"},
     }
     for _, case in ipairs(cases) do
         local output = run("lua5.2 tools/ckpt.lua resume tests/fixtures/route_snaps/" .. case[1])
