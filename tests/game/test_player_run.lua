@@ -236,6 +236,36 @@ describe("player run", function()
                     for _, p in ipairs(surface.find_entities_filtered{area = area, name = "item-request-proxy"}) do fulfil(p) end
                     assert(#failed == 0, c.case .. ": " .. #failed .. " ghosts do not revive: " .. serpent.line(failed))
                     local laid, wires = lay_wires(Lab.decode(cursor.export_stack()), surface, area, force)
+                    do  --Hands as the game writes them (player 2026-10-05 "exactly as game works"): every hand's drop_position in the
+                        --delivered blueprint equals the game's own blueprint of the built factory (f2b6a18, 10ad86f).
+                        local ours = Lab.decode(cursor.export_stack())
+                        local probe = game.create_inventory(1)
+                        probe[1].set_stack{name = "blueprint"}
+                        probe[1].create_blueprint{surface = surface, force = force, area = area}
+                        local theirs = Lab.decode(probe[1].export_stack())
+                        local function key(bp)
+                            local minx, miny = math.huge, math.huge
+                            for _, e in ipairs(bp.entities) do minx, miny = math.min(minx, e.position.x), math.min(miny, e.position.y) end
+                            local by = {}
+                            for _, e in ipairs(bp.entities) do
+                                if e.name:find("inserter", 1, true) then
+                                    local d = e.drop_position
+                                    by[string.format("%s@%.1f,%.1f", e.name, e.position.x - minx, e.position.y - miny)] =
+                                        d and string.format("%.8f,%.8f", d.x or d[1], d.y or d[2]) or "none"
+                                end
+                            end
+                            return by
+                        end
+                        local a, b = key(ours), key(theirs)
+                        local hands, same, diffs = 0, 0, {}
+                        for k, v in pairs(a) do
+                            hands = hands + 1
+                            if b[k] == v then same = same + 1 else diffs[#diffs + 1] = k .. " ours=" .. v .. " game=" .. tostring(b[k]) end
+                        end
+                        log(string.format("PLAYER-RUN-DROP %s hands=%d same=%d", c.case, hands, same))
+                        probe.destroy()
+                        assert(#diffs == 0, c.case .. ": DROP_NOT_AS_GAME " .. table.concat(diffs, " | "):sub(1, 800))
+                    end
                     log(string.format("PLAYER-RUN-WIRES %s laid=%d of %d", c.case, laid, wires))
                     local entities, plains = {}, {}
                     local wl, wt, wr, wb = math.huge, math.huge, -math.huge, -math.huge
