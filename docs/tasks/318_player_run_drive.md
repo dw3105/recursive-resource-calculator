@@ -82,17 +82,35 @@ offline alike it runs `Drive.setup` and then compares storage with the def. Prep
 `tests.game.fixtures.<case_underscored>_prepared` (JSON string; staged by another lane — offline, read it yourself
 in the test with `io.open` only when `RRC_OFFLINE`, else `require` at top level guarded by `pcall`).
 
+## Attempt 2 (integrator, 2026-10-05) — read first
+
+Attempt 1 (commits d5aec73, 9499064 on `lane/318`, keep and build on them) stopped correctly: the offline mock world
+`tests/game/lib/vanilla_world.lua` has no `assembling-machine-3` and no blue-chain items, so red-1s / blue prepared
+inputs cannot be replayed offline. Real Case replays are now integrator-proven headless. Offline tests use a synthetic
+def made only of mock names: items `automation-science-pack`, `iron-gear-wheel`, `iron-plate`, `copper-plate`; machines
+`assembling-machine-1`, `assembling-machine-2` (2 module slots); modules `speed-module`, `productivity-module`;
+beacon `beacon`. Attempt 1's PD4 compared two hand-made tables and never drove the GUI: that is not a test. Replace it.
+
+Add to the frozen API:
+```lua
+Drive.compare(def) -> diffs  -- reads storage[1] for player 1 (recipes, chosen machines, modules, beacons per recipe)
+    -- and returns a list of "<recipe>: <field> want <x> got <y>" strings; empty list = storage matches def
+```
+
 ## Tests (`tests/game/test_player_drive.lua`, offline via `tests/game/offline.lua`)
 
-- PD1 `Drive.case_def` on red-1s, blue-10s, am2 prepared inputs: def rows == solver columns (count, recipe, machine,
-  modules, beacons).
-- PD2 after `Drive.setup` on red-1s: `storage[1].recipes_by_product_full_name` and chosen machines == def.
-- PD3 after `Drive.setup` on blue-10s: modules and beacons (type, count, modules, quality) per recipe == def.
-- PD4 red proof: a def with one beacon step dropped -> PD3-style compare reports that recipe (diff printed).
+- PD1 `Drive.case_def` on red-1s, blue-10s, am2 prepared inputs (pure decode, read JSON with `io.open` offline):
+  def rows == solver columns (count, recipe, machine, modules, beacons).
+- PD2 synthetic def: red science 1/s, both recipes on `assembling-machine-2`, no modules: after `Drive.setup`,
+  `Drive.compare(def)` is empty and recipes / machines in storage equal the def.
+- PD3 synthetic def: same, plus 2 `speed-module` per machine and 1 beacon row (`beacon`, count 2, 2 `speed-module`) on
+  `automation-science-pack`: after `Drive.setup`, `Drive.compare(def)` is empty.
+- PD4 red proof, real: run `Drive.setup` on PD3's def with the beacon row removed, then `Drive.compare(PD3 def)` must
+  name `automation-science-pack` and `beacon`.
 - PD5 no `S.bind`, no write to `storage[1].recipes_by_product_full_name` or
   `identifiers_of_chosen_crafting_machines_by_recipe_name` in `player_drive.lua` (text check).
-If the offline mock lacks a GUI behaviour you need, STOP and report the first missing call (file:line in
-`tests/harness.lua`); do not edit the harness.
+If the offline mock lacks a GUI behaviour these synthetic defs need, STOP and report the first missing call (file:line
+in `tests/harness.lua`); do not edit the harness or `vanilla_world.lua`.
 
 ## Files this lane owns
 
