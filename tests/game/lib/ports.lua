@@ -46,18 +46,52 @@ function Ports.find(args)
     end
     local pred={}; for k,c in pairs(cells) do for _,n in ipairs(successors(k,c)) do pred[n]=pred[n] or {}; pred[n][#pred[n]+1]=k end end
     local feeds,sinks,problems={}, {}, {}
+    local machine_at
     local function recipe_items(m,kind)
         local out,seen={},{}
-        local function visit(recipe)
-            if seen[recipe] then return end; seen[recipe]=true
-            for _,x in ipairs(args.ingredients(recipe) or {}) do if x.kind==kind then
-                if args.inputs[kind.."/"..x.name] or args.inputs[x.name] then out[x.name]=true else visit(x.name) end
-            end end
+        local recipe=m.recipe
+        if not recipe and args.recipes_for then
+            -- Recipe-less furnaces are labeled from the unique product used by a downstream recipe.
+            local required={}
+            for _,h in ipairs(hands_list) do
+                local d=V[h.direction or 0]
+                if d then
+                    local ht=tile(h); local r=reach(args,h)
+                    local pick={ht[1]+d[1]*r,ht[2]+d[2]*r}
+                    local drop={ht[1]-d[1]*r,ht[2]-d[2]*r}
+                    -- A hand taking from this machine has its pickup adjacent to its footprint.
+                    local mt=tile(m)
+                    if machine_at({x=pick[1],y=pick[2]})==m and cells[key(drop[1],drop[2])] then
+                        local k=key(drop[1],drop[2]); local seen_chain={}
+                        while cells[k] and not seen_chain[k] do seen_chain[k]=true; local nexts=successors(k,cells[k]); if #nexts==0 then break end; k=nexts[1] end
+                        for _,down in ipairs(hands_list) do
+                            local dd=V[down.direction or 0]
+                            if dd then local dt=tile(down); local rr=reach(args,down); local take={dt[1]+dd[1]*rr,dt[2]+dd[2]*rr}
+                                if k==key(take[1],take[2]) then
+                                    local consumer=machine_at({dt[1]-dd[1]*rr,dt[2]-dd[2]*rr})
+                                    if consumer then
+                                        local choices=consumer.recipe and {consumer.recipe} or (args.recipes_for(consumer.name) or {})
+                                        for _,rn in ipairs(choices) do for _,x in ipairs(args.ingredients(rn) or {}) do if x.kind==kind then required[x.name]=true end end end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+            local candidates={}
+            for _,name in ipairs(args.recipes_for(m.name) or {}) do
+                for _,p in ipairs(args.products and args.products(name) or {}) do
+                    if required[p.name] or (args.outputs[kind.."/"..p.name] or args.outputs[p.name]) then candidates[#candidates+1]=name; break end
+                end
+            end
+            table.sort(candidates); if #candidates==1 then recipe=candidates[1] end
         end
-        if m.recipe then visit(m.recipe) end
+        if recipe then for _,x in ipairs(args.ingredients(recipe) or {}) do if x.kind==kind and (args.inputs[kind.."/"..x.name] or args.inputs[x.name]) then out[x.name]=true end end end
         return out
     end
-    local function machine_at(t)
+    machine_at = function(t)
+        if t.x then t={t.x,t.y} end
         local nearest,near_d
         for _,m in ipairs(machines) do
             local mt=tile(m); local w,h=args.sizes(m.name); w=w or 1; h=h or 1
@@ -86,17 +120,14 @@ function Ports.find(args)
             elseif cells[key(drop[1],drop[2])] and dm then
                 local k=key(drop[1],drop[2]); local seen={}
                 while cells[k] and not seen[k] do seen[k]=true; local nxt=successors(k,cells[k]); if #nxt==0 then break end; k=nxt[1] end
-                local c=cells[k]; local product=dm.recipe
-                if product and not args.outputs["item/"..product] then
-                    local only; for name in pairs(args.outputs) do if name:match("^item/") then if only then only=nil; break else only=name:sub(6) end end end
-                    product=only or product
-                end
+                local c=cells[k]; local product
+                if dm.recipe then for _,p in ipairs(args.products and args.products(dm.recipe) or {}) do if p.kind=="item" and (args.outputs["item/"..p.name] or args.outputs[p.name]) then product=p.name; break end end end
                 if c and edge(c.t,b) and product and args.outputs["item/"..product] then sinks[#sinks+1]={tile={x=c.t[1],y=c.t[2]},item=product} end
             end
         end
     end
     -- Pipe component edges and nearby recipe fluid ingredients.
-    local visited={}
+    local visited,pipe_root={},{}
     local ptg={}; for k,c in pairs(pipe_cells) do if c.e.name:match("pipe%-to%-ground$") then ptg[#ptg+1]={k=k,c=c} end end
     local ptg_pair={}
     for _,a in ipairs(ptg) do local d=V[a.c.e.direction or 0]; local best,dist
@@ -112,13 +143,29 @@ function Ports.find(args)
             for _,d in pairs(V) do local nk=key(t[1]+d[1],t[2]+d[2]); if pipe_cells[nk] and not visited[nk] then visited[nk]=true; todo[#todo+1]=nk end end
             local pair=ptg_pair[q]; if pair and not visited[pair] then visited[pair]=true; todo[#todo+1]=pair end
         end
+        local root=k; for _,p in ipairs(comp) do pipe_root[key(p.t[1],p.t[2])]=root end
         local edgepipe; for _,p in ipairs(comp) do if edge(p.t,b) then edgepipe=p; break end end
-        if edgepipe then local found={}; local nearest,dist
-            for _,m in ipairs(machines) do for item in pairs(recipe_items(m,"fluid")) do
-                local mt=tile(m); local d=math.abs(mt[1]-edgepipe.t[1])+math.abs(mt[2]-edgepipe.t[2])
-                if (args.inputs["fluid/"..item] or args.inputs[item]) and (not dist or d<dist) then nearest,dist=item,d end
-            end end
-            if nearest then found[nearest]=true end
+        if edgepipe then local found={}
+            for _,m in ipairs(machines) do
+                if m.recipe and args.fluid_boxes then
+                    local wants={}; for _,x in ipairs(args.ingredients(m.recipe) or {}) do if x.kind=="fluid" then wants[#wants+1]=x.name end end
+                    local boxes=args.fluid_boxes(m.name,m.direction or 0,m.mirror) or {}
+                    for _,box in ipairs(boxes) do
+                        local off=box.tile_offset or box
+                        local q=tile(m); local ck=key(math.floor(m.position.x+off.x),math.floor(m.position.y+off.y))
+                        if pipe_root[ck] and pipe_root[ck]==pipe_root[key(edgepipe.t[1],edgepipe.t[2])] then
+                            local item=wants[box.fluid_index or box.index or 1]
+                            if item and (args.inputs["fluid/"..item] or args.inputs[item]) then found[item]=true end
+                        end
+                    end
+                end
+            end
+            if next(found)==nil then
+                for _,m in ipairs(machines) do for item in pairs(recipe_items(m,"fluid")) do
+                    local mt=tile(m); local d=math.abs(mt[1]-edgepipe.t[1])+math.abs(mt[2]-edgepipe.t[2])
+                    if d<=4 and (args.inputs["fluid/"..item] or args.inputs[item]) then found[item]=true end
+                end end
+            end
             local names={}; for n in pairs(found) do names[#names+1]=n end; table.sort(names); if #names==1 then feeds[#feeds+1]={tile={x=edgepipe.t[1],y=edgepipe.t[2]},fluid=names[1]} end
         end
     end end
