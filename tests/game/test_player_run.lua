@@ -95,6 +95,7 @@ describe("player run", function()
             if (c.profile == "player") ~= player_profile() then return end
             if c.version and c.version ~= (script.active_mods.base or ""):match("^(%d+%.%d+)") then return end
             local refs = assert(REFS[c.case], c.case .. ": no staged refs")
+            if type(refs) == "string" then refs = helpers.json_to_table(refs) end  --staged as JSON text
             local def = c.profile == "player"
                 and Drive.case_def(helpers.json_to_table(assert(PREPARED[c.case], c.case .. ": no staged prepared input")))
                 or Drive.vanilla_def(c.case)

@@ -53,6 +53,8 @@ describe("sheets", function()
             local only = sheet.case:match("^vanilla%-(%d+%.%d+)%-")
             if only and only ~= (script.active_mods.base or ""):match("^(%d+%.%d+)") then return end
             local ports = helpers.json_to_table(sheet.data.ports)
+            --Staged refs are JSON text (tools/game_stage.sh), decoded here like ports.
+            local refs = type(sheet.refs) == "string" and helpers.json_to_table(sheet.refs) or sheet.refs
             assert(#(ports.problems or {}) == 0, sheet.case .. ": ports.json problems " .. serpent.line(ports.problems))
             local force = game.forces.player
             local stack = Lab.research_stack(force)
@@ -96,7 +98,7 @@ describe("sheets", function()
                 local got = {}
                 for _, s in ipairs(sinks) do for name, count in pairs(s.got) do got[name] = (got[name] or 0) + count end end
                 local out, worst = {}, math.huge
-                for full_name, rate in pairs(sheet.refs.outputs) do
+                for full_name, rate in pairs(refs.outputs) do
                     local name = full_name:match("^[^/]+/(.*)$") or full_name
                     local per_s = (got[name] or 0) / (WINDOW / 60)
                     out[full_name] = per_s
@@ -109,7 +111,7 @@ describe("sheets", function()
                 local t = game.tick - t0
                 local measuring = t >= warm
                 if measuring then
-                    if not pool then pool = Lab.meter_new(sheet.refs.inputs) end
+                    if not pool then pool = Lab.meter_new(refs.inputs) end
                     Lab.meter_tick(pool, feeds, stack)
                 else
                     Lab.feed_tick(feeds, stack)
@@ -146,7 +148,7 @@ describe("sheets", function()
                     end
                 end
                 local per = rates_now()
-                local judged, judge_problems, lines = Lab.judge(per, sheet.refs.outputs)
+                local judged, judge_problems, lines = Lab.judge(per, refs.outputs)
                 for _, problem in ipairs(judge_problems) do problems[#problems + 1] = problem end
                 local backlog = Lab.meter_backlog(pool, feeds, stack)
                 if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
