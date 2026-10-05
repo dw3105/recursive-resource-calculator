@@ -246,3 +246,6 @@
 | `315` | `rrc/agent` | split units (RRC_CASE, JUnit) + Suite Runner recipe, image, lock (round 56) | 2026-10-04 |
 | `310b` | `rrc/agent` | Groups cache owned by caller, cheap key, real per-hand slices (redo of 310 after integrator review) (round 56) | 2026-10-04 |
 | `312b` | `rrc/agent` | validate real slices, every step within Tick cost (redo of 312 after integrator review) (round 56) | 2026-10-04 |
+| `316` | `rrc/agent` | player run: metered feed, bar 0.98-1.1, calc refs for Sheet sim | 2026-10-05 |
+| `317` | `rrc/agent` | player run: port finder in Lua from blueprint geometry | 2026-10-05 |
+| `318` | `rrc/agent` | player run: GUI driver replays a Case through handlers | 2026-10-05 |

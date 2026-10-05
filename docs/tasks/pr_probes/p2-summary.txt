@@ -1,0 +1,12 @@
+player-red-science-1s-bulk exit=0 wall=16s result=['passed'] ms=[3339.8325620000014] describeBlockErrors=0
+player-red-science-1s-foundry exit=0 wall=14s result=['passed'] ms=[2081.939203] describeBlockErrors=0
+player-green-science-1s exit=0 wall=15s result=['passed'] ms=[3438.6440729999995] describeBlockErrors=0
+player-red-science-10s exit=0 wall=16s result=['passed'] ms=[3456.5446950000005] describeBlockErrors=0
+player-red-science-10s-bulk exit=0 wall=17s result=['passed'] ms=[2678.3398929999985] describeBlockErrors=0
+player-red-science-10s-stack1 exit=0 wall=15s result=['passed'] ms=[3442.1308439999993] describeBlockErrors=0
+player-red-green-science-10s exit=0 wall=23s result=['passed'] ms=[11498.055379999998] describeBlockErrors=0
+player-am2-chain-repaired exit=0 wall=19s result=['passed'] ms=[5238.633883999999] describeBlockErrors=0
+player-inserter-10s exit=0 wall=18s result=['passed'] ms=[6397.793027] describeBlockErrors=0
+player-inserter-10s-bulk exit=0 wall=15s result=['passed'] ms=[3969.200914000001] describeBlockErrors=0
+player-inserter-10s-stack1 exit=0 wall=76s result=['passed'] ms=[63159.92235300001] describeBlockErrors=0
+player-blue-science-10s exit=0 wall=59s result=['passed'] ms=[46642.616244000004] describeBlockErrors=0
