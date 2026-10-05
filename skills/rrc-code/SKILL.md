@@ -91,6 +91,16 @@ Round 47 probe patches (`p_valdetail`, `p_trunk`, `p_bindwatch`, `p_parts`, `p_v
   `Search.step` per tick, game Jobs loop ran many; prepare/binding/publish ticks game-only (241/313/141 ms), found at
   release, 4 late fixes + extra suite. Memory `rrc-game-runs-layered-and-ticks-pile-up`.
 
+## Game as oracle, probe the method (Player run round, player "A" 2026-10-05)
+
+- **RC-23** Before changing how any blueprint field is written: build the same entity in headless Factorio (player
+  mods), let the game blueprint it, and match what the game writes exactly (field present or absent, frame, rounding).
+  Player run: hand `drop_position` first "fixed" by dropping the field; player "THIS IS WRONG!!!!"; game writes none
+  for a default drop and a 1/256-floored world offset for a custom one (ruling DROP-AS-GAME).
+- **RC-24** Before a grill fixes a measuring method (feed, settle, window): probe it on the slowest and the
+  lowest-rate golden (one headless run each). Player run Q2 picked metered feed unprobed; hours of rework (buffers,
+  1/s lumps, warm cap) until Port feed + Pre-fill (ruling MAX-FILL).
+
 | Reference | Read when |
 |---|---|
 | `references/ledger.md` | changing this skill |

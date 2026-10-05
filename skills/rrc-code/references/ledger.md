@@ -16,3 +16,6 @@
 - 2026-10-04 (round 56 close): RC-22 from `docs/incidents/2026-10-04-round-56-close.md` reflection: offline gate
   tick != game tick and game-only ticks found only at release engine sample. Player approved 2026-10-04 "yes to rule
   changes".
+- 2026-10-05 (Player run close): RC-23, RC-24 from `docs/incidents/2026-10-05-player-run-close.md` reflection: drop_position
+  fix not checked against the game's own blueprint; measuring method fixed at grill without a probe on the slowest
+  golden. Player approved 2026-10-05 "A".
