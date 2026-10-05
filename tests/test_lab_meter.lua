@@ -118,7 +118,7 @@ do
     print("MT7")
 end
 do
-    assert(Lab.window_ticks({["item/a"] = 10, ["item/b"] = 1}) == 12000, "MT8 window holds 200 units of slowest output")
+    assert(Lab.window_ticks({["item/a"] = 10, ["item/b"] = 1}) == 7200, "MT8 window holds 120 units of slowest output")
     assert(Lab.window_ticks({["item/a"] = 10}) == 3600, "MT8 window floor 3600")
     assert(not Lab.warm_ready(nil, 0), "MT8 warm needs two samples")
     assert(not Lab.warm_ready(500, 692), "MT8 growing stock keeps warming")

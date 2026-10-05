@@ -413,9 +413,10 @@ function Lab.warm_ready(previous, stock, prefilled)
     return math.abs(stock - previous) <= previous * 0.02 + 5
 end
 
---Window long enough for 200 units of the slowest output: one craft at 1/s was 1.7% of a 60 s window, wider than the
---1.5% band, so green-1s and am2 never settled (2026-10-05).
-Lab.WINDOW_UNITS = 200
+--Window long enough for 120 units of the slowest output: one craft at 1/s was 1.7% of a 60 s window, wider than the
+--1.5% band, so green-1s and am2 never settled; 200 units (12000 ticks at 1/s) left am2 one verdict past the 120 s cap
+--(2026-10-05). Lab.settle widens its band by SETTLE_UNITS per window, so 120 units keep a craft under 1%.
+Lab.WINDOW_UNITS = 120
 function Lab.window_ticks(outputs)
     local slowest = math.huge
     for _, rate in pairs(outputs) do slowest = math.min(slowest, rate) end
