@@ -140,4 +140,11 @@ do
     assert(not run({0.97, 0.95, 0.99}, 200), "MT9 a 4% climb does not settle")
     print("MT9")
 end
-print("test_lab_meter 9 passed 0 failed")
+do
+    local feeds = {{entity = belt(true).entity, item = "ore"}}
+    local pool = {["item/ore"] = {rate = 1.5, credit = 13}}
+    assert(#Lab.meter_backlog(pool, feeds, 4, {["item/ore"] = 21}) == 0, "MT10 a standing queue is no backlog")
+    assert(#Lab.meter_backlog(pool, feeds, 4, {["item/ore"] = 4}) == 1, "MT10 credit grown 9 > 2 stacks is backlog")
+    print("MT10")
+end
+print("test_lab_meter 10 passed 0 failed")

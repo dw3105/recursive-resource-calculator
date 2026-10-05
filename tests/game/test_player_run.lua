@@ -314,10 +314,14 @@ describe("player run", function()
                         local per, sunk = per_s_now()
                         local worst = math.huge
                         for full_name, rate in pairs(refs.outputs) do worst = math.min(worst, (per[full_name] or 0) / rate) end
-                        log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s", c.case, now, worst, serpent.line(per)))
+                        local credit = {}
+                        for name, m in pairs(pool) do credit[#credit + 1] = string.format("%s=%.1f", name, m.credit) end
+                        table.sort(credit)
+                        log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s credit %s", c.case, now, worst, serpent.line(per), table.concat(credit, " ")))
                         for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end; s.got = {} end
                         window_start = now
                         local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60)
+                        do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                         if not stable then return end
                         per, sunk = mean_per, mean_sunk
                         game.speed = 1
@@ -328,7 +332,7 @@ describe("player run", function()
                                 problems[#problems + 1] = string.format("SINK_DIFF %s made %.3f/s sunk %.3f/s", full_name, made, sunk[full_name] or 0)
                             end
                         end
-                        local backlog = Lab.meter_backlog(pool, feeds, stack)
+                        local backlog = Lab.meter_backlog(pool, feeds, stack, (history[#history - Lab.SETTLE_WINDOWS] or {}).credit)
                         if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
                         for _, s in ipairs(sinks) do
                             local allowed = {}

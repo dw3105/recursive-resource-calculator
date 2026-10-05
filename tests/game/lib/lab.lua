@@ -269,7 +269,10 @@ function Lab.meter_tick(pool, feeds, stack)
     end
 end
 
-function Lab.meter_backlog(pool, feeds, stack)
+--Backlog = credit that GREW by more than 2 stacks per feed since `since` ({[name] = credit} at the start of the judged
+--windows; nil = from zero). A standing queue is no backlog: vanilla green 2.1 held copper credit at 13 while its belt
+--stayed full to the feed and output held 1.000 (2026-10-05).
+function Lab.meter_backlog(pool, feeds, stack, since)
     local heads = {}
     for _, feed in ipairs(feeds or {}) do
         if feed.item then
@@ -284,7 +287,7 @@ function Lab.meter_backlog(pool, feeds, stack)
     for _, name in ipairs(names_in_order) do
         local count = heads[name]
         local meter = pool[name]
-        if meter and meter.credit > 2 * stack * count then names[#names + 1] = name end
+        if meter and meter.credit - ((since or {})[name] or 0) > 2 * stack * count then names[#names + 1] = name end
     end
     return names
 end

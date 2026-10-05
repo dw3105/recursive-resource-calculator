@@ -145,6 +145,7 @@ describe("sheets", function()
                 for _, s in ipairs(sinks) do s.got = {} end
                 window_start = t
                 local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60)
+                do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                 if not stable then return end
                 per, sunk = mean_per, mean_sunk
                 game.speed = 1
@@ -165,7 +166,7 @@ describe("sheets", function()
                     end
                 end
                 for _, problem in ipairs(judge_problems) do problems[#problems + 1] = problem end
-                local backlog = Lab.meter_backlog(pool, feeds, stack)
+                local backlog = Lab.meter_backlog(pool, feeds, stack, (history[#history - Lab.SETTLE_WINDOWS] or {}).credit)
                 if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
                 log("SHEET-SIM " .. sheet.case .. " stack=" .. stack .. " warm=" .. warm .. " settled_t=" .. t .. " " .. table.concat(lines, "; "))
                 assert(judged and #problems == 0, sheet.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines, "; "))
