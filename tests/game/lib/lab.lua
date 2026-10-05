@@ -423,10 +423,16 @@ end
 --long): window edges cut crafts, vanilla green 2.1 cycled 1.01/0.99/1.00 at 200 packs a window and never settled
 --(2026-10-05). Returns stable, mean made, mean sunk over those 3 windows.
 Lab.SETTLE_WINDOWS, Lab.SETTLE_BAND, Lab.SETTLE_UNITS = 3, 0.015, 4
-function Lab.settle(history, per, sunk, window_s)
-    history[#history + 1] = {per = per, sunk = sunk}
+--inner (optional): inner belt stock at this window's end. Settled also needs it flat over the judged windows (within
+--1% + 50 items of the stock before them): pre-filled blue drained 49084 -> 48104 while it made 1.59x calc (2026-10-05).
+function Lab.settle(history, per, sunk, window_s, inner)
+    history[#history + 1] = {per = per, sunk = sunk, inner = inner}
     local n = Lab.SETTLE_WINDOWS
     if #history < n then return false end
+    if inner then
+        local before = (history[#history - n] or history[#history - n + 1]).inner or inner
+        if math.abs(inner - before) > 0.01 * before + 50 then return false end
+    end
     local mean_per, mean_sunk = {}, {}
     for name in pairs(per) do
         local lo, hi, sum, sum_sunk = math.huge, -math.huge, 0, 0

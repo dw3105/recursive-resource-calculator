@@ -148,10 +148,11 @@ describe("sheets", function()
                 if measuring then for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end end end
                 if not window_start or t - window_start < window then return end
                 local per, worst, sunk = rates_now()
-                log(string.format("SHEET-WINDOW %s t=%d worst=%.3f made=%s sunk=%s", sheet.case, t, worst, serpent.line(per), serpent.line(sunk)))
+                log(string.format("SHEET-WINDOW %s t=%d worst=%.3f made=%s sunk=%s inner=%d", sheet.case, t, worst, serpent.line(per), serpent.line(sunk),
+                    Lab.inner_stock(built.entities, refs.inputs, refs.outputs)))
                 for _, s in ipairs(sinks) do s.got = {} end
                 window_start = t
-                local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60)
+                local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60, Lab.inner_stock(built.entities, refs.inputs, refs.outputs))
                 do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                 if not stable then return end
                 per, sunk = mean_per, mean_sunk

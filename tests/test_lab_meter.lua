@@ -171,4 +171,15 @@ do
     assert(#mixed.items == 2 and #input.items == 1, "MT11 mixed and input lanes untouched")
     print("MT11")
 end
-print("test_lab_meter 11 passed 0 failed")
+do
+    local history = {}
+    local draining = {49900, 49084, 48412, 48104}
+    local settled = false
+    for _, inner in ipairs(draining) do settled = Lab.settle(history, {["item/p"] = 15.9}, {["item/p"] = 15.9}, 60, inner) or settled end
+    assert(not settled, "MT12 output steady but stock draining 2% is not settled")
+    history = {}
+    for _, inner in ipairs({48104, 48090, 48120, 48100}) do settled = Lab.settle(history, {["item/p"] = 10}, {["item/p"] = 10}, 60, inner) end
+    assert(settled, "MT12 steady output and flat stock settle")
+    print("MT12")
+end
+print("test_lab_meter 12 passed 0 failed")

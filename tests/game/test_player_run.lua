@@ -328,10 +328,11 @@ describe("player run", function()
                         local credit = {}
                         for name, m in pairs(pool) do credit[#credit + 1] = string.format("%s=%.1f", name, m.credit) end
                         table.sort(credit)
-                        log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s credit %s", c.case, now, worst, serpent.line(per), table.concat(credit, " ")))
+                        log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s credit %s inner %d", c.case, now, worst, serpent.line(per), table.concat(credit, " "),
+                            Lab.inner_stock(entities, refs.inputs, refs.outputs)))
                         for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end; s.got = {} end
                         window_start = now
-                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60)
+                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60, Lab.inner_stock(entities, refs.inputs, refs.outputs))
                         do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                         if not stable then return end
                         per, sunk = mean_per, mean_sunk
