@@ -69,7 +69,7 @@ The sha256 of each gated sheet's delivered blueprint string at one round (`bytes
 _Avoid_: golden hash
 
 **Port feed**:
-Items pushed onto a sheet's input port belt to fill it before metering starts: unlimited, both lanes full, stacked to the maximum belt stack research allows.
+Items pushed onto an input belt as fast as it takes them: unlimited, both lanes full, stacked to the maximum belt stack research allows. Used by twins and the feed proof; never in a Sheet sim or Player run.
 _Avoid_: supply, source chest
 
 **Player run**:
@@ -77,7 +77,7 @@ One golden driven end to end the way a player does it, in headless Factorio: cal
 _Avoid_: e2e test, finishing test, sheet sim (a Sheet sim starts from delivered bytes and skips the GUI)
 
 **Metered feed**:
-Inputs pushed into a built sheet at exactly the calculation's rate per input item or fluid, pooled across all its entry belts and pipes (whichever has room takes it), so output can never beat the calculation by round-up machines. Belts may start full; the measured window is metered.
+Inputs pushed into a built sheet at exactly the calculation's rate per input item or fluid, pooled across all its entry belts and pipes (whichever has room takes it), from the first tick, so output can never beat the calculation by round-up machines. Belts start empty: a full-belt fill is a stock that rounded-up machines eat faster than calc.
 _Avoid_: port feed (unlimited), endless supply
 
 ### Rule classes

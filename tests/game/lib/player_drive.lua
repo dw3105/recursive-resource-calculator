@@ -325,7 +325,7 @@ function Drive.generate(sheet, def)
     for _, key in ipairs({"roboport", "pole", "belt", "inserter", "long_inserter", "pipe", "underground_pipe"}) do
         local button = S.find(dialog, "hxrrc_blueprint_" .. key .. "_button")
         local setting = def.settings[key]
-        if button and setting then button.elem_value = setting.name; event_handlers.on_gui_elem_changed[button.name]({element = button, player_index = 1}) end
+        if button and setting then button.elem_value = {name = setting.name, quality = setting.quality or "normal"}; event_handlers.on_gui_elem_changed[button.name]({element = button, player_index = 1}) end  --entity-with-quality
     end
     local function edge(key, value)
         local b = S.find(dialog, "hxrrc_blueprint_" .. key .. "_edge_dropdown")
