@@ -1,0 +1,839 @@
+{
+  "entities": [
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 0.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 1.5
+    },
+    {
+      "name": "roboport",
+      "x": 2,
+      "y": 2
+    },
+    {
+      "name": "roboport",
+      "x": 52,
+      "y": 2
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 2.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 3.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 4.5,
+      "y": 4.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 7.5,
+      "y": 4.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 4.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 0.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 1.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 2.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 3.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 4.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 5.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 6.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 7.5,
+      "y": 5.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 5.5
+    },
+    {
+      "name": "inserter",
+      "x": 4.5,
+      "y": 6.5
+    },
+    {
+      "name": "inserter",
+      "x": 7.5,
+      "y": 6.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 6.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 7.5
+    },
+    {
+      "name": "electric-furnace",
+      "x": 4.5,
+      "y": 8.5
+    },
+    {
+      "name": "electric-furnace",
+      "x": 7.5,
+      "y": 8.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 15.5,
+      "y": 8.5,
+      "direction": 4
+    },
+    {
+      "name": "underground-belt",
+      "x": 16.5,
+      "y": 8.5,
+      "direction": 4,
+      "type": "input"
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 8.5
+    },
+    {
+      "name": "underground-belt",
+      "x": 18.5,
+      "y": 8.5,
+      "direction": 4,
+      "type": "output"
+    },
+    {
+      "name": "transport-belt",
+      "x": 19.5,
+      "y": 8.5,
+      "direction": 8
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 23.5,
+      "y": 8.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 26.5,
+      "y": 8.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 15.5,
+      "y": 9.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 9.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 19.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 20.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 21.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 22.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 23.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 24.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 25.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 26.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 27.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 28.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 29.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "inserter",
+      "x": 4.5,
+      "y": 10.5
+    },
+    {
+      "name": "inserter",
+      "x": 7.5,
+      "y": 10.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 15.5,
+      "y": 10.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 10.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 18.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 19.5,
+      "y": 10.5
+    },
+    {
+      "name": "inserter",
+      "x": 20.5,
+      "y": 10.5
+    },
+    {
+      "name": "inserter",
+      "x": 23.5,
+      "y": 10.5
+    },
+    {
+      "name": "inserter",
+      "x": 26.5,
+      "y": 10.5
+    },
+    {
+      "name": "inserter",
+      "x": 29.5,
+      "y": 10.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 4.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 5.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 6.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 7.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 8.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 9.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 10.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 11.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 12.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 13.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 14.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 15.5,
+      "y": 11.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 11.5
+    },
+    {
+      "name": "underground-belt",
+      "x": 18.5,
+      "y": 11.5,
+      "type": "output"
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 12.5
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 20.5,
+      "y": 12.5,
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 23.5,
+      "y": 12.5,
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 26.5,
+      "y": 12.5,
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 29.5,
+      "y": 12.5,
+      "recipe": "automation-science-pack"
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 7.5,
+      "y": 13.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 13.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 0.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 1.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 2.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 3.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 4.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 5.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 6.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 7.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 8.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 9.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 10.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 11.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 12.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 13.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 14.5
+    },
+    {
+      "name": "inserter",
+      "x": 20.5,
+      "y": 14.5
+    },
+    {
+      "name": "inserter",
+      "x": 23.5,
+      "y": 14.5
+    },
+    {
+      "name": "inserter",
+      "x": 26.5,
+      "y": 14.5
+    },
+    {
+      "name": "inserter",
+      "x": 29.5,
+      "y": 14.5
+    },
+    {
+      "name": "inserter",
+      "x": 4.5,
+      "y": 15.5
+    },
+    {
+      "name": "inserter",
+      "x": 7.5,
+      "y": 15.5
+    },
+    {
+      "name": "inserter",
+      "x": 10.5,
+      "y": 15.5
+    },
+    {
+      "name": "inserter",
+      "x": 13.5,
+      "y": 15.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 15.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 18.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 19.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 20.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 21.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 22.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 23.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 24.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 25.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 26.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 27.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 28.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 29.5,
+      "y": 15.5,
+      "direction": 12
+    },
+    {
+      "name": "underground-belt",
+      "x": 18.5,
+      "y": 16.5,
+      "type": "input"
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 23.5,
+      "y": 16.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 26.5,
+      "y": 16.5
+    },
+    {
+      "name": "electric-furnace",
+      "x": 4.5,
+      "y": 17.5
+    },
+    {
+      "name": "electric-furnace",
+      "x": 7.5,
+      "y": 17.5
+    },
+    {
+      "name": "electric-furnace",
+      "x": 10.5,
+      "y": 17.5
+    },
+    {
+      "name": "electric-furnace",
+      "x": 13.5,
+      "y": 17.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 16.5,
+      "y": 17.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 18.5,
+      "y": 17.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 19.5,
+      "y": 17.5,
+      "direction": 12
+    },
+    {
+      "name": "transport-belt",
+      "x": 20.5,
+      "y": 17.5,
+      "direction": 12
+    },
+    {
+      "name": "inserter",
+      "x": 20.5,
+      "y": 18.5,
+      "direction": 8
+    },
+    {
+      "name": "inserter",
+      "x": 4.5,
+      "y": 19.5
+    },
+    {
+      "name": "inserter",
+      "x": 7.5,
+      "y": 19.5
+    },
+    {
+      "name": "inserter",
+      "x": 10.5,
+      "y": 19.5
+    },
+    {
+      "name": "inserter",
+      "x": 13.5,
+      "y": 19.5
+    },
+    {
+      "name": "transport-belt",
+      "x": 4.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 5.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 6.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 7.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 8.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 9.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 10.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 11.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 12.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 13.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 14.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 15.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 16.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 17.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "transport-belt",
+      "x": 18.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "inserter",
+      "x": 19.5,
+      "y": 20.5,
+      "direction": 12
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 21.5,
+      "y": 20.5,
+      "recipe": "iron-gear-wheel"
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 7.5,
+      "y": 21.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 10.5,
+      "y": 21.5
+    },
+    {
+      "name": "roboport",
+      "x": 2,
+      "y": 52
+    },
+    {
+      "name": "roboport",
+      "x": 52,
+      "y": 52
+    }
+  ],
+  "bbox": [
+    0,
+    0,
+    52,
+    52
+  ]
+}

@@ -1,0 +1,2016 @@
+{
+  "entities": [
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 0.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 1.5
+    },
+    {
+      "name": "roboport",
+      "x": 2,
+      "y": 2
+    },
+    {
+      "name": "roboport",
+      "x": 52,
+      "y": 2
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 2.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 3.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 4.5
+    },
+    {
+      "name": "beacon",
+      "x": 16.5,
+      "y": 5.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 5.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 12.5,
+      "y": 6.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 22.5,
+      "y": 6.5
+    },
+    {
+      "name": "beacon",
+      "x": 30.5,
+      "y": 6.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 6.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 12.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 13.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 15.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 16.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 17.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 18.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 19.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 20.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 21.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 22.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 23.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 24.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 25.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 26.5,
+      "y": 7.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 7.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 7.5
+    },
+    {
+      "name": "pipe",
+      "x": 6.5,
+      "y": 8.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 7.5,
+      "y": 8.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 10.5,
+      "y": 8.5,
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "x": 11.5,
+      "y": 8.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 12.5,
+      "y": 8.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 13.5,
+      "y": 8.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 14.5,
+      "y": 8.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 8.5,
+      "direction": 8
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 30.5,
+      "y": 8.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 8.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 0.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-inserter",
+      "x": 2.5,
+      "y": 9.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 11.5,
+      "y": 9.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 12.5,
+      "y": 9.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 13.5,
+      "y": 9.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 14.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 9.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-inserter",
+      "x": 28.5,
+      "y": 9.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 33.5,
+      "y": 9.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 9.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 9.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 0.5,
+      "y": 10.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 12.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 13.5,
+      "y": 10.5,
+      "direction": 4,
+      "type": "input"
+    },
+    {
+      "name": "fast-inserter",
+      "x": 14.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "foundry",
+      "x": 17.5,
+      "y": 10.5,
+      "recipe": "casting-copper-cable"
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 20.5,
+      "y": 10.5,
+      "direction": 4,
+      "type": "output"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 21.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 22.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 23.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 24.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 25.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-inserter",
+      "x": 28.5,
+      "y": 10.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 33.5,
+      "y": 10.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 10.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 10.5
+    },
+    {
+      "name": "fast-splitter",
+      "x": 26.5,
+      "y": 11,
+      "direction": 4
+    },
+    {
+      "name": "electromagnetic-plant",
+      "x": 31,
+      "y": 11,
+      "recipe": "electronic-circuit"
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 1.5,
+      "y": 11.5
+    },
+    {
+      "name": "foundry",
+      "x": 5.5,
+      "y": 11.5,
+      "recipe": "molten-copper"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 12.5,
+      "y": 11.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 13.5,
+      "y": 11.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 14.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 11.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-inserter",
+      "x": 28.5,
+      "y": 11.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 11.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 11.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 11.5,
+      "y": 12.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 12.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 13.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 14.5,
+      "y": 12.5,
+      "direction": 4,
+      "type": "input"
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 21.5,
+      "y": 12.5,
+      "direction": 4,
+      "type": "output"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 22.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 23.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 24.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 25.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 26.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 12.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-inserter",
+      "x": 28.5,
+      "y": 12.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 12.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 12.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 0.5,
+      "y": 13.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 13.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-inserter",
+      "x": 2.5,
+      "y": 13.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe",
+      "x": 11.5,
+      "y": 13.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 12.5,
+      "y": 13.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 15.5,
+      "y": 13.5,
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "x": 16.5,
+      "y": 13.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 17.5,
+      "y": 13.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 28.5,
+      "y": 13.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 29.5,
+      "y": 13.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 30.5,
+      "y": 13.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 31.5,
+      "y": 13.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 13.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 13.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 14.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 29.5,
+      "y": 14.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 30.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 31.5,
+      "y": 14.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 14.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 14.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 15.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 29.5,
+      "y": 15.5,
+      "direction": 8,
+      "type": "input"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 15.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 15.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 16.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 15.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 16.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 17.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 18.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 19.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 20.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 21.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 22.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 23.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 24.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 25.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 26.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 28.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 29.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 30.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 31.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 32.5,
+      "y": 16.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 16.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 16.5
+    },
+    {
+      "name": "fast-splitter",
+      "x": 33.5,
+      "y": 17,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 17.5,
+      "direction": 8
+    },
+    {
+      "name": "beacon",
+      "x": 3.5,
+      "y": 17.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 17.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 30.5,
+      "y": 17.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 17.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 35.5,
+      "y": 17.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 36.5,
+      "y": 17.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 37.5,
+      "y": 17.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 38.5,
+      "y": 17.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 39.5,
+      "y": 17.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 17.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 17.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 18.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 18.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 18.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 18.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 19.5,
+      "direction": 8
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 5.5,
+      "y": 19.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 19.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 19.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 19.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 20.5,
+      "direction": 8
+    },
+    {
+      "name": "pipe",
+      "x": 6.5,
+      "y": 20.5
+    },
+    {
+      "name": "pipe",
+      "x": 7.5,
+      "y": 20.5
+    },
+    {
+      "name": "pipe",
+      "x": 8.5,
+      "y": 20.5
+    },
+    {
+      "name": "pipe",
+      "x": 9.5,
+      "y": 20.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 10.5,
+      "y": 20.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 12.5,
+      "y": 20.5,
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "x": 13.5,
+      "y": 20.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 20.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 15.5,
+      "y": 20.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 20.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 20.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 21.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-inserter",
+      "x": 2.5,
+      "y": 21.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 8.5,
+      "y": 21.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 9.5,
+      "y": 21.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 10.5,
+      "y": 21.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 13.5,
+      "y": 21.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 21.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 21.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 21.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 0.5,
+      "y": 22.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 1.5,
+      "y": 22.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 2.5,
+      "y": 22.5,
+      "direction": 4,
+      "type": "input"
+    },
+    {
+      "name": "fast-inserter",
+      "x": 8.5,
+      "y": 22.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 9.5,
+      "y": 22.5,
+      "direction": 4,
+      "type": "output"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 10.5,
+      "y": 22.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 22.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 15.5,
+      "y": 22.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-underground-belt",
+      "x": 29.5,
+      "y": 22.5,
+      "direction": 8,
+      "type": "output"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 22.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 22.5
+    },
+    {
+      "name": "foundry",
+      "x": 5.5,
+      "y": 23.5,
+      "recipe": "molten-iron"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 23.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 15.5,
+      "y": 23.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 23.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 28.5,
+      "y": 23.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 29.5,
+      "y": 23.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 23.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 23.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 0.5,
+      "y": 24.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 24.5
+    },
+    {
+      "name": "foundry",
+      "x": 18.5,
+      "y": 24.5,
+      "recipe": "casting-iron"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 24.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 29.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 30.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 31.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 32.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 33.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 35.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 36.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 37.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 38.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 39.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 24.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 24.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 11.5,
+      "y": 25.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 25.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 28.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 29.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 30.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 31.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 32.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 33.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 35.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 36.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 37.5,
+      "y": 25.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 25.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 3.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 4.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 5.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 6.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 7.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 8.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 9.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 10.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 11.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 12.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 13.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 26.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 26.5,
+      "y": 26.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 27.5,
+      "y": 26.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 28.5,
+      "y": 26.5
+    },
+    {
+      "name": "long-handed-inserter",
+      "x": 29.5,
+      "y": 26.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 30.5,
+      "y": 26.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 31.5,
+      "y": 26.5
+    },
+    {
+      "name": "long-handed-inserter",
+      "x": 32.5,
+      "y": 26.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 34.5,
+      "y": 26.5
+    },
+    {
+      "name": "long-handed-inserter",
+      "x": 35.5,
+      "y": 26.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 36.5,
+      "y": 26.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 37.5,
+      "y": 26.5
+    },
+    {
+      "name": "long-handed-inserter",
+      "x": 38.5,
+      "y": 26.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 26.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 27.5
+    },
+    {
+      "name": "pipe",
+      "x": 12.5,
+      "y": 27.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 13.5,
+      "y": 27.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 16.5,
+      "y": 27.5,
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "x": 17.5,
+      "y": 27.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 26.5,
+      "y": 27.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 27.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 28.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 12.5,
+      "y": 28.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 15.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 16.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 17.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 18.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 19.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 20.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 21.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 22.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 23.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 24.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 25.5,
+      "y": 28.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 26.5,
+      "y": 28.5
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 28.5,
+      "y": 28.5,
+      "recipe": "inserter"
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 31.5,
+      "y": 28.5,
+      "recipe": "inserter"
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 34.5,
+      "y": 28.5,
+      "recipe": "inserter"
+    },
+    {
+      "name": "assembling-machine-3",
+      "x": 37.5,
+      "y": 28.5,
+      "recipe": "inserter"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 28.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 29.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 29.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 22.5,
+      "y": 29.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 29.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 30.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 12.5,
+      "y": 30.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 30.5
+    },
+    {
+      "name": "beacon",
+      "x": 16.5,
+      "y": 30.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 28.5,
+      "y": 30.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 31.5,
+      "y": 30.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 34.5,
+      "y": 30.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 37.5,
+      "y": 30.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 30.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 31.5
+    },
+    {
+      "name": "beacon",
+      "x": 6.5,
+      "y": 31.5
+    },
+    {
+      "name": "pipe",
+      "x": 12.5,
+      "y": 31.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 13.5,
+      "y": 31.5,
+      "direction": 8
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 31.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 28.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 29.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 30.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 31.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 32.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 33.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 34.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 35.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 36.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 37.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 38.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 39.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 40.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 41.5,
+      "y": 31.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 42.5,
+      "y": 31.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 32.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 3.5,
+      "y": 32.5
+    },
+    {
+      "name": "pipe",
+      "x": 12.5,
+      "y": 32.5
+    },
+    {
+      "name": "pipe",
+      "x": 13.5,
+      "y": 32.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 32.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 31.5,
+      "y": 32.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 34.5,
+      "y": 32.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 33.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 13.5,
+      "y": 33.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 33.5
+    },
+    {
+      "name": "medium-electric-pole",
+      "x": 15.5,
+      "y": 33.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 34.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 3.5,
+      "y": 34.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 4.5,
+      "y": 34.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 34.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 15.5,
+      "y": 34.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 16.5,
+      "y": 34.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 2.5,
+      "y": 35.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 3.5,
+      "y": 35.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 4.5,
+      "y": 35.5,
+      "direction": 4
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 35.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 15.5,
+      "y": 35.5
+    },
+    {
+      "name": "fast-inserter",
+      "x": 16.5,
+      "y": 35.5,
+      "direction": 4
+    },
+    {
+      "name": "foundry",
+      "x": 7.5,
+      "y": 36.5,
+      "recipe": "casting-iron"
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 14.5,
+      "y": 36.5
+    },
+    {
+      "name": "fast-transport-belt",
+      "x": 15.5,
+      "y": 36.5,
+      "direction": 12
+    },
+    {
+      "name": "fast-inserter",
+      "x": 16.5,
+      "y": 36.5,
+      "direction": 4
+    },
+    {
+      "name": "foundry",
+      "x": 19.5,
+      "y": 36.5,
+      "recipe": "casting-iron-gear-wheel"
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 13.5,
+      "y": 38.5,
+      "direction": 8
+    },
+    {
+      "name": "pipe",
+      "x": 6.5,
+      "y": 39.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 7.5,
+      "y": 39.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 12.5,
+      "y": 39.5,
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "x": 13.5,
+      "y": 39.5
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 14.5,
+      "y": 39.5,
+      "direction": 12
+    },
+    {
+      "name": "pipe-to-ground",
+      "x": 17.5,
+      "y": 39.5,
+      "direction": 4
+    },
+    {
+      "name": "pipe",
+      "x": 18.5,
+      "y": 39.5
+    },
+    {
+      "name": "roboport",
+      "x": 2,
+      "y": 52
+    },
+    {
+      "name": "roboport",
+      "x": 52,
+      "y": 52
+    }
+  ],
+  "bbox": [
+    0,
+    0,
+    52,
+    52
+  ]
+}
