@@ -1,0 +1,13 @@
+{
+  "inputs": {
+    "fluid/crude-oil": 56.17033794002849,
+    "fluid/water": 133.64410354668786,
+    "item/calcite": 0.23346551148143332,
+    "item/coal": 2.1428570810477354,
+    "item/copper-ore": 2.5969528674164883,
+    "item/iron-ore": 9.076322706655178
+  },
+  "outputs": {
+    "item/chemical-science-pack": 10
+  }
+}

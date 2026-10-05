@@ -215,6 +215,93 @@ function Lab.feed_tick(feeds, default_stack)
     end
 end
 
+--Metered feed: one fractional item/fluid pool per full name, shared by every matching entry port.
+function Lab.meter_new(inputs)
+    local pool = {}
+    for full_name, rate in pairs(inputs or {}) do pool[full_name] = {rate = rate, credit = 0} end
+    return pool
+end
+
+local function full_name(feed)
+    if feed.fluid then return "fluid/" .. feed.fluid end
+    if feed.item then return "item/" .. feed.item end
+end
+
+function Lab.meter_tick(pool, feeds, stack)
+    local names = {}
+    for name in pairs(pool) do names[#names + 1] = name end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local meter = pool[name]
+        meter.credit = meter.credit + meter.rate / 60
+    end
+    for _, feed in ipairs(feeds or {}) do
+        local name = full_name(feed)
+        local meter = name and pool[name]
+        local entity = feed.entity
+        if meter and entity and entity.valid then
+            if feed.fluid then
+                if meter.credit > 0 then
+                    local ok, inserted = pcall(entity.insert_fluid, {name = feed.fluid, amount = meter.credit})
+                    if ok and type(inserted) == "number" and inserted > 0 then
+                        meter.credit = math.max(0, meter.credit - inserted)
+                    end
+                end
+            else
+                for lane = 1, 2 do
+                    local line = entity.get_transport_line(lane)
+                    while meter.credit >= stack do
+                        local ok, inserted = pcall(line.insert_at_back, {name = feed.item, count = stack}, stack)
+                        if not ok or not inserted then break end
+                        meter.credit = meter.credit - stack
+                    end
+                end
+            end
+        end
+    end
+end
+
+function Lab.meter_backlog(pool, feeds, stack)
+    local heads = {}
+    for _, feed in ipairs(feeds or {}) do
+        if feed.item then
+            local name = "item/" .. feed.item
+            heads[name] = (heads[name] or 0) + 1
+        end
+    end
+    local names = {}
+    local names_in_order = {}
+    for name in pairs(heads) do names_in_order[#names_in_order + 1] = name end
+    table.sort(names_in_order)
+    for _, name in ipairs(names_in_order) do
+        local count = heads[name]
+        local meter = pool[name]
+        if meter and meter.credit > 2 * stack * count then names[#names + 1] = name end
+    end
+    return names
+end
+
+function Lab.judge(per_s, outputs)
+    local problems, lines = {}, {}
+    local names = {}
+    for name in pairs(outputs or {}) do names[#names + 1] = name end
+    table.sort(names)
+    local ok = true
+    for _, name in ipairs(names) do
+        local rate, measured = outputs[name], (per_s or {})[name] or 0
+        local ratio = rate > 0 and measured / rate or math.huge
+        lines[#lines + 1] = string.format("%s %.3f/s of %.3f/s R=%.3f", name, measured, rate, ratio)
+        if ratio < 0.98 then
+            ok = false
+            problems[#problems + 1] = string.format("SHORT %s R=%.3f", name, ratio)
+        elseif ratio > 1.1 then
+            ok = false
+            problems[#problems + 1] = string.format("OVER %s R=%.3f", name, ratio)
+        end
+    end
+    return ok, problems, lines
+end
+
 --Lane max in items per tick for a belt entity at this stack (belt_speed tiles/tick x 4 slots per tile... per lane).
 function Lab.lane_max_per_tick(entity, stack)
     return entity.prototype.belt_speed * 4 * stack

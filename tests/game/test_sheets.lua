@@ -1,6 +1,4 @@
---Round 48 D7, sheet sims: every delivered sheet built for real, powered, its ports fed full (both lanes, max belt
---stack, G10/G10d), run, and its output counted. Pass: every target >= 0.95 x rate over the window (G4), no foreign
---item at any sink, every entity placed, port belts full at every sample (else FEED_SHORT).
+--Sheet sims use calculation refs and meter their feeds after the port-feed warmup.
 --Fixtures: tests/fixtures/sheets/<case>.bp.txt + <case>.ports.json (tools/sheet_ports.py), embedded by
 --tools/game_stage.sh as tests.game.fixtures.sheets_index. A sheet runs only in its profile (player sheets need the
 --player's mods: RRC_PROFILE=player).
@@ -9,7 +7,11 @@ local ok_index, INDEX = pcall(require, "tests.game.fixtures.sheets_index")
 local SHEETS = {}
 if ok_index and type(INDEX) == "table" then
     for _, case in ipairs(INDEX) do
-        SHEETS[#SHEETS + 1] = {case = case.case, profile = case.profile, data = require("tests.game.fixtures.sheet_" .. (case.case:gsub("[-%.]", "_")))}
+        local module = case.case:gsub("[-%.]", "_")
+        local refs
+        if case.case ~= "player-magenta-science-10s" then refs = require("tests.game.fixtures." .. module .. "_refs") end
+        SHEETS[#SHEETS + 1] = {case = case.case, profile = case.profile,
+            data = require("tests.game.fixtures.sheet_" .. module), refs = refs}
     end
 end
 
@@ -71,12 +73,11 @@ describe("sheets", function()
             local built = Lab.build(surface, force, sheet.data.bp, origin)
             assert(#built.refused == 0, sheet.case .. ": " .. #built.refused .. " entities do not place: " .. serpent.line(built.refused))
             assert(Lab.power(surface, force, built), sheet.case .. ": lab power could not reach a pole")
-            local feeds, port_belts = {}, {}
+            local feeds = {}
             for _, f in ipairs(ports.feeds) do
                 local ent = Lab.at(surface, built, f.tile[1], f.tile[2])
                 assert(Lab.feed_shape_ok(ent, f.fluid), sheet.case .. ": FEED_PORT_SHAPE at " .. f.tile[1] .. "," .. f.tile[2])
                 feeds[#feeds + 1] = {entity = ent, item = f.item, fluid = f.fluid}
-                if f.item then port_belts[#port_belts + 1] = ent end
             end
             local sinks = {}
             for _, s in ipairs(ports.sinks) do
@@ -87,21 +88,18 @@ describe("sheets", function()
                 if ent.valid and ent.type == "transport-belt" then speed = math.max(speed, ent.prototype.belt_speed) end
             end
             local warm = math.max(3600, math.ceil(((box[3] - box[1]) + (box[4] - box[2])) * 2 / speed) + 600)
-            --Adaptive measuring (G4): after warm-up, 3600-tick windows. Pass as soon as one window reaches every target
-            --x0.95; fail when two windows in a row change by < 2% (plateau) or at 60000 ticks. A long chain (green-1s
-            --0.40/s at 3600 warm-up, 0.79/s at 18000) is judged on its steady state, not on its fill time.
+            --After warm-up, use 3600-tick windows and stop when every output changes by <2% between windows or at 60000 ticks.
             local WINDOW, LIMIT = 3600, 60000
             local window = WINDOW
-            local short, samples = 0, 0
-            local t0, window_start, history = game.tick, nil, {}
+            local t0, window_start, history, pool = game.tick, nil, {}, nil
             local function rates_now()
                 local got = {}
                 for _, s in ipairs(sinks) do for name, count in pairs(s.got) do got[name] = (got[name] or 0) + count end end
                 local out, worst = {}, math.huge
-                for full_name, rate in pairs(ports.targets) do
-                    local name = full_name:gsub("^item/", "")
+                for full_name, rate in pairs(sheet.refs.outputs) do
+                    local name = full_name:match("^[^/]+/(.*)$") or full_name
                     local per_s = (got[name] or 0) / (WINDOW / 60)
-                    out[name] = per_s
+                    out[full_name] = per_s
                     worst = math.min(worst, per_s / rate)
                 end
                 return out, worst
@@ -109,27 +107,28 @@ describe("sheets", function()
             game.speed = 1000
             on_tick(function()
                 local t = game.tick - t0
-                Lab.feed_tick(feeds, stack)
                 local measuring = t >= warm
+                if measuring then
+                    if not pool then pool = Lab.meter_new(sheet.refs.inputs) end
+                    Lab.meter_tick(pool, feeds, stack)
+                else
+                    Lab.feed_tick(feeds, stack)
+                end
                 if measuring and not window_start then window_start = t end
                 Lab.sink_tick(sinks, measuring)
-                if measuring and t % 60 == 0 then
-                    samples = samples + 1
-                    for _, belt in ipairs(port_belts) do
-                        for lane = 1, 2 do
-                            local det = belt.get_transport_line(lane).get_detailed_contents()
-                            local full = #det >= 4
-                            for _, d in pairs(det) do if d.stack.count ~= stack then full = false end end
-                            if not full then short = short + 1 end
-                        end
-                    end
-                end
                 if not window_start or t - window_start < WINDOW then return end
                 local per, worst = rates_now()
-                history[#history + 1] = worst
+                history[#history + 1] = per
                 log(string.format("SHEET-WINDOW %s t=%d worst=%.3f %s", sheet.case, t, worst, serpent.line(per)))
-                local done = worst >= 0.95 or t >= LIMIT
-                if #history >= 2 and math.abs(history[#history] - history[#history - 1]) < 0.02 * math.max(history[#history], 1e-9) then done = true end
+                local done = t >= LIMIT
+                if #history >= 2 then
+                    local steady = true
+                    for name, value in pairs(per) do
+                        local previous = history[#history - 1][name] or 0
+                        if math.abs(value - previous) >= 0.02 * math.max(value, 1e-9) then steady = false; break end
+                    end
+                    if steady then done = true end
+                end
                 if not done then
                     for _, s in ipairs(sinks) do s.got = {} end
                     window_start = t
@@ -137,7 +136,6 @@ describe("sheets", function()
                 end
                 game.speed = 1
                 local problems = {}
-                if short > 0 then problems[#problems + 1] = "FEED_SHORT " .. short .. " lane samples of " .. samples * 2 * #port_belts end
                 local got = {}
                 for _, s in ipairs(sinks) do
                     local allowed = {}
@@ -147,16 +145,13 @@ describe("sheets", function()
                         got[name] = (got[name] or 0) + count
                     end
                 end
-                local lines = {}
                 local per = rates_now()
-                for full_name, rate in pairs(ports.targets) do
-                    local name = full_name:gsub("^item/", "")
-                    local per_s = per[name] or 0
-                    lines[#lines + 1] = string.format("%s %.3f/s of %.3f/s", name, per_s, rate)
-                    if per_s < 0.95 * rate then problems[#problems + 1] = string.format("SHORT %s %.3f < 0.95 x %.3f", name, per_s, rate) end
-                end
+                local judged, judge_problems, lines = Lab.judge(per, sheet.refs.outputs)
+                for _, problem in ipairs(judge_problems) do problems[#problems + 1] = problem end
+                local backlog = Lab.meter_backlog(pool, feeds, stack)
+                if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
                 log("SHEET-SIM " .. sheet.case .. " stack=" .. stack .. " warm=" .. warm .. " window=" .. window .. " " .. table.concat(lines, "; "))
-                assert(#problems == 0, sheet.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines, "; "))
+                assert(judged and #problems == 0, sheet.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines, "; "))
                 return false
             end)
         end)

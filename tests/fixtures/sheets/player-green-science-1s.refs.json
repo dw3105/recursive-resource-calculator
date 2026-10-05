@@ -1,0 +1,9 @@
+{
+  "inputs": {
+    "item/copper-ore": 0.6666666666666666,
+    "item/iron-ore": 4.666666666666667
+  },
+  "outputs": {
+    "item/logistic-science-pack": 1
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "item/calcite": 0.15927977721341405,
+    "item/copper-ore": 1.038781153047649,
+    "item/iron-ore": 6.925207707623053
+  },
+  "outputs": {
+    "item/inserter": 10
+  }
+}

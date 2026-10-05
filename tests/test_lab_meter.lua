@@ -38,14 +38,18 @@ do
 end
 do
     local a, b = {inserted = 0}, {inserted = 0}
-    local function pipe(p)
-        return {valid = true, insert_fluid = function(spec) p.inserted = p.inserted + spec.amount; return spec.amount end}
+    local function pipe(p, limit)
+        return {valid = true, insert_fluid = function(spec)
+            local amount = math.min(spec.amount, limit or spec.amount)
+            p.inserted = p.inserted + amount
+            return amount
+        end}
     end
-    local feeds = {{entity = pipe(a), fluid = "water"}, {entity = pipe(b), fluid = "water"}}
+    local feeds = {{entity = pipe(a, 2), fluid = "water"}, {entity = pipe(b), fluid = "water"}}
     local pool = Lab.meter_new({["fluid/water"] = 133.6})
     for _ = 1, 3600 do Lab.meter_tick(pool, feeds, 4) end
     near(a.inserted + b.inserted, 8016, 1, "MT3 fluid rate")
-    assert(a.inserted > 0 and b.inserted == 0, "MT3 must use pipes in list order")
+    assert(a.inserted > 0 and b.inserted > 0, "MT3 must split across pipes in list order")
     print("MT3")
 end
 do
@@ -82,5 +86,24 @@ do
     end
     local p = io.open("tests/fixtures/sheets/player-magenta-science-10s.refs.json", "r")
     assert(not p, "magenta must remain without refs")
+    local function read(path)
+        local f = assert(io.open(path, "r")); local value = f:read("*a"); f:close(); return value
+    end
+    local function section(text, name)
+        local start = assert(text:find('"' .. name .. '"%s*:%s*{'))
+        local finish = assert(text:find("}", start))
+        return text:sub(start, finish)
+    end
+    local function numeric_map(text)
+        local map = {}
+        for key, value in text:gmatch('"([^"]+)"%s*:%s*([%d%.eE+%-]+)') do
+            map[key] = tonumber(value)
+        end
+        return map
+    end
+    local refs = numeric_map(section(read("tests/fixtures/sheets/player-red-green-science-10s.refs.json"), "inputs"))
+    local ports = numeric_map(section(read("tests/fixtures/sheets/player-red-green-science-10s.ports.json"), "inputs"))
+    for name, rate in pairs(refs) do assert(ports[name] and math.abs(rate - ports[name]) <= 1e-9, "MT6 input mismatch " .. name) end
+    for name in pairs(ports) do assert(refs[name] ~= nil, "MT6 missing ref input " .. name) end
     print("MT6")
 end

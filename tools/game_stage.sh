@@ -32,6 +32,7 @@ cp -r "$ROOT/tests/twins" "$MOD/tests/"
 python3 - "$ROOT/tests/fixtures/sheets" "$MOD/tests/game/fixtures" <<'PY'
 import os, sys
 src, out = sys.argv[1:]
+root = os.path.abspath(os.path.join(src, "../../.."))
 os.makedirs(out, exist_ok=True)
 cases = sorted(f[:-7] for f in os.listdir(src) if f.endswith(".bp.txt")) if os.path.isdir(src) else []
 def long(text):
@@ -43,6 +44,15 @@ for c in cases:
     ports = open(os.path.join(src, c + ".ports.json")).read()
     open(os.path.join(out, "sheet_" + c.replace("-", "_").replace(".", "_") + ".lua"), "w").write(
         "return {bp = " + long(bp) + ", ports = " + long(ports) + "}\n")
+    refs_path = os.path.join(src, c + ".refs.json")
+    if os.path.exists(refs_path):
+        refs = open(refs_path).read()
+        module = c.replace("-", "_").replace(".", "_")
+        open(os.path.join(out, module + "_refs.lua"), "w").write("return " + long(refs) + "\n")
+        prepared_path = os.path.join(root, "tests/golden/cases", c, "prepared_input.json")
+        if c.startswith("player-") and os.path.exists(prepared_path):
+            prepared = open(prepared_path).read()
+            open(os.path.join(out, module + "_prepared.lua"), "w").write("return " + long(prepared) + "\n")
 rows = "".join('    {case = "%s", profile = "%s"},\n' % (c, "player" if c.startswith("player-") else "vanilla") for c in cases)
 open(os.path.join(out, "sheets_index.lua"), "w").write("return {\n" + rows + "}\n")
 PY
