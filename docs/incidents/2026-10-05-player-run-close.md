@@ -69,3 +69,23 @@ offline.lua passed=0 on test_player_run.
 
 - Magenta untested (player rule MAGENTA-SKIPPED).
 - Player run runs only in the round gate and at release (Q10); not per commit.
+
+## Done-when (plan DoD) at close
+
+1. Player run PASS 15 Cases - met; bar changed by ruling PLAYER-RUN-BAR (>= 0.98, no upper cap) in place of 0.98-1.1.
+2. Sheet sim PASS 15 Cases - met; feed changed by ruling MAX-FILL (Port feed + Pre-fill) in place of Metered feed.
+3. Each Player run <= 120 s wall - met (37-89 s alone; blue 96 s alone on the tag).
+4. Player run out of per-commit suite - met (suite 3: 16 SKIP lines, only the Case-list check runs).
+5. Short Case owed a fix - none short; the defect found was the hand drop_position (logic/, fixed, zips built).
+6. Full suite green, main moved, push box - met (suite 3 exit 0; origin main 7764d99 pushed by player).
+Unmet: none. Magenta stays untested by ruling MAGENTA-SKIPPED.
+
+## Reflection
+
+| Issue | Bucket | Root cause | Proposed rule change |
+|---|---|---|---|
+| First drop fix removed the field; player: "THIS IS WRONG!!!!" | oracle | fixed from my reading of the symptom, not from what the game writes | rrc-code: a blueprint field change first probes the game's own blueprint of the same entity and matches it exactly |
+| Lab sims never saw the drop bug | coverage | lab builds via create_entity skip blueprint fields | covered by Player run in round gate (Q10); no new rule |
+| Metered feed chosen (Q2) then reworked for hours (settle, buffers, lumps) | probe-first | method fixed at grill without a probe on the slowest golden | rrc-code: before a grill fixes a measuring method, probe it on the slowest and lowest-rate golden |
+| Tree edited while a background run read it (twice) | discipline | rule existed (memory) and was skipped under time pressure | none; side-worktree pattern worked once used |
+| Suite 2 exit 1 with no failure text | tooling | run.sh hid which step failed | fixed: run.sh prints RUN-FAIL <step> |
