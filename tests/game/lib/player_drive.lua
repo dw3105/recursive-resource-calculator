@@ -224,7 +224,15 @@ function Drive.setup(def, done_fn)
             else
                 local recipes_by_product = storage[1].recipes_by_product_full_name
                 local current = recipes_by_product[full_name]
-                if not current or current.name ~= recipe_name then
+                if (not current or current.name ~= recipe_name) and step.kind == "binding" and (step.tries or 0) < 3 then
+                    --A product shows only once the recipe that needs it is bound (vanilla green: circuits after inserter);
+                    --red never shows copper-cable. Retry at the end of the queue; after 3 tries the sheet does not use it.
+                    step.tries = (step.tries or 0) + 1
+                    table.remove(steps, at)
+                    if step.tries < 3 then steps[#steps + 1] = step end
+                    return true
+                end
+                if (not current or current.name ~= recipe_name) and step.kind ~= "binding" then
                     local seen = {}
                     local function walk(e, d) if not e or d > 12 then return end
                         if e.name and e.name ~= "" then seen[#seen + 1] = e.name .. (e.tags and e.tags.product_full_name and ("{" .. e.tags.product_full_name .. "}") or "") end
