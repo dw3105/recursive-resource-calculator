@@ -14,6 +14,7 @@ return {
     "tests.game.test_flip_fluidboxes",
     "tests.game.test_box_binding",
     "tests.game.test_material_cost",
+    "tests.game.test_player_drive",
     "tests.game.test_turn_flip_cases",
     "tests.game.test_turn_flip_sims",
 }
