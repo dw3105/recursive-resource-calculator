@@ -1,0 +1,9 @@
+{
+  "inputs": {
+    "item/copper-ore": 1,
+    "item/iron-ore": 2
+  },
+  "outputs": {
+    "item/automation-science-pack": 1
+  }
+}

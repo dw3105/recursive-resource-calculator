@@ -1,0 +1,10 @@
+{
+  "inputs": {
+    "item/calcite": 0.07914523066627245,
+    "item/copper-ore": 1.9786307666568113,
+    "item/iron-ore": 1.9786307666568113
+  },
+  "outputs": {
+    "item/automation-science-pack": 10
+  }
+}

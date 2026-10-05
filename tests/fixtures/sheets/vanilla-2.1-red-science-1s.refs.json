@@ -1,0 +1,9 @@
+{
+  "inputs": {
+    "item/copper-plate": 1.0,
+    "item/iron-plate": 2.0
+  },
+  "outputs": {
+    "item/automation-science-pack": 1.0
+  }
+}
