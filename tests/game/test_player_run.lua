@@ -188,7 +188,11 @@ describe("player run", function()
                     local speed = 0.03125
                     for _, e in ipairs(entities) do if e.valid and e.type == "transport-belt" then speed = math.max(speed, e.prototype.belt_speed) end end
                     local warm = math.max(3600, math.ceil(((wr - wl) + (wb - wt)) * 2 / speed) + 600)
-                    local WINDOW, LIMIT = 3600, 60000
+                    local WINDOW, LIMIT = 3600, 60000  --same window rule as tests/game/test_sheets.lua
+                    local min_rate = math.huge
+                    for _, rate in pairs(refs.outputs) do min_rate = math.min(min_rate, rate) end
+                    local LONG = math.max(WINDOW, math.ceil(600 / min_rate) * 60)
+                    local window, phase = WINDOW, "detect"
                     local pool = Lab.meter_new(refs.inputs)
                     local t0, window_start, history = game.tick, nil, {}
                     local function per_s_now()
@@ -196,7 +200,7 @@ describe("player run", function()
                         for _, s in ipairs(sinks) do
                             for name, count in pairs(s.got) do
                                 local full = outputs["item/" .. name] and ("item/" .. name) or ("fluid/" .. name)
-                                per[full] = (per[full] or 0) + count / (WINDOW / 60)
+                                per[full] = (per[full] or 0) + count / (window / 60)
                             end
                         end
                         return per
@@ -208,14 +212,19 @@ describe("player run", function()
                         local measuring = now >= warm
                         if measuring and not window_start then window_start = now end
                         Lab.sink_tick(sinks, measuring)
-                        if not window_start or now - window_start < WINDOW then return end
+                        if not window_start or now - window_start < window then return end
                         local per = per_s_now()
                         local worst = math.huge
                         for full_name, rate in pairs(refs.outputs) do worst = math.min(worst, (per[full_name] or 0) / rate) end
-                        history[#history + 1] = worst
-                        log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s", c.case, now, worst, serpent.line(per)))
-                        local steady = #history >= 2 and math.abs(history[#history] - history[#history - 1]) < 0.02 * math.max(history[#history], 1e-9)
-                        if not steady and now < LIMIT then
+                        log(string.format("PLAYER-RUN-WINDOW %s %s t=%d worst=%.3f %s", c.case, phase, now, worst, serpent.line(per)))
+                        if phase == "detect" then
+                            history[#history + 1] = per
+                            local steady = #history >= 2
+                            for full_name in pairs(refs.outputs) do
+                                local value, previous = per[full_name] or 0, history[#history - 1] and history[#history - 1][full_name] or 0
+                                if value <= 0 or math.abs(value - previous) >= 0.02 * value then steady = false; break end
+                            end
+                            if steady or now >= LIMIT then phase, window = "judge", LONG end
                             for _, s in ipairs(sinks) do s.got = {} end
                             window_start = now
                             return

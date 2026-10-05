@@ -91,8 +91,14 @@ describe("sheets", function()
             end
             local warm = math.max(3600, math.ceil(((box[3] - box[1]) + (box[4] - box[2])) * 2 / speed) + 600)
             --After warm-up, use 3600-tick windows and stop when every output changes by <2% between windows or at 60000 ticks.
+            --Steady detection on short windows (every output > 0, two windows within 2%), then ONE judging window long
+            --enough for 600 items of the slowest output: at 1/s a 3600-tick window holds 60 items and one item of
+            --phase is 1.7% of the 2% band (red-1s read 0.967, 2026-10-05); zero output read as steady (R=0.000).
             local WINDOW, LIMIT = 3600, 60000
-            local window = WINDOW
+            local min_rate = math.huge
+            for _, rate in pairs(refs.outputs) do min_rate = math.min(min_rate, rate) end
+            local LONG = math.max(WINDOW, math.ceil(600 / min_rate) * 60)
+            local window, phase = WINDOW, "detect"
             local t0, window_start, history, pool = game.tick, nil, {}, nil
             local function rates_now()
                 local got = {}
@@ -100,14 +106,14 @@ describe("sheets", function()
                 local out, worst = {}, math.huge
                 for full_name, rate in pairs(refs.outputs) do
                     local name = full_name:match("^[^/]+/(.*)$") or full_name
-                    local per_s = (got[name] or 0) / (WINDOW / 60)
+                    local per_s = (got[name] or 0) / (window / 60)
                     out[full_name] = per_s
                     worst = math.min(worst, per_s / rate)
                 end
                 return out, worst
             end
             --Warm-up plus steady windows can pass the FactorioTest 36000-tick default (green-1s, blue): own limit.
-            async(warm + LIMIT + 3600)
+            async(warm + LIMIT + LONG + 3600)
             game.speed = 1000
             on_tick(function()
                 local t = game.tick - t0
@@ -118,20 +124,17 @@ describe("sheets", function()
                 Lab.meter_tick(pool, feeds, stack)
                 if measuring and not window_start then window_start = t end
                 Lab.sink_tick(sinks, measuring)
-                if not window_start or t - window_start < WINDOW then return end
+                if not window_start or t - window_start < window then return end
                 local per, worst = rates_now()
-                history[#history + 1] = per
-                log(string.format("SHEET-WINDOW %s t=%d worst=%.3f %s", sheet.case, t, worst, serpent.line(per)))
-                local done = t >= LIMIT
-                if #history >= 2 then
-                    local steady = true
+                log(string.format("SHEET-WINDOW %s %s t=%d worst=%.3f %s", sheet.case, phase, t, worst, serpent.line(per)))
+                if phase == "detect" then
+                    history[#history + 1] = per
+                    local steady = #history >= 2
                     for name, value in pairs(per) do
-                        local previous = history[#history - 1][name] or 0
-                        if math.abs(value - previous) >= 0.02 * math.max(value, 1e-9) then steady = false; break end
+                        local previous = history[#history - 1] and history[#history - 1][name] or 0
+                        if value <= 0 or math.abs(value - previous) >= 0.02 * value then steady = false; break end
                     end
-                    if steady then done = true end
-                end
-                if not done then
+                    if steady or t >= LIMIT then phase, window = "judge", LONG end
                     for _, s in ipairs(sinks) do s.got = {} end
                     window_start = t
                     return
