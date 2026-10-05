@@ -107,3 +107,4 @@ do
     for name in pairs(ports) do assert(refs[name] ~= nil, "MT6 missing ref input " .. name) end
     print("MT6")
 end
+print("test_lab_meter 6 passed 0 failed")
