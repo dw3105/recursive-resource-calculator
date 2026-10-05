@@ -158,6 +158,15 @@ local function at_tile(surface, x, y)
 end
 
 describe("player run", function()
+    --Always on (offline and headless): every Case is skipped unless RRC_PLAYER_RUN=1, and tests/game/offline.lua fails a
+    --file that passes nothing (suite 2 exit 1, 2026-10-05).
+    it("Case list: 15 Cases, magenta skipped, Port feed + Pre-fill by default", function()
+        local active, skipped = 0, {}
+        for _, c in ipairs(CASES) do if c.skip then skipped[#skipped + 1] = c.case else active = active + 1 end end
+        assert(active == 15, "active Cases " .. active)
+        assert(#skipped == 1 and skipped[1] == "player-magenta-science-10s", "skipped " .. table.concat(skipped, ","))
+        assert(FULL_FEED == true or (ok_profile and PROFILE_MAP.feed == "metered"), "Port feed is the default")
+    end)
     for index, c in ipairs(CASES) do
         local register = (c.skip or not (ok_profile and PROFILE_MAP.player_run)) and it.skip or it
         register(c.case, function()
