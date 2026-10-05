@@ -77,7 +77,7 @@ One golden driven end to end the way a player does it, in headless Factorio: cal
 _Avoid_: e2e test, finishing test, sheet sim (a Sheet sim starts from delivered bytes and skips the GUI)
 
 **Metered feed**:
-Inputs pushed into a built sheet at exactly the calculation's rate per input item or fluid, pooled across all its entry belts and pipes (whichever has room takes it), after a Port feed warm-up that primes machines and pipes and ends with every belt emptied, so output can never beat the calculation by round-up machines eating a belt stock, and never trails it while buffers fill with no slack.
+Inputs pushed into a built sheet at exactly the calculation's rate per input item or fluid, pooled across all its entry belts and pipes (whichever has room takes it), after a Port feed warm-up that primes machines and pipes and ends with every belt emptied, so output can never beat the calculation by round-up machines eating a belt stock, and is judged only after it settles: the last three 60-second windows of every output agree within 1.5%.
 _Avoid_: port feed (unlimited), endless supply
 
 ### Rule classes

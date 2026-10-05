@@ -124,7 +124,7 @@ describe("player run", function()
                 if force.recipes[recipe] then force.recipes[recipe].productivity_bonus = bonus end
             end
             local player = S.player()
-            async(250000)  --setup + generation + warm-up + steady windows pass the 36000-tick default
+            async(10000000)  --settling has no tick limit (player Q14); the 120 s per-check cap ends a Case that never settles
             Drive.setup(def, function(sheet)
                 local calc = assert(Calculation.get(1, S.sheet_id(sheet)), c.case .. ": no calculation result after setup")
                 for full_name, rate in pairs(refs.outputs) do
@@ -204,11 +204,7 @@ describe("player run", function()
                     local speed = 0.03125
                     for _, e in ipairs(entities) do if e.valid and e.type == "transport-belt" then speed = math.max(speed, e.prototype.belt_speed) end end
                     local warm = math.max(3600, math.ceil(((wr - wl) + (wb - wt)) * 2 / speed) + 600)
-                    local WINDOW, LIMIT = 3600, 60000  --same window rule as tests/game/test_sheets.lua
-                    local min_rate = math.huge
-                    for _, rate in pairs(refs.outputs) do min_rate = math.min(min_rate, rate) end
-                    local LONG = math.max(WINDOW, math.ceil(600 / min_rate) * 60)
-                    local window, phase = WINDOW, "detect"
+                    local window = 3600  --metered windows until output stabilizes (Lab.settle), as tests/game/test_sheets.lua
                     local pool = Lab.meter_new(refs.inputs)
                     local t0, window_start, history, cleared = game.tick, nil, {}, false
                     --Judged on production (Lab.made deltas); the sink count is the cross-check (tests/game/test_sheets.lua).
@@ -243,19 +239,12 @@ describe("player run", function()
                         local per, sunk = per_s_now()
                         local worst = math.huge
                         for full_name, rate in pairs(refs.outputs) do worst = math.min(worst, (per[full_name] or 0) / rate) end
-                        log(string.format("PLAYER-RUN-WINDOW %s %s t=%d worst=%.3f %s", c.case, phase, now, worst, serpent.line(per)))
-                        if phase == "detect" then
-                            history[#history + 1] = per
-                            local steady = #history >= 2
-                            for full_name in pairs(refs.outputs) do
-                                local value, previous = per[full_name] or 0, history[#history - 1] and history[#history - 1][full_name] or 0
-                                if value <= 0 or math.abs(value - previous) >= 0.02 * value then steady = false; break end
-                            end
-                            if steady or now >= LIMIT then phase, window = "judge", LONG end
-                            for _, s in ipairs(sinks) do s.got = {} end
-                            window_start = now
-                            return
-                        end
+                        log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s", c.case, now, worst, serpent.line(per)))
+                        for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end; s.got = {} end
+                        window_start = now
+                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk)
+                        if not stable then return end
+                        per, sunk = mean_per, mean_sunk
                         game.speed = 1
                         local ok, problems, lines = Lab.judge(per, refs.outputs)
                         problems = problems or {}
@@ -269,7 +258,7 @@ describe("player run", function()
                         for _, s in ipairs(sinks) do
                             local allowed = {}
                             for _, n in ipairs(s.items) do allowed[(n:gsub("^%a+/", ""))] = true end
-                            for name in pairs(s.got) do if not allowed[name] then problems[#problems + 1] = "foreign " .. name .. " at sink" end end
+                            for name in pairs(s.seen or {}) do if not allowed[name] then problems[#problems + 1] = "foreign " .. name .. " at sink" end end
                         end
                         log("PLAYER-RUN " .. c.case .. " stack=" .. stack .. " warm=" .. warm .. " t=" .. now .. " " .. table.concat(lines or {}, "; "))
                         assert(ok and #problems == 0, c.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines or {}, "; "))

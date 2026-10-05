@@ -352,6 +352,29 @@ function Lab.made(entities, outputs)
     return made
 end
 
+--Settling (player Q14, 2026-10-05): metered windows run until output stabilizes = the last 3 windows of every output
+--are all > 0 and within 1.5% of each other (max - min <= 0.015 x mean). Two windows within 2% fired mid-climb
+--(vanilla green 0.867 -> 0.883, judged 0.903). Returns stable, mean made, mean sunk over those 3 windows.
+Lab.SETTLE_WINDOWS, Lab.SETTLE_BAND = 3, 0.015
+function Lab.settle(history, per, sunk)
+    history[#history + 1] = {per = per, sunk = sunk}
+    local n = Lab.SETTLE_WINDOWS
+    if #history < n then return false end
+    local mean_per, mean_sunk = {}, {}
+    for name in pairs(per) do
+        local lo, hi, sum, sum_sunk = math.huge, -math.huge, 0, 0
+        for i = #history - n + 1, #history do
+            local v = history[i].per[name] or 0
+            lo, hi, sum = math.min(lo, v), math.max(hi, v), sum + v
+            sum_sunk = sum_sunk + (history[i].sunk[name] or 0)
+        end
+        local mean = sum / n
+        if lo <= 0 or hi - lo > Lab.SETTLE_BAND * mean then return false end
+        mean_per[name], mean_sunk[name] = mean, sum_sunk / n
+    end
+    return true, mean_per, mean_sunk
+end
+
 --Lane max in items per tick for a belt entity at this stack (belt_speed tiles/tick x 4 slots per tile... per lane).
 function Lab.lane_max_per_tick(entity, stack)
     return entity.prototype.belt_speed * 4 * stack

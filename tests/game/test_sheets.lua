@@ -90,15 +90,8 @@ describe("sheets", function()
                 if ent.valid and ent.type == "transport-belt" then speed = math.max(speed, ent.prototype.belt_speed) end
             end
             local warm = math.max(3600, math.ceil(((box[3] - box[1]) + (box[4] - box[2])) * 2 / speed) + 600)
-            --After warm-up, use 3600-tick windows and stop when every output changes by <2% between windows or at 60000 ticks.
-            --Steady detection on short windows (every output > 0, two windows within 2%), then ONE judging window long
-            --enough for 600 items of the slowest output: at 1/s a 3600-tick window holds 60 items and one item of
-            --phase is 1.7% of the 2% band (red-1s read 0.967, 2026-10-05); zero output read as steady (R=0.000).
-            local WINDOW, LIMIT = 3600, 60000
-            local min_rate = math.huge
-            for _, rate in pairs(refs.outputs) do min_rate = math.min(min_rate, rate) end
-            local LONG = math.max(WINDOW, math.ceil(600 / min_rate) * 60)
-            local window, phase = WINDOW, "detect"
+            --After warm-up, metered 3600-tick windows until output stabilizes (Lab.settle); R = mean of the 3 stable windows.
+            local window = 3600
             local t0, window_start, history, pool = game.tick, nil, {}, nil
             --Judged on production (Lab.made deltas over the window); the sink count is the cross-check.
             local made_start
@@ -116,8 +109,8 @@ describe("sheets", function()
                 made_start = made_now
                 return out, worst, sunk
             end
-            --Warm-up plus steady windows can pass the FactorioTest 36000-tick default (green-1s, blue): own limit.
-            async(warm + LIMIT + LONG + 3600)
+            --Settling has no tick limit of its own (player Q14); the 120 s per-check cap ends a Case that never settles.
+            async(10000000)
             game.speed = 1000
             on_tick(function()
                 local t = game.tick - t0
@@ -135,30 +128,23 @@ describe("sheets", function()
                 end
                 if measuring and not window_start then window_start = t; made_start = Lab.made(built.entities, refs.outputs) end
                 Lab.sink_tick(sinks, measuring)
+                --Every name a sink ever saw while measuring, for the foreign-item check (s.got resets per window).
+                if measuring then for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end end end
                 if not window_start or t - window_start < window then return end
                 local per, worst, sunk = rates_now()
-                log(string.format("SHEET-WINDOW %s %s t=%d worst=%.3f made=%s sunk=%s", sheet.case, phase, t, worst, serpent.line(per), serpent.line(sunk)))
-                if phase == "detect" then
-                    history[#history + 1] = per
-                    local steady = #history >= 2
-                    for name, value in pairs(per) do
-                        local previous = history[#history - 1] and history[#history - 1][name] or 0
-                        if value <= 0 or math.abs(value - previous) >= 0.02 * value then steady = false; break end
-                    end
-                    if steady or t >= LIMIT then phase, window = "judge", LONG end
-                    for _, s in ipairs(sinks) do s.got = {} end
-                    window_start = t
-                    return
-                end
+                log(string.format("SHEET-WINDOW %s t=%d worst=%.3f made=%s sunk=%s", sheet.case, t, worst, serpent.line(per), serpent.line(sunk)))
+                for _, s in ipairs(sinks) do s.got = {} end
+                window_start = t
+                local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk)
+                if not stable then return end
+                per, sunk = mean_per, mean_sunk
                 game.speed = 1
                 local problems = {}
-                local got = {}
                 for _, s in ipairs(sinks) do
                     local allowed = {}
                     for _, n in ipairs(s.items) do allowed[n] = true end
-                    for name, count in pairs(s.got) do
+                    for name in pairs(s.seen or {}) do
                         if not allowed[name] then problems[#problems + 1] = "foreign " .. name .. " at sink" end
-                        got[name] = (got[name] or 0) + count
                     end
                 end
                 local judged, judge_problems, lines = Lab.judge(per, refs.outputs)
@@ -172,7 +158,7 @@ describe("sheets", function()
                 for _, problem in ipairs(judge_problems) do problems[#problems + 1] = problem end
                 local backlog = Lab.meter_backlog(pool, feeds, stack)
                 if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
-                log("SHEET-SIM " .. sheet.case .. " stack=" .. stack .. " warm=" .. warm .. " window=" .. window .. " " .. table.concat(lines, "; "))
+                log("SHEET-SIM " .. sheet.case .. " stack=" .. stack .. " warm=" .. warm .. " settled_t=" .. t .. " " .. table.concat(lines, "; "))
                 assert(judged and #problems == 0, sheet.case .. ": " .. table.concat(problems, "; ") .. " | " .. table.concat(lines, "; "))
                 done()
                 return false
