@@ -406,8 +406,11 @@ end
 --Warm-up ends once inner stock moved under 2% (+5 items) either way over the last WARM_STEP ticks, or at WARM_CAP:
 --growing = buffers still filling; shrinking = a pre-filled lane draining (Lab.prefill_inner).
 Lab.WARM_STEP, Lab.WARM_CAP = 3600, 72000
-function Lab.warm_ready(previous, stock)
-    return previous ~= nil and math.abs(stock - previous) <= previous * 0.02 + 5
+--prefilled: ends once the stock stops draining (growth only holds output down; Lab.settle handles it).
+function Lab.warm_ready(previous, stock, prefilled)
+    if previous == nil then return false end
+    if prefilled then return stock >= previous - (previous * 0.02 + 5) end
+    return math.abs(stock - previous) <= previous * 0.02 + 5
 end
 
 --Window long enough for 200 units of the slowest output: one craft at 1/s was 1.7% of a 60 s window, wider than the
@@ -432,9 +435,15 @@ function Lab.settle(history, per, sunk, window_s, inner)
     history[#history + 1] = {per = per, sunk = sunk, inner = inner}
     local n = Lab.SETTLE_WINDOWS
     if #history < n then return false end
+    --Only a DRAINING stock can lift output (pre-filled blue 1.59x while engines drained); a GROWING one only holds it
+    --down (buffers still taking items: half-filled red-green held 1.048-1.050 while stock grew 27222 -> 28723). Drain =
+    --not settled; growth = settled with grew = true, so a pass is a lower bound and a SHORT keeps measuring (callers).
+    local grew = false
     if inner then
         local before = (history[#history - n] or history[#history - n + 1]).inner or inner
-        if math.abs(inner - before) > 0.01 * before + 50 then return false end
+        local tolerance = 0.01 * before + 50
+        if inner < before - tolerance then return false end
+        grew = inner > before + tolerance
     end
     local mean_per, mean_sunk = {}, {}
     for name in pairs(per) do
@@ -449,7 +458,7 @@ function Lab.settle(history, per, sunk, window_s, inner)
         if lo <= 0 or hi - lo > band then return false end
         mean_per[name], mean_sunk[name] = mean, sum_sunk / n
     end
-    return true, mean_per, mean_sunk
+    return true, mean_per, mean_sunk, grew
 end
 
 --Lane max in items per tick for a belt entity at this stack (belt_speed tiles/tick x 4 slots per tile... per lane).

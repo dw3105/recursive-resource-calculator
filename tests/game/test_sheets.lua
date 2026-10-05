@@ -129,7 +129,7 @@ describe("sheets", function()
                             log(string.format("SHEET-PREFILL %s t=%d items=%d", sheet.case, t, Lab.prefill_inner(built.entities, refs.inputs, refs.outputs, stack)))
                         end
                         local stock = Lab.inner_stock(built.entities, refs.inputs, refs.outputs)
-                        if Lab.warm_ready(warm_stock, stock) or t - warm >= Lab.WARM_CAP then
+                        if Lab.warm_ready(warm_stock, stock, prefilled) or t - warm >= Lab.WARM_CAP then
                             warmed, warm = true, t
                             log(string.format("SHEET-WARM %s t=%d inner=%d window=%d", sheet.case, t, stock, window))
                         end
@@ -152,7 +152,7 @@ describe("sheets", function()
                     Lab.inner_stock(built.entities, refs.inputs, refs.outputs)))
                 for _, s in ipairs(sinks) do s.got = {} end
                 window_start = t
-                local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60, FULL_FEED and Lab.inner_stock(built.entities, refs.inputs, refs.outputs) or nil)
+                local stable, mean_per, mean_sunk, grew = Lab.settle(history, per, sunk, window / 60, FULL_FEED and Lab.inner_stock(built.entities, refs.inputs, refs.outputs) or nil)
                 do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                 if not stable then return end
                 per, sunk = mean_per, mean_sunk
@@ -166,6 +166,8 @@ describe("sheets", function()
                     end
                 end
                 local judged, judge_problems, lines = Lab.judge(per, refs.outputs)
+                --Stock still growing and short: buffers may still be filling; keep measuring (Lab.settle).
+                if not judged and grew then game.speed = 1000; return end
                 --Cross-check: what reached the sinks over the judged window is within 5% of what was made (hand loads in
                 --flight at both window edges), else the output path loses items.
                 for full_name, made in pairs(per) do

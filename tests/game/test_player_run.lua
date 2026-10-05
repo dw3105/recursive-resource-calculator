@@ -307,7 +307,7 @@ describe("player run", function()
                                     log(string.format("PLAYER-RUN-PREFILL %s t=%d items=%d", c.case, now, Lab.prefill_inner(entities, refs.inputs, refs.outputs, stack)))
                                 end
                                 local stock = Lab.inner_stock(entities, refs.inputs, refs.outputs)
-                                if Lab.warm_ready(warm_stock, stock) or now - warm >= Lab.WARM_CAP then
+                                if Lab.warm_ready(warm_stock, stock, prefilled) or now - warm >= Lab.WARM_CAP then
                                     warmed, warm = true, now
                                     log(string.format("PLAYER-RUN-WARM %s t=%d inner=%d window=%d", c.case, now, stock, window))
                                 end
@@ -334,12 +334,14 @@ describe("player run", function()
                             Lab.inner_stock(entities, refs.inputs, refs.outputs)))
                         for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end; s.got = {} end
                         window_start = now
-                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60, feed_full and Lab.inner_stock(entities, refs.inputs, refs.outputs) or nil)
+                        local stable, mean_per, mean_sunk, grew = Lab.settle(history, per, sunk, window / 60, feed_full and Lab.inner_stock(entities, refs.inputs, refs.outputs) or nil)
                         do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                         if not stable then return end
                         per, sunk = mean_per, mean_sunk
                         game.speed = 1
                         local ok, problems, lines = Lab.judge(per, refs.outputs)
+                        --Stock still growing and short: buffers may still be filling; keep measuring (Lab.settle).
+                        if not ok and grew then game.speed = 1000; return end
                         problems = problems or {}
                         for full_name, made in pairs(per) do
                             if made > 0 and math.abs((sunk[full_name] or 0) - made) > 0.05 * made then

@@ -180,6 +180,12 @@ do
     history = {}
     for _, inner in ipairs({48104, 48090, 48120, 48100}) do settled = Lab.settle(history, {["item/p"] = 10}, {["item/p"] = 10}, 60, inner) end
     assert(settled, "MT12 steady output and flat stock settle")
+    history = {}
+    local grew
+    for _, inner in ipairs({26305, 27222, 27628, 28723}) do settled, _, _, grew = Lab.settle(history, {["item/p"] = 10.5}, {["item/p"] = 10.5}, 60, inner) end
+    assert(settled and grew, "MT12 growing stock settles as a lower bound, flagged grew")
+    assert(Lab.warm_ready(26000, 27000, true) and not Lab.warm_ready(26000, 27000), "MT12 prefilled warm ends on growth, metered does not")
+    assert(not Lab.warm_ready(27000, 26000, true), "MT12 prefilled warm waits while draining")
     print("MT12")
 end
 print("test_lab_meter 12 passed 0 failed")
