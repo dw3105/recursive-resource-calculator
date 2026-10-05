@@ -72,6 +72,9 @@ describe("player drive", function()
         async()
     end)
     it("PD5 driver source never binds or writes chosen selections", function()
+        --A source scan: the offline run (tests/game/offline.lua) reads the file; the engine sandbox has no io (suite
+        --2026-10-05: "attempt to index global 'io'"), so in game this static check has nothing to read.
+        if type(io) ~= "table" then print("PD5 offline only"); return end
         local f = assert(io.open("tests/game/lib/player_drive.lua", "r")); local source = f:read("*a"); f:close()
         assert.is_nil(source:match("S%.bind"))
         assert.is_nil(source:match("recipes_by_product_full_name%s*%[.-%]%s*="))
