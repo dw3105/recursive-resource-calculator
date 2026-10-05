@@ -2,7 +2,7 @@
 --the way a player does it. GUI handlers set up the sheet (tests/game/lib/player_drive.lua), the generation dialog's
 --generate click puts the blueprint in the cursor, build_from_cursor places ghosts, revive + module insert stand in for
 --bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), a full-feed warm-up
---primes machines and pipes, every belt is emptied, then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
+--primes machines and pipes, input belts are emptied, then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
 --against the calculation (Lab.judge), live calc == staged refs, no foreign item at a sink, no refused build.
 --Round gate + release only: runs when tools/game_test.sh got RRC_PLAYER_RUN=1 (profile_map.player_run).
 --Engine facts (probes P1/P3 2026-10-05, 2.0 + 2.1): the headless player is a character; build_from_cursor out of
@@ -211,31 +211,36 @@ describe("player run", function()
                     local window, phase = WINDOW, "detect"
                     local pool = Lab.meter_new(refs.inputs)
                     local t0, window_start, history, cleared = game.tick, nil, {}, false
+                    --Judged on production (Lab.made deltas); the sink count is the cross-check (tests/game/test_sheets.lua).
+                    local made_start
                     local function per_s_now()
-                        local per = {}
+                        local per, sunk = {}, {}
                         for _, s in ipairs(sinks) do
                             for name, count in pairs(s.got) do
                                 local full = outputs["item/" .. name] and ("item/" .. name) or ("fluid/" .. name)
-                                per[full] = (per[full] or 0) + count / (window / 60)
+                                sunk[full] = (sunk[full] or 0) + count / (window / 60)
                             end
                         end
-                        return per
+                        local made_now = Lab.made(entities, outputs)
+                        for full in pairs(outputs) do per[full] = ((made_now[full] or 0) - ((made_start or {})[full] or 0)) / (window / 60) end
+                        made_start = made_now
+                        return per, sunk
                     end
                     game.speed = 1000
                     on_tick(function()
                         local now = game.tick - t0
-                        --Full-feed warm-up primes machines and pipes, then every belt is emptied and only Metered feed runs.
+                        --Full-feed warm-up primes machines and pipes, then input-only belts are emptied and only Metered feed runs.
                         if now < warm then
                             Lab.feed_tick(feeds, stack)
                         else
-                            if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_belts(entities)) end
+                            if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_input_belts(entities, refs.inputs)) end
                             Lab.meter_tick(pool, feeds, stack)
                         end
                         local measuring = now >= warm
-                        if measuring and not window_start then window_start = now end
+                        if measuring and not window_start then window_start = now; made_start = Lab.made(entities, outputs) end
                         Lab.sink_tick(sinks, measuring)
                         if not window_start or now - window_start < window then return end
-                        local per = per_s_now()
+                        local per, sunk = per_s_now()
                         local worst = math.huge
                         for full_name, rate in pairs(refs.outputs) do worst = math.min(worst, (per[full_name] or 0) / rate) end
                         log(string.format("PLAYER-RUN-WINDOW %s %s t=%d worst=%.3f %s", c.case, phase, now, worst, serpent.line(per)))
@@ -254,6 +259,11 @@ describe("player run", function()
                         game.speed = 1
                         local ok, problems, lines = Lab.judge(per, refs.outputs)
                         problems = problems or {}
+                        for full_name, made in pairs(per) do
+                            if made > 0 and math.abs((sunk[full_name] or 0) - made) > 0.05 * made then
+                                problems[#problems + 1] = string.format("SINK_DIFF %s made %.3f/s sunk %.3f/s", full_name, made, sunk[full_name] or 0)
+                            end
+                        end
                         local backlog = Lab.meter_backlog(pool, feeds, stack)
                         if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
                         for _, s in ipairs(sinks) do

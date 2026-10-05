@@ -306,21 +306,50 @@ function Lab.judge(per_s, outputs)
     return ok, problems, lines
 end
 
---End of warm-up (2026-10-05): empty every belt line of the build. A full-feed warm-up primes machine slots and pipes
---(metering from empty left red-1s-bulk at R=0.967 after 22 game minutes); the stacked belt stock it also leaves would
---be eaten by rounded-up machines faster than calc (R=1.05), so belts start the metered phase empty.
-function Lab.clear_belts(entities)
+--End of warm-up (2026-10-05): empty every belt that carries only sheet inputs (the input chains). A full-feed warm-up
+--primes machines and pipes (metering from empty left red-1s-bulk at R=0.967 after 22 game minutes), but its stacked
+--input stock would be eaten by rounded-up machines faster than calc (R=1.05). Inner belts keep their stock: emptying
+--them too let plate and gear foundries take shared molten iron to refill them and starved casting-pipe (blue 0.567).
+function Lab.clear_input_belts(entities, inputs)
     local cleared = 0
     for _, e in pairs(entities) do
         if e.valid and (e.type == "transport-belt" or e.type == "underground-belt" or e.type == "splitter") then
+            local only_inputs, any = true, false
             for i = 1, e.get_max_transport_line_index() do
-                local line = e.get_transport_line(i)
-                cleared = cleared + line.get_item_count()
-                line.clear()
+                for _, it in pairs(e.get_transport_line(i).get_contents()) do
+                    any = true
+                    if not inputs["item/" .. it.name] then only_inputs = false end
+                end
+            end
+            if any and only_inputs then
+                for i = 1, e.get_max_transport_line_index() do
+                    local line = e.get_transport_line(i)
+                    cleared = cleared + line.get_item_count()
+                    line.clear()
+                end
             end
         end
     end
     return cleared
+end
+
+--Output made so far, from the machines that make each output: products_finished counts crafts including productivity
+--bonus crafts (blue 2026-10-05: plastic 5.35/s game vs 2.143 x 2.5 calc), so items = crafts x base product amount.
+--Smooth per craft, unlike a sink count that arrives in hand loads (bulk hands drop 16: +-2.7% in a 600-item window).
+function Lab.made(entities, outputs)
+    local made = {}
+    for _, e in pairs(entities) do
+        if e.valid and (e.type == "assembling-machine" or e.type == "furnace") then
+            local r = e.get_recipe()
+            if r then
+                for _, p in ipairs(r.products) do
+                    local full = p.type .. "/" .. p.name
+                    if outputs[full] then made[full] = (made[full] or 0) + e.products_finished * (p.amount or 0) end
+                end
+            end
+        end
+    end
+    return made
 end
 
 --Lane max in items per tick for a belt entity at this stack (belt_speed tiles/tick x 4 slots per tile... per lane).

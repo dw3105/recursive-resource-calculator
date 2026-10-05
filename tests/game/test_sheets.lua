@@ -1,4 +1,4 @@
---Sheet sims use calculation refs: full-feed warm-up, belts emptied, then Metered feed.
+--Sheet sims use calculation refs: full-feed warm-up, input belts emptied, then Metered feed.
 --Fixtures: tests/fixtures/sheets/<case>.bp.txt + <case>.ports.json (tools/sheet_ports.py), embedded by
 --tools/game_stage.sh as tests.game.fixtures.sheets_index. A sheet runs only in its profile (player sheets need the
 --player's mods: RRC_PROFILE=player).
@@ -100,17 +100,21 @@ describe("sheets", function()
             local LONG = math.max(WINDOW, math.ceil(600 / min_rate) * 60)
             local window, phase = WINDOW, "detect"
             local t0, window_start, history, pool = game.tick, nil, {}, nil
+            --Judged on production (Lab.made deltas over the window); the sink count is the cross-check.
+            local made_start
             local function rates_now()
                 local got = {}
                 for _, s in ipairs(sinks) do for name, count in pairs(s.got) do got[name] = (got[name] or 0) + count end end
-                local out, worst = {}, math.huge
+                local made_now = Lab.made(built.entities, refs.outputs)
+                local out, sunk, worst = {}, {}, math.huge
                 for full_name, rate in pairs(refs.outputs) do
                     local name = full_name:match("^[^/]+/(.*)$") or full_name
-                    local per_s = (got[name] or 0) / (window / 60)
-                    out[full_name] = per_s
-                    worst = math.min(worst, per_s / rate)
+                    sunk[full_name] = (got[name] or 0) / (window / 60)
+                    out[full_name] = ((made_now[full_name] or 0) - ((made_start or {})[full_name] or 0)) / (window / 60)
+                    worst = math.min(worst, out[full_name] / rate)
                 end
-                return out, worst
+                made_start = made_now
+                return out, worst, sunk
             end
             --Warm-up plus steady windows can pass the FactorioTest 36000-tick default (green-1s, blue): own limit.
             async(warm + LIMIT + LONG + 3600)
@@ -118,22 +122,22 @@ describe("sheets", function()
             on_tick(function()
                 local t = game.tick - t0
                 local measuring = t >= warm
-                --Warm-up: full feed primes machines and pipes; at its end every belt is emptied (Lab.clear_belts), then
+                --Warm-up: full feed primes machines and pipes; at its end input-only belts are emptied (Lab.clear_input_belts), then
                 --Metered feed only (2026-10-05).
                 if not measuring then
                     Lab.feed_tick(feeds, stack)
                 else
                     if not pool then
                         pool = Lab.meter_new(refs.inputs)
-                        log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_belts(built.entities)))
+                        log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_input_belts(built.entities, refs.inputs)))
                     end
                     Lab.meter_tick(pool, feeds, stack)
                 end
-                if measuring and not window_start then window_start = t end
+                if measuring and not window_start then window_start = t; made_start = Lab.made(built.entities, refs.outputs) end
                 Lab.sink_tick(sinks, measuring)
                 if not window_start or t - window_start < window then return end
-                local per, worst = rates_now()
-                log(string.format("SHEET-WINDOW %s %s t=%d worst=%.3f %s", sheet.case, phase, t, worst, serpent.line(per)))
+                local per, worst, sunk = rates_now()
+                log(string.format("SHEET-WINDOW %s %s t=%d worst=%.3f made=%s sunk=%s", sheet.case, phase, t, worst, serpent.line(per), serpent.line(sunk)))
                 if phase == "detect" then
                     history[#history + 1] = per
                     local steady = #history >= 2
@@ -157,8 +161,14 @@ describe("sheets", function()
                         got[name] = (got[name] or 0) + count
                     end
                 end
-                local per = rates_now()
                 local judged, judge_problems, lines = Lab.judge(per, refs.outputs)
+                --Cross-check: what reached the sinks over the judged window is within 5% of what was made (hand loads in
+                --flight at both window edges), else the output path loses items.
+                for full_name, made in pairs(per) do
+                    if made > 0 and math.abs((sunk[full_name] or 0) - made) > 0.05 * made then
+                        problems[#problems + 1] = string.format("SINK_DIFF %s made %.3f/s sunk %.3f/s", full_name, made, sunk[full_name] or 0)
+                    end
+                end
                 for _, problem in ipairs(judge_problems) do problems[#problems + 1] = problem end
                 local backlog = Lab.meter_backlog(pool, feeds, stack)
                 if #backlog > 0 then problems[#problems + 1] = "POOL_BACKLOG " .. table.concat(backlog, ",") end
