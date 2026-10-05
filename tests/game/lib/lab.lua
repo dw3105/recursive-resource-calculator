@@ -250,10 +250,14 @@ function Lab.meter_tick(pool, feeds, stack)
             else
                 for lane = 1, 2 do
                     local line = entity.get_transport_line(lane)
-                    while meter.credit >= stack do
-                        local ok, inserted = pcall(line.insert_at_back, {name = feed.item, count = stack}, stack)
+                    --Batch = one second of rate, 1..stack: whole-stack-only held calcite at 0.0178/s for 67500 ticks and
+                    --foundries made nothing (red-1s-bulk R=0.000, 2026-10-05); 1-item stacks at 10/s would waste belt slots.
+                    local batch = math.max(1, math.min(stack, math.ceil(meter.rate)))
+                    while meter.credit >= batch do
+                        local n = math.min(stack, math.floor(meter.credit))
+                        local ok, inserted = pcall(line.insert_at_back, {name = feed.item, count = n}, n)
                         if not ok or not inserted then break end
-                        meter.credit = meter.credit - stack
+                        meter.credit = meter.credit - n
                     end
                 end
             end
