@@ -11,9 +11,11 @@ local cases={"player-am2-chain-repaired","player-blue-science-10s","player-green
 "player-inserter-10s-bulk","player-inserter-10s-stack1","player-red-green-science-10s","player-red-science-10s",
 "player-red-science-10s-bulk","player-red-science-10s-stack1","player-red-science-1s","player-red-science-1s-bulk",
 "player-red-science-1s-foundry","vanilla-2.1-red-science-1s","vanilla-2.1-green-science-1s"}
-local function run(case)
+local function run(case,edit)
     local base="tests/fixtures/sheets/"..case
     local f=json(base..".entities.json"); local expected=json(base:gsub("/sheets/","/sheets/")..".ports.json")
+    for _,e in ipairs(f.entities) do e.position={x=e.x,y=e.y} end
+    if edit then f.entities=edit(f.entities) or f.entities end
     local recipes={}; local input,output={},{}; local sizes={}
     local prepared="tests/golden/cases/"..case.."/prepared_input.json"
     local file=io.open(prepared)
@@ -43,11 +45,13 @@ local function same(a,b)
 end
 
 H.test("PF1 geometry identifies every fixture feed", function()
-    for _,case in ipairs(cases) do local got,want=run(case); local ok,msg=same(set(got.feeds),set(want.feeds)); H.equal(ok,true,case.." feeds: "..msg) end
+    local failures={}; for _,case in ipairs(cases) do local got,want=run(case); local ok,msg=same(set(got.feeds),set(want.feeds)); if not ok then failures[#failures+1]=case.." "..msg end end
+    H.equal(#failures,0,table.concat(failures,"\n"))
     print("PF1")
 end)
 H.test("PF2 geometry identifies every fixture sink", function()
-    for _,case in ipairs(cases) do local got,want=run(case); local expected={}; for _,v in ipairs(want.sinks) do for _,n in ipairs(v.items) do expected[#expected+1]={tile=v.tile,item=n} end end; local ok,msg=same(set(got.sinks),set(expected)); H.equal(ok,true,case.." sinks: "..msg) end
+    local failures={}; for _,case in ipairs(cases) do local got,want=run(case); local expected={}; for _,v in ipairs(want.sinks) do for _,n in ipairs(v.items) do expected[#expected+1]={tile=v.tile,item=n} end end; local ok,msg=same(set(got.sinks),set(expected)); if not ok then failures[#failures+1]=case.." "..msg end end
+    H.equal(#failures,0,table.concat(failures,"\n"))
     print("PF2")
 end)
 H.test("PF3 geometry identifies fluid feeds", function()
@@ -56,7 +60,19 @@ H.test("PF3 geometry identifies fluid feeds", function()
     end; print("PF3")
 end)
 H.test("PF4 reports an unnamed input feed", function()
-    local got=run("player-red-science-1s"); H.equal(#got.problems>0,true,"unmatched feed is reported"); print("PF4")
+    local function prepared(entities,remove)
+        local out={}
+        for _,e in ipairs(entities) do
+            if e.name=="electric-furnace" and e.x==4.5 and e.y==8.5 then e.recipe="copper-plate" end
+            if not (remove and e.name=="inserter" and e.x==4.5 and e.y==6.5) then out[#out+1]=e end
+        end
+        return out
+    end
+    local complete=run("player-red-science-1s",function(es)return prepared(es,false)end)
+    local missing=run("player-red-science-1s",function(es)return prepared(es,true)end)
+    H.equal(set(complete.feeds)["0:5:copper-ore"],true,"the selected hand names the copper feed")
+    H.equal(set(missing.feeds)["0:5:copper-ore"],nil,"removing its hand removes the feed name")
+    H.equal(#missing.problems>0,true,"the unnamed edge feed is reported"); print("PF4")
 end)
 H.test("PF5 finder does not inspect port ids", function()
     local f=assert(io.open("tests/game/lib/ports.lua")); local s=f:read("*a"); f:close(); H.equal(s:find("port_id",1,true),nil); print("PF5")

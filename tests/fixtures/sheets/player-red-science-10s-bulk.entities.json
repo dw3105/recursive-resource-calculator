@@ -2,1454 +2,1078 @@
   "entities": [
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 0.5
-      }
+      "x": 30.5,
+      "y": 0.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 1.5
-      }
+      "x": 30.5,
+      "y": 1.5
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 2,
-        "y": 2
-      }
+      "x": 2,
+      "y": 2
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 52,
-        "y": 2
-      }
+      "x": 52,
+      "y": 2
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 2.5
-      }
+      "x": 30.5,
+      "y": 2.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 3.5
-      }
+      "x": 30.5,
+      "y": 3.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 4.5
-      }
+      "x": 30.5,
+      "y": 4.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 5.5
-      }
+      "x": 30.5,
+      "y": 5.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 6.5
-      },
+      "x": 28.5,
+      "y": 6.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 6.5
-      }
+      "x": 30.5,
+      "y": 6.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 24.5,
-        "y": 7.5
-      },
+      "x": 24.5,
+      "y": 7.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 7.5
-      },
+      "x": 25.5,
+      "y": 7.5,
       "direction": 4
     },
     {
       "name": "turbo-underground-belt",
-      "position": {
-        "x": 26.5,
-        "y": 7.5
-      },
+      "x": 26.5,
+      "y": 7.5,
       "direction": 4,
       "type": "input"
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 7.5
-      }
+      "x": 30.5,
+      "y": 7.5
     },
     {
       "name": "turbo-underground-belt",
-      "position": {
-        "x": 36.5,
-        "y": 7.5
-      },
+      "x": 36.5,
+      "y": 7.5,
       "direction": 4,
       "type": "output"
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 37.5,
-        "y": 7.5
-      },
+      "x": 37.5,
+      "y": 7.5,
       "direction": 8
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 6.5,
-        "y": 8.5
-      }
+      "x": 6.5,
+      "y": 8.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 7.5,
-        "y": 8.5
-      },
+      "x": 7.5,
+      "y": 8.5,
       "direction": 12
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 10.5,
-        "y": 8.5
-      },
+      "x": 10.5,
+      "y": 8.5,
       "direction": 4
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 11.5,
-        "y": 8.5
-      }
+      "x": 11.5,
+      "y": 8.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 20.5,
-        "y": 8.5
-      },
+      "x": 20.5,
+      "y": 8.5,
       "direction": 12
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 21.5,
-        "y": 8.5
-      },
+      "x": 21.5,
+      "y": 8.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 22.5,
-        "y": 8.5
-      },
+      "x": 22.5,
+      "y": 8.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 23.5,
-        "y": 8.5
-      },
+      "x": 23.5,
+      "y": 8.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 24.5,
-        "y": 8.5
-      }
+      "x": 24.5,
+      "y": 8.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 8.5
-      },
+      "x": 25.5,
+      "y": 8.5,
       "direction": 4
     },
     {
       "name": "turbo-underground-belt",
-      "position": {
-        "x": 26.5,
-        "y": 8.5
-      },
+      "x": 26.5,
+      "y": 8.5,
       "direction": 4,
       "type": "input"
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 8.5
-      }
+      "x": 30.5,
+      "y": 8.5
     },
     {
       "name": "turbo-underground-belt",
-      "position": {
-        "x": 35.5,
-        "y": 8.5
-      },
+      "x": 35.5,
+      "y": 8.5,
       "direction": 4,
       "type": "output"
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 8.5
-      },
+      "x": 36.5,
+      "y": 8.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 37.5,
-        "y": 8.5
-      },
+      "x": 37.5,
+      "y": 8.5,
       "direction": 12
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 0.5,
-        "y": 9.5
-      },
+      "x": 0.5,
+      "y": 9.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 9.5
-      },
+      "x": 1.5,
+      "y": 9.5,
       "direction": 4
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 2.5,
-        "y": 9.5
-      },
+      "x": 2.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 11.5,
-        "y": 9.5
-      }
+      "x": 11.5,
+      "y": 9.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 9.5
-      }
+      "x": 25.5,
+      "y": 9.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 9.5
-      },
+      "x": 28.5,
+      "y": 9.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 9.5
-      }
+      "x": 30.5,
+      "y": 9.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 9.5
-      },
+      "x": 31.5,
+      "y": 9.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 9.5
-      },
+      "x": 33.5,
+      "y": 9.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 9.5
-      },
+      "x": 35.5,
+      "y": 9.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 9.5
-      },
+      "x": 36.5,
+      "y": 9.5,
       "direction": 8
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 17.5,
-        "y": 10.5
-      },
+      "x": 17.5,
+      "y": 10.5,
       "recipe": "casting-copper"
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 10.5
-      }
+      "x": 25.5,
+      "y": 10.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 10.5
-      }
+      "x": 30.5,
+      "y": 10.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 10.5
-      },
+      "x": 36.5,
+      "y": 10.5,
       "direction": 8
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 5.5,
-        "y": 11.5
-      },
+      "x": 5.5,
+      "y": 11.5,
       "recipe": "molten-copper"
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 11.5
-      }
+      "x": 25.5,
+      "y": 11.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 11.5
-      }
+      "x": 30.5,
+      "y": 11.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 11.5
-      },
+      "x": 36.5,
+      "y": 11.5,
       "direction": 8
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 11.5,
-        "y": 12.5
-      },
+      "x": 11.5,
+      "y": 12.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 12.5
-      }
+      "x": 25.5,
+      "y": 12.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 12.5
-      },
+      "x": 28.5,
+      "y": 12.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 12.5
-      }
+      "x": 30.5,
+      "y": 12.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 12.5
-      },
+      "x": 31.5,
+      "y": 12.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 12.5
-      },
+      "x": 33.5,
+      "y": 12.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 12.5
-      },
+      "x": 35.5,
+      "y": 12.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 12.5
-      },
+      "x": 36.5,
+      "y": 12.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 0.5,
-        "y": 13.5
-      },
+      "x": 0.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 13.5
-      },
+      "x": 1.5,
+      "y": 13.5,
       "direction": 8
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 2.5,
-        "y": 13.5
-      },
+      "x": 2.5,
+      "y": 13.5,
       "direction": 12
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 11.5,
-        "y": 13.5
-      }
+      "x": 11.5,
+      "y": 13.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 12.5,
-        "y": 13.5
-      },
+      "x": 12.5,
+      "y": 13.5,
       "direction": 12
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 15.5,
-        "y": 13.5
-      },
+      "x": 15.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 16.5,
-        "y": 13.5
-      }
+      "x": 16.5,
+      "y": 13.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 13.5
-      },
+      "x": 19.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 20.5,
-        "y": 13.5
-      },
+      "x": 20.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 21.5,
-        "y": 13.5
-      },
+      "x": 21.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 22.5,
-        "y": 13.5
-      },
+      "x": 22.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 23.5,
-        "y": 13.5
-      },
+      "x": 23.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 24.5,
-        "y": 13.5
-      },
+      "x": 24.5,
+      "y": 13.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 13.5
-      }
+      "x": 25.5,
+      "y": 13.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 13.5
-      }
+      "x": 30.5,
+      "y": 13.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 13.5
-      },
+      "x": 36.5,
+      "y": 13.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 14.5
-      },
+      "x": 1.5,
+      "y": 14.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 14.5
-      }
+      "x": 19.5,
+      "y": 14.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 14.5
-      }
+      "x": 30.5,
+      "y": 14.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 14.5
-      },
+      "x": 36.5,
+      "y": 14.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 15.5
-      },
+      "x": 1.5,
+      "y": 15.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 15.5
-      }
+      "x": 19.5,
+      "y": 15.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 15.5
-      },
+      "x": 28.5,
+      "y": 15.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 15.5
-      }
+      "x": 30.5,
+      "y": 15.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 15.5
-      },
+      "x": 31.5,
+      "y": 15.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 15.5
-      },
+      "x": 33.5,
+      "y": 15.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 15.5
-      },
+      "x": 35.5,
+      "y": 15.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 15.5
-      },
+      "x": 36.5,
+      "y": 15.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 16.5
-      },
+      "x": 1.5,
+      "y": 16.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 16.5,
-        "y": 16.5
-      }
+      "x": 16.5,
+      "y": 16.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 16.5
-      }
+      "x": 19.5,
+      "y": 16.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 16.5
-      }
+      "x": 30.5,
+      "y": 16.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 16.5
-      },
+      "x": 36.5,
+      "y": 16.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 17.5
-      },
+      "x": 1.5,
+      "y": 17.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 3.5,
-        "y": 17.5
-      }
+      "x": 3.5,
+      "y": 17.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 17.5
-      }
+      "x": 19.5,
+      "y": 17.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 17.5
-      }
+      "x": 30.5,
+      "y": 17.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 17.5
-      },
+      "x": 36.5,
+      "y": 17.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 18.5
-      },
+      "x": 1.5,
+      "y": 18.5,
       "direction": 8
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 19.5,
-        "y": 18.5
-      },
+      "x": 19.5,
+      "y": 18.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 18.5
-      },
+      "x": 28.5,
+      "y": 18.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 18.5
-      }
+      "x": 30.5,
+      "y": 18.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 18.5
-      },
+      "x": 31.5,
+      "y": 18.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 18.5
-      },
+      "x": 33.5,
+      "y": 18.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 18.5
-      },
+      "x": 35.5,
+      "y": 18.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 18.5
-      },
+      "x": 36.5,
+      "y": 18.5,
       "direction": 8
     },
     {
       "name": "substation",
-      "position": {
-        "x": 14,
-        "y": 19
-      }
+      "x": 14,
+      "y": 19
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 19.5
-      },
+      "x": 1.5,
+      "y": 19.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 19.5
-      }
+      "x": 30.5,
+      "y": 19.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 19.5
-      },
+      "x": 36.5,
+      "y": 19.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 20.5
-      },
+      "x": 1.5,
+      "y": 20.5,
       "direction": 8
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 6.5,
-        "y": 20.5
-      }
+      "x": 6.5,
+      "y": 20.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 7.5,
-        "y": 20.5
-      },
+      "x": 7.5,
+      "y": 20.5,
       "direction": 12
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 13.5,
-        "y": 20.5
-      },
+      "x": 13.5,
+      "y": 20.5,
       "direction": 4
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 14.5,
-        "y": 20.5
-      }
+      "x": 14.5,
+      "y": 20.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 20.5
-      }
+      "x": 30.5,
+      "y": 20.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 20.5
-      },
+      "x": 36.5,
+      "y": 20.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 21.5
-      },
+      "x": 1.5,
+      "y": 21.5,
       "direction": 8
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 2.5,
-        "y": 21.5
-      },
+      "x": 2.5,
+      "y": 21.5,
       "direction": 12
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 14.5,
-        "y": 21.5
-      }
+      "x": 14.5,
+      "y": 21.5
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 17.5,
-        "y": 21.5
-      },
+      "x": 17.5,
+      "y": 21.5,
       "recipe": "casting-iron-gear-wheel"
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 21.5
-      },
+      "x": 28.5,
+      "y": 21.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 21.5
-      }
+      "x": 30.5,
+      "y": 21.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 21.5
-      },
+      "x": 31.5,
+      "y": 21.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 21.5
-      },
+      "x": 33.5,
+      "y": 21.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 21.5
-      },
+      "x": 35.5,
+      "y": 21.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 21.5
-      },
+      "x": 36.5,
+      "y": 21.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 22.5
-      }
+      "x": 30.5,
+      "y": 22.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 22.5
-      },
+      "x": 36.5,
+      "y": 22.5,
       "direction": 8
     },
     {
       "name": "substation",
-      "position": {
-        "x": 22,
-        "y": 23
-      }
+      "x": 22,
+      "y": 23
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 5.5,
-        "y": 23.5
-      },
+      "x": 5.5,
+      "y": 23.5,
       "recipe": "molten-iron"
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 14.5,
-        "y": 23.5
-      },
+      "x": 14.5,
+      "y": 23.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 23.5
-      }
+      "x": 30.5,
+      "y": 23.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 23.5
-      },
+      "x": 36.5,
+      "y": 23.5,
       "direction": 8
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 14.5,
-        "y": 24.5
-      }
+      "x": 14.5,
+      "y": 24.5
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 15.5,
-        "y": 24.5
-      }
+      "x": 15.5,
+      "y": 24.5
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 16.5,
-        "y": 24.5
-      }
+      "x": 16.5,
+      "y": 24.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 24.5
-      },
+      "x": 28.5,
+      "y": 24.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 24.5
-      }
+      "x": 30.5,
+      "y": 24.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 24.5
-      },
+      "x": 31.5,
+      "y": 24.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 24.5
-      },
+      "x": 33.5,
+      "y": 24.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 24.5
-      },
+      "x": 35.5,
+      "y": 24.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 24.5
-      },
+      "x": 36.5,
+      "y": 24.5,
       "direction": 8
     },
     {
       "name": "substation",
-      "position": {
-        "x": 22,
-        "y": 25
-      }
+      "x": 22,
+      "y": 25
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 0.5,
-        "y": 25.5
-      },
+      "x": 0.5,
+      "y": 25.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 25.5
-      },
+      "x": 1.5,
+      "y": 25.5,
       "direction": 4
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 2.5,
-        "y": 25.5
-      },
+      "x": 2.5,
+      "y": 25.5,
       "direction": 12
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 25.5
-      }
+      "x": 30.5,
+      "y": 25.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 25.5
-      },
+      "x": 36.5,
+      "y": 25.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 26.5
-      }
+      "x": 30.5,
+      "y": 26.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 26.5
-      },
+      "x": 36.5,
+      "y": 26.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 27.5
-      },
+      "x": 28.5,
+      "y": 27.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 27.5
-      }
+      "x": 30.5,
+      "y": 27.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 27.5
-      },
+      "x": 31.5,
+      "y": 27.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 27.5
-      },
+      "x": 33.5,
+      "y": 27.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 27.5
-      },
+      "x": 35.5,
+      "y": 27.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 27.5
-      },
+      "x": 36.5,
+      "y": 27.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 28.5
-      }
+      "x": 30.5,
+      "y": 28.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 28.5
-      },
+      "x": 36.5,
+      "y": 28.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 29.5
-      }
+      "x": 30.5,
+      "y": 29.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 29.5
-      },
+      "x": 36.5,
+      "y": 29.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 30.5
-      },
+      "x": 28.5,
+      "y": 30.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 30.5
-      }
+      "x": 30.5,
+      "y": 30.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 30.5
-      },
+      "x": 31.5,
+      "y": 30.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 30.5
-      },
+      "x": 33.5,
+      "y": 30.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 30.5
-      },
+      "x": 35.5,
+      "y": 30.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 30.5
-      },
+      "x": 36.5,
+      "y": 30.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 31.5
-      }
+      "x": 30.5,
+      "y": 31.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 31.5
-      },
+      "x": 36.5,
+      "y": 31.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 32.5
-      }
+      "x": 30.5,
+      "y": 32.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 32.5
-      },
+      "x": 36.5,
+      "y": 32.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 33.5
-      },
+      "x": 28.5,
+      "y": 33.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 33.5
-      }
+      "x": 30.5,
+      "y": 33.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 33.5
-      },
+      "x": 31.5,
+      "y": 33.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 33.5
-      },
+      "x": 33.5,
+      "y": 33.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 33.5
-      },
+      "x": 35.5,
+      "y": 33.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 33.5
-      },
+      "x": 36.5,
+      "y": 33.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 34.5
-      }
+      "x": 30.5,
+      "y": 34.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 34.5
-      },
+      "x": 36.5,
+      "y": 34.5,
       "direction": 8
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 35.5
-      }
+      "x": 30.5,
+      "y": 35.5
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 35.5
-      },
+      "x": 36.5,
+      "y": 35.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 36.5
-      },
+      "x": 28.5,
+      "y": 36.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 36.5
-      }
+      "x": 30.5,
+      "y": 36.5
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 31.5,
-        "y": 36.5
-      },
+      "x": 31.5,
+      "y": 36.5,
       "direction": 4
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 36.5
-      },
+      "x": 33.5,
+      "y": 36.5,
       "direction": 4,
       "recipe": "automation-science-pack"
     },
     {
       "name": "bulk-inserter",
-      "position": {
-        "x": 35.5,
-        "y": 36.5
-      },
+      "x": 35.5,
+      "y": 36.5,
       "direction": 4
     },
     {
       "name": "turbo-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 36.5
-      },
+      "x": 36.5,
+      "y": 36.5,
       "direction": 8
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 28.5,
-        "y": 39.5
-      },
+      "x": 28.5,
+      "y": 39.5,
       "direction": 4
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 2,
-        "y": 52
-      }
+      "x": 2,
+      "y": 52
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 52,
-        "y": 52
-      }
+      "x": 52,
+      "y": 52
     }
   ],
   "bbox": [

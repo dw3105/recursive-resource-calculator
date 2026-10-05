@@ -14,10 +14,11 @@ def main():
     root = Path(__file__).resolve().parents[1]
     source = root / "tests/fixtures/sheets" / f"{case}.bp.txt"
     entities, _, _ = load_entities(source)
-    result = [{key: entity[key] for key in ("name", "position", "direction", "type", "recipe") if key in entity}
+    result = [{"name": entity["name"], "x": entity["position"]["x"], "y": entity["position"]["y"],
+               **{key: entity[key] for key in ("direction", "type", "recipe") if key in entity}}
               for entity in entities]
-    xs = [e["position"]["x"] for e in result]
-    ys = [e["position"]["y"] for e in result]
+    xs = [e["x"] for e in result]
+    ys = [e["y"] for e in result]
     ports = json.loads(source.with_name(f"{case}.ports.json").read_text())
     bbox = ports["bbox"]
     out = root / "tests/fixtures/sheets" / f"{case}.entities.json"

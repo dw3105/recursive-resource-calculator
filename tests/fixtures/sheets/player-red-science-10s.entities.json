@@ -2,1872 +2,1378 @@
   "entities": [
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 4.5,
-        "y": 0.5
-      }
+      "x": 4.5,
+      "y": 0.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 4.5,
-        "y": 1.5
-      }
+      "x": 4.5,
+      "y": 1.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 1.5
-      },
+      "x": 7.5,
+      "y": 1.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 1.5
-      },
+      "x": 8.5,
+      "y": 1.5,
       "direction": 8
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 2,
-        "y": 2
-      }
+      "x": 2,
+      "y": 2
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 52,
-        "y": 2
-      }
+      "x": 52,
+      "y": 2
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 4.5,
-        "y": 2.5
-      }
+      "x": 4.5,
+      "y": 2.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 6.5,
-        "y": 2.5
-      },
+      "x": 6.5,
+      "y": 2.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 2.5
-      }
+      "x": 7.5,
+      "y": 2.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 2.5
-      },
+      "x": 8.5,
+      "y": 2.5,
       "direction": 8
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 12.5,
-        "y": 2.5
-      }
+      "x": 12.5,
+      "y": 2.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 21.5,
-        "y": 2.5
-      }
+      "x": 21.5,
+      "y": 2.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 30.5,
-        "y": 2.5
-      }
+      "x": 30.5,
+      "y": 2.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 33.5,
-        "y": 2.5
-      }
+      "x": 33.5,
+      "y": 2.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 4.5,
-        "y": 3.5
-      }
+      "x": 4.5,
+      "y": 3.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 6.5,
-        "y": 3.5
-      }
+      "x": 6.5,
+      "y": 3.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 3.5
-      },
+      "x": 8.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 9.5,
-        "y": 3.5
-      },
+      "x": 9.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 10.5,
-        "y": 3.5
-      },
+      "x": 10.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 11.5,
-        "y": 3.5
-      },
+      "x": 11.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 12.5,
-        "y": 3.5
-      },
+      "x": 12.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 13.5,
-        "y": 3.5
-      },
+      "x": 13.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 14.5,
-        "y": 3.5
-      },
+      "x": 14.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 3.5
-      },
+      "x": 15.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 16.5,
-        "y": 3.5
-      },
+      "x": 16.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 17.5,
-        "y": 3.5
-      },
+      "x": 17.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 18.5,
-        "y": 3.5
-      },
+      "x": 18.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 3.5
-      },
+      "x": 19.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 20.5,
-        "y": 3.5
-      },
+      "x": 20.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 21.5,
-        "y": 3.5
-      },
+      "x": 21.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 22.5,
-        "y": 3.5
-      },
+      "x": 22.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 23.5,
-        "y": 3.5
-      },
+      "x": 23.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 24.5,
-        "y": 3.5
-      },
+      "x": 24.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 3.5
-      },
+      "x": 25.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 26.5,
-        "y": 3.5
-      },
+      "x": 26.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 27.5,
-        "y": 3.5
-      },
+      "x": 27.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 28.5,
-        "y": 3.5
-      },
+      "x": 28.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 29.5,
-        "y": 3.5
-      },
+      "x": 29.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 3.5
-      },
+      "x": 30.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 31.5,
-        "y": 3.5
-      },
+      "x": 31.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 32.5,
-        "y": 3.5
-      },
+      "x": 32.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 33.5,
-        "y": 3.5
-      },
+      "x": 33.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 34.5,
-        "y": 3.5
-      },
+      "x": 34.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 35.5,
-        "y": 3.5
-      },
+      "x": 35.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 3.5
-      },
+      "x": 36.5,
+      "y": 3.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 3.5,
-        "y": 4.5
-      },
+      "x": 3.5,
+      "y": 4.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 4.5,
-        "y": 4.5
-      }
+      "x": 4.5,
+      "y": 4.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 6.5,
-        "y": 4.5
-      }
+      "x": 6.5,
+      "y": 4.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 4.5
-      },
+      "x": 7.5,
+      "y": 4.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 4.5
-      }
+      "x": 8.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 9.5,
-        "y": 4.5
-      }
+      "x": 9.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 12.5,
-        "y": 4.5
-      }
+      "x": 12.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 15.5,
-        "y": 4.5
-      }
+      "x": 15.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 18.5,
-        "y": 4.5
-      }
+      "x": 18.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 21.5,
-        "y": 4.5
-      }
+      "x": 21.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 24.5,
-        "y": 4.5
-      }
+      "x": 24.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 27.5,
-        "y": 4.5
-      }
+      "x": 27.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 30.5,
-        "y": 4.5
-      }
+      "x": 30.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 33.5,
-        "y": 4.5
-      }
+      "x": 33.5,
+      "y": 4.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 36.5,
-        "y": 4.5
-      }
+      "x": 36.5,
+      "y": 4.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 3.5,
-        "y": 5.5
-      }
+      "x": 3.5,
+      "y": 5.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 6.5,
-        "y": 5.5
-      }
+      "x": 6.5,
+      "y": 5.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 5.5
-      }
+      "x": 7.5,
+      "y": 5.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 3.5,
-        "y": 6.5
-      }
+      "x": 3.5,
+      "y": 6.5
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 6.5,
-        "y": 6.5
-      },
+      "x": 6.5,
+      "y": 6.5,
       "type": "output"
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 7.5,
-        "y": 6.5
-      },
+      "x": 7.5,
+      "y": 6.5,
       "type": "output"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 9.5,
-        "y": 6.5
-      },
+      "x": 9.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 12.5,
-        "y": 6.5
-      },
+      "x": 12.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 15.5,
-        "y": 6.5
-      },
+      "x": 15.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 18.5,
-        "y": 6.5
-      },
+      "x": 18.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 21.5,
-        "y": 6.5
-      },
+      "x": 21.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 24.5,
-        "y": 6.5
-      },
+      "x": 24.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 27.5,
-        "y": 6.5
-      },
+      "x": 27.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 30.5,
-        "y": 6.5
-      },
+      "x": 30.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 33.5,
-        "y": 6.5
-      },
+      "x": 33.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "assembling-machine-3",
-      "position": {
-        "x": 36.5,
-        "y": 6.5
-      },
+      "x": 36.5,
+      "y": 6.5,
       "recipe": "automation-science-pack"
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 3.5,
-        "y": 7.5
-      }
+      "x": 3.5,
+      "y": 7.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 3.5,
-        "y": 8.5
-      }
+      "x": 3.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 9.5,
-        "y": 8.5
-      }
+      "x": 9.5,
+      "y": 8.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 10.5,
-        "y": 8.5
-      }
+      "x": 10.5,
+      "y": 8.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 11.5,
-        "y": 8.5
-      }
+      "x": 11.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 12.5,
-        "y": 8.5
-      }
+      "x": 12.5,
+      "y": 8.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 13.5,
-        "y": 8.5
-      }
+      "x": 13.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 15.5,
-        "y": 8.5
-      }
+      "x": 15.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 18.5,
-        "y": 8.5
-      }
+      "x": 18.5,
+      "y": 8.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 20.5,
-        "y": 8.5
-      }
+      "x": 20.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 21.5,
-        "y": 8.5
-      }
+      "x": 21.5,
+      "y": 8.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 22.5,
-        "y": 8.5
-      }
+      "x": 22.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 24.5,
-        "y": 8.5
-      }
+      "x": 24.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 27.5,
-        "y": 8.5
-      }
+      "x": 27.5,
+      "y": 8.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 29.5,
-        "y": 8.5
-      }
+      "x": 29.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 30.5,
-        "y": 8.5
-      }
+      "x": 30.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 33.5,
-        "y": 8.5
-      }
+      "x": 33.5,
+      "y": 8.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 35.5,
-        "y": 8.5
-      }
+      "x": 35.5,
+      "y": 8.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 36.5,
-        "y": 8.5
-      }
+      "x": 36.5,
+      "y": 8.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 3.5,
-        "y": 9.5
-      }
+      "x": 3.5,
+      "y": 9.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 4.5,
-        "y": 9.5
-      },
+      "x": 4.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 5.5,
-        "y": 9.5
-      },
+      "x": 5.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 6.5,
-        "y": 9.5
-      },
+      "x": 6.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 9.5
-      },
+      "x": 7.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 9.5
-      },
+      "x": 8.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 9.5,
-        "y": 9.5
-      },
+      "x": 9.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 10.5,
-        "y": 9.5
-      },
+      "x": 10.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 11.5,
-        "y": 9.5
-      },
+      "x": 11.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 12.5,
-        "y": 9.5
-      },
+      "x": 12.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 13.5,
-        "y": 9.5
-      },
+      "x": 13.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 14.5,
-        "y": 9.5
-      },
+      "x": 14.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 9.5
-      },
+      "x": 15.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 16.5,
-        "y": 9.5
-      },
+      "x": 16.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 17.5,
-        "y": 9.5
-      },
+      "x": 17.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 18.5,
-        "y": 9.5
-      },
+      "x": 18.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 9.5
-      },
+      "x": 19.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 20.5,
-        "y": 9.5
-      },
+      "x": 20.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 21.5,
-        "y": 9.5
-      },
+      "x": 21.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 22.5,
-        "y": 9.5
-      },
+      "x": 22.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 23.5,
-        "y": 9.5
-      },
+      "x": 23.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 24.5,
-        "y": 9.5
-      },
+      "x": 24.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 25.5,
-        "y": 9.5
-      },
+      "x": 25.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 26.5,
-        "y": 9.5
-      },
+      "x": 26.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 27.5,
-        "y": 9.5
-      },
+      "x": 27.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 28.5,
-        "y": 9.5
-      },
+      "x": 28.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 29.5,
-        "y": 9.5
-      },
+      "x": 29.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 30.5,
-        "y": 9.5
-      },
+      "x": 30.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 31.5,
-        "y": 9.5
-      },
+      "x": 31.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 32.5,
-        "y": 9.5
-      },
+      "x": 32.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 33.5,
-        "y": 9.5
-      },
+      "x": 33.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 34.5,
-        "y": 9.5
-      },
+      "x": 34.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 35.5,
-        "y": 9.5
-      },
+      "x": 35.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 36.5,
-        "y": 9.5
-      },
+      "x": 36.5,
+      "y": 9.5,
       "direction": 12
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 6.5,
-        "y": 11.5
-      }
+      "x": 6.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 9.5,
-        "y": 11.5
-      }
+      "x": 9.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 12.5,
-        "y": 11.5
-      }
+      "x": 12.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 15.5,
-        "y": 11.5
-      }
+      "x": 15.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 18.5,
-        "y": 11.5
-      }
+      "x": 18.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 21.5,
-        "y": 11.5
-      }
+      "x": 21.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 24.5,
-        "y": 11.5
-      }
+      "x": 24.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 27.5,
-        "y": 11.5
-      }
+      "x": 27.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 30.5,
-        "y": 11.5
-      }
+      "x": 30.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 33.5,
-        "y": 11.5
-      }
+      "x": 33.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 36.5,
-        "y": 11.5
-      }
+      "x": 36.5,
+      "y": 11.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 39.5,
-        "y": 11.5
-      }
+      "x": 39.5,
+      "y": 11.5
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 6.5,
-        "y": 13.5
-      },
+      "x": 6.5,
+      "y": 13.5,
       "type": "input"
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 7.5,
-        "y": 13.5
-      },
+      "x": 7.5,
+      "y": 13.5,
       "type": "input"
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 6.5,
-        "y": 14.5
-      }
+      "x": 6.5,
+      "y": 14.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 14.5
-      }
+      "x": 7.5,
+      "y": 14.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 14.5
-      },
+      "x": 8.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 9.5,
-        "y": 14.5
-      },
+      "x": 9.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 10.5,
-        "y": 14.5
-      },
+      "x": 10.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 11.5,
-        "y": 14.5
-      },
+      "x": 11.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 12.5,
-        "y": 14.5
-      },
+      "x": 12.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 13.5,
-        "y": 14.5
-      },
+      "x": 13.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 14.5,
-        "y": 14.5
-      },
+      "x": 14.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 14.5
-      },
+      "x": 15.5,
+      "y": 14.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 6.5,
-        "y": 15.5
-      }
+      "x": 6.5,
+      "y": 15.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 15.5
-      },
+      "x": 7.5,
+      "y": 15.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 15.5
-      },
+      "x": 8.5,
+      "y": 15.5,
       "direction": 12
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 9.5,
-        "y": 15.5
-      }
+      "x": 9.5,
+      "y": 15.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 15.5
-      }
+      "x": 15.5,
+      "y": 15.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 16.5,
-        "y": 15.5
-      }
+      "x": 16.5,
+      "y": 15.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 16.5
-      }
+      "x": 8.5,
+      "y": 16.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 16.5
-      }
+      "x": 15.5,
+      "y": 16.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 17.5
-      }
+      "x": 8.5,
+      "y": 17.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 17.5
-      }
+      "x": 15.5,
+      "y": 17.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 18.5
-      }
+      "x": 8.5,
+      "y": 18.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 18.5
-      }
+      "x": 15.5,
+      "y": 18.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 19.5
-      }
+      "x": 8.5,
+      "y": 19.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 19.5
-      }
+      "x": 15.5,
+      "y": 19.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 20.5
-      }
+      "x": 8.5,
+      "y": 20.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 20.5
-      }
+      "x": 15.5,
+      "y": 20.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 21.5
-      }
+      "x": 8.5,
+      "y": 21.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 21.5
-      }
+      "x": 15.5,
+      "y": 21.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 22.5
-      }
+      "x": 8.5,
+      "y": 22.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 22.5
-      }
+      "x": 15.5,
+      "y": 22.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 23.5,
-        "y": 22.5
-      }
+      "x": 23.5,
+      "y": 22.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 7.5,
-        "y": 23.5
-      }
+      "x": 7.5,
+      "y": 23.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 23.5
-      }
+      "x": 8.5,
+      "y": 23.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 23.5
-      }
+      "x": 15.5,
+      "y": 23.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 19.5,
-        "y": 23.5
-      }
+      "x": 19.5,
+      "y": 23.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 24.5
-      },
+      "x": 7.5,
+      "y": 24.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 24.5
-      }
+      "x": 8.5,
+      "y": 24.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 24.5
-      }
+      "x": 15.5,
+      "y": 24.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 25.5
-      }
+      "x": 7.5,
+      "y": 25.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 25.5
-      }
+      "x": 8.5,
+      "y": 25.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 9.5,
-        "y": 25.5
-      },
+      "x": 9.5,
+      "y": 25.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 25.5
-      }
+      "x": 15.5,
+      "y": 25.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 20.5,
-        "y": 25.5
-      }
+      "x": 20.5,
+      "y": 25.5
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 21.5,
-        "y": 25.5
-      },
+      "x": 21.5,
+      "y": 25.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 7.5,
-        "y": 26.5
-      }
+      "x": 7.5,
+      "y": 26.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 8.5,
-        "y": 26.5
-      },
+      "x": 8.5,
+      "y": 26.5,
       "direction": 12
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 9.5,
-        "y": 26.5
-      },
+      "x": 9.5,
+      "y": 26.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 15.5,
-        "y": 26.5
-      }
+      "x": 15.5,
+      "y": 26.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 16.5,
-        "y": 26.5
-      },
+      "x": 16.5,
+      "y": 26.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 17.5,
-        "y": 26.5
-      },
+      "x": 17.5,
+      "y": 26.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 18.5,
-        "y": 26.5
-      },
+      "x": 18.5,
+      "y": 26.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 19.5,
-        "y": 26.5
-      },
+      "x": 19.5,
+      "y": 26.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 20.5,
-        "y": 26.5
-      },
+      "x": 20.5,
+      "y": 26.5,
       "direction": 12
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 21.5,
-        "y": 26.5
-      },
+      "x": 21.5,
+      "y": 26.5,
       "direction": 4
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 12.5,
-        "y": 27.5
-      },
+      "x": 12.5,
+      "y": 27.5,
       "recipe": "casting-copper"
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 15.5,
-        "y": 27.5
-      }
+      "x": 15.5,
+      "y": 27.5
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 24.5,
-        "y": 27.5
-      },
+      "x": 24.5,
+      "y": 27.5,
       "recipe": "casting-iron-gear-wheel"
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 2.5,
-        "y": 30.5
-      }
+      "x": 2.5,
+      "y": 30.5
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 6.5,
-        "y": 30.5
-      }
+      "x": 6.5,
+      "y": 30.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 7.5,
-        "y": 30.5
-      },
+      "x": 7.5,
+      "y": 30.5,
       "direction": 12
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 10.5,
-        "y": 30.5
-      },
+      "x": 10.5,
+      "y": 30.5,
       "direction": 4
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 11.5,
-        "y": 30.5
-      }
+      "x": 11.5,
+      "y": 30.5
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 18.5,
-        "y": 30.5
-      }
+      "x": 18.5,
+      "y": 30.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 19.5,
-        "y": 30.5
-      },
+      "x": 19.5,
+      "y": 30.5,
       "direction": 12
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 22.5,
-        "y": 30.5
-      },
+      "x": 22.5,
+      "y": 30.5,
       "direction": 4
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 23.5,
-        "y": 30.5
-      }
+      "x": 23.5,
+      "y": 30.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 6.5,
-        "y": 31.5
-      }
+      "x": 6.5,
+      "y": 31.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 18.5,
-        "y": 31.5
-      }
+      "x": 18.5,
+      "y": 31.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 14.5,
-        "y": 33.5
-      }
+      "x": 14.5,
+      "y": 33.5
     },
     {
       "name": "beacon",
-      "position": {
-        "x": 4.5,
-        "y": 34.5
-      }
+      "x": 4.5,
+      "y": 34.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 12.5,
-        "y": 34.5
-      }
+      "x": 12.5,
+      "y": 34.5
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 6.5,
-        "y": 35.5
-      },
+      "x": 6.5,
+      "y": 35.5,
       "direction": 8
     },
     {
       "name": "pipe-to-ground",
-      "position": {
-        "x": 18.5,
-        "y": 35.5
-      },
+      "x": 18.5,
+      "y": 35.5,
       "direction": 8
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 6.5,
-        "y": 36.5
-      }
+      "x": 6.5,
+      "y": 36.5
     },
     {
       "name": "pipe",
-      "position": {
-        "x": 18.5,
-        "y": 36.5
-      }
+      "x": 18.5,
+      "y": 36.5
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 0.5,
-        "y": 37.5
-      },
+      "x": 0.5,
+      "y": 37.5,
       "direction": 4
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 1.5,
-        "y": 37.5
-      },
+      "x": 1.5,
+      "y": 37.5,
       "direction": 4,
       "type": "input"
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 2.5,
-        "y": 37.5
-      },
+      "x": 2.5,
+      "y": 37.5,
       "direction": 12
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 8.5,
-        "y": 37.5
-      },
+      "x": 8.5,
+      "y": 37.5,
       "direction": 4,
       "type": "output"
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 9.5,
-        "y": 37.5
-      },
+      "x": 9.5,
+      "y": 37.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 10.5,
-        "y": 37.5
-      },
+      "x": 10.5,
+      "y": 37.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 11.5,
-        "y": 37.5
-      },
+      "x": 11.5,
+      "y": 37.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 12.5,
-        "y": 37.5
-      },
+      "x": 12.5,
+      "y": 37.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 13.5,
-        "y": 37.5
-      },
+      "x": 13.5,
+      "y": 37.5,
       "direction": 4
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 14.5,
-        "y": 37.5
-      },
+      "x": 14.5,
+      "y": 37.5,
       "direction": 12
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 0.5,
-        "y": 38.5
-      }
+      "x": 0.5,
+      "y": 38.5
     },
     {
       "name": "medium-electric-pole",
-      "position": {
-        "x": 12.5,
-        "y": 38.5
-      }
+      "x": 12.5,
+      "y": 38.5
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 5.5,
-        "y": 39.5
-      },
+      "x": 5.5,
+      "y": 39.5,
       "recipe": "molten-copper"
     },
     {
       "name": "foundry",
-      "position": {
-        "x": 17.5,
-        "y": 39.5
-      },
+      "x": 17.5,
+      "y": 39.5,
       "recipe": "molten-iron"
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 0.5,
-        "y": 40.5
-      },
+      "x": 0.5,
+      "y": 40.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 40.5
-      },
+      "x": 1.5,
+      "y": 40.5,
       "direction": 4
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 2.5,
-        "y": 40.5
-      },
+      "x": 2.5,
+      "y": 40.5,
       "direction": 4,
       "type": "input"
     },
     {
       "name": "fast-underground-belt",
-      "position": {
-        "x": 9.5,
-        "y": 40.5
-      },
+      "x": 9.5,
+      "y": 40.5,
       "direction": 4,
       "type": "output"
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 10.5,
-        "y": 40.5
-      },
+      "x": 10.5,
+      "y": 40.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 11.5,
-        "y": 40.5
-      },
+      "x": 11.5,
+      "y": 40.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 12.5,
-        "y": 40.5
-      },
+      "x": 12.5,
+      "y": 40.5,
       "direction": 8
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 0.5,
-        "y": 41.5
-      },
+      "x": 0.5,
+      "y": 41.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 1.5,
-        "y": 41.5
-      },
+      "x": 1.5,
+      "y": 41.5,
       "direction": 4
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 2.5,
-        "y": 41.5
-      },
+      "x": 2.5,
+      "y": 41.5,
       "direction": 12
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 12.5,
-        "y": 41.5
-      },
+      "x": 12.5,
+      "y": 41.5,
       "direction": 4
     },
     {
       "name": "fast-transport-belt",
-      "position": {
-        "x": 13.5,
-        "y": 41.5
-      },
+      "x": 13.5,
+      "y": 41.5,
       "direction": 4
     },
     {
       "name": "fast-inserter",
-      "position": {
-        "x": 14.5,
-        "y": 41.5
-      },
+      "x": 14.5,
+      "y": 41.5,
       "direction": 12
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 2,
-        "y": 52
-      }
+      "x": 2,
+      "y": 52
     },
     {
       "name": "roboport",
-      "position": {
-        "x": 52,
-        "y": 52
-      }
+      "x": 52,
+      "y": 52
     }
   ],
   "bbox": [
