@@ -145,6 +145,11 @@ function Drive.setup(def, done_fn)
             end
         end
     end
+    --Machinery settings too: the dialog refuses a setting whose quality the force has not unlocked
+    --(BP_REJ_QUALITY_UNAVAILABLE legendary on red-10s-bulk / red-green, 2026-10-05); the player's game has them.
+    for _, setting in pairs(def.settings or {}) do
+        if type(setting) == "table" and setting.quality and setting.quality ~= "normal" then quality_names[#quality_names + 1] = setting.quality end
+    end
     table.sort(quality_names)
     local unlocked = {}
     for _, quality in ipairs(quality_names) do
@@ -224,12 +229,13 @@ function Drive.setup(def, done_fn)
             else
                 local recipes_by_product = storage[1].recipes_by_product_full_name
                 local current = recipes_by_product[full_name]
-                if (not current or current.name ~= recipe_name) and step.kind == "binding" and (step.tries or 0) < 3 then
-                    --A product shows only once the recipe that needs it is bound (vanilla green: circuits after inserter);
-                    --red never shows copper-cable. Retry at the end of the queue; after 3 tries the sheet does not use it.
+                if (not current or current.name ~= recipe_name) and step.kind == "binding" and (step.tries or 0) < #bind_names then
+                    --A product shows only once the recipe that needs it is bound (vanilla green: logistic -> inserter ->
+                    --circuit -> cable, 4 deep); red never shows copper-cable. Retry at the end of the queue; after one try
+                    --per bind the sheet does not use it.
                     step.tries = (step.tries or 0) + 1
                     table.remove(steps, at)
-                    if step.tries < 3 then steps[#steps + 1] = step end
+                    if step.tries < #bind_names then steps[#steps + 1] = step end
                     return true
                 end
                 if (not current or current.name ~= recipe_name) and step.kind ~= "binding" then
@@ -349,7 +355,12 @@ function Drive.generate(sheet, def)
         if b and map[value] then b.selected_index = map[value]; event_handlers.on_gui_selection_state_changed[b.name]({element = b, player_index = 1}) end
     end
     edge("input", (def.edges or {}).input); edge("output", (def.edges or {}).output)
-    click(S.find(dialog, "hxrrc_blueprint_generate_button"))
+    --The click returns false, code, subject when the dialog refuses its settings (gui/blueprint_dialog.lua); say why.
+    local button = S.find(dialog, "hxrrc_blueprint_generate_button")
+    if not button then error("generate button missing") end
+    local ok, code, subject = event_handlers.on_gui_click[button.name]({element = button, player_index = 1, tick = game.tick,
+        button = defines.mouse_button_type.left})
+    if ok == false then error("generate refused: " .. tostring(code) .. " " .. serpent.line(subject)) end
 end
 
 return Drive

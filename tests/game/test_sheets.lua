@@ -144,7 +144,7 @@ describe("sheets", function()
                 log(string.format("SHEET-WINDOW %s t=%d worst=%.3f made=%s sunk=%s", sheet.case, t, worst, serpent.line(per), serpent.line(sunk)))
                 for _, s in ipairs(sinks) do s.got = {} end
                 window_start = t
-                local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk)
+                local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60)
                 if not stable then return end
                 per, sunk = mean_per, mean_sunk
                 game.speed = 1

@@ -125,4 +125,19 @@ do
     assert(Lab.warm_ready(692, 700) and Lab.warm_ready(0, 3), "MT8 flat stock ends warm-up")
     print("MT8")
 end
-print("test_lab_meter 8 passed 0 failed")
+do
+    local function run(values, window_s)
+        local history, stable, mean = {}, false, nil
+        for _, v in ipairs(values) do
+            local ok, per = Lab.settle(history, {["item/p"] = v}, {["item/p"] = v}, window_s)
+            if ok then stable, mean = true, per["item/p"]; break end
+        end
+        return stable, mean
+    end
+    local stable, mean = run({1.01, 0.99, 1.00}, 200)
+    assert(stable and math.abs(mean - 1) < 1e-9, "MT9 edge-cut cycle at 200 units settles")
+    assert(not run({1.01, 0.99, 1.00}), "MT9 without window length the 1.5% band holds")
+    assert(not run({0.97, 0.95, 0.99}, 200), "MT9 a 4% climb does not settle")
+    print("MT9")
+end
+print("test_lab_meter 9 passed 0 failed")

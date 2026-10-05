@@ -317,7 +317,7 @@ describe("player run", function()
                         log(string.format("PLAYER-RUN-WINDOW %s t=%d worst=%.3f %s", c.case, now, worst, serpent.line(per)))
                         for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end; s.got = {} end
                         window_start = now
-                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk)
+                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60)
                         if not stable then return end
                         per, sunk = mean_per, mean_sunk
                         game.speed = 1

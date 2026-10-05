@@ -392,9 +392,11 @@ end
 
 --Settling (player Q14, 2026-10-05): metered windows run until output stabilizes = the last 3 windows of every output
 --are all > 0 and within 1.5% of each other (max - min <= 0.015 x mean). Two windows within 2% fired mid-climb
---(vanilla green 0.867 -> 0.883, judged 0.903). Returns stable, mean made, mean sunk over those 3 windows.
-Lab.SETTLE_WINDOWS, Lab.SETTLE_BAND = 3, 0.015
-function Lab.settle(history, per, sunk)
+--(vanilla green 0.867 -> 0.883, judged 0.903). The band widens by SETTLE_UNITS of output per window (window_s seconds
+--long): window edges cut crafts, vanilla green 2.1 cycled 1.01/0.99/1.00 at 200 packs a window and never settled
+--(2026-10-05). Returns stable, mean made, mean sunk over those 3 windows.
+Lab.SETTLE_WINDOWS, Lab.SETTLE_BAND, Lab.SETTLE_UNITS = 3, 0.015, 4
+function Lab.settle(history, per, sunk, window_s)
     history[#history + 1] = {per = per, sunk = sunk}
     local n = Lab.SETTLE_WINDOWS
     if #history < n then return false end
@@ -407,7 +409,8 @@ function Lab.settle(history, per, sunk)
             sum_sunk = sum_sunk + (history[i].sunk[name] or 0)
         end
         local mean = sum / n
-        if lo <= 0 or hi - lo > Lab.SETTLE_BAND * mean then return false end
+        local band = Lab.SETTLE_BAND * mean + (window_s and Lab.SETTLE_UNITS / window_s or 0)
+        if lo <= 0 or hi - lo > band then return false end
         mean_per[name], mean_sunk[name] = mean, sum_sunk / n
     end
     return true, mean_per, mean_sunk
