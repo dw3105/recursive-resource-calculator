@@ -125,7 +125,7 @@ describe("sheets", function()
                     Lab.feed_tick(feeds, stack)
                     if t >= warm and (t - warm) % Lab.WARM_STEP == 0 then
                         local stock = Lab.inner_stock(built.entities, refs.inputs, refs.outputs)
-                        if FULL_FEED or Lab.warm_ready(warm_stock, stock) or t - warm >= Lab.WARM_CAP then  --endless feed: the settle rule waits for inner buffers
+                        if Lab.warm_ready(warm_stock, stock) or t - warm >= Lab.WARM_CAP then
                             warmed, warm = true, t
                             log(string.format("SHEET-WARM %s t=%d inner=%d window=%d", sheet.case, t, stock, window))
                         end

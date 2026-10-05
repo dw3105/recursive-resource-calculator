@@ -300,7 +300,7 @@ describe("player run", function()
                             Lab.feed_tick(feeds, stack)
                             if now >= warm and (now - warm) % Lab.WARM_STEP == 0 then
                                 local stock = Lab.inner_stock(entities, refs.inputs, refs.outputs)
-                                if FULL_FEED or Lab.warm_ready(warm_stock, stock) or now - warm >= Lab.WARM_CAP then  --endless feed: the settle rule waits for inner buffers
+                                if Lab.warm_ready(warm_stock, stock) or now - warm >= Lab.WARM_CAP then
                                     warmed, warm = true, now
                                     log(string.format("PLAYER-RUN-WARM %s t=%d inner=%d window=%d", c.case, now, stock, window))
                                 end
