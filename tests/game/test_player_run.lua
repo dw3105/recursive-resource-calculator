@@ -220,6 +220,8 @@ describe("player run", function()
                     player.build_from_cursor{position = spot, build_mode = defines.build_mode.forced}
                     local ghosts = surface.find_entities_filtered{area = area, type = "entity-ghost"}
                     assert(#ghosts == #bp, string.format("%s: %d ghosts for %d blueprint entities", c.case, #ghosts, #bp))
+                    --Out of the way before revive: the character stood on blue's roboport tile (2026-10-05).
+                    player.teleport({spot[1] - half - 8, spot[2]}, surface)
                     local failed = {}
                     for _, g in ipairs(ghosts) do
                         if g.valid then
@@ -233,7 +235,6 @@ describe("player run", function()
                     assert(#failed == 0, c.case .. ": " .. #failed .. " ghosts do not revive: " .. serpent.line(failed))
                     local laid, wires = lay_wires(Lab.decode(cursor.export_stack()), surface, area, force)
                     log(string.format("PLAYER-RUN-WIRES %s laid=%d of %d", c.case, laid, wires))
-                    player.teleport({spot[1] - half - 8, spot[2]}, surface)
                     local entities, plains = {}, {}
                     local wl, wt, wr, wb = math.huge, math.huge, -math.huge, -math.huge
                     for _, e in pairs(surface.find_entities_filtered{area = area, force = force}) do
