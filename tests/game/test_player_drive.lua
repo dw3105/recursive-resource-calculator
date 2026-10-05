@@ -2,6 +2,12 @@
 -- Added 2026-10-05.
 local S = require "tests.game.support"
 local Drive = require "tests.game.lib.player_drive"
+local prepared_fixtures = {}
+for _, case in ipairs({"player-red-science-1s", "player-blue-science-10s", "player-am2-chain-repaired"}) do
+    local module = "tests.game.fixtures." .. case:gsub("-", "_") .. "_prepared"
+    local ok, fixture = pcall(require, module)
+    if ok then prepared_fixtures[case] = fixture end
+end
 
 local function prepared(case)
     if RRC_OFFLINE then
@@ -9,7 +15,8 @@ local function prepared(case)
         local json = f:read("*a"); f:close()
         return S.prepared_input(json)
     end
-    return S.prepared_input(require("tests.game.fixtures." .. case:gsub("-", "_") .. "_prepared"))
+    assert(prepared_fixtures[case], "missing staged prepared fixture for " .. case)
+    return S.prepared_input(prepared_fixtures[case])
 end
 
 local function synthetic(beacon)
@@ -34,6 +41,7 @@ describe("player drive", function()
                 assert.are_equal(column.recipe_name, def.columns[i].recipe_name, case .. " recipe " .. i)
                 assert.are_equal(column.machine.name, def.columns[i].machine.name, case .. " machine " .. i)
                 assert.are_same(column.setup or {}, def.columns[i].setup, case .. " setup " .. i)
+                assert.are_same((column.setup or {}).beacons or {}, def.columns[i].setup.beacons or {}, case .. " beacons " .. i)
             end
         end
         print("PD1")
