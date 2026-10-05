@@ -1,8 +1,8 @@
 --Player run (plan ~/.claude/plans/rrc-player-run-plan-2026-10-05.md, player 2026-10-05): one Case driven end to end
 --the way a player does it. GUI handlers set up the sheet (tests/game/lib/player_drive.lua), the generation dialog's
 --generate click puts the blueprint in the cursor, build_from_cursor places ghosts, revive + module insert stand in for
---bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), and Metered feed
---pushes exactly calc input rate from tick 0 (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
+--bots, the lab powers it, ports are found from the built factory (tests/game/lib/ports.lua), a full-feed warm-up
+--primes machines and pipes, every belt is emptied, then Metered feed pushes exactly calc input rate (tests/game/lib/lab.lua). Pass: every output 0.98 <= R <= 1.1
 --against the calculation (Lab.judge), live calc == staged refs, no foreign item at a sink, no refused build.
 --Round gate + release only: runs when tools/game_test.sh got RRC_PLAYER_RUN=1 (profile_map.player_run).
 --Engine facts (probes P1/P3 2026-10-05, 2.0 + 2.1): the headless player is a character; build_from_cursor out of
@@ -194,7 +194,7 @@ describe("player run", function()
                     local LONG = math.max(WINDOW, math.ceil(600 / min_rate) * 60)
                     local window, phase = WINDOW, "detect"
                     local pool = Lab.meter_new(refs.inputs)
-                    local t0, window_start, history = game.tick, nil, {}
+                    local t0, window_start, history, cleared = game.tick, nil, {}, false
                     local function per_s_now()
                         local per = {}
                         for _, s in ipairs(sinks) do
@@ -208,7 +208,13 @@ describe("player run", function()
                     game.speed = 1000
                     on_tick(function()
                         local now = game.tick - t0
-                        Lab.meter_tick(pool, feeds, stack)  --metered from tick 0, no full-belt fill
+                        --Full-feed warm-up primes machines and pipes, then every belt is emptied and only Metered feed runs.
+                        if now < warm then
+                            Lab.feed_tick(feeds, stack)
+                        else
+                            if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_belts(entities)) end
+                            Lab.meter_tick(pool, feeds, stack)
+                        end
                         local measuring = now >= warm
                         if measuring and not window_start then window_start = now end
                         Lab.sink_tick(sinks, measuring)

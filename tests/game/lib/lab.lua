@@ -306,6 +306,23 @@ function Lab.judge(per_s, outputs)
     return ok, problems, lines
 end
 
+--End of warm-up (2026-10-05): empty every belt line of the build. A full-feed warm-up primes machine slots and pipes
+--(metering from empty left red-1s-bulk at R=0.967 after 22 game minutes); the stacked belt stock it also leaves would
+--be eaten by rounded-up machines faster than calc (R=1.05), so belts start the metered phase empty.
+function Lab.clear_belts(entities)
+    local cleared = 0
+    for _, e in pairs(entities) do
+        if e.valid and (e.type == "transport-belt" or e.type == "underground-belt" or e.type == "splitter") then
+            for i = 1, e.get_max_transport_line_index() do
+                local line = e.get_transport_line(i)
+                cleared = cleared + line.get_item_count()
+                line.clear()
+            end
+        end
+    end
+    return cleared
+end
+
 --Lane max in items per tick for a belt entity at this stack (belt_speed tiles/tick x 4 slots per tile... per lane).
 function Lab.lane_max_per_tick(entity, stack)
     return entity.prototype.belt_speed * 4 * stack

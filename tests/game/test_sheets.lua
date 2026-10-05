@@ -1,4 +1,4 @@
---Sheet sims use calculation refs and meter their feeds from tick 0 (Metered feed).
+--Sheet sims use calculation refs: full-feed warm-up, belts emptied, then Metered feed.
 --Fixtures: tests/fixtures/sheets/<case>.bp.txt + <case>.ports.json (tools/sheet_ports.py), embedded by
 --tools/game_stage.sh as tests.game.fixtures.sheets_index. A sheet runs only in its profile (player sheets need the
 --player's mods: RRC_PROFILE=player).
@@ -118,10 +118,17 @@ describe("sheets", function()
             on_tick(function()
                 local t = game.tick - t0
                 local measuring = t >= warm
-                --Metered from tick 0 (2026-10-05): a Port feed fill left full stacked belts that rounded-up machines
-                --ate for minutes, so steady windows read R=1.05 on metered input (red-10s 10.5/s of 10.0).
-                if not pool then pool = Lab.meter_new(refs.inputs) end
-                Lab.meter_tick(pool, feeds, stack)
+                --Warm-up: full feed primes machines and pipes; at its end every belt is emptied (Lab.clear_belts), then
+                --Metered feed only (2026-10-05).
+                if not measuring then
+                    Lab.feed_tick(feeds, stack)
+                else
+                    if not pool then
+                        pool = Lab.meter_new(refs.inputs)
+                        log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_belts(built.entities)))
+                    end
+                    Lab.meter_tick(pool, feeds, stack)
+                end
                 if measuring and not window_start then window_start = t end
                 Lab.sink_tick(sinks, measuring)
                 if not window_start or t - window_start < window then return end
