@@ -17,15 +17,15 @@ local ok_profile, PROFILE_MAP = pcall(require, "tests.game.profile_map")
 local FULL_FEED = ok_profile and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "full"
 
 local CASES = {
-    {case = "player-am2-chain-repaired", profile = "player"},
-    {case = "player-blue-science-10s", profile = "player"},
+    {case = "player-am2-chain-repaired", profile = "player", feed = "full"},
+    {case = "player-blue-science-10s", profile = "player", feed = "full"},
     {case = "player-green-science-1s", profile = "player"},
     {case = "player-inserter-10s", profile = "player"},
     {case = "player-inserter-10s-bulk", profile = "player"},
     {case = "player-inserter-10s-stack1", profile = "player"},
     {case = "player-magenta-science-10s", profile = "player",
      skip = "skipped 2026-10-04 (player): magenta builds too slowly; not tested by Player run"},
-    {case = "player-red-green-science-10s", profile = "player"},
+    {case = "player-red-green-science-10s", profile = "player", feed = "full"},
     {case = "player-red-science-10s", profile = "player"},
     {case = "player-red-science-10s-bulk", profile = "player"},
     {case = "player-red-science-10s-stack1", profile = "player"},
@@ -165,6 +165,8 @@ describe("player run", function()
             if (c.profile == "player") ~= player_profile() then return end
             if c.version and c.version ~= (script.active_mods.base or ""):match("^(%d+%.%d+)") then return end
             local refs = assert(REFS[c.case], c.case .. ": no staged refs")
+            --Endless feed + pre-fill for Cases whose buffers outlast 120 s on Metered feed (player 2026-10-05), or all with RRC_FEED=full.
+            local feed_full = FULL_FEED or c.feed == "full"
             if type(refs) == "string" then refs = helpers.json_to_table(refs) end  --staged as JSON text
             local def = c.profile == "player"
                 and Drive.case_def(helpers.json_to_table((assert(PREPARED[c.case], c.case .. ": no staged prepared input"))))
@@ -300,7 +302,7 @@ describe("player run", function()
                         if not measuring then
                             Lab.feed_tick(feeds, stack)
                             if now >= warm and (now - warm) % Lab.WARM_STEP == 0 then
-                                if FULL_FEED and not prefilled then
+                                if feed_full and not prefilled then
                                     prefilled = true
                                     log(string.format("PLAYER-RUN-PREFILL %s t=%d items=%d", c.case, now, Lab.prefill_inner(entities, refs.inputs, refs.outputs, stack)))
                                 end
@@ -312,7 +314,7 @@ describe("player run", function()
                                 warm_stock = stock
                             end
                         else
-                            if FULL_FEED then
+                            if feed_full then
                                 Lab.feed_tick(feeds, stack)  --RRC_FEED=full: endless feed while measuring
                             else
                                 if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_input_belts(entities, refs.inputs)) end
@@ -332,7 +334,7 @@ describe("player run", function()
                             Lab.inner_stock(entities, refs.inputs, refs.outputs)))
                         for _, s in ipairs(sinks) do s.seen = s.seen or {}; for name in pairs(s.got) do s.seen[name] = true end; s.got = {} end
                         window_start = now
-                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60, Lab.inner_stock(entities, refs.inputs, refs.outputs))
+                        local stable, mean_per, mean_sunk = Lab.settle(history, per, sunk, window / 60, feed_full and Lab.inner_stock(entities, refs.inputs, refs.outputs) or nil)
                         do local c = {} for name, m in pairs(pool) do c[name] = m.credit end history[#history].credit = c end
                         if not stable then return end
                         per, sunk = mean_per, mean_sunk
