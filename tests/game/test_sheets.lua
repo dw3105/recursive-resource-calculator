@@ -2,6 +2,9 @@
 --Fixtures: tests/fixtures/sheets/<case>.bp.txt + <case>.ports.json (tools/sheet_ports.py), embedded by
 --tools/game_stage.sh as tests.game.fixtures.sheets_index. A sheet runs only in its profile (player sheets need the
 --player's mods: RRC_PROFILE=player).
+--RRC_FEED=full (tools/game_test.sh): endless feed while measuring instead of Metered feed.
+local ok_profile_map, PROFILE_MAP = pcall(require, "tests.game.profile_map")
+local FULL_FEED = ok_profile_map and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "full"
 local Lab = require "tests.game.lib.lab"
 local ok_index, INDEX = pcall(require, "tests.game.fixtures.sheets_index")
 local SHEETS = {}
@@ -122,7 +125,7 @@ describe("sheets", function()
                     Lab.feed_tick(feeds, stack)
                     if t >= warm and (t - warm) % Lab.WARM_STEP == 0 then
                         local stock = Lab.inner_stock(built.entities, refs.inputs, refs.outputs)
-                        if Lab.warm_ready(warm_stock, stock) or t - warm >= Lab.WARM_CAP then
+                        if FULL_FEED or Lab.warm_ready(warm_stock, stock) or t - warm >= Lab.WARM_CAP then  --endless feed: the settle rule waits for inner buffers
                             warmed, warm = true, t
                             log(string.format("SHEET-WARM %s t=%d inner=%d window=%d", sheet.case, t, stock, window))
                         end
@@ -131,9 +134,9 @@ describe("sheets", function()
                 else
                     if not pool then
                         pool = Lab.meter_new(refs.inputs)
-                        log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_input_belts(built.entities, refs.inputs)))
+                        if not FULL_FEED then log(string.format("SHEET-CLEAR %s t=%d items=%d", sheet.case, t, Lab.clear_input_belts(built.entities, refs.inputs))) end
                     end
-                    Lab.meter_tick(pool, feeds, stack)
+                    if FULL_FEED then Lab.feed_tick(feeds, stack) else Lab.meter_tick(pool, feeds, stack) end  --RRC_FEED=full: endless feed
                 end
                 if measuring and not window_start then window_start = t; made_start = Lab.made(built.entities, refs.outputs) end
                 Lab.sink_tick(sinks, measuring)

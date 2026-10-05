@@ -13,6 +13,8 @@ local Ports = require "tests.game.lib.ports"
 local Drive = require "tests.game.lib.player_drive"
 local Calculation = require "logic.calculation_result"
 local ok_profile, PROFILE_MAP = pcall(require, "tests.game.profile_map")
+--RRC_FEED=full (tools/game_test.sh): endless feed while measuring instead of Metered feed.
+local FULL_FEED = ok_profile and type(PROFILE_MAP) == "table" and PROFILE_MAP.feed == "full"
 
 local CASES = {
     {case = "player-am2-chain-repaired", profile = "player"},
@@ -298,15 +300,19 @@ describe("player run", function()
                             Lab.feed_tick(feeds, stack)
                             if now >= warm and (now - warm) % Lab.WARM_STEP == 0 then
                                 local stock = Lab.inner_stock(entities, refs.inputs, refs.outputs)
-                                if Lab.warm_ready(warm_stock, stock) or now - warm >= Lab.WARM_CAP then
+                                if FULL_FEED or Lab.warm_ready(warm_stock, stock) or now - warm >= Lab.WARM_CAP then  --endless feed: the settle rule waits for inner buffers
                                     warmed, warm = true, now
                                     log(string.format("PLAYER-RUN-WARM %s t=%d inner=%d window=%d", c.case, now, stock, window))
                                 end
                                 warm_stock = stock
                             end
                         else
-                            if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_input_belts(entities, refs.inputs)) end
-                            Lab.meter_tick(pool, feeds, stack)
+                            if FULL_FEED then
+                                Lab.feed_tick(feeds, stack)  --RRC_FEED=full: endless feed while measuring
+                            else
+                                if not cleared then cleared = true; log("PLAYER-RUN-CLEAR " .. c.case .. " items=" .. Lab.clear_input_belts(entities, refs.inputs)) end
+                                Lab.meter_tick(pool, feeds, stack)
+                            end
                         end
                         if measuring and not window_start then window_start = now; made_start = Lab.made(entities, outputs) end
                         Lab.sink_tick(sinks, measuring)
